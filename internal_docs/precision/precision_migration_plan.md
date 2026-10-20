@@ -33,14 +33,17 @@ The native loop checkpoint **`c033d301`** is committed after independent
 acceptance: **477 cases / 1,431 phases per stack** and the complete PRIMARY
 suite's **10,395 cases / 31,185 phases** pass, with zero failures/errors/skips.
 All seven normal code hooks pass, preserving all 1,088 source/input files
-through the seven-path commit. Separate saved-artifact evidence accepts only the first
-original model's exact captured CPU samples, preserving its failed raw callback
-and earlier unverified export report. See the [latest findings](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples).
+through the seven-path commit. Separate saved-artifact evidence now accepts all
+eight artifacts across the original six selectors on each stack: 384 returns /
+16 sessions per stack. The raw callback verdicts and earlier unverified reports
+remain unchanged. These frozen 117-derived results are distinct from current
+MAIN qualification; see the [latest findings](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration).
 
 The inventory still retains all 1,852 rows / 3,704 caller obligations, including
 318 elementary raw contracts / 636 caller obligations and 50 optional obligations.
 Strict Erfc full/native gates remain failed, with configured numerical evidence
-only at opset 23 and low-precision numerics unverified. Remaining original-six cells and model-wide acceptance, broader complete models, optional-environment work,
+only at opset 23 and low-precision numerics unverified. Fresh current-MAIN model qualification and model-wide acceptance, broader
+complete models, optional-environment work,
 general fixed-source preparation and scientific FP64 remain open. No tolerance,
 model/input or FTZ/runtime-policy change closes those gaps. Public behavior
 stays **LEGACY** until the full B–F single-contract migration is complete.
@@ -215,26 +218,46 @@ normal code hooks passing. The qualified 1,088 source/input files hold through
 commit.
 All 51 raw loop rows remain obligations rather than a closed family.
 
-The original-six first PRIMARY raw test remains **FAILED** at its unchanged graph
-callback. The saved artifact now has independently accepted complete bounded
-Function-node correspondence and separate target-sample evidence: two CPU
-sessions / 32 calls preserve exact state and pass the four captured native
-reference roles under the original tolerance. This does not rewrite the earlier
-stored report, qualify other inputs/cells/stacks, or close model-wide acceptance.
-Continue the other five PRIMARY and all six SECONDARY cells under their own
-frozen criteria. The separate PRIMARY capture continuation exits 99 at its final
-counter guard after retaining all five cells, seven returned exports and 288
-native outputs. No ORT execution occurred; artifact-body fidelity and target
-numerics remain UNVERIFIED. In particular, ordinal015 retains its own atol. The
-[canonical record](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples) keeps the historical capture-only and actual
-saved-artifact epochs separate.
+All eight saved artifacts across the original six normalized014/015 selectors
+now have independently accepted structure and finite CPU samples on both stacks:
+384 actual returns / 16 sessions per stack. Four native roles, actual flags,
+exact state feedback and both optimization modes are retained. Original014 keeps
+its existing tolerance; original015 uses the new separately accepted strict
+rtol=0.002 / atol=0 proposal, preserving historical `atol=None` and raw missing criteria.
+Six raw callbacks per stack remain FAILED, two PASSED, and earlier stored export
+reports remain UNVERIFIED. The PRIMARY capture exit99/missing-final-origins and
+its later saved-data audit remain distinct from the subsequent accepted target
+runs. These results use the frozen 117-derived snapshot; current MAIN model
+qualification remains separate.
 
-A six-path native FP32 Conv candidate is independently source/static-accepted but
-unapplied. Its 93 forecast cases are not collection or runtime evidence; full
-package typing remains a ROOT gate. Qualify the original Conv/CNN sources without
-changing metadata, feeds, opsets, callbacks or missing criteria, then continue
-remaining normalization, fixed-source and end-to-end work through the shared
-pipeline. The strict Erfc and other known numerical failures remain explicit.
+The native FP32 Conv and Scan physical-metadata integration is committed at
+**`3223d080`** after independent finite-checkpoint acceptance. The earlier focused
+failures remain, with secondary totals corrected for three unchanged legacy
+runtime-fusion skips. V3 PRIMARY passes 687 cases; SECONDARY has 684 PASS / three
+SKIP, pytest exit 0 but strict wrapper exit 99. All 586 converter-selection
+cases pass per stack. Numerical assertions after the legacy skips did not run;
+this is not SOURCE exclusion or ONNX impossibility. The reviewed fixture
+correction audits exact Function context, wiring and actual native bodies while
+preserving production. Typing on 551 files, 17 RNG checks, and fixture style/AST
+checks pass. The complete PRIMARY suite passes **10,504 cases / 31,512 phases**,
+with zero failures/errors/skips. All seven normal code hooks pass, all 1,091
+source/input files hold through commit, and the worktree is clean at commit
+verification. The [canonical record](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration)
+records exact epoch boundaries.
+
+The unchanged [masked FP64 saved sample](poc/source_integration_findings.md#masked-fp64-saved-sample)
+now passes its original criterion on both ORT stacks against saved PRIMARY
+eager/JIT references. This finite result adds no fresh SECONDARY native or
+whole-family acceptance. Issue52's opset-21 FP64-input admission gap remains a
+concrete engineering task.
+
+Implement the unchanged CNN's native activation/pooling path with its original graph callback, and qualify the
+separately accepted FP64 preparation candidate against its actual full Linear
+and frozen arithmetic controls. That seven-path candidate remains external,
+unapplied and unexecuted; 92 is only its forecast count. Continue the original
+scientific scatter/trigonometry, remaining normalization, fixed-source and
+end-to-end contracts through the same ordinary pipeline. The strict Erfc and
+other known numerical failures remain explicit.
 
 Carry the accepted prerequisites through the shared private pipeline. Retain
 fixed-source external preparation, original native criteria, actual runtime

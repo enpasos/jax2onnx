@@ -1,12 +1,22 @@
 # Precision Contract Experiments
 
-Status: applied ordinary SOURCE loop changes pass **477 cases / 1,431 phases on
-each supported stack**, independently accepted with zero test failures/errors/
-skips. The complete PRIMARY suite passes **10,395 cases / 31,185 phases**. Loop
-checkpoint **`c033d301`** is committed after independent acceptance and all seven
-normal code hooks, preserving the 1,088 source/input files. The preceding
-accepted code checkpoint is `11748451`. Public options and
-defaults stay **LEGACY**; no public source mode is established.
+Status: the original six source selectors now have independent structural and
+finite CPU-sample acceptance for eight saved artifacts on each supported stack:
+**384 returns / 16 sessions per stack**, **768 returns / 32 sessions total**.
+Their immutable 117-derived source epoch is separate from current MAIN Conv/Scan
+qualification. Six original callbacks per stack remain FAILED, two PASSED; stored
+export reports remain UNVERIFIED. Public behavior stays **LEGACY**.
+
+Conv and the Scan metadata remedy are committed at **`3223d080`** after
+independent finite-checkpoint acceptance. Earlier focused failure epochs are retained with corrected secondary counts. Latest
+PRIMARY passes 687 cases; SECONDARY has 684 PASS / three legacy runtime-fusion
+SKIP, pytest exit 0 but strict wrapper exit 99. All 586 converter cases pass per
+stack. The reviewed fixture correction preserves production. The complete PRIMARY suite passes
+**10,504 cases / 31,512 phases**, with zero failures/errors/skips and all 1,091
+source/input files held through all seven normal code hooks and commit. The
+worktree is clean at commit verification. The preceding committed loop
+checkpoint remains `c033d301`, with its accepted 477 focused cases per stack,
+10,395-case full run, and seven-hook evidence retained below.
 
 The [preceding elementary findings](source_integration_findings.md#elementary-and-reduction-checkpoint)
 separate finite Asin positives, eight failed Sign numerical reports, 44
@@ -15,14 +25,18 @@ with separate positive finite comparisons. These experiments inform the
 [target design](../precision_target_state.md) and
 [migration plan](../precision_migration_plan.md).
 
-The first two rows cover the current loop and separate saved-artifact results.
+The first rows separate current implementation qualification, accepted saved
+samples and the preceding committed loop checkpoint.
 The remaining rows retain the preceding elementary/tensor/index/Erfc/inventory
 scopes and earlier experiments with their original evidence.
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
+| Current native Conv/Scan integration | Do actual physical shapes survive child Function lowering while original sources/options remain intact? | [Latest findings](source_integration_findings.md#original-six-saved-samples-and-native-conv-integration): committed at `3223d080`; earlier failed epochs corrected and retained. V3 PRIMARY 687 PASS; SECONDARY 684 PASS/3 unchanged legacy SKIP, pytest exit 0 / strict wrapper exit 99. All 586 converter cases pass per stack; legacy post-skip numerics unexecuted. Complete PRIMARY 10,504 cases / 31,512 phases PASS, zero failures/errors/skips; all seven normal hooks pass and all 1,091 inputs hold through commit, with a clean worktree at verification. |
+| Original-six saved samples, both stacks | Do all eight original artifacts per stack preserve their frozen native/state/flag comparisons? | [Latest findings](source_integration_findings.md#original-six-saved-samples-and-native-conv-integration): independent bounded structure and 384 actual returns / 16 CPU sessions per stack. Six raw callbacks FAILED, two PASSED per stack; stored reports UNVERIFIED and PRIMARY exit99 retained. |
+| Masked FP64 saved sample | Does the unchanged artifact pass its original criterion on both ORT stacks? | [Latest findings](source_integration_findings.md#masked-fp64-saved-sample): four bitwise-identical target returns, eight comparisons / 48 scalars against saved PRIMARY eager/JIT references, four sample-API validations; original rtol=5e-8 / atol=1e-12. No fresh SECONDARY native or whole-family claim; Issue52 opset-21 FP64-input gap remains. |
 | Ordinary native loop admission | Do actual native loop bodies and typed roles survive the shared SOURCE validator? | [Latest findings](source_integration_findings.md#loop-admission-and-first-saved-model-samples): actual dual477 / 1,431 PASS; finite scan at opsets 23/26 and while at opsets 18/23/26, original metadata and all 51 raw obligations retained. Complete PRIMARY 10,395/31,185 and seven normal code hooks PASS; committed at `c033d301`. |
-| First saved original014/0 | Does this unchanged saved artifact preserve its complete bounded Function structure and exact captured target samples? | [Latest findings](source_integration_findings.md#loop-admission-and-first-saved-model-samples): independent structural acceptance; actual two CPU sessions / 32 calls pass the original reference comparisons. Raw test/callback FAILED and earlier report UNVERIFIED; other cells and whole-model acceptance pending. |
+| First saved original014/0 | Does this unchanged saved artifact preserve its complete bounded Function structure and exact captured target samples? | [Latest findings](source_integration_findings.md#loop-admission-and-first-saved-model-samples): independent structural acceptance; actual two CPU sessions / 32 calls pass the original reference comparisons. Raw test/callback FAILED and earlier report UNVERIFIED; later full saved-artifact follow-through is recorded above, while whole-model acceptance remains open. |
 | Elementary/reduction and same-width Asin | Do bounded native calls and owning lowerings preserve the reviewed typed/value contracts? | [Current findings](source_integration_findings.md#elementary-and-reduction-checkpoint): actual 183/549 PASS per stack; finite Asin F32/F64 and B=2/5 positives; eight Sign numerical reports FAILED, 44 compositions UNVERIFIED, both raw Gather callbacks FAILED with separate positive finite comparisons. Code `11748451`, full PRIMARY 10,237/30,711, dual focused 1,937/5,811 and seven normal hooks PASS; numerical limits remain. |
 | Common tensor/index operations | Do unchanged raw tensor/index contracts preserve values, weakness, shapes and index semantics? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): 296 cases per stack; 63 original rows retained; 56 selected rows / 112 tested caller contexts contain 109 positive artifact contexts and three native/configuration negatives; seven other rows were deferred in that selector; the later elementary selection separately checks the two trigonometric Gather rows. |
 | Source-typed Erfc | Does the reviewed expression preserve typed structure, and which configured CPU outputs pass? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): graph/schema evidence at opsets 23/26; configured CPU numerical evidence at opset 23 only, with finite direct/ordinary/named positives; full-seven-output and native-agreement gates FAILED, low-precision numerics UNVERIFIED. |
@@ -62,14 +76,14 @@ callback/composition limits; a passing diagnostic test does not accept a failed
 numerical gate. The accepted `11748451` code checkpoint and all earlier failed
 full/model/Erfc epochs remain historical evidence.
 
-The first original-six PRIMARY raw test still fails its unchanged structural
-callback. Complete bounded source fidelity and the exact captured samples from
-that saved artifact are now accepted separately. Its earlier stored report
-remains unverified, and the other five PRIMARY/all six SECONDARY cells remain
-pending. A six-path native Conv candidate has source/static acceptance only:
-93 forecast cases, unapplied and uncollected. Original complete models,
-fixed-source preparation, optional models, FP16/BF16 and scientific FP64 remain
-required. Public behavior stays **LEGACY**.
+The original-six/eight-artifact saved samples are now accepted on both stacks;
+original callbacks and stored reports retain their distinct outcomes. The
+PRIMARY capture failure and missing final origins remain historical limits.
+The Conv/Scan finite checkpoint is committed. The unchanged CNN
+path is external work in progress; the accepted seven-path FP64 preparation
+candidate remains unapplied/unexecuted with 92 forecast cases. General fixed
+sources, optional models, FP16/BF16 rounding and scientific workloads remain
+required by the full B–F contract.
 
 ## Run it
 

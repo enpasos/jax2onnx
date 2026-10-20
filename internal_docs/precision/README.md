@@ -56,11 +56,33 @@ full/native gates, unverified low-precision and complete original-model work,
 optional-environment prerequisites, general fixed-source preparation and
 scientific FP64 remain open. The full B–F single-contract migration remains the
 goal over all existing functionality and fixed third-party sources, with no
-permanent public mode/profile selector or loss of existing capabilities. The first saved original-model artifact now has independent bounded structural
-acceptance and passing comparisons against its exact captured CPU samples. The
-original raw graph callback stays **FAILED**, and the earlier stored export
-report stays numerically **UNVERIFIED**. Other original cells and model-wide
-acceptance remain open; see the [separate saved-artifact result](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples).
+permanent public mode/profile selector or loss of existing capabilities.
+
+All eight saved artifacts across the original six normalized014/015 selectors
+now have independent structural and finite CPU-sample acceptance on both
+supported stacks: **384 actual returns / 16 sessions per stack**, 768 returns
+in total. The frozen source snapshot is separate from current MAIN. Six raw
+callbacks per stack remain **FAILED**, two remain **PASSED**, and stored export
+reports remain numerically **UNVERIFIED**. The [latest findings](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration) distinguish those results, the retained PRIMARY capture failure,
+and the separate criteria for original015.
+
+Native FP32 Conv and the Scan physical-metadata remedy are committed at
+**`3223d080`** after independent finite-checkpoint acceptance.
+Two failed focused epochs remain recorded; the reviewed test-only oracle
+correction preserves production bytes. Latest PRIMARY passes 687 cases;
+SECONDARY has 684 passes / three unchanged legacy runtime-fusion skips, pytest
+zero but strict-wrapper exit 99. All 586 converter-selection cases pass on each
+stack. The complete PRIMARY suite passes **10,504 cases / 31,512 phases**,
+with zero failures/errors/skips. All seven normal code hooks pass, all 1,091
+source/input files hold through commit, and the worktree is clean at commit
+verification. The unchanged CNN path and accepted external FP64 preparation
+candidate are the next product steps; the latter is still unapplied and
+unexecuted.
+
+One unchanged [masked FP64 saved sample](poc/source_integration_findings.md#masked-fp64-saved-sample)
+also passes its original criterion on both ORT stacks against saved PRIMARY
+native references. This adds finite scientific evidence; the Issue52 opset-21
+FP64-input admission gap and broader scientific work remain open.
 
 ## What the experiments establish
 
@@ -102,8 +124,8 @@ evidence. Required FP16 runtime rounding remains a failed gate on the recorded
 targets; the explicit wider example is not an automatic repair. The
 preceding code checkpoint `1533d60b` remains accepted. The
 [next work](precision_migration_plan.md#next-implementation-work) continues the
-remaining original-model cells under their unchanged criteria and qualifies the
-separate native Conv candidate. That candidate is still external and static-only.
+Conv/Scan integration, the unchanged CNN path and the separately reviewed FP64
+preparation candidate while preserving original source, inputs and criteria.
 Remaining registered families, scopes and export boundaries require the full contract.
 
 The [follow-up review on 2026-10-18](poc/source_integration_findings.md#follow-up-review-on-2026-10-18)

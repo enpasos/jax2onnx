@@ -18,15 +18,18 @@ argument are unchanged. Private work preserves more selected calculations at
 the precision chosen by the model and JAX configuration. Complete-model,
 low-precision and deployment acceptance remain unfinished, so this work does
 not yet change how you prepare or export a model. The
-[technical checkpoint](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples)
+[technical checkpoint](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration)
 records the exact scope, results and remaining diagnostics.
 
-Private work now preserves selected loop state, captured runtime flags and empty
-results through the ordinary export path. The private loop checkpoint has
-passed its complete primary regression checks. One saved original model's captured
-CPU samples also pass their existing comparison rules; its original structural
-check still fails, and other model/input/target combinations remain unfinished.
-These results do not change the public export call.
+Private work preserves selected loop state, runtime flags and empty results.
+All six selected original source configurations now have passing saved-artifact
+CPU samples on both supported JAX stacks, including their state and runtime
+flags. The results belong to an earlier source snapshot; original structural
+checks keep their individual pass/fail results. Current implementation,
+other-input and deployment coverage remain unfinished. One unchanged masked
+FP64 example also passes saved-artifact CPU comparisons on both runtime stacks
+against its saved PRIMARY JAX references. These results cover the recorded
+samples. The public export call is unchanged.
 
 The completed migration will offer one ordinary source-preserving export
 contract across the existing functionality and fixed third-party sources, with

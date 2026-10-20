@@ -10,17 +10,21 @@ Public behavior and the current `enable_double_precision` argument remain
 unchanged while private work preserves more selected calculations at the
 precision chosen by the model and JAX configuration.
 Complete-model, low-precision and target acceptance remain unfinished. The
-[technical checkpoint](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples)
+[technical checkpoint](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration)
 records exact results and remaining diagnostics; the
 [implementation work plan](precision_implementation_work_plan.md) defines the
 full coverage gates. No release or deadline is promised.
 
-Selected loop state, runtime flags and empty outputs now have private export
-coverage and have passed the complete primary regression checks. The exact captured CPU samples from one saved original model also
-pass their existing comparison rules. Its original structural check remains
-failed, and the remaining model/input/target cases still need validation.
-The next work extends this evidence to the original models and convolution
-contracts while preserving their source and comparison requirements.
+Selected loop state, runtime flags and empty outputs have private export
+coverage. All six selected original source configurations now pass their frozen
+saved-artifact CPU comparisons on both supported stacks. These results retain
+their original structural verdicts and apply to the saved source snapshot.
+The finite convolution checkpoint is committed, and one unchanged masked FP64
+example also passes saved-artifact CPU comparisons against its saved PRIMARY
+JAX references on both runtime stacks. The next work completes the unchanged CNN
+path, validates explicit FP64 preparation and resolves the remaining scientific
+input-admission gap before extending the same contract to other models and
+targets.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),

@@ -68,22 +68,41 @@ opset 23 only. Its strict full-seven-output and native-agreement gates remain
 **FAILED**, and FP16/BF16 numerics remain **UNVERIFIED**, with no production FTZ
 or runtime-policy change.
 
-The first saved original-six PRIMARY artifact now has bounded structural/source
-fidelity acceptance across all 1,725 stochastic and 157 deterministic Function
-nodes. A separate saved-artifact run passes the exact captured samples in two
-CPU sessions / 32 calls, with exact state and both optimization settings; the
-original reference-first tolerance is unchanged. Independent review accepts only
-this artifact/sample binding. The original test/raw callback remains **FAILED**,
-and its earlier stored report remains numerically **UNVERIFIED**. The other five
-PRIMARY and all six SECONDARY cells remain pending acceptance. The separate
-PRIMARY capture continuation exits 99 at its final counter guard after retaining
-all five cells, seven returned exports and 288 native outputs; target execution
-remains zero and numerics remain UNVERIFIED. The
-[canonical record](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples) binds the measured errors, criteria and historical
-zero-ORT capture epoch.
+All six original normalized014/015 source selectors now have independently
+accepted structure and exact captured-sample evidence for **eight saved artifacts
+per stack**. Actual CPU target runs produce **384 returns / 16 sessions per stack**
+(**768 / 32 total**), retaining four native roles, actual state/flags and both
+optimization settings. Original014 keeps its reference-first tolerance;
+original015 uses the separately accepted strict atol-zero proposal, while its
+historical `atol=None` and raw missing criteria remain unchanged.
 
-The six-path native FP32 Conv candidate is externally source/static-accepted,
-unapplied, and uncollected; its 93 forecast cases are not runtime evidence.
+Each stack retains **six FAILED / two PASSED** raw graph callbacks and unchanged
+stored reports with runtime/numerics **UNVERIFIED**. The PRIMARY capture's exit99
+and missing final origin record remain failed history, with a later accepted
+saved-computation audit; SECONDARY completes its own capture and reviews. These
+results bind the frozen `11748451`-derived snapshot, rather than fresh current
+MAIN model exports. See the [latest saved-artifact record](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration).
+
+The native FP32 Conv and Scan physical-metadata paths are committed at
+**`3223d080`** after independent finite-checkpoint acceptance, over 1,091
+frozen source/input files. Both earlier focused failure epochs are retained with corrected secondary counts. Latest PRIMARY passes
+687 cases; SECONDARY has 684 passes / three unchanged legacy runtime-fusion
+skips, pytest zero but strict-wrapper exit 99. All 586 converter-selection cases
+pass on each stack; numerical assertions after those legacy skips did not run.
+Production typing on 551 files, 17 RNG checks, and final fixture style/AST checks
+pass. The complete PRIMARY suite passes **10,504 cases / 31,512 phases**, with
+zero failures/errors/skips. All seven normal code hooks pass; all 1,091 inputs
+hold through commit and the worktree is clean at commit verification. CNN
+implementation is external work in progress; FP64 preparation is
+source/static-accepted only, with seven unapplied paths and 92 unexecuted forecast cases.
+
+The unchanged [masked FP64 saved artifact](poc/source_integration_findings.md#masked-fp64-saved-sample)
+passes its original 5e-8 / 1e-12 criterion on both ORT stacks using saved PRIMARY
+eager/JIT references. Four target returns are bitwise identical; eight
+comparisons / 48 scalars have maximum absolute error 4.440892098500626e-16.
+There is no fresh SECONDARY native claim. Issue52's opset-21 FP64-input admission
+gap and broader scientific contracts remain open.
+
 Broader models, the optional 45 MaxText/five MaxDiffusion obligations, general
 fixed-source preparation, low precision and scientific FP64 remain open.
 Public behavior stays **LEGACY** until the complete B–F contract is met.

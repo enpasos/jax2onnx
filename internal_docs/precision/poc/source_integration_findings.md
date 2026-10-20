@@ -1,17 +1,186 @@
 # Private source-policy integration
 
 Local implementation and review, updated 2026-10-20, beyond the public-behavior
-baseline at `fae17822`. The native loop checkpoint **`c033d301`** is committed
-after independent acceptance: **477 cases / 1,431 phases on each supported
-stack** and the complete PRIMARY suite's **10,395 cases / 31,185 phases** pass,
-with zero failures/errors/skips. All seven normal code hooks pass, preserving
-the 1,088 qualified source/input files through commit. The preceding accepted
-code checkpoint is `11748451`; its evidence remains below. Public behavior stays **LEGACY**.
+baseline at `fae17822`. All eight saved artifacts across the original six source
+selectors now have independently accepted finite CPU samples on each supported
+stack. Those artifacts use the frozen `11748451`-derived snapshot. Current MAIN
+Conv/Scan integration is committed at `3223d080` after finite independent
+acceptance, the complete PRIMARY regression and all seven normal code hooks.
+The focused SECONDARY legacy fusion skips remain explicit below. Public behavior stays
+**LEGACY**.
 
-The current loop and saved-model results are recorded first. All following
-checkpoint sections retain their historical source epochs, counts, failed
-results and then-current next steps. A later result supersedes only the gate
-and exact artifact/source binding it explicitly identifies.
+The latest saved-sample and implementation outcomes are recorded first. All
+following checkpoint sections retain their historical source epochs, counts,
+failed results and then-current next steps. A later result supersedes only the
+gate and exact artifact/source binding it explicitly identifies.
+
+## Original-six saved samples and native Conv integration
+
+Status: **ALL EIGHT SAVED ARTIFACTS PER STACK HAVE INDEPENDENT FINITE SAMPLE
+ACCEPTANCE; THE FINITE CONV/SCAN CODE CHECKPOINT IS COMMITTED AT `3223d080`**.
+The accepted samples belong to the unchanged original normalized014/015 models
+and their **six source selectors / eight saved artifacts per stack**, including
+the two omitted-default exports. They use the immutable `11748451`-derived
+**1,087-source-file snapshot**. This is separate from the current MAIN Conv/Scan
+code, its regression runs and any future public transition.
+
+### Complete saved-artifact follow-through
+
+Independent review accepts bounded source/parameter/state correspondence and
+the exact captured target samples for all eight artifacts on each supported
+stack. The original complete models, actual captured weights, state, inputs,
+flags and graph callbacks are retained. These are not smaller replacement
+models, new MAIN exports, or universal equivalence claims.
+
+| Actual target epoch | Sessions | Captured returns | Scope |
+| --- | --- | --- | --- |
+| Earlier PRIMARY original014/0 | 2 | 32 | First saved explicit-state artifact; original acceptance retained |
+| PRIMARY cell-1 pair | 4 | 96 | Explicit-state and omitted-default artifacts |
+| PRIMARY remaining five artifacts | 10 | 256 | All other PRIMARY artifacts under their own frozen criteria |
+| PRIMARY total | **16** | **384** | All eight artifacts across six selectors |
+| SECONDARY total | **16** | **384** | Its own eight artifacts, source snapshot and native references |
+| Both stacks | **32** | **768** | Separate actual sessions and saved arrays; no new trace/export/native evaluation in these target runs |
+
+The same saved artifacts cover the applicable static B5 or symbolic B2/B5
+samples, zero/nonzero inputs, T/F/F/T runtime flags, exact uint32 state feedback,
+reset and two replays. Every return is checked against four retained native
+roles: original eager, original NNX JIT, prepared eager and prepared JIT. Both
+CPU optimization modes and both replays return identical target bytes for these
+samples; zero-input floating outputs retain exact positive-zero bytes.
+The CPU sessions use sequential execution, one intra/inter-op thread and no
+custom session configuration or provider options.
+
+Original014 keeps its **reference-first rtol=3e-4 / atol=2e-6**. Original015 uses a
+**separately proposed and independently accepted strict rtol=0.002 / atol=0**,
+frozen before its target observations. Its historical `atol=None` and source
+scenario `criteria=None` remain intact; zero was not reconstructed as an old
+harness default. Shapes, dtypes, finiteness and state remain separate exact
+checks. Across the accepted samples, maximum absolute error is
+**7.450580596923828e-6**, and the largest selected-tolerance fraction is
+**0.5151289333544**. These measurements do not define a tolerance for new samples.
+
+The original callback verdicts are unchanged on each stack:
+
+| Saved artifact | Original raw callback |
+| --- | --- |
+| cell-0 explicit-state | FAILED |
+| cell-1 explicit-state | FAILED |
+| cell-1 omitted-default | PASSED |
+| cell-2 explicit-state | FAILED |
+| cell-3 explicit-state | FAILED |
+| cell-4 explicit-state | FAILED |
+| cell-4 omitted-default | PASSED |
+| cell-5 explicit-state | FAILED |
+
+Thus each stack retains **six FAILED / two PASSED** raw callbacks. Existing
+export reports still record runtime/numerics **UNVERIFIED**; separate saved
+sample receipts carry the new acceptance. No original pytest result, raw
+callback, stored report or failed epoch is rewritten.
+
+### Capture and structural limits retained
+
+The PRIMARY continuation still exits **99** at its final raw-eager counter
+guard, and its final runtime import-origin record is still missing. All five
+selected cells, seven returned exports and 288 native outputs were retained
+before that failure. The later offline audit checks the saved computation and
+explains why only two raw preparations evaluate while three require live
+Boolean preparation. It does not turn that run into an exit-zero result or
+reconstruct missing origins. Its independently reviewed summary-label shadowing
+defect remains documented; the saved preparation outcomes and callback verdicts
+are preserved separately.
+
+SECONDARY completes its own capture with **six cells, eight exports and 320
+native outputs**, with zero ORT execution in that capture epoch. Independent
+offline review checks 869 saved files and both before/after origin records.
+Subsequent structural review covers all eight artifacts; their executable model
+fields match the corresponding PRIMARY artifacts, with the recorded JAX-version
+report metadata difference. These structural/capture results remain separate
+from the later 16-session SECONDARY target-sample acceptance.
+
+### Masked FP64 saved sample
+
+The unchanged `masked_gather_trig_f64` artifact and original inputs now have
+independently accepted finite target samples on both installed ORT stacks, with
+CPU optimization disabled and enabled. All **four target returns** are bitwise
+identical. Eight comparisons / 48 scalar values pass the original
+reference-first **rtol=5e-8 / atol=1e-12** against the saved PRIMARY eager and JIT
+references; maximum absolute error is **4.440892098500626e-16**. Four existing
+sample-API validation reports are accepted separately.
+
+This is separate evidence from the original-six artifacts above. It uses one
+PRIMARY-produced artifact and its saved PRIMARY native references. It establishes no fresh SECONDARY native execution or whole-family
+acceptance. The original export report's runtime/numeric fields remain
+**UNVERIFIED**; separate actual sample reports carry this result. Issue52's
+unchanged opset-21 case with three FP64 inputs still has a genuine input-admission
+gap. Its proposed engineering repair remains future work.
+
+### Current product implementation and next work
+
+The six native FP32 Conv paths plus the two-path Scan metadata remedy are
+committed at **`3223d0800b70d31753db34ffb36ed809654b6f87`**, parent
+`c2876fc8`. All **928 Python / 163 other input files (1,091 total)** hold through
+the actual full run, all seven normal code hooks and the commit. The eight
+committed blobs match the qualified bytes, and the worktree and index are clean
+at commit verification. Native Conv admission preserves actual FP32 layouts,
+shapes, options and weakness at opset 23; SOURCE NNX/Linen calls forward their
+original arguments. Scan retains the declared physical shape while child
+Functions lower; the existing later rank-only postprocessing and LEGACY behavior
+are preserved. Original metadata and missing numerical criteria are unchanged.
+
+| Current Conv/Scan evidence epoch | Actual result and limit |
+| --- | --- |
+| Focused v1 PRIMARY | **669 PASS / two FAIL of 671**, zero skips; both failures are real Function-in-Scan Conv consumers receiving prematurely relaxed physical shapes. |
+| Focused v1 SECONDARY | **666 PASS / two FAIL / three SKIP of 671**; the skips are existing optional legacy ConvTranspose+BatchNorm runtime-fusion tests. |
+| Focused v2 PRIMARY | **675 PASS / 12 FAIL of 687**, zero skips; both former Conv/Scan failures pass. Ten new fixture failures compare inline native bodies with deliberate Function carriers; two insist on an inaccurate diagnostic word. |
+| Focused v2 SECONDARY | **672 PASS / 12 FAIL / three SKIP of 687**; the same new fixture failures and unchanged legacy runtime-fusion skips remain. |
+| Focused v3 PRIMARY | **687 PASS / 2,061 phases**, zero failures/errors/skips; actual pytest and strict wrapper exit zero. |
+| Focused v3 SECONDARY | **684 PASS / three SKIP**, pytest exit zero but **strict wrapper exit 99**. All 586 converter-selection cases pass on each stack; no SOURCE case skips. The three legacy checks remain numerically unexecuted after their skip. |
+| Reviewed test-only correction | Applied without production changes. Native references, exact Function context/call wiring and actual exported native bodies are checked independently; all 16 new cases and their feeds/saved bitwise gates are retained. |
+| Current quality checks | Normal production typing **551 files** and **17 RNG checks** pass. Final fixture AST/Black/Ruff pass; production typing bytes are unchanged. |
+| Complete PRIMARY v3 regression | **10,504 cases / 31,512 phases PASS**, zero failures/errors/skips, actual pytest and strict wrapper exit zero in **1,040.057526669 seconds**. All four workers collect the same 10,504 identities; all **1,091 source/input files** hold. Earlier 10,488/10,504 collections remain collection-only. Independent finite-checkpoint review accepts the exact eight-path code change. All seven normal code hooks pass; committed at `3223d080` with qualified bytes held. |
+
+The corrected counts above follow actual phase/XML evidence. Earlier ROOT
+summaries overstated SECONDARY passes by three; their original receipts remain
+unchanged. The three skips come from unchanged legacy optional ConvTranspose+
+BatchNorm fusion tests (IR, static NNX and symbolic NNX) when that runtime cannot
+fuse the path. Numerical assertions after the skip did not execute. This is a
+provider-specific evidence gap, not an ONNX impossibility, export-capability loss,
+or SOURCE skip. The wrapper exit 99 is retained as a failed strict accounting
+gate. Independent review accepts the finite code checkpoint with that limit;
+the skipped numerical tails remain unexecuted.
+
+Both earlier failed focused epochs remain retained. All 17 raw Conv rows, all 51 raw
+loop rows and the remaining model/precision obligations stay in the inventory.
+Continue the unchanged CNN's actual activation/pooling path and its original
+Relu/AveragePool/Gemm graph requirements; the next CNN implementation is external
+work in progress. Qualify and integrate the separately accepted **seven-path
+scientific FP64 candidate** next: its **92 cases are forecast only**, and it
+remains **unapplied and unexecuted**. The actual full Linear parameters and
+frozen arithmetic criterion must remain its controls.
+
+The full B–F goal remains one ordinary source-preserving export contract across
+all existing functionality and fixed third-party sources. Known Sign/strict-Erfc
+failures, the 44 numerically unverified compositions, all 50 optional obligations,
+low-precision rounding, scientific workloads and general end-to-end acceptance
+remain open. The **1,852-row / 3,704-caller** inventory and **318 elementary raw
+contracts / 636 caller obligations** are unchanged. Public behavior stays
+**LEGACY**; no permanent public selector or temporary subset completes migration.
+
+| Current saved-evidence record | SHA256 |
+| --- | --- |
+| `/tmp/jax2onnx-conv-root-integration-v1/root-code-commit-3223d080.json` | `a37702b1e8bfa48cb3243f06d8ed71a21e53a20fe813b36299067ff4d229825e` |
+| `/tmp/jax2onnx-loop-root-integration-v1/astra-conv-v3-code-checkpoint-readiness.json` | `7ec98b9a8083ba175539cef44e9dc0e312721d21a755b85a8b1bb7a75882d9de` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-scientific-masked-f64-samples-acceptance.json` | `88be00dc05ac365a6683a557c3b89d33e1a50c9d4e5a5a06135c0b734ba9b86b` |
+| `/tmp/jax2onnx-conv-root-integration-v1/checkpoint-full-primary-v3/run/root-receipt.json` | `73516b2bcfa1d724478336b217de890c5115ba8c2b91f4d466d0b964483632c6` |
+| `/tmp/jax2onnx-conv-root-integration-v1/root-conv-actual-focus-accounting-correction.json` | `c741189f6ff8a12363806e2cc0cf5f561bdcc2fa42f0a15030f3ae1732bfd1e8` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-primary-cell1-two-saved-samples-acceptance.json` | `e08a6e0edc73329dde3de47b80deb6508f0fe6aac4c15c8e065d23546f7ae853` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-primary-remaining-five-saved-samples-acceptance.json` | `42140f0da7153606253e008a39664c009897bd5692605140d8412d7fb5827171` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-secondary-eight-saved-samples-acceptance.json` | `bfff2d72c3b46fe9a2fc0499d2632f5bff0145a6c86eec482bf8c2a2ed9fe20c` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/original015-new-strict-target-proposal-acceptance.json` | `86c4aa4e3744c869909b4019b97b886d5d7c4f33985f037159bb8f49816011d1` |
+| `/tmp/jax2onnx-original6-remaining-primary-audit-root-v3/audit.json` | `3e753407cc0960892f380652af6853c459faafa46a2fd95cdd9945131d3c2e97` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-primary-saved-capture-audit-v3-acceptance.json` | `cc4c75b81296fa990337661241124dc8d47a0349bc2441a30a6373cc27ab7f37` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-secondary-saved-capture-offline-acceptance.json` | `7c54b726e5d666d3e4532287d5d47b7b544d86efd03206fa528f315ddc2b9a5c` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-secondary-eight-artifacts-structural-review.json` | `05d93ce4b3684afad2fed97cc10ad2bab631e6ed6516395991bd5719d91a24f7` |
 
 ## Loop admission and first saved-model samples
 
