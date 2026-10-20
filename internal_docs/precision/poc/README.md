@@ -1,28 +1,32 @@
 # Precision Contract Experiments
 
-Status: accepted private code checkpoint, updated 2026-10-20, beyond the public-behavior
-baseline at `fae17822`.
-The converter carries SOURCE policy through selected real lowerings and scopes.
-Public options and legacy defaults retain their meanings; no public source mode
-is available. The prior ROOT **786-case / 2,358-phase PASS per stack** is retained on
-unchanged production. Separate final-byte test-repair qualification passes
-**29 cases / 87 phases per stack**, zero failures/errors/skips and held current
-sources. The complete PRIMARY suite passes **10,047 cases / 30,141 phases**,
-zero failures/errors/skips, with matching collections and held current pins.
-Local code checkpoint **`1533d60b`** passes all seven normal code hooks.
-Independent final review **accepts this finite code checkpoint** and its
-retained scope limits. These experiments
-inform the [target design](../precision_target_state.md) and
+Status: private elementary/reduction selection independently accepted on actual
+artifacts and saved comparisons, updated 2026-10-20. **183 cases / 549 phases pass
+on each supported stack**, including diagnostics that preserve failed numerical
+gates. Code checkpoint **`11748451`** passes the complete PRIMARY suite
+(**10,237 cases / 30,711 phases**), the focused selection on each supported stack
+(**1,937 cases / 5,811 phases**) and all seven normal code hooks. Qualified
+**923 Python / 163 other input pins** hold through hooks/commit; all 86 committed
+Python files match, with a clean worktree at commit verification. Public options/defaults stay
+**LEGACY**; no public source mode is established.
+
+The [current findings](source_integration_findings.md#elementary-and-reduction-checkpoint)
+separate finite Asin positives, eight failed Sign numerical reports, 44
+numerically unverified original compositions and two failed raw Gather callbacks
+with separate positive finite comparisons. These experiments inform the
+[target design](../precision_target_state.md) and
 [migration plan](../precision_migration_plan.md).
 
-The first four rows cover this checkpoint; later rows link earlier experiments
-with their original evidence scopes.
+The first row covers this checkpoint. The following four rows retain the
+preceding tensor/index/Erfc/inventory scopes; later rows link earlier experiments
+with their original evidence.
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
-| Common tensor/index operations | Do unchanged raw tensor/index contracts preserve values, weakness, shapes and index semantics? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): 296 cases per stack; 63 original rows retained; 56 selected rows / 112 tested caller contexts contain 109 positive artifact contexts and three native/configuration negatives; seven other rows remain deferred. |
+| Elementary/reduction and same-width Asin | Do bounded native calls and owning lowerings preserve the reviewed typed/value contracts? | [Current findings](source_integration_findings.md#elementary-and-reduction-checkpoint): actual 183/549 PASS per stack; finite Asin F32/F64 and B=2/5 positives; eight Sign numerical reports FAILED, 44 compositions UNVERIFIED, both raw Gather callbacks FAILED with separate positive finite comparisons. Code `11748451`, full PRIMARY 10,237/30,711, dual focused 1,937/5,811 and seven normal hooks PASS; numerical limits remain. |
+| Common tensor/index operations | Do unchanged raw tensor/index contracts preserve values, weakness, shapes and index semantics? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): 296 cases per stack; 63 original rows retained; 56 selected rows / 112 tested caller contexts contain 109 positive artifact contexts and three native/configuration negatives; seven other rows were deferred in that selector; the later elementary selection separately checks the two trigonometric Gather rows. |
 | Source-typed Erfc | Does the reviewed expression preserve typed structure, and which configured CPU outputs pass? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): graph/schema evidence at opsets 23/26; configured CPU numerical evidence at opset 23 only, with finite direct/ordinary/named positives; full-seven-output and native-agreement gates FAILED, low-precision numerics UNVERIFIED. |
-| Original GPT_MLP numerics | Does the unchanged ordinal-0 FP32 model pass finite criteria in both caller-x64 contexts? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): two passing cases per stack; no FP64 or all-model claim. |
+| Original GPT_MLP numerics | Does the unchanged ordinal-0 FP32 model pass finite criteria in both caller-x64 contexts? | [Current findings](source_integration_findings.md#elementary-and-reduction-checkpoint): four actual focused15-v2 caller/stack cells independently accepted at strict 1e-5, original 768 → 3,072 → 768 model/state/seed/zero-Dropout/approximate-GELU contract and typed cubic body preserved; export reports keep runtime/numerics UNVERIFIED, bounded sample receipts carry acceptance. No FP64 or all-model claim. |
 | Optional inventory retention | Do absent/filter-selected optional environments preserve every reviewed obligation? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): 1,852 rows / 3,704 caller obligations; initial CLI 4 PASS / 2 FAIL; supplementary secondary MaxDiffusion defaults fails on missing tokamax. No optional SOURCE acceptance. |
 | Native Sum | Do original reduction options and computation types survive interception? | [Sum findings](source_integration_findings.md#native-sum-forwarding-and-measured-composition): committed native forwarding, accepted MAIN integration and retained BitCast barriers. |
 | Native LayerNorm and mean | Do original framework calls retain their native normalization and reduction? | [Forwarding findings](source_integration_findings.md#layernorm-and-mean-native-forwarding): accepted call preservation, retained full-world regressions, and the historical default-export barriers. |
@@ -51,20 +55,26 @@ with their original evidence scopes.
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
 | Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
 
-The [current checkpoint record](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
-binds the retained 786-case / 2,358-phase ROOT pass and separate final-byte
-29-case / 87-phase pass per stack, alongside the new complete PRIMARY
-**10,047-case / 30,141-phase PASS**. Interrupted and failed full-suite epochs
-remain history. A passing diagnostic test can correctly record a failed
-numerical gate; the Erfc full-seven-output and native-agreement failures remain
-failures. Code checkpoint `1533d60b` and all seven normal code hooks pass;
-independent final code-evidence review accepts this finite scope.
+The [current checkpoint record](source_integration_findings.md#elementary-and-reduction-checkpoint)
+binds the actual dual183 cohort, its nine failed samples and separate callback/
+composition limits. It preserves the failed author12, narrow two-case repair
+retry and secondary precollection failure as distinct epochs. A passing
+diagnostic test does not turn a failed numerical gate into acceptance.
 
-Earlier accepted code checkpoints, their distinct suite and hook receipts, and
-all original model/state, normalization, Erfc and target failures remain in the
-[canonical history](source_integration_findings.md). The full B–F migration,
-original complete models, general fixed-source preparation, FP16/BF16 and
-scientific FP64 remain open. Public behavior stays **LEGACY**.
+The earlier accepted `1533d60b` full-primary/hook checkpoint and all failed model,
+normalization and Erfc epochs remain in the
+[canonical history](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint).
+The new `11748451` code checkpoint has completed its focused/full/normal-hook
+qualification. Failed full-v1, focused14-v1 and focused15-v1 epochs remain failed;
+full-v2/v3 are collection-only. Original-six follow-through collects six
+original IDs per stack with zero runtime calls during collection. Its first
+PRIMARY cell returns one schema/ports-validated artifact, then **fails the
+unchanged original raw graph callback**. Offline review verifies lexical
+If-branch input capture and a wrapper-scope mismatch; full body fidelity and
+target numerics remain **UNVERIFIED**, with zero ORT sessions/runs.
+That external follow-through failure leaves code checkpoint `11748451` accepted. Original complete
+models, general fixed-source preparation, optional models, FP16/BF16 and
+scientific FP64 remain required. Public behavior stays **LEGACY**.
 
 ## Run it
 
@@ -173,9 +183,10 @@ graph. See the recorded numerical evidence before choosing a runtime profile.
 The private harness uses the actual tracing, IR context, plugins, optimizer,
 post-processing and serialization. The current checkpoint adds the bounded
 common tensor/index and Erfc families at the recorded opsets, types and shapes;
-its exact scope and open original rows are linked above. Earlier private
-capabilities include static floating inputs and selected Function/If cases at
-opsets 23/26. The finite
+its exact scope and open original rows are linked above. Generic SOURCE
+admission accepts explicit opsets 16, 18, 21, 23, 24, 26 and 27, with
+operation/type-specific eligibility. Earlier static floating Function/If
+samples retain their recorded opsets 23/26. The finite
 shared-B extension adds equal rank-two floating inputs through Add and named
 composition. The Leading-B checkpoint adds one atomic native B at axis zero of
 rank-two/three matrix and bias contracts, with FP32/FP64 MatMul and positive
@@ -192,6 +203,10 @@ ONNX support classifications. Separate diagnostic regressions now cover finite
 noncomplex/complex loops and broader JIT forms without broadening this product
 profile;
 the [work plan](../precision_implementation_work_plan.md) records their exact gates.
+Product `scan`/`while` admission has a frozen external candidate that is unapplied
+and uncommitted; 121 forecast cases are **not collected**, and frozen-byte/runtime/
+typing/dual qualification remains pending. It is a prepared next checkpoint after
+original-six follow-through, not current admitted behavior.
 
 The audited matrix profile retains its FP16-operands/preferred-FP32 branch for
 positive static rank-2/rank-3 standard axes. It now also admits same-type

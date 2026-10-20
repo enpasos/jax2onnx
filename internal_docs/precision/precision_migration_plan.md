@@ -8,34 +8,34 @@ The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 
-Current accepted private code checkpoint: the prior ROOT selection retains **786 cases /
-2,358 phases PASS per stack** on unchanged production. A separate final-byte
-test-repair selection passes **29 cases / 87 phases on each stack**, zero
-failures/errors/skips and held current **919 Python / 163 other input hashes**.
-Bounded common tensor/index
-families and source-typed Erfc graphs at opsets 23/26 are implemented, and the
-original GPT_MLP has finite FP32 numerical evidence under both caller-x64
-settings. The complete PRIMARY suite passes **10,047 cases / 30,141 phases**,
-with zero failures/errors/skips, matching collections and held current pins.
-Local code checkpoint **`1533d60b`** passes all seven normal code hooks.
-Independent final review **accepts this finite code checkpoint** and its
-retained scope limits in the [canonical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint).
+Current private elementary/reduction evidence passes **183 cases / 549 phases
+per supported stack**, with zero test failures/errors/skips and independent
+actual-evidence acceptance. Bounded native bindings/typed lowerers and the
+same-width FP32/FP64 Asin expression are committed in the private pipeline.
+This does not give all 183 cases numerical acceptance: eight original Sign reports remain **FAILED**,
+44 original composition artifacts remain numerically **UNVERIFIED**, and both
+Gather raw graph callbacks remain **FAILED** despite separately verified finite
+numerical comparisons. The [canonical checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+retains the exact source, criteria, counts and failed epochs.
 
-The configured Erfc CPU numerical evidence is positive only at **opset 23** for
-the measured direct, ordinary-composition and named shared-batch scopes. Opset
-26 has graph/schema evidence; its CPU numerics remain unverified. Strict full-seven-output
-and native-agreement gates remain **FAILED** on the FP32/FP64 subnormal prefix
-contradiction. FP16/BF16 numerics remain **UNVERIFIED**; production FTZ and runtime
-policy are unchanged. The old original-six Erfc barrier requires fresh
-complete-model follow-through and establishes no new downstream barrier.
+Local code checkpoint **`11748451`** is committed: the complete PRIMARY suite
+passes **10,237 cases / 30,711 phases**, and the focused selection passes
+**1,937 cases / 5,811 phases on each supported stack**, with zero test
+failures/errors/skips in those executions. All seven normal code hooks pass;
+86 committed Python paths (63 production and 23 test/support) match the qualified
+bytes, all **923 Python / 163 other input pins** hold through hooks and commit,
+and the worktree is clean at commit verification. The focused and full results
+have independent finite-checkpoint acceptance. These results retain the separate
+failed numerical gates; they do not complete the precision migration.
 
-The reconciled inventory retains 1,852 rows / 3,704 caller obligations, including
-all 1,802 original core contracts and 50 optional model obligations. Optional
-imports do not establish SOURCE support; configured secondary environment
-qualification remains incomplete. Earlier accepted code checkpoints and failed
-epochs remain in the [canonical findings](poc/source_integration_findings.md).
-General fixed-source preparation, full original models, FP16/BF16, scientific
-FP64 and all B–F gates remain required. Public behavior stays **LEGACY**.
+The inventory still retains all 1,852 rows / 3,704 caller obligations, including
+318 elementary raw contracts / 636 caller obligations and 50 optional obligations.
+Strict Erfc full/native gates remain failed, with configured numerical evidence
+only at opset 23 and low-precision numerics unverified. Original-six body
+fidelity/target numerics, broader complete models, optional-environment work,
+general fixed-source preparation and scientific FP64 remain open. No tolerance,
+model/input or FTZ/runtime-policy change closes those gaps. Public behavior
+stays **LEGACY** until the full B–F single-contract migration is complete.
 
 For the transition from an export user's perspective, read the
 [user view](precision_migration_plan_user_view.md). All companion documents are
@@ -187,17 +187,42 @@ Function-model run stopped at Erfc before producing a model artifact; after the
 new lowering it needs a fresh run under the unchanged model contracts. Do not
 infer another barrier from that historical result.
 
-Code checkpoint `1533d60b` is independently accepted, with the complete PRIMARY
-suite and all seven normal code hooks passing. Next, address the separate
-172-case elementary/reduction candidate's recorded failures, then qualify it:
-Astra accepts its bounded static delta for ROOT validation, while it remains
-**unintegrated and not ROOT-qualified**. Its detached 172-case PRIMARY author
-epoch has 169 passes / three target-sample failures, retained in the canonical
-findings. It is not current product behavior.
-Continue the remaining original-model,
-normalization graph-contract, fixed-source preparation and target-numerical work
-through the shared pipeline. The [current findings](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
-retain the exact Erfc positive scopes and failed full/native gates.
+The elementary/reduction code checkpoint `11748451` now has independently
+accepted dual-stack finite evidence and final focused/full qualification. The
+183-case / 549-phase result per stack retains its Sign/composition/Gather limits;
+the later focused 1,937-case result per stack, complete 10,237-case PRIMARY result
+and seven normal hooks qualify the committed bytes. Earlier failed full-v1,
+focused14-v1 and focused15-v1 executions remain failed history. Full-v2/v3 were
+collection-only. No single aggregate execution is invented from these cohorts.
+
+Generic SOURCE admission now accepts opsets 16, 18, 21, 23, 24, 26 and 27 with
+operation/type-specific checks. Product `scan`/`while` admission has a frozen external candidate, unapplied
+and uncommitted: five existing/two new paths, 121 forecast cases **not collected**,
+with frozen-byte/runtime/typing/dual qualification pending. It is the next prepared
+implementation checkpoint after original-six follow-through; existing source-loop
+evidence remains diagnostic.
+
+The fresh original-six snapshot passes both-stack collection of the six exact
+original IDs with zero model/native/trace/export/ORT calls during collection.
+Its actual first PRIMARY cell returns one schema/ports-validated artifact and
+body manifest, then **fails the unchanged original raw graph callback**: unused
+root inputs and the absent expected top-level SuperBlock path while the root
+contains If. Offline review verifies a wrapper-scope mismatch: both branch
+GraphProto bodies lexically capture those inputs and call SuperBlock, while
+the raw checker examines direct root nodes. Original parameter positions and
+recorded state-branch behavior are preserved. All 30 deterministic/42 stochastic
+Function equations match the unpatched prepared trace; both mask consumers,
+second Linear and separate state streams are verified. Full body fidelity stays
+**UNVERIFIED** because complete expansion-level correspondence across the 1,725
+serialized stochastic nodes has not been reproved. The next work is a bounded
+offline Threefry/bitcast/Erfc expansion-correspondence check using the saved
+artifact and qualified primitive lowerings, followed by review of a scoped
+wrapper-aware structural counterpart. Preserve the failed raw callback and
+original model/criteria. Target numerics remain **UNVERIFIED**, with zero ORT
+sessions/runs and no new trace/export or continuation result. Code checkpoint `11748451` remains separately accepted. Continue remaining normalization graph contracts, fixed-source
+preparation and all functionality through the shared pipeline. The
+[current findings](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+retain those gates and the earlier Erfc limits.
 
 Carry the accepted prerequisites through the shared private pipeline. Retain
 fixed-source external preparation, original native criteria, actual runtime
@@ -241,7 +266,9 @@ The [accepted work plan](precision_implementation_work_plan.md) connects this
 private foundation to the existing export boundary. Its internal `source-static-v1`
 profile admits static floating kernels, the bounded preferred-FP32 matrix
 lowering, FP32-to-UINT32 bitcast at opset 26, audited named functions, and
-two-branch conditionals. It supports opsets 23/26, names, primitive recording,
+two-branch conditionals. Generic SOURCE admission accepts opsets 16, 18, 21,
+23, 24, 26 and 27 subject to operation/type-specific checks; earlier Function/If
+sample evidence covers its recorded opsets 23/26. It supports names, primitive recording,
 and proto/IR/standard/web file returns through reviewed private facade integration.
 Web packaging does not establish browser execution. Selected static NCHW
 boundaries and the finite shared-B Add/named-composition extension have reviewed
@@ -450,8 +477,10 @@ inline compatibility seam. The raw gather trace now matches completely, while
 its unchanged callback and x64-off conflict remain unresolved. The subsequent
 [Gather counterpart](poc/gather_counterpart_findings.md) validates one exact
 diagnostic structure with those raw failures retained and zero ORT calls.
-Those original trigonometric Gather rows remain outside product admission;
-the current common-family checkpoint admits the other bounded Gather forms. The subsequent Typed checkpoint
+At that earlier checkpoint the original trigonometric Gather rows remained
+outside product admission. The later elementary checkpoint adds their finite
+SOURCE numerical controls while retaining both failed raw graph callbacks; the
+common-family checkpoint covers the other bounded Gather forms. The subsequent Typed checkpoint
 covers the bounded value families recorded above, with independent actual-main
 acceptance, 8,659 full-suite passes and all actual hooks passing. The named
 binder and finite preparation proof described above advance separate shared
@@ -565,8 +594,10 @@ exercise selective FP32 work in FP16 computation, deliberate output conversions,
 mixed FP64/FP32 outputs, wider reduction work, and a shared value used by a
 same-width bitcast. These demonstrate numerical behavior as well as type labels.
 
-The evidence is bounded: explicitly typed static inputs, a small primitive
-allowlist, and opsets 23 or 26. Some CPU samples agree; a new FP16 composition
+The initial sample evidence below is bounded to explicitly typed static inputs,
+a small primitive allowlist and opsets 23 or 26. Current generic SOURCE admission
+accepts 16, 18, 21, 23, 24, 26 and 27, with per-operation/type checks; that later
+admission does not broaden the original samples. Some CPU samples agree; a new FP16 composition
 fails the required runtime rounding. An allowlist of individually covered
 primitives is therefore not a support claim for every composition. BF16 has
 structural evidence in the source prototype, with separate known kernel

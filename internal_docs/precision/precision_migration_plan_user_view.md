@@ -2,39 +2,18 @@
 
 Status: accepted plan for the complete precision transition, updated 2026-10-20.
 The completed normal `to_onnx(...)` call will preserve the JAX computation
-through one consistent rule across the existing functionality. There will be
-no public precision-mode or partial-profile choice. The
-[implementation work plan](precision_implementation_work_plan.md) requires the
-full coverage gates before that public transition. PR #275's bounded repair is
-merged. The local branch now preserves
-weak inputs and selected calculations through real functions and branches
-using a private policy. Local JAX settings and successive export modes now have
-regression coverage. Bounded matrix and selected-FP64 normalization cases also
-export through this path. Public legacy options and defaults retain their rules;
-the full migration and deployment evidence remain unfinished.
-No release or deadline is promised.
+through one consistent rule across the existing functionality and fixed
+third-party sources. There will be no permanent public mode/profile selector
+or loss of existing capabilities.
 
-The private implementation retains its **786-case / 2,358-phase ROOT PASS per
-stack** on unchanged production. Separate checks of the final test repair now
-pass **29 cases / 87 phases per stack**, with zero failures/errors/skips. These
-are separate selections. It preserves additional tested tensor/index operations and
-Erfc calculations, and the original GPT_MLP passes finite FP32 checks under
-both caller-x64 settings. Erfc graph/schema checks cover opsets 23/26; the
-measured configured CPU numerical checks cover **opset 23 only**. The full
-seven-output comparison still fails where JAX eager/JIT disagree on subnormal
-intermediate values; FP16/BF16 numerics remain unverified. A fresh original
-Function-model run is still needed.
-
-The complete PRIMARY suite also passes **10,047 cases / 30,141 phases**, with
-zero failures/errors/skips and held current sources. These private results
-preserve the limits above. Local code checkpoint **`1533d60b`** passes all seven
-normal code hooks. Independent final review **accepts this finite code
-checkpoint** and its retained scope limits. The
-[technical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
-keeps passing samples, failed gates and optional-environment limits separate.
-Earlier accepted model/state and normalization results remain in that history.
-Public export behavior stays **LEGACY**. Complete models, general fixed-source
-preparation, FP16/BF16 and scientific FP64 remain required for the full migration.
+Public behavior and the current `enable_double_precision` argument remain
+unchanged while private work preserves more selected calculations at the
+precision chosen by the model and JAX configuration.
+Complete-model, low-precision and target acceptance remain unfinished. The
+[technical checkpoint](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+records exact results and remaining diagnostics; the
+[implementation work plan](precision_implementation_work_plan.md) defines the
+full coverage gates. No release or deadline is promised.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),

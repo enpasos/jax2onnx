@@ -11,45 +11,64 @@ code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
 defaults remain unchanged. See the
 [integration findings](poc/source_integration_findings.md) for its bounded scope.
 
-Current accepted private code checkpoint, 2026-10-20: the prior ROOT selection retains
-**786 cases / 2,358 phases PASS per stack** on unchanged production. Separate
-final-byte test-repair checks pass **29 cases / 87 phases per stack**, zero
-failures/errors/skips, with held current **919 Python / 163 other inputs**.
-The implementation covers
-the bounded common tensor/index families and source-typed Erfc graphs at opsets
-23/26. The common selector retains all 63 original rows / 126 caller identities;
-56 selected rows cover 112 tested caller contexts, yielding 109 positive
-artifact contexts and three native/configuration negatives. The other seven
-rows remain deferred. Shared-B shape values retain native weak INT32/INT64
-behavior under local x64 settings, and the reviewed index bridge preserves the
-tested signed/unsigned index semantics. The original GPT_MLP has finite FP32
-numerical evidence under both caller-x64 settings, with no FP64 or all-model
-claim.
+Current private elementary/reduction evidence: **183 cases / 549 phases PASS
+per stack**, zero test failures/errors/skips, independently accepted from actual
+artifacts and saved comparisons. Native elementary/reduction bindings and owning
+typed lowerers now cover their reviewed finite contracts, including FP32/FP64
+Asin using same-width rational coefficients and a half-angle expression. The
+original FP32 consumed Asin sum retains exact positive zero against both native
+roles and all four target outputs; new shared-B Asin controls cover B=2/5.
 
-The complete PRIMARY suite now passes **10,047 cases / 30,141 phases**, with
-zero failures/errors/skips, matching worker collections and held current pins.
-Local code checkpoint **`1533d60b`** passes all seven normal code hooks.
-Independent final review **accepts this finite code checkpoint** and its
-retained scope limits. The [canonical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
-binds the passing ROOT result and preserves the earlier failed epochs.
+Test success is separate from numerical acceptance. Eight original Sign reports
+remain **FAILED**, 44 original composition artifacts remain numerically
+**UNVERIFIED**, and both original Gather raw callbacks remain **FAILED** despite
+separately passing finite numerical predicates. All 318 original elementary
+contracts / 636 caller obligations and the 1,852-row / 3,704-caller inventory
+remain unchanged. The [current checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+binds the exact counts, source epochs and retained failures.
 
-Erfc representation/lowering evidence is separate from target numerics. The
-configured direct, ordinary-composition and named shared-batch scopes pass at
-**opset 23 only**. Opset 26 has graph/schema evidence and unverified CPU numerics.
-The strict seven-output and native agreement gates remain **FAILED** on the
-FP32/FP64 subnormal prefix contradiction. FP16/BF16 have structural evidence
-only, with numerics **UNVERIFIED**. Production FTZ and runtime policy are
-unchanged. The old six-Function-model barrier needs fresh follow-through; it
-cannot identify the next downstream barrier after Erfc admission.
+Local code checkpoint **`11748451`** is committed: the complete PRIMARY suite
+passes **10,237 cases / 30,711 phases**, and the focused selection passes
+**1,937 cases / 5,811 phases on each supported stack**, with zero test
+failures/errors/skips in those executions. All seven normal code hooks pass;
+86 committed Python paths (63 production and 23 test/support) match the qualified
+bytes, all **923 Python / 163 other input pins** hold through hooks and commit,
+and the worktree is clean at commit verification. The focused and full results
+have independent finite-checkpoint acceptance. These results retain the separate
+failed numerical gates; they do not complete the precision migration.
 
-The current inventory retains 1,852 rows / 3,704 caller obligations, including
-all 1,802 unchanged original core contracts and 45 MaxText plus five MaxDiffusion
-obligations; 234 manual files / 1,565 functions retain all 752 original anchors.
-Optional imports do not establish SOURCE acceptance. The configured secondary
-environment remains incomplete. Public behavior stays **LEGACY** until the full
-B–F contract, including general fixed-source preparation, low-precision rounding
-and scientific FP64, is complete. The [findings](poc/source_integration_findings.md)
-retain earlier accepted code checkpoints and their distinct validation scopes.
+Generic SOURCE admission currently accepts explicit opsets **16, 18, 21, 23,
+24, 26 and 27**; operation/type-specific checks still apply. This is not a
+Cartesian support claim. Product `scan`/`while` admission has a separately frozen external candidate,
+which is unapplied and uncommitted; its 121-case forecast is not a collection
+result, and frozen-byte/runtime/typing/dual qualification remains pending. Existing
+source-loop evidence uses diagnostic admission. No public precision mode has been introduced.
+
+The four original GPT_MLP caller/stack cells have independently reviewed
+focused15-v2 numerical evidence at unchanged strict **1e-5**: original
+768 → 3,072 → 768 dimensions, FP32 model/state, seed, zero Dropout and
+approximate GELU. The actual typed `(x*x)*x` expression, coefficients,
+second Linear and key-payload provenance are retained. Saved comparison
+receipts carry bounded acceptance; export reports keep runtime/numerics
+**UNVERIFIED**. This does not close the 44 original composition obligations.
+
+Earlier tensor/index and Erfc evidence retains its recorded scope. Erfc graph/schema checks cover opsets 23/26; configured CPU numerics cover
+opset 23 only. Its strict full-seven-output and native-agreement gates remain
+**FAILED**, and FP16/BF16 numerics remain **UNVERIFIED**, with no production FTZ
+or runtime-policy change. Original-six body fidelity/target numerics, optional
+45 MaxText/five MaxDiffusion obligations, general fixed-source preparation and
+scientific FP64 remain open. The fresh original-six follow-through passes
+both-stack six-ID collections, then its first PRIMARY cell returns one
+schema/ports-validated artifact before **failing the original raw graph
+callback**. Offline review verifies the wrapper-scope mismatch, lexical If-branch
+input capture and original parameter positions. Complete body fidelity remains
+**UNVERIFIED** at full serialized-expansion scope. The two masks, second Linear,
+state streams and all 30 deterministic/42 stochastic Function equations now
+match the unpatched prepared trace under the bounded offline review. Complete
+Threefry/bitcast/Erfc expansion correspondence across the 1,725 serialized
+stochastic nodes remains the next offline check; target numerics remain
+**UNVERIFIED**, with zero ORT sessions/runs. This external follow-through does not change the accepted code
+checkpoint. Public behavior stays **LEGACY** until the complete B–F contract is met.
 
 For observable behavior and export choices, read the
 [user view](precision_current_state_user_view.md). All companion documents are

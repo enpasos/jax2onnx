@@ -19,39 +19,41 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-The private checkpoint retains the ROOT **786-case / 2,358-phase PASS per
-stack** on unchanged production. A separate final-byte test-repair selection
-now passes **29 cases / 87 phases per stack**, with zero failures/errors/skips
-and held current source/input pins. These are distinct executions. Bounded
-tensor/index operations, source-typed Erfc graphs at opsets 23/26 and finite
-original GPT_MLP FP32 evidence retain their recorded scope. The complete PRIMARY
-suite now passes **10,047 cases / 30,141 phases**, with zero failures/errors/skips
-and held current pins. Local code checkpoint **`1533d60b`** passes all seven
-normal code hooks. Independent final review **accepts this finite code
-checkpoint** and its retained scope limits.
-The [canonical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
-keeps passing finite scopes, failed full-suite epochs and unfinished migration
-gates separate.
+The private elementary/reduction selection now passes **183 cases / 549
+phases on each supported stack**, with zero test failures/errors/skips and
+independent actual-evidence acceptance. It includes finite FP32/FP64 Asin
+numerical evidence from the same-width rational/half-angle lowering. Passing
+cases include diagnostics: **eight original Sign numerical reports remain
+FAILED**, and 44 original composition artifacts remain numerically
+**UNVERIFIED**. Both original Gather raw graph callbacks remain **FAILED**,
+with separately verified finite numerical comparisons. The
+[canonical checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+separates those gates and preserves failed epochs.
 
-Configured CPU numerical evidence at **opset 23 only** is positive for the
-measured direct Erfc, ordinary composition and named shared-batch scopes.
-Opset 26 has graph/schema evidence; its CPU numerics remain unverified. The strict seven-output and native
-reference-agreement gates remain **FAILED** because JAX eager/JIT disagree on
-FP32/FP64 subnormal prefix values. FP16/BF16 numerics remain **UNVERIFIED**;
-production FTZ and runtime policy are unchanged. The old six-Function-model Erfc
-barrier is historical and needs a fresh complete-model run after this change.
+Local code checkpoint **`11748451`** is committed: the complete PRIMARY suite
+passes **10,237 cases / 30,711 phases**, and the focused selection passes
+**1,937 cases / 5,811 phases on each supported stack**, with zero test
+failures/errors/skips in those executions. All seven normal code hooks pass;
+86 committed Python paths (63 production and 23 test/support) match the qualified
+bytes, all **923 Python / 163 other input pins** hold through hooks and commit,
+and the worktree is clean at commit verification. The focused and full results
+have independent finite-checkpoint acceptance. These results retain the separate
+failed numerical gates; they do not complete the precision migration.
 
-The inventory retains **1,852 rows / 3,704 caller obligations**, including all
-1,802 original core rows and 50 optional MaxText/MaxDiffusion obligations.
-Optional imports establish inventory evidence only; configured secondary import
-failures remain environment work. Public behavior stays **LEGACY** until the
-full existing-functionality B–F gates pass, including original models, general
-fixed-source preparation, FP16/BF16 and scientific FP64. No permanent public
-precision-mode or partial-profile choice is planned.
-
-Earlier accepted checkpoints, their complete-suite and hook receipts, and all
-failed epochs are retained in the [canonical findings](poc/source_integration_findings.md)
-and [experiment index](poc/README.md).
+Public behavior stays **LEGACY**. The inventory remains **1,852 rows / 3,704
+caller obligations**, including all 318 elementary raw contracts / 636 caller
+obligations and all 50 optional model obligations. The failed strict Erfc
+full/native gates, unverified low-precision and complete original-model work,
+optional-environment prerequisites, general fixed-source preparation and
+scientific FP64 remain open. The full B–F single-contract migration remains the
+goal over all existing functionality and fixed third-party sources, with no
+permanent public mode/profile selector or loss of existing capabilities. The
+fresh original-six follow-through passes both-stack collection. Its first
+PRIMARY cell returns one schema/ports-validated artifact and then **fails the
+original raw graph callback**. Offline review verifies a wrapper-scope mismatch:
+the If branches capture the reported inputs. Complete body fidelity and target
+numerics remain unverified, with **zero ORT calls**. This external
+follow-through failure does not change the accepted `11748451` code checkpoint.
 
 ## What the experiments establish
 
@@ -91,11 +93,11 @@ trace leakage, and an unsafe arithmetic fusion on the source path. Matrix
 result preservation and selected wider normalization now have bounded positive
 evidence. Required FP16 runtime rounding remains a failed gate on the recorded
 targets; the explicit wider example is not an automatic repair. The
-current code checkpoint `1533d60b` is independently accepted. The
-[next work](precision_migration_plan.md#next-implementation-work) is to address
-the separate elementary candidate's recorded failures and qualify it, then migrate
-the remaining registered families, original models, scopes and export boundaries
-through the shared private path.
+preceding code checkpoint `1533d60b` remains accepted. The
+[next work](precision_migration_plan.md#next-implementation-work) is the bounded
+original-model follow-through on the qualified snapshot, with offline
+body-fidelity review of its first actual artifact before continuation. Remaining
+registered families, scopes and export boundaries still require the full contract.
 
 The [follow-up review on 2026-10-18](poc/source_integration_findings.md#follow-up-review-on-2026-10-18)
 also closed a policy-blind optimizer rewrite and function reuse that ignored

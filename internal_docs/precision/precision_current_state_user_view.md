@@ -13,27 +13,19 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
-The private implementation retains its **786-case / 2,358-phase ROOT PASS per
-stack** on unchanged production. Separate checks of the final test repair now
-pass **29 cases / 87 phases per stack**, with zero failures/errors/skips. These
-are separate selections. It preserves additional tested tensor/index operations and
-Erfc calculations, and the original GPT_MLP passes finite FP32 checks under
-both caller-x64 settings. Erfc graph/schema checks cover opsets 23/26; the
-measured configured CPU numerical checks cover **opset 23 only**. The full
-seven-output comparison still fails where JAX eager/JIT disagree on subnormal
-intermediate values; FP16/BF16 numerics remain unverified. A fresh original
-Function-model run is still needed.
+Public `to_onnx(...)` behavior and the existing `enable_double_precision`
+argument are unchanged. Private work preserves more selected calculations at
+the precision chosen by the model and JAX configuration. Complete-model,
+low-precision and deployment acceptance remain unfinished, so this work does
+not yet change how you prepare or export a model. The
+[technical checkpoint](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+records the exact scope, results and remaining diagnostics.
 
-The complete PRIMARY suite also passes **10,047 cases / 30,141 phases**, with
-zero failures/errors/skips and held current sources. These private results
-preserve the limits above. Local code checkpoint **`1533d60b`** passes all seven
-normal code hooks. Independent final review **accepts this finite code
-checkpoint** and its retained scope limits. The
-[technical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
-keeps passing samples, failed gates and optional-environment limits separate.
-Earlier accepted model/state and normalization results remain in that history.
-Public export behavior stays **LEGACY**. Complete models, general fixed-source
-preparation, FP16/BF16 and scientific FP64 remain required for the full migration.
+The completed migration will offer one ordinary source-preserving export
+contract across the existing functionality and fixed third-party sources, with
+no permanent public mode/profile selector or loss of existing capabilities.
+Until that transition, use the current export options and a consistently
+configured JAX reference as described below.
 
 ## Choosing the Export Setting
 

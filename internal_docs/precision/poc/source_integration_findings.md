@@ -1,19 +1,271 @@
 # Private source-policy integration
 
 Local implementation and review, updated 2026-10-20, beyond the public-behavior
-baseline at `fae17822`. The converter has a private SOURCE policy. Public options
-and LEGACY defaults retain their meanings; no public source mode or release is
-established. The prior ROOT **786-case / 2,358-phase PASS per stack** is retained
-on unchanged production. Separate final-byte test-repair qualification passes
-**29 cases / 87 phases per stack**, with zero failures/errors/skips and held
-current sources. The complete PRIMARY suite passes **10,047 cases / 30,141
-phases**, with zero failures/errors/skips, matching collections and held current
-pins. Local code checkpoint **`1533d60b`** passes all seven normal code hooks.
-Independent final review **accepts this finite code checkpoint** and its
-retained scope limits.
-The current checkpoint is recorded first. Subsequent sections are
-historical checkpoint records: their results, failed epochs and then-current
-barriers retain their original scope and do not describe later code implicitly.
+baseline at `fae17822`. Private SOURCE behavior now has independently accepted
+actual elementary/reduction evidence: **183 cases / 549 phases PASS per supported
+stack**, zero test failures/errors/skips. That test result includes known failed
+numerical diagnostics and does not certify every selected source row.
+Local code checkpoint **`11748451`** now passes full PRIMARY **10,237 cases /
+30,711 phases**, focused **1,937 cases / 5,811 phases per supported stack**,
+and all seven normal code hooks. Exact committed bytes and held **923 Python /
+163 other input pins** are verified, with a clean worktree at commit verification.
+Public behavior stays **LEGACY**.
+The current result is recorded first. Every section beginning with the preceding
+tensor/index/Erfc checkpoint below is historical: its then-current wording,
+source bytes, results and failed epochs retain their original scope.
+
+## Elementary and reduction checkpoint
+
+Status: **COMMITTED LOCAL CODE CHECKPOINT `11748451`; ACTUAL DUAL-STACK
+FOCUSED AND COMPLETE PRIMARY REGRESSION ACCEPTED WITH RETAINED NUMERICAL LIMITS**.
+The commit is **`11748451bb0d89f6e0265ea6fec6d982223397ab`**, with parent HEAD `d52a2276`, after code checkpoint `1533d60b`. It changes **86 Python
+paths: 63 production and 23 test/support, 4,155 insertions / 178 deletions**.
+All committed file bytes match the qualified sources; all **923 Python / 163
+other input pins** hold through actual hooks and commit. The worktree is clean
+at commit verification. This is local acceptance; no push, merge, publication
+or public precision transition is claimed.
+
+The earlier dual183 cohort and its actual artifact/array acceptance remain a
+separate epoch. Subsequent reviewed scope, fixture and capture repairs retain
+original models and numerical criteria. One enum import adjustment routes through
+the compatibility layer and preserves both installed stacks' native semantics.
+The complete PRIMARY v4 and dual focused15 v2 results below qualify the final
+bytes; earlier failed executions remain unchanged. No complete SECONDARY suite
+or full B–F migration acceptance is claimed.
+
+| Evidence epoch | Result and scope |
+| --- | --- |
+| Earlier dual183 selection, per stack | 183 cases / 549 phases PASS, zero test failures/errors/skips: all 172 original IDs plus four Asin and seven pure-data corruption controls |
+| Dual183 export attempts, per stack | 140 positive returned exports and two expected-negative attempts; 142 facade attempts in total |
+| Dual183 native observations, per stack | 293 observed helper attempts, 291 successful snapshots and 985 retained native arrays; these are observer units, not a process-wide evaluation census |
+| Dual183 CPU target execution, per stack | 346 successful sessions / 366 successful runs and 1,458 retained target arrays |
+| Dual183 sample reports, per stack | 341 reports / 361 samples: 352 VALIDATED and nine FAILED; eight original Sign failures plus one intentionally corrupted target |
+| Dual183 direct calls outside reports, per stack | Four Gather runs and one original scalar run independently checked, including both native reference roles |
+| Retained denominator | All 318 complete elementary raw contracts / 636 caller obligations; all 1,852 inventory rows / 3,704 caller obligations and 50 optional model obligations unchanged |
+| Earlier style bridge | Pinned Black25/Ruff PASS on the then-touched 72 Python files; complete AST unchanged for the single formatted test, 1,085 other inputs and production held; this precedes later reviewed repairs |
+| Final focused15 v2, per stack | **1,937 cases / 5,811 phases PASS**, zero failures/errors/skips; independent actual-evidence acceptance |
+| Final complete PRIMARY v4 | **10,237 cases / 30,711 phases PASS**, zero failures/errors/skips; all four worker schedules match the exact released collection/controller observations |
+| Final local code qualification | **`11748451`**, 86 exact Python blobs, all seven normal code hooks PASS, 923 Python / 163 other pins held through hooks/commit, clean worktree at commit verification |
+
+### Implemented finite behavior and retained limits
+
+Native elementary/reduction dispatch and owning typed lowerers now preserve
+their reviewed operation/parameter/dtype/weakness/shape contracts. The scope
+includes bounded floating elementary functions, numeric/Boolean reductions and
+explicit integer value controls; schema/admission evidence and numerical
+acceptance remain separate. See the actual owning
+[admission rules](../../../jax2onnx/converter/source_elementary.py),
+[lowering algorithms](../../../jax2onnx/plugins/jax/lax/_source_elementary.py),
+[finite selection](../../../tests/extra_tests/converter/test_source_elementary_reductions.py)
+and [Asin controls](../../../tests/extra_tests/converter/test_source_asin_repair.py).
+All original callables, feeds, source contracts, defaults, opsets and criteria
+remain frozen. No tolerance or FTZ/runtime-policy change is introduced.
+Generic SOURCE admission currently accepts explicit opsets **16, 18, 21, 23,
+24, 26 and 27**, with operation/type-specific eligibility; this does not certify
+every operation/type at every admitted opset. Product `scan`/`while` admission has
+a separately frozen external candidate and is **not integrated**: five existing/
+two new paths, **121 forecast cases, not collected**. Frozen-byte/runtime/typing/
+dual qualification is pending. This prepared implementation checkpoint follows
+original-six follow-through; current source-loop evidence uses diagnostic admission.
+
+Asin FP32/FP64 uses same-width rational coefficients and a half-angle expression,
+adapted from the reviewed FDLIBM/OpenLibm formulas. This is not a claim to the
+upstream implementation's full correctly-rounded contract. The original FP32
+pointwise/consumed-sum witness now passes; the consumed sum is exact positive
+zero against both native references and all four target results. Enriched
+domain/signed-zero controls and new `(B, 33)` region/lane-consumer feeds at B=2/5
+pass their unchanged finite criteria on both stacks. Coefficients, association,
+widths, domain and sign behavior retain explicit structural checks.
+
+The two original Sign diagnostic tests pass by retaining **eight FAILED
+numerical reports per stack**. At the smallest positive subnormal, native
+output/reciprocal words are +0/+Inf while target words are +1/+1; all unaffected
+array words remain checked. The seven pure-data controls reject other
+corruptions. This is neither Sign numerical acceptance nor proof of ONNX
+impossibility. The earlier failed strict Sign experiments remain history.
+
+All **44 original composition artifacts remain numerically UNVERIFIED**, with
+raw callbacks **30 FAILED / 14 PASSED**. Both original trigonometric Gather raw
+callbacks remain **FAILED** and raw SOURCE criteria remain None. Their separate
+finite numeric controls pass both frozen predicates against both eager/fresh-JIT
+roles and both target modes; neither predicate replaces the other. Passing the
+183 tests therefore does not close all 318 raw obligations.
+
+Earlier Erfc limits remain: graph/schema evidence at opsets 23/26, configured CPU
+numerics only at opset 23, strict full-seven-output/native-agreement gates
+**FAILED**, FP16/BF16 numerics **UNVERIFIED**, and no activated whole-carrier MLIR
+claim. The four GPT_MLP caller/stack cells now also have independently reviewed
+actual focused15-v2 evidence: original **768 → 3,072 → 768**, FP32 model/state,
+seed, zero Dropout and approximate GELU, under the unchanged strict **1e-5**
+criterion. The actual body retains typed `(x*x)*x`, the original coefficients,
+second Linear and key-payload provenance. Saved native/target arrays carry the
+bounded numerical acceptance. Export reports separately keep runtime and
+numerics **UNVERIFIED**; they do not inherit sample acceptance. This finite
+GPT result does not close the 44 original composition obligations.
+Optional 45 MaxText/five MaxDiffusion obligations stay **AUDIT_PENDING**;
+secondary MaxText Python >=3.12 and the separately recorded missing tokamax
+prerequisite remain environment work, not converter acceptance.
+
+### Retained author and preflight epochs
+
+The detached original v4 epoch remains **169 PASS /three target-sample FAIL
+of 172**, and the later v6 Asin/Sign experiment remains **one PASS /six FAIL
+of seven**. The earlier checkpoint below retains their exact observations and
+saved-byte analysis. Neither is rewritten by later source improvements.
+
+The v8 author12 epoch (retained under its `v7-author` directory name) finishes
+**10 PASS /two structural FAIL**, 36 phases. The original/enriched three Asin
+numerical cases and seven pure-data controls pass. The new symbolic FP32/FP64
+artifacts were exported and saved but stopped before target comparisons because
+a global arithmetic-width assertion also examined unrelated INT64 reverse-index
+Sub nodes. Offline ancestry proof identifies every offender outside Asin's
+output cone. A narrowly reviewed checker-only repair retains all owning Asin
+width/coefficient/association/domain/sign checks. The separately released
+symbolic retry then passes **two cases /six phases**, with unchanged product
+bytes/native captures, eight sessions and 16 runs. Author evidence is three
+Asin numeric cases plus the separate two, never a fabricated 12-case PASS epoch.
+The later actual integrated dual183 executions are distinct new epochs.
+
+The first SECONDARY combined183 preflight fails the origin guard before
+collection: **zero cases, zero artifacts**, no model/target execution. Its old
+editable PEP420 `scripts` namespace is a harness-origin failure, not an ONNX
+feasibility result. The reviewed v3 namespace bootstrap changes no source,
+dependency or environment package. The primary v2 epoch is retained unchanged;
+a freshly released secondary v3 epoch passes all 183 cases. Both failed epochs
+and their terminal/source pins remain preserved.
+
+### Actual regression failures and final qualification
+
+The first complete PRIMARY execution (`full-v1`) finishes **10,204 PASS /
+26 FAIL of 10,230 cases**, zero errors/skips. It remains a failed epoch. The
+subsequent `full-v2` and `full-v3` packets perform **collection only** and are
+never claimed as full executions.
+
+The first both-stack focused14 execution finishes **1,879 PASS / six FAIL of
+1,885 cases per stack**. After reviewed fixture/capture changes, focused15-v1
+finishes **1,931 PASS / six FAIL of 1,937 cases per stack**. Its failed key-array
+weakness capture is an actual failure; GPT numerics were not reached in that
+epoch. A separately reviewed **one-line** diagnostic correction reads
+`jax.typeof(value).weak_type`, preserving typed-key payload provenance, other
+source bytes, original models and criteria.
+
+The resulting focused15-v2 execution passes **1,937 cases / 5,811 phases on
+each supported stack**, with zero failures/errors/skips. Independent acceptance
+binds the actual terminal receipts, every phase, saved artifacts/arrays, original
+GPT model and strict comparisons, and the still-failed Sign reports. The actual
+complete PRIMARY v4 then passes **10,237 cases / 30,711 phases**, with zero
+failures/errors/skips; all four worker schedules match the released collection
+and controller observations. Full-v4 uses the
+explicitly released CPUs 8–11 for collection and CPUs 4–11 for execution.
+All **923 Python / 163 other input pins** hold.
+
+Independent readiness review accepts the finite focused/full code checkpoint.
+Actual normal code commit **`11748451`** then passes **all seven normal hooks**,
+with exact 86 committed Python blobs, all qualified input bytes held through
+hooks and commit, and clean worktree at commit verification. The earlier
+`1533d60b` full/hook result remains acceptance of its preceding source epoch.
+Passing regression diagnostics do not reclassify any known numerical failure.
+
+### Next gates
+
+The fresh original-six follow-through uses the qualified post-elementary
+immutable snapshot. ROOT's release binds the original six IDs and unchanged
+model source/state/criteria. **Both-stack collections PASS with six exact IDs
+each and zero factory/native/trace/export/ORT calls**; collection alone is not
+model qualification.
+
+The actual first PRIMARY cell (`onnx_functions_014` ordinal 0, caller x64 off)
+finishes **one test FAIL, zero errors/skips, terminal exit 1**. The export itself
+**COMPLETES**: one ONNX artifact passes schema/ports validation and one body
+manifest is saved; one export returns and zero raise. All **32 scheduled native
+evaluations and their 32 outputs** are captured before assertions, with **two
+restored-native evaluations** and **47 NPZ archives** retained. Source, maps and
+import origins hold. **Zero ORT constructors/sessions/runs** occur.
+
+The unchanged original raw graph callback remains **FAILED**: root inputs
+`in_0`, `in_2`, `in_3`, `in_4` and `in_5` are unused, and the expected top-level
+`SuperBlock_1:5x10x3` path is absent while the root contains If.
+
+Offline review verifies a **wrapper-scope mismatch**, not dropped inputs. Root
+`If(in_1)` branch GraphProto bodies lexically capture `in_0`, `in_2`, `in_3`,
+`in_4` and `in_5`; each branch calls SuperBlock. The checker only examines
+direct root nodes. The original six parameter payloads match their recorded
+formal/state positions. Native bodies retain LayerNorm → 3-to-6 Linear →
+Erfc-based exact GELU. The true branch forwards counts/keys; the false branch
+increments each count and preserves keys.
+
+The completed bounded composition review finds no dropped-input, swapped-
+parameter, dead-mask, crossed-stream or state-feedback mismatch. All **30
+deterministic / 42 stochastic Function equations** are independently proved
+alpha-equivalent to the **unpatched prepared trace**, including typed operands,
+literal hashes, nested Bernoulli/uniform operations and output/count/key
+positions. In the serialized ONNX, all six parameter positions are exact.
+Mask 1 uses only count1/key1 and selects zero versus GELU/0.9 before the second
+MatMul. Mask 2 uses only count2/key2 and selects zero versus second-Linear/0.9
+before output. Each stream has its own count Add and unchanged key; deterministic
+state is forwarded. These are bounded composition/position proofs, not a full
+expansion-level equivalence proof for every serialized node.
+
+Full **BODY_FIDELITY remains UNVERIFIED**: complete Threefry/bitcast/Erfc
+expansion equivalence across the **1,725 serialized stochastic nodes** was not
+reproved. **Target numerics remain UNVERIFIED**, with zero target execution.
+Keep the original raw callback **FAILED**, specifically for its direct-root/
+lexical-If blind spot. This external follow-through does not change separately
+accepted code `11748451`.
+
+The capture-first protocol retains its original **35-native/two-trace/one-export
+first-cell ceiling with zero ORT**. Next, perform a bounded **offline expansion-
+correspondence check** using the saved artifact and already-qualified primitive
+lowerings, then review a scoped wrapper-aware structural counterpart. Preserve
+the raw callback failure, original models and criteria. These checks require no
+new trace/export, tolerance change or ORT execution and establish no continuation
+or target acceptance by themselves. Remaining cells and complete-model
+acceptance stay open.
+
+Continue all remaining original-model, normalization graph-contract,
+fixed-source preparation, optional-model, low-precision and scientific FP64
+work. All B–F gates and the final ordinary source-preserving public UX over
+**all existing functionality and fixed third-party sources** remain required.
+A permanent mode/profile selector, source substitution, per-operation LEGACY
+fallback or loss of existing capability does not complete the migration.
+Public behavior stays **LEGACY**.
+
+Canonical local receipts (provenance, not tracked execution dependencies):
+
+| Evidence | Receipt | SHA-256 |
+| --- | --- | --- |
+| Actual ROOT dual183 proof | `/tmp/jax2onnx-elementary-root-integration-v1/root-actual-dual183.json` | `43abfe3e8812e7b6f4563a09d5fbefb7105d1ec5b5d58461ca7d581d94c28a35` |
+| Independent actual dual183 acceptance | `/tmp/jax2onnx-astra-dual183-evidence-review-v1/review-dual183.json` | `577c0a7b4462865b49607fc221380b7906ae6a73e97ae145d74ab2c3ac252e4c` |
+| Independent direct Gather/scalar call checks | `/tmp/jax2onnx-astra-dual183-evidence-review-v1/direct-target-calls-review.json` | `1159c7c8767c6da7e9c45c96629a5371648a989c67bf7f120b706d12c6a33685` |
+| Exact65-source application | `/tmp/jax2onnx-elementary-root-integration-v1/root-application.json` | `c594c3290cd5025687ca0d60d7187a4464c9989060e147b00fa4b2d3531998e3` |
+| Later seven-file scope-test application; production unchanged | `/tmp/jax2onnx-elementary-root-integration-v1/root-scope-test-repair-application.json` | `2cbf19f3ecfbe4face11a6c3f04001f6ab852982c86680d0c31b99ad12979354` |
+| Retained failed author12 terminal | `/tmp/jax2onnx-source-elementary-v7-author-primary-root-v1/root-actual-terminal.json` | `d13929124597494738932e81594ca8dc6ac2870151c45905baecef66e1b622f6` |
+| Independent author12 saved-byte review | `/tmp/jax2onnx-astra-symbolic-asin-structural-review-v1/actual-author12-review.json` | `01a0475757669a47533777e1c90543cebf87324e71b2d2bb65284d5dec5e43b3` |
+| Narrow structural repair and retry2 preparation | `/tmp/jax2onnx-symbolic-asin-structural-repair-v1/MANIFEST.json` | `12559986a2f0626f4ceecbb3e520a62ee1f091f1713478bcd93c3452211611d0` |
+| Actual symbolic2/aggregate-five author review | `/tmp/jax2onnx-astra-symbolic-asin-structural-review-v1/actual-symbolic2-and-aggregate5-review.json` | `afee63d6f6fb5784719e5aa1390bec60030d62e44d6a44f5c7eee37bf9452c02` |
+| Retained failed secondary preflight | `/tmp/jax2onnx-elementary-root-integration-v1/combined183-secondary-v1/root-actual-terminal.json` | `9f898ca133e7a8a2ef0184e8b7b7a248f53a61466f152cd94dd42e59c69ded51` |
+| Earlier original-six static preparation only | `/tmp/jax2onnx-original6-astra-preparation-review-v1/review-v2-preparation.json` | `ed226b1f4a080061cba36c3cae6ae059e7a952557256ec7d133134dfb6c045f9` |
+| Pinned repository-config formatting bridge, AST identical | `/tmp/jax2onnx-elementary-root-integration-v1/root-pinned-format-proof.json` | `64e2f7fe3f0f738aa0d6d1d2105fce95f918f79e96b8e2c25ef92c4a15b52b52` |
+| Actual pinned Black25/Ruff72 PASS, separate from normal hooks | `/tmp/jax2onnx-elementary-root-integration-v1/root-style72-pass.json` | `cef09361a3fdfe0732beb6a0bea5ea25b37d2d6be97fbab2b16983bcb34beec7` |
+| Actual final code commit and normal hooks | `/tmp/jax2onnx-elementary-root-integration-v1/root-code-commit-11748451.json` | `2484a32bf442fcffb22692da11764526619f554779ce936015f302db1a747b74` |
+| Independent actual dual focused15-v2 acceptance | `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-dual-focused15-v2-acceptance.json` | `b0b664c821bc9eeaf73f3177dc868d6e8ceb13a90b4f10ca0df54088327bd42f` |
+| Independent actual complete PRIMARY-v4 readiness | `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-full-primary-v4-code-checkpoint-readiness.json` | `449e6c5b4afcc18be5366dfca9aa6643aa8b8f9dc5e082a739bde91983a2487d` |
+| Independent original GPT bounded evidence | `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-focused15-v2-original-gpt-bounded-evidence-review.json` | `1eeab1f73baac783555b5de106a202108128789e99c834a6ea87b6099dae0a73` |
+| Retained failed full-v1 actual terminal | `/tmp/jax2onnx-elementary-root-integration-v1/checkpoint-full-primary-v1/root-actual-run-terminal.json` | `29af615fc973bfb72900f0dfa19f8c85e1fe92cf674659c8b59318184ef63ffa` |
+| Retained failed focused14-v1 summary | `/tmp/jax2onnx-elementary-root-integration-v1/root-actual-dual-focused14-v1-failed.json` | `f5adfe7c846ddb3daafc42cb3f4cf9f1ae167271c8d3217a3f1e39f93579b8f7` |
+| Retained failed focused15-v1 summary | `/tmp/jax2onnx-elementary-root-integration-v1/root-actual-dual-focused15-v1-failed.json` | `684f7c9be7fc8a7f424da6cd70435e8a34b8b5ad1a482525ba32aa391f149ff0` |
+| Actual one-line key weakness correction | `/tmp/jax2onnx-elementary-root-integration-v1/root-key-array-weakness-v1-application.json` | `aeedbd8feece5c32bfc6613c55b78bfb974ea5ac20c42a878ac46704a4e98f6b` |
+| Original-six bounded fresh release | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/release.json` | `2cd22f65d84895c34d56bc7e4854ed28ffa470dce1342f40a0ddb2fc7a85cfc0` |
+| Original-six actual dual collection only | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/root-actual-dual-collections.json` | `138d6c962b8f47ef22426ee258fa3058df6fee7a8eef652bd3933e577cd051ea` |
+| Original-six actual first terminal, export complete / raw callback FAILED | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/root-actual-first-terminal.json` | `34bcdb8a650ff50da38c637a54568595f71cbbc0f83404f0b2f51cf18de19bec` |
+| Original-six actual first raw receipt | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/results/primary/first/receipt.json` | `d8e0560b444637b5731bbe3ea142819915cff56281c7dc76d0cf8b8fb5fe19c1` |
+| Original-six actual first log | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/results/primary/first.log` | `dbe4224c0c79609099a0a1374251bd07f4d65089d13f66dab7e162c53fa9fd00` |
+| Next external loop-admission candidate, not current implementation | `/tmp/jax2onnx-source-loop-admission-candidate-v1/MANIFEST.json` | `1f7a6481ad06240200e0bd3671bca9a3597afe920df3c09d8a5cb93ea40e60f0` |
+| Original-six actual saved ONNX artifact, no target execution | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/results/primary/first/tmp/test_original_normalized_model0/explicit-state/source.onnx` | `1e67c8d21e34d26522892b751cab6fa042f819f6611060d16f5c060e1cf773c6` |
+| Original-six actual source trace | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/results/primary/first/tmp/test_original_normalized_model0/explicit-state/source-trace.json` | `20333feef7aa6859c4606c98dbaddd4b0535c8113875fef827fd15ff6600ea17` |
+| Original-six observed native source traces | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/results/primary/first/tmp/test_original_normalized_model0/explicit-state/observed-source-native-traces.json` | `6ea28cf4d37cbe983c0777b880f753646808991c711bae890b7db9ad4c06715f` |
+| Original-six saved artifact body manifest | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/results/primary/first/tmp/test_original_normalized_model0/explicit-state/artifact-fidelity.json` | `f83f2805ff93e8f53019f5cc7ae44120fda2c8fb647196bdfea1ff304a5470ea` |
+| Original-six unchanged raw callback FAILED | `/tmp/jax2onnx-elementary-root-integration-v1/original6-after-elementary-v1/results/primary/first/tmp/test_original_normalized_model0/explicit-state/raw-callback.json` | `677c3e47e4351b4103b19e1433450ced351bd9e840c5e421895ed4fdc35e8102` |
 
 ## Tensor index, Erfc and optional inventory checkpoint
 

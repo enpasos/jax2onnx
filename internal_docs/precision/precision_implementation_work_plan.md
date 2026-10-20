@@ -5,40 +5,46 @@ source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 
-Current accepted code checkpoint: the prior ROOT selection retains **786 cases /
-2,358 phases PASS per stack** on unchanged production. Separate final-byte
-qualification of the accepted test repair passes **29 cases / 87 phases per
-stack**, zero failures/errors/skips, with held current **919 Python / 163 other
-input hashes**. The shared private
-pipeline implements the bounded common tensor/index families and Erfc
-graph/schema support at opsets 23/26, with finite original GPT_MLP FP32 numerical
-evidence under both caller-x64 settings. The complete PRIMARY suite passes
-**10,047 cases / 30,141 phases**, with zero failures/errors/skips, matching
-collections and held current pins. Local code checkpoint **`1533d60b`** passes
-all seven normal code hooks. Independent final review **accepts this finite
-code checkpoint** and its retained scope limits. The
-[canonical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
-binds the passing result and preserves earlier accepted checkpoints and failed
-epochs.
+The integrated private elementary/reduction selection passes **183 cases /
+549 phases per supported stack**, zero test failures/errors/skips, with
+independent review of actual source, artifacts and saved comparisons. This is
+finite implementation evidence: eight original Sign numerical reports remain
+**FAILED**, 44 original composition artifacts remain numerically **UNVERIFIED**,
+and both Gather raw graph callbacks remain **FAILED** while their separate
+finite numerical predicates pass. The [canonical checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+binds the scope, new Asin controls and retained failed epochs.
 
-The configured Erfc CPU numerical evidence covers **opset 23 only**; opset 26
-has graph/schema evidence and unverified CPU numerics. These positive scopes
-do not close the strict seven-output or
-native-agreement gates, both **FAILED** on the FP32/FP64 subnormal prefix
-contradiction. FP16/BF16 numerics remain **UNVERIFIED**. Production FTZ and runtime
-policy are unchanged. Remaining original-model, normalization graph-contract,
-general fixed-source preparation, low-precision and scientific FP64 obligations
-retain their full acceptance gates.
-Public behavior stays **LEGACY** until the full B–F contract is complete.
+Local code checkpoint **`11748451`** is committed: the complete PRIMARY suite
+passes **10,237 cases / 30,711 phases**, and the focused selection passes
+**1,937 cases / 5,811 phases on each supported stack**, with zero test
+failures/errors/skips in those executions. All seven normal code hooks pass;
+86 committed Python paths (63 production and 23 test/support) match the qualified
+bytes, all **923 Python / 163 other input pins** hold through hooks and commit,
+and the worktree is clean at commit verification. The focused and full results
+have independent finite-checkpoint acceptance. These results retain the separate
+failed numerical gates; they do not complete the precision migration.
 
-Next, assess the separate
-172-case elementary/reduction candidate, whose bounded static delta is accepted
-for ROOT validation but remains **unintegrated and not ROOT-qualified**. Its
-detached PRIMARY author epoch records 169 passes / three failures across 172
-cases; the canonical findings preserve those failed target scopes. Rerun the original six-Function-model follow-through after Erfc;
-the old Erfc barrier does not identify a downstream barrier after this change.
-Continue the full existing-functionality contract below without a profile-limited
-finish or permanent mixed public precision interface.
+Next, review the fresh original-six first artifact offline. The immutable
+post-elementary snapshot passes both-stack collection of the six exact original
+IDs, with zero runtime calls during collection. The actual first PRIMARY cell
+then returns one schema/ports-validated artifact and body manifest, captures all
+32 scheduled native outputs plus two restored-native evaluations, and **fails
+the unchanged original raw graph callback**. Body fidelity and target numerics
+remain **UNVERIFIED**, with zero ORT sessions/runs. Offline review verifies the
+wrapper-scope mismatch, lexical If captures, original parameter positions and
+recorded state-branch behavior. Both masks, second Linear and all 30 deterministic/
+42 stochastic Function equations are verified against the unpatched prepared
+trace. Full body fidelity still lacks complete serialized Threefry/bitcast/Erfc
+expansion correspondence across 1,725 stochastic nodes. Check that offline using
+the saved artifact and already-qualified lowerings, then review a scoped
+wrapper-aware structural counterpart while preserving the raw callback failure
+and original model/criteria. This adds no trace, export or target acceptance. This external
+follow-through does not reclassify code checkpoint `11748451`. Keep original-model and normalization graph contracts,
+whole-carrier MLIR, general fixed-source preparation, optional models,
+FP16/BF16 rounding and scientific FP64 open under the full B–F gates. Strict
+Erfc full/native comparisons remain failed; production FTZ/runtime policy and
+criteria are unchanged. Public behavior stays **LEGACY**, with no
+profile-limited finish or permanent mixed public precision interface.
 
 ## Completion contract
 
@@ -123,7 +129,7 @@ ordinal, name, feature bits, opset and complete contract, plus 45 retained
 MaxText and five retained MaxDiffusion rows. These are obligations, not
 SOURCE-pass counts. Inventory SHA-256:
 `b875cf3a8169c2919c425eb9d5f11fda9396020945d7ffc4164fb748e153474c`.
-The [current findings](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
+The [retained inventory findings](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
 record the initial six import-only CLI attempts and the supplementary failed
 secondary MaxDiffusion defaults attempt. The configured secondary environment
 is still incomplete; the 50 optional SOURCE/model/numerical obligations remain
@@ -136,8 +142,14 @@ unique named IDs. These are historical core counts, not the current optional
 completion denominator. Name collisions require provenance; deduplicate only
 after proving equivalence. The original 310 symbolic rows, 22 runtime-parameter
 rows, seven NCHW rows and 41 nondefault-normalization rows remain obligations.
-Original opsets span 9, 16, 18, 19, 21, 22, 23, 24 and 27; a private 23/26
-restriction cannot define completion. Earlier manual totals and accepted code
+Original opsets span 9, 16, 18, 19, 21, 22, 23, 24 and 27. Generic SOURCE
+admission currently accepts 16, 18, 21, 23, 24, 26 and 27, subject to the owning
+operation/type restrictions; an internal opset subset cannot define completion.
+Product `scan`/`while` admission remains a frozen external candidate, unapplied
+and uncommitted. Its five existing/two new paths and 121 forecast cases have not
+been collected or runtime/typing/dual-qualified; existing source-loop tests use
+diagnostic admission. Qualifying that prepared implementation checkpoint follows
+the original-six follow-through; it supplies no current product support. Earlier manual totals and accepted code
 checkpoints remain in the canonical findings and ledger below.
 
 | Migration classification | Completion meaning |
@@ -388,6 +400,7 @@ planning work is separate from production-code ownership.
 | Named NNX Function state | Carry real trace-local owner state and preserve updates, RNG handling, aliases and restoration through named calls. | Independent v9 finite acceptance: 13 new and 45 retained cases per stack; all six original model cells reach the next matrix barrier without target execution. The complete primary suite passes 9,557 tests, the secondary selection passes 58 and all seven normal hooks pass. [NNX findings](poc/source_integration_findings.md#nnx-function-state-checkpoint). | `437d41fe`; finite scope |
 | Normalization options and tensor matrices | Preserve all 30 original normalization callables with a bounded native-reference qualifier and reviewed SOURCE graph counterparts; admit the tested matrix compositions. | Actual options 131, focused 159, matrix 44 and retained 348 pass on both stacks. Final primary suite (9,667 cases) and all seven normal hooks pass; six corrected checks pass on each stack, with the earlier unchanged-production secondary selection (721 cases) pass retained separately. Earlier full/six failures remain recorded. [Joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration). | `39ddee8c`; finite scope |
 | Common tensor/index, Erfc and optional inventory | Preserve the bounded common families, source-typed Erfc representation, original GPT_MLP FP32 contract and all 50 optional inventory obligations. | Retained ROOT 786 cases / 2,358 phases PASS per stack on unchanged production, plus separate final-byte 29-case / 87-phase PASS per stack; complete PRIMARY suite PASS: 10,047 cases / 30,141 phases, zero failures/errors/skips and current pins held. Full-seven-output/native Erfc gates remain failed and configured secondary optional imports remain incomplete. [Current findings](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint). | `1533d60b`; all seven normal code hooks pass; independent final code-evidence review accepts the finite checkpoint |
+| Elementary/reduction and owning Asin | Preserve original native elementary/reduction contracts and typed lowerings; retain same-width Asin arithmetic, fixed source/feeds/criteria and all raw callback/Sign limits. | Independently accepted actual 183 cases / 549 phases per stack; 352 validated / nine failed samples, including eight known Sign failures and one intentional corruption; 44 compositions remain numerical UNVERIFIED. Subsequent scope/fixture/capture repairs retain original models and criteria. [Current findings](poc/source_integration_findings.md#elementary-and-reduction-checkpoint). | `11748451`: full PRIMARY 10,237/30,711 PASS; focused 1,937/5,811 PASS per stack; all seven normal hooks PASS, 923 Python / 163 other pins held, exact 86 committed Python files and clean worktree at commit verification; no complete-secondary or migration-completion claim |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
