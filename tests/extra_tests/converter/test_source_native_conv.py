@@ -4,7 +4,7 @@
 
 Raw metadata criteria remain None. Exact numerical controls below belong only
 to their declared dyadic samples, after original unpatched eager/JIT references.
-The unchanged complete CNN remains an explicit obligation at its next blocker.
+The unchanged complete CNN is maintained by the native pooling follow-up tests.
 """
 
 from dataclasses import replace
@@ -728,40 +728,11 @@ def test_all_other_original_conv_rows_remain_explicit_unaccepted_obligations(
 
 @pytest.mark.parametrize("ordinal", [0, 1])
 @pytest.mark.parametrize("x64", [False, True])
-def test_unchanged_complete_cnn_retains_its_actual_next_blocker(
-    ordinal: int, x64: bool, record_property: Any
+def test_unchanged_complete_cnn_exports_source_with_separate_raw_callback(
+    ordinal: int, x64: bool, tmp_path: Path, record_property: Any
 ) -> None:
-    metadata = source.raw_source_case("example::examples.nnx::CNN", ordinal)
-    assert metadata["testcase"] == (
-        "simple_cnn_static" if ordinal == 0 else "simple_cnn"
+    from tests.extra_tests.converter.test_source_native_cnn_pool import (
+        assert_original_cnn_source,
     )
-    assert metadata["input_shapes"] == [(3 if ordinal == 0 else "B", 28, 28, 1)]
-    assert metadata["expected_output_shapes"] == [(3 if ordinal == 0 else "B", 10)]
-    assert metadata["run_only_f32_variant"] is True
-    recipe = metadata["callable"]
-    assert recipe._dtype is None and recipe._instance is None
-    scenario = source.raw_source_scenarios(
-        metadata, source.SourceProvenance("example::examples.nnx::CNN", ordinal)
-    )[int(x64)]
-    if ordinal == 1:
-        scenario = replace(scenario, concrete_shapes=((3, 28, 28, 1),))
-    prepared = source.prepare_source_case(metadata, scenario)
-    assert scenario.criteria is prepared.criteria is None
-    assert prepared.reference_outputs[0].shape == (3, 10)
-    assert prepared.reference_outputs[0].dtype == np.float32
-    with source.source_configuration(scenario):
-        with pytest.raises(SourcePrecisionError) as error:
-            ui._to_onnx(
-                prepared.fn,
-                prepared.input_specs,
-                opset=23,
-                precision_policy=PrecisionPolicy.SOURCE,
-            )
-    assert error.value.primitive == "nnx.relu"
-    assert error.value.category == "profile-exclusion"
-    record_property("actual_cnn_blocker", str(error.value))
-    record_property("raw_callback_status", "not-executed")
-    record_property("numerical_acceptance", "unverified; original criteria=None")
-    assert (
-        metadata["post_check_onnx_graph"] is prepared.metadata["post_check_onnx_graph"]
-    )
+
+    assert_original_cnn_source(ordinal, x64, tmp_path, record_property)

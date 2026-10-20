@@ -132,9 +132,9 @@ def validate_loop_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) -> 
 
     inputs, outputs = _signature(eqn.invars, site), _signature(eqn.outvars, site)
     site.require(
-        site.opset in ({23, 26} if site.primitive == "scan" else {18, 23, 26}),
+        site.opset in ({21, 23, 26} if site.primitive == "scan" else {18, 23, 26}),
         "loop carrier opset is outside the audited existing routes",
-        "forward scan at opset23/26 or while at opset18/23/26, with every child operation retaining its version checks",
+        "forward no-xs scan at21, forward scan at23/26 or while at18/23/26, with each child retaining its operation/type checks",
     )
     if site.primitive == "while":
         fields = {"cond_jaxpr", "body_jaxpr", "cond_nconsts", "body_nconsts"}
@@ -246,6 +246,11 @@ def validate_loop_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) -> 
             )
         else:
             nc, nk, nx = scan_arity(eqn.params, len(body.invars))
+        site.require(
+            site.opset != 21 or nx == 0 and eqn.params["unroll"] == 1,
+            "scan sequence inputs or unrolling are outside the original scientific route",
+            "forward no-xs Scan at21 with native unroll=1; all original const/carry/stacked-output roles remain exact",
+        )
         step_inputs, step_outputs = _signature(body.invars, site), _signature(
             body.outvars, site
         )

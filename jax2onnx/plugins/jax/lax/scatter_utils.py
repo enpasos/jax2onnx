@@ -20,6 +20,8 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
@@ -466,19 +468,19 @@ def _prepare_updates_for_scatternd(
 def _flatten_updates_after_permute(
     ctx: Any,
     updates_perm_val: ir.Value,
-    num_updates: ir.Value,
-    num_updates_vec: ir.Value,
+    filtered_num_updates: ir.Value,
+    original_num_updates_vec: ir.Value,
     window_total: ir.Value,
     window_total_vec: ir.Value,
     *,
     gather_idx: ir.Value | None = None,
 ) -> tuple[ir.Value, ir.Value, ir.Value, ir.Value]:
-    """Reshape permuted updates tensor to ``(N, window_total)`` and flatten."""
+    """Reshape all N windows before gathering and flattening the valid K rows."""
 
     reshape_updates_shape = _builder_op(
         ctx,
         "Concat",
-        [num_updates_vec, window_total_vec],
+        [original_num_updates_vec, window_total_vec],
         name_hint="scatter_updates_reshape_shape",
         dtype=ir.DataType.INT64,
         shape=(2,),
@@ -507,7 +509,7 @@ def _flatten_updates_after_permute(
         )
 
     total_updates = _mul_scalars(
-        ctx, num_updates, window_total, "scatter_total_updates"
+        ctx, filtered_num_updates, window_total, "scatter_total_updates"
     )
     total_updates_vec = _unsqueeze_scalar(
         ctx, total_updates, 0, "scatter_total_updates_vec"
@@ -1191,7 +1193,7 @@ def _lower_scatter_window_full(
 
     batch_rank = max(len(indices_shape) - 1, 0)
     indices_i64 = _cast_to_i64(ctx, indices_val, "scatter_indices_i64")
-    indices_2d, num_updates = _reshape_indices_to_2d(
+    indices_2d, original_num_updates = _reshape_indices_to_2d(
         ctx, indices_i64, batch_rank, len(scatter_axes)
     )
     (
@@ -1235,11 +1237,14 @@ def _lower_scatter_window_full(
             attributes={"perm": tuple(perm)},
         )
 
+    original_num_updates_vec = _unsqueeze_scalar(
+        ctx, original_num_updates, 0, "scatter_original_num_updates_vec"
+    )
     operand_shape_val = _shape_of(ctx, operand_val, "scatter_operand_shape")
     (
         indices_2d,
         updates_perm_val,
-        num_updates,
+        filtered_num_updates,
         gather_idx,
     ) = _filter_fill_or_drop_updates(
         ctx,
@@ -1248,17 +1253,23 @@ def _lower_scatter_window_full(
         scatter_axes=scatter_axes,
         size_scalars=size_scalars,
         operand_shape_val=operand_shape_val,
-        num_updates=num_updates,
+        num_updates=original_num_updates,
         mode=mode,
     )
 
-    num_updates_vec = _unsqueeze_scalar(ctx, num_updates, 0, "scatter_num_updates_vec")
+    filtered_num_updates_vec = (
+        original_num_updates_vec
+        if gather_idx is None
+        else _unsqueeze_scalar(
+            ctx, filtered_num_updates, 0, "scatter_filtered_num_updates_vec"
+        )
+    )
 
     updates_flat, _, total_updates, total_updates_vec = _flatten_updates_after_permute(
         ctx,
         updates_perm_val,
-        num_updates,
-        num_updates_vec,
+        filtered_num_updates,
+        original_num_updates_vec,
         window_total,
         window_total_vec,
         gather_idx=gather_idx,
@@ -1277,13 +1288,13 @@ def _lower_scatter_window_full(
     )
 
     zero_column, column_shape = _create_zero_column(
-        ctx, num_updates_vec, "scatter_zero_column"
+        ctx, filtered_num_updates_vec, "scatter_zero_column"
     )
     base_matrix = _build_base_matrix(
         ctx,
         indices_2d,
         scatter_axes,
-        num_updates_vec,
+        filtered_num_updates_vec,
         zero_column,
         column_shape,
         size_scalars,
@@ -1295,7 +1306,7 @@ def _lower_scatter_window_full(
         ctx,
         base_matrix,
         window_offsets,
-        num_updates_vec,
+        filtered_num_updates_vec,
         window_total_vec,
         operand_rank,
         total_updates_vec,
@@ -1321,7 +1332,11 @@ def _lower_scatter_window_full(
     _copy_value_dtype(out_val, operand_val)
     _ensure_value_metadata(ctx, out_val)
     axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
-    if axis0_extent and axis0_extent > 1:
+    if (
+        ctx.precision_policy is PrecisionPolicy.LEGACY
+        and axis0_extent
+        and axis0_extent > 1
+    ):
         set_axis0_override(out_val, axis0_extent)
     return True
 
@@ -1465,7 +1480,11 @@ def lower_scatter_elementwise(
             axis0_extent = _maybe_static_extent(
                 operand_shape[0] if operand_shape else None
             )
-            if axis0_extent and axis0_extent > 1:
+            if (
+                ctx.precision_policy is PrecisionPolicy.LEGACY
+                and axis0_extent
+                and axis0_extent > 1
+            ):
                 set_axis0_override(result, axis0_extent)
             ctx.bind_value_for_var(out_var, result)
             return
@@ -1483,7 +1502,11 @@ def lower_scatter_elementwise(
         _copy_value_dtype(result, operand_val)
         _ensure_value_metadata(ctx, result)
         axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
-        if axis0_extent and axis0_extent > 1:
+        if (
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and axis0_extent
+            and axis0_extent > 1
+        ):
             set_axis0_override(result, axis0_extent)
         ctx.bind_value_for_var(out_var, result)
         return
@@ -1504,7 +1527,11 @@ def lower_scatter_elementwise(
     _copy_value_dtype(out_val, operand_val)
     _ensure_value_metadata(ctx, out_val)
     axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
-    if axis0_extent and axis0_extent > 1:
+    if (
+        ctx.precision_policy is PrecisionPolicy.LEGACY
+        and axis0_extent
+        and axis0_extent > 1
+    ):
         set_axis0_override(out_val, axis0_extent)
         set_axis0_override(produced, axis0_extent)
 
@@ -1560,19 +1587,40 @@ def lower_scatter_common(
     unique_indices = bool(params.get("unique_indices", False))
     ensure_supported_mode(mode)
 
-    operand_val = ctx.get_value_for_var(
-        operand_var, name_hint=ctx.fresh_name("scatter_operand")
-    )
-    indices_val = ctx.get_value_for_var(
-        indices_var, name_hint=ctx.fresh_name("scatter_indices")
-    )
-    if updates_override is None:
-        updates_val = ctx.get_value_for_var(
-            updates_var, name_hint=ctx.fresh_name("scatter_updates")
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        operand_val = ctx.require_value_for_var(operand_var)
+        indices_val = ctx.require_value_for_var(indices_var)
+        updates_val = ctx.require_value_for_var(updates_var)
+        if updates_override is not None:
+            raise ValueError("SOURCE native scatter does not substitute update values")
+        for var, value in (
+            (operand_var, operand_val),
+            (indices_var, indices_val),
+            (updates_var, updates_val),
+        ):
+            if not representation_for_aval(var.aval).matches_ir_value(value):
+                raise ValueError(
+                    "SOURCE Scatter operand differs from its native representation"
+                )
+        out_val = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("scatter_out")
         )
     else:
-        updates_val = updates_override
-    out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("scatter_out"))
+        operand_val = ctx.get_value_for_var(
+            operand_var, name_hint=ctx.fresh_name("scatter_operand")
+        )
+        indices_val = ctx.get_value_for_var(
+            indices_var, name_hint=ctx.fresh_name("scatter_indices")
+        )
+        if updates_override is None:
+            updates_val = ctx.get_value_for_var(
+                updates_var, name_hint=ctx.fresh_name("scatter_updates")
+            )
+        else:
+            updates_val = updates_override
+        out_val = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("scatter_out")
+        )
 
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     indices_shape = tuple(getattr(indices_var.aval, "shape", ()))

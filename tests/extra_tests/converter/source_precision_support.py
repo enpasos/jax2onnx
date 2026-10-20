@@ -17,6 +17,7 @@ from enum import Enum
 import hashlib
 import json
 from numbers import Integral
+from pathlib import Path
 from typing import Any, Final, Literal, TYPE_CHECKING
 
 import jax
@@ -329,6 +330,7 @@ def raw_source_scenarios(
     provenance: SourceProvenance,
     *,
     criteria: SampleCriteria | None = None,
+    preserve_supplied_properties: bool = False,
 ) -> tuple[SourceScenario, SourceScenario]:
     """Freeze one original input recipe for both raw caller configurations.
 
@@ -344,7 +346,23 @@ def raw_source_scenarios(
             raise SourcePreparationError("input_shapes and input_dtypes lengths differ")
         specs = tuple(
             jax.ShapeDtypeStruct(
-                tuple(shape), np.float32 if dtypes is None else dtypes[index]
+                tuple(shape),
+                (
+                    dtypes[index]
+                    if dtypes is not None
+                    else (
+                        _typed_input_spec(supplied[index]).dtype
+                        if preserve_supplied_properties
+                        and supplied is not None
+                        and _typed_input_spec(supplied[index]) is not None
+                        else np.float32
+                    )
+                ),
+                weak_type=(
+                    bool(getattr(supplied[index], "weak_type", False))
+                    if preserve_supplied_properties and supplied is not None
+                    else False
+                ),
             )
             for index, shape in enumerate(shapes)
         )
@@ -968,7 +986,23 @@ def _export_prepared(
     prepared: PreparedSourceCase,
     *,
     diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
+    artifact_observer: Callable[[onnx.ModelProto], None] | None = None,
+    facade_return_observer: Callable[[Any], None] | None = None,
+    output_directory: Path | None = None,
 ) -> onnx.ModelProto:
+    return_mode = (
+        prepared.metadata.get("return_mode", "proto")
+        if output_directory is not None
+        else "proto"
+    )
+    output_path = prepared.metadata.get("output_path")
+    recording = prepared.metadata.get("record_primitive_calls_file")
+    if output_directory is not None:
+        # Destinations are explicit evidence sinks; original metadata is retained.
+        if return_mode == "file":
+            output_path = str(output_directory / "facade-return.onnx")
+        if recording is not None:
+            recording = str(output_directory / "primitive-calls.json")
     model = user_interface._to_onnx(
         fn=prepared.fn,
         inputs=prepared.input_specs,
@@ -978,14 +1012,35 @@ def _export_prepared(
         input_names=prepared.metadata.get("input_names"),
         output_names=prepared.metadata.get("output_names"),
         normalization_mode=prepared.metadata.get("normalization_mode", "auto"),
-        return_mode="proto",
+        inputs_as_nchw=prepared.metadata.get("inputs_as_nchw"),
+        outputs_as_nchw=prepared.metadata.get("outputs_as_nchw"),
+        record_primitive_calls_file=recording,
+        export_mode=prepared.metadata.get("export_mode", "standard"),
+        return_mode=return_mode,
+        output_path=output_path,
         precision_policy=PrecisionPolicy.SOURCE,
         diagnostic_jaxpr_validator=diagnostic_jaxpr_validator,
     )
+    if facade_return_observer is not None:
+        facade_return_observer(model)
+    try:
+        if isinstance(model, ir.Model):
+            model = ir.to_proto(model)
+        elif isinstance(model, str):
+            model = onnx.load_model(model)
+    except Exception as exc:
+        if facade_return_observer is not None:
+            raise SourcePreparationError(
+                "Actual facade return needs a supported normalization/readback adapter",
+                category="replay-lane-gap",
+            ) from exc
+        raise
     if not isinstance(model, onnx.ModelProto):
         raise SourcePreparationError(
-            "Shared SOURCE facade did not return its declared protobuf artifact"
+            "Shared SOURCE facade did not return its declared artifact"
         )
+    if artifact_observer is not None:
+        artifact_observer(model)
     report = get_precision_report(model)
     if report is None:
         raise SourcePreparationError(

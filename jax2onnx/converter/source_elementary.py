@@ -76,14 +76,71 @@ ELEMENTARY_OPERATIONS: Final = (
 def validate_original_elementary_opset(
     inputs: Sequence[_Tensor], outputs: Sequence[_Tensor], site: _Site
 ) -> None:
-    """The finite original Div21 / approximate-GELU18 expression schemas.
+    """Operation/type intersections at the unchanged original opsets18/21.
 
-    Exact GELU18 still reaches the owning Erfc gate. This adds no implicit
-    operator upgrade, matrix/PRNG eligibility, or BF16 support at old opsets.
+    The scientific21 intersection adds native FP64 field/window operations.
+    Exact GELU18 still reaches the owning Erfc gate. There is no implicit
+    upgrade, matrix/PRNG eligibility, or BF16 support at these old opsets.
     """
     if site.opset not in (18, 21):
         return
     name = site.primitive
+    if site.opset == 21:
+        # Explicit schema/type intersections for the original scientific model.
+        # Carriers retain their owning native roles and recurse into real bodies.
+        real = {"float32", "float64"}
+        storage = real | {"bool", "int32", "int64"}
+        scientific = {
+            **dict.fromkeys(
+                (
+                    "add",
+                    "sub",
+                    "mul",
+                    "div",
+                    "neg",
+                    "sqrt",
+                    "square",
+                    "abs",
+                    "sign",
+                    "reduce_sum",
+                ),
+                real | {"int32", "int64"},
+            ),
+            **dict.fromkeys(("min", "max"), {"float64"}),
+            **dict.fromkeys(
+                (
+                    "reshape",
+                    "broadcast_in_dim",
+                    "convert_element_type",
+                    "slice",
+                    "squeeze",
+                    "concatenate",
+                    "dynamic_slice",
+                    "gather",
+                    "select_n",
+                    "eq",
+                    "ne",
+                    "lt",
+                    "le",
+                    "gt",
+                    "ge",
+                    "scan",
+                    "remat2",
+                ),
+                storage,
+            ),
+            **dict.fromkeys(
+                ("scatter", "scatter-add", "scatter-mul"), real | {"int32", "int64"}
+            ),
+        }
+        if name is None or name in scientific:
+            allowed = storage if name is None else scientific[name]
+            site.require(
+                all(value.dtype in allowed for value in (*inputs, *outputs)),
+                "dtype is outside the scientific opset21 operation/type intersection",
+                "the owning operation's native FP32/FP64 data and Boolean/INT32/INT64 structural roles at21",
+            )
+            return
     site.require(
         name is None
         or name
@@ -282,9 +339,15 @@ def validate_elementary_equation(
         if name in {"min", "max", "clamp"} and dtype in _FLOATS:
             site.require(
                 dtype != "bfloat16"
-                and (site.opset == 23 or name == "max" and site.opset == 16),
+                and (
+                    site.opset == 23
+                    or name == "max"
+                    and site.opset == 16
+                    or site.opset == 21
+                    and dtype == "float64"
+                ),
                 "floating minimum/maximum requires the scoped signed-zero lowering",
-                "the measured FP16/FP32/FP64 Min at 23 or Max at 16/23 route",
+                "FP16/FP32/FP64 Min at23 or Max at16/23, or the scientific FP64 signed-zero selection at21",
             )
     else:
         site.require(

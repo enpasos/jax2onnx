@@ -914,38 +914,44 @@ class ScanPlugin(PrimitiveLeafPlugin):
             _relax_value_for_var(loop_ctx, state_input, var)
             state_inputs.append(state_input)
 
-        loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
-        loop_extent_vec = _unsqueeze_scalar(
-            loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
-        )
         trip_count_val: ir.Value | None = None
-        extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
-        if not isinstance(extent_hints, dict):
-            extent_hints = {}
-            setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-        extent_hints.setdefault(0, []).append(loop_extent_vec)
-        scatter_static_extent = _static_scatter_extent(jaxpr) if has_scatter else None
-        if has_scatter:
-            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
-        if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
-            print("[loop_hint_static]", scatter_static_extent, flush=True)
-        if scatter_static_extent is not None:
-            setattr(loop_ctx, "_force_loop_extent_axis0", True)
-            setattr(loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent))
-            override_scalar = _scalar_i64(
-                loop_ctx,
-                int(scatter_static_extent),
-                "scan_loop_extent_override",
+        scatter_static_extent = None
+        if ctx.precision_policy is PrecisionPolicy.LEGACY:
+            loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
+            loop_extent_vec = _unsqueeze_scalar(
+                loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
             )
-            override_vec = _unsqueeze_scalar(
-                loop_ctx,
-                override_scalar,
-                0,
-                "scan_loop_extent_override_vec",
+            extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+            if not isinstance(extent_hints, dict):
+                extent_hints = {}
+                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+            extent_hints.setdefault(0, []).append(loop_extent_vec)
+            scatter_static_extent = (
+                _static_scatter_extent(jaxpr) if has_scatter else None
             )
-            axis_hints = extent_hints.setdefault(0, [])
-            axis_hints.clear()
-            axis_hints.append(override_vec)
+            if has_scatter:
+                setattr(loop_ctx, "_loop_extent_hints_enabled", True)
+            if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
+                print("[loop_hint_static]", scatter_static_extent, flush=True)
+            if scatter_static_extent is not None:
+                setattr(loop_ctx, "_force_loop_extent_axis0", True)
+                setattr(
+                    loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent)
+                )
+                override_scalar = _scalar_i64(
+                    loop_ctx,
+                    int(scatter_static_extent),
+                    "scan_loop_extent_override",
+                )
+                override_vec = _unsqueeze_scalar(
+                    loop_ctx,
+                    override_scalar,
+                    0,
+                    "scan_loop_extent_override_vec",
+                )
+                axis_hints = extent_hints.setdefault(0, [])
+                axis_hints.clear()
+                axis_hints.append(override_vec)
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
             print(
                 "[scan_no_xs_state]",
@@ -1440,47 +1446,53 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
             sequence_states.append(seq_state)
 
-        extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
-        if has_scatter and sequence_states:
-            seq_state = sequence_states[0]
-            seq_shape = _shape_of(loop_ctx, seq_state, "scan_seq_state_shape")
-            loop_extent_scalar = _gather_int_scalar(
-                loop_ctx, seq_shape, 0, "scan_loop_extent_seq"
+        scatter_static_extent = None
+        if ctx.precision_policy is PrecisionPolicy.LEGACY:
+            extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+            if has_scatter and sequence_states:
+                seq_state = sequence_states[0]
+                seq_shape = _shape_of(loop_ctx, seq_state, "scan_seq_state_shape")
+                loop_extent_scalar = _gather_int_scalar(
+                    loop_ctx, seq_shape, 0, "scan_loop_extent_seq"
+                )
+                loop_extent_vec = _unsqueeze_scalar(
+                    loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
+                )
+                if not isinstance(extent_hints, dict):
+                    extent_hints = {}
+                    setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+                extent_hints.setdefault(0, []).append(loop_extent_vec)
+                setattr(loop_ctx, "_loop_extent_hints_enabled", True)
+            scatter_static_extent = (
+                _static_scatter_extent(jaxpr) if has_scatter else None
             )
-            loop_extent_vec = _unsqueeze_scalar(
-                loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
-            )
-            if not isinstance(extent_hints, dict):
-                extent_hints = {}
-                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-            extent_hints.setdefault(0, []).append(loop_extent_vec)
-            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
-        scatter_static_extent = _static_scatter_extent(jaxpr) if has_scatter else None
-        if scatter_static_extent is not None:
-            setattr(loop_ctx, "_force_loop_extent_axis0", True)
-            setattr(loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent))
-            if not isinstance(extent_hints, dict):
-                extent_hints = {}
-                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-            override_scalar = _scalar_i64(
-                loop_ctx,
-                int(scatter_static_extent),
-                "scan_loop_extent_override",
-            )
-            override_vec = _unsqueeze_scalar(
-                loop_ctx,
-                override_scalar,
-                0,
-                "scan_loop_extent_override_vec",
-            )
-            axis_hints = extent_hints.setdefault(0, [])
-            axis_hints.clear()
-            axis_hints.append(override_vec)
-            trip_count_val = _scalar_i64(
-                ctx,
-                int(scatter_static_extent),
-                "scan_trip_extent_static",
-            )
+            if scatter_static_extent is not None:
+                setattr(loop_ctx, "_force_loop_extent_axis0", True)
+                setattr(
+                    loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent)
+                )
+                if not isinstance(extent_hints, dict):
+                    extent_hints = {}
+                    setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+                override_scalar = _scalar_i64(
+                    loop_ctx,
+                    int(scatter_static_extent),
+                    "scan_loop_extent_override",
+                )
+                override_vec = _unsqueeze_scalar(
+                    loop_ctx,
+                    override_scalar,
+                    0,
+                    "scan_loop_extent_override_vec",
+                )
+                axis_hints = extent_hints.setdefault(0, [])
+                axis_hints.clear()
+                axis_hints.append(override_vec)
+                trip_count_val = _scalar_i64(
+                    ctx,
+                    int(scatter_static_extent),
+                    "scan_trip_extent_static",
+                )
         scan_input_vars = jaxpr.invars[
             num_consts + num_carry : num_consts + num_carry + num_scan
         ]

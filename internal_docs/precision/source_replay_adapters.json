@@ -1,0 +1,4154 @@
+{
+  "counts": {
+    "B_only_rows": 296,
+    "opaque_rows": 63,
+    "raw_rows": 1852,
+    "symbolic_rows": 310
+  },
+  "inventory_sha256": "b875cf3a8169c2919c425eb9d5f11fda9396020945d7ffc4164fb748e153474c",
+  "rows": {
+    "example::examples.eqx_dino::Attention::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b6edd6830fbb9a019d7bacbe078cbd85320233ca4abd1abec91fba2ebd2a8928",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.eqx_dino::AttentionCore::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ea6d8f6c7fab785a98941d54722b2926789b2edd59d74e81b40992e64d304e9d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.eqx_dino::Block::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "24c03c52dd19352a30fd0a8ba04fed055d632ec6da8bd33d4a8dcc2066e3c34d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.eqx_dino::DINOv3VisionTransformer::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "219b776662072e69d45c89159b307192f820e10804286fbb0c739ff98a0f2f62",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.eqx_dino::DINOv3VisionTransformer::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4b795907b09e01b963ab1d552a324240a133a9b42ea97803a9857d93e499e9a3",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.eqx_dino::DINOv3VisionTransformer::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "83ad7fc451b8c7958cd437272d2e0d094a3ff057aca61714d22b13033b13129e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.eqx_dino::DINOv3VisionTransformer::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "00f2dfadd9067896619f012d3198d729ab5ed0260de394340e8a570a8f8fc114",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.eqx_gpt_oss::AttentionBlock::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "2e23364548b4dc5b20ac0bd51caee3be3c8c7d0fd8c99df24970a5a6cc1a62cb",
+      "original_unresolved_recipes": [
+        "contract.callable.kwargs.config: unsupported jax2onnx.plugins.examples.eqx.gpt_oss.GPTOSSConfig"
+      ]
+    },
+    "example::examples.eqx_gpt_oss::MLPBlock::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "ccb99a2592b836e5aef3b812130568eea8567beb32fd99d9891f26b003b4a209",
+      "original_unresolved_recipes": [
+        "contract.callable.kwargs.config: unsupported jax2onnx.plugins.examples.eqx.gpt_oss.GPTOSSConfig"
+      ]
+    },
+    "example::examples.eqx_gpt_oss::RMSNorm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b719fe653a2a377cd83af3549eac516b1155aa4979e341633d61269e26d10409",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.eqx_gpt_oss::Transformer::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "ae5e0d4c1ca8919f24b40bc687ea7120a1b0e9219968e247fdfa70436bb7752b",
+      "original_unresolved_recipes": [
+        "contract.callable.kwargs.config: unsupported jax2onnx.plugins.examples.eqx.gpt_oss.GPTOSSConfig"
+      ]
+    },
+    "example::examples.eqx_gpt_oss::TransformerBlock::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "da2061685596875db1f8703b0890b05dec7f7b6b6fe38e8dbe32231af395ace7",
+      "original_unresolved_recipes": [
+        "contract.callable.kwargs.config: unsupported jax2onnx.plugins.examples.eqx.gpt_oss.GPTOSSConfig"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c5709eafd7a65c680110b5f8b351db49534522eabf7273eb31467eccb975246d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT_CausalSelfAttention::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c1a0147b344af308da827b0e4e0b01020db0b573a1de2d34f504ba8d6c63330d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT_Embeddings::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4b8fd79db25a4dbce61069df37d5da8d0cce81f5ddf1480295e92c775a15964d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT_Head::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f5db88becc0a34a0626fad18cce6d2a8c8bf796e3cfa283cebfafe745417b410",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT_MLP::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "faf258485b7a1bf4a97e1a56b87e9fb472ad8eba84b973b8e303dd925c69e21a",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT_TokenEmbedding::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "6e20868e69feb8281961e65a0ecbbab35f469d0c79530f9c54f32c509acd59d7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT_TransformerBlock::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "7dd3d5813b788033f8a1957f69c7c777b3a16035474724f1aa5747fd372f5ca4",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT_TransformerStack::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "3c744db92fdc624842ffc5f1d08e6122a78b988d72bb2c2231f5c13d88e3041a",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.gpt::GPT_broadcast_add::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "9e20b6c83c9e519b7e51a85d92c3f7a89a9ec759212f661eeb21c70cfc1c489c",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.linen::LinenCNN::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "43f57c5497e207cce20ce9a3b1399dc982eae88f8b8b4ac0950359e9edd03c56",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.linen::LinenMLP::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "86e9ad0634bc93debba903b39e955fc1f4ad4530de1c340001ec8d080f779d09",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.linen::LinenMLP::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c302629899c4bbc09191f12419e672e5ffbb01b11d4af27653fe15d8ec6e892c",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.linen::LinenMLPSequential::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b9b39908b54259c1c76c653966fc7ad1decb2ec97cfb115db855ad0c0a548d50",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx::CNN::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "25b548e5964831433856396f4346453a527e370816b78770c0301eb193326b54",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx::DepthToSpaceResNet::2": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "2e0bbd6fd72340a0258eb0a865cd276f70127d060341e13dec0df62b29561ff9",
+      "pending_symbols": [
+        "H",
+        "W"
+      ],
+      "samples": []
+    },
+    "example::examples.nnx::MLP::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0c1715100070c9f415595958153f8fe9fc411776c25fea2832c59b6edc527458",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx::MLP::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "d3853463d2292865810e762ec68e580bb20e11f2220176af2c99da80b2b37163",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx::MultiHeadAttention::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "6e205474321181c029edeef49b12c52de1a4cb3972fa11261ad2260987d688be",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx::MultiHeadAttention::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b7ee18747a8581b6089149770467286d6cbe5c9fe05dd1d534a1f85fccd83c5e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx::MultiHeadAttention::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "d8281ff3e6e8af6bb35ab6a1ad6ff55343e1ce723182ba99be4051f449273d64",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx::MultiHeadAttention::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4ee31ff264dc83ab3ca950383ae2a093a1a09b874ceabeda444c219040c6a406",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx::ResBlock::2": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "e760f9d5100d90921873a24b7ae777d7c31ff0f84528cd5a0b52fc73673cfcfc",
+      "pending_symbols": [
+        "H",
+        "W"
+      ],
+      "samples": []
+    },
+    "example::examples.nnx::ResBlock::3": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "3f1fea2c634fae610cf9f0d20e31373bc50b184fe7577c3f768e4d410c63d2fe",
+      "pending_symbols": [
+        "H",
+        "W"
+      ],
+      "samples": []
+    },
+    "example::examples.nnx::SequentialReLU::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "d5074f41059508975151d2a2f555baa492b7f0282e1736048c4187b8ea5f6fbd",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported flax.nnx.helpers.Sequential"
+      ]
+    },
+    "example::examples.nnx::TransformerDecoderWithSequential::1": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "1fd350a694012c5ccd3fa62eb72d58ee2c29883be89bb06a542d5929f872ae4d",
+      "pending_symbols": [
+        "B",
+        "H",
+        "X"
+      ],
+      "samples": []
+    },
+    "example::examples.nnx::TransformerDecoderWithSequential::3": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "27294392a2fbb6a4d97b950d1f7e8a48d049245c67a250973caf477f4f468d09",
+      "pending_symbols": [
+        "B",
+        "H",
+        "X"
+      ],
+      "samples": []
+    },
+    "example::examples.nnx_dino::FlaxDINOv3VisionTransformer::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a72c5a3665ca0b837c612a2f0eb14d1d0c91103fcd9ed4ad04485267ed058b84",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx_dino::FlaxDINOv3VisionTransformer::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f8f43693a342159a3ddfaa92f90021722cebbf31d17b8840ec4224bc9df32c54",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx_dino::FlaxDINOv3VisionTransformer::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c6691dee445c4f2bbc0571a5b03b120883dcf338f32c1637f24be42810810603",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx_dino::FlaxDINOv3VisionTransformer::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5a959a0645c45f4cb4101ecec006d3da519b577c8cabab3f814b9d49c8c7ed4b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx_dino::NnxDinoAttention::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b14db06a8aaa07260239d76b6253542230820fe4bf8b852aeecec3fdb28db3ae",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx_dino::NnxDinoAttentionCore::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "3503dc6c37dc2a9cdadfa85f4df0e237a3e3e40559efa1801e3701a84c554e24",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx_dino::NnxDinoBlock::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5eefdd78e92fe13d59591e787e0b16d946d4dbe6cea6a0ac4fad773eccdcab9b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx_gpt_oss::FlaxAttentionBlock::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "ec08c23470bb2bfe2862bbf560c830df0ba49ea8322b93c7fa4a89154bed3662",
+      "original_unresolved_recipes": [
+        "contract.callable.kwargs.config: unsupported jax2onnx.plugins.examples.nnx.gpt_oss_flax.GPTOSSConfig"
+      ]
+    },
+    "example::examples.nnx_gpt_oss::FlaxMLPBlock::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "428033dcd9bbf4604ae64f91401fe76d8f66a521742a4d414c81dd377a914c08",
+      "original_unresolved_recipes": [
+        "contract.callable.kwargs.config: unsupported jax2onnx.plugins.examples.nnx.gpt_oss_flax.GPTOSSConfig"
+      ]
+    },
+    "example::examples.nnx_gpt_oss::FlaxRMSNorm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "02b6582471a3b2f4e443543e2ab6021decd720bd62ad3cea2a11e43178934834",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.nnx_gpt_oss::FlaxTransformer::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "d4222c6ff545864612ffa5a5feb071b0e190146e9436324468de35ab1d1a2a9f",
+      "original_unresolved_recipes": [
+        "contract.callable.kwargs.config: unsupported jax2onnx.plugins.examples.nnx.gpt_oss_flax.GPTOSSConfig"
+      ]
+    },
+    "example::examples.nnx_gpt_oss::FlaxTransformerBlock::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "6405edd9d40dbfdf8044286ae3476830e075b03e0fc61a1b0fd9ed64304890bc",
+      "original_unresolved_recipes": [
+        "contract.callable.kwargs.config: unsupported jax2onnx.plugins.examples.nnx.gpt_oss_flax.GPTOSSConfig"
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_000::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "da9dc74c48041a6de4ac308ac15942e8531862a246cf3583685c0e4724911a5d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_001::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "92d8cb56fb8188b56dac2e82fec1fb34447342cbd79c15f24d5a9bcdb941cbd0",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_002::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "dcca92a3fb2f40896a989c71d5a0266f429ab80046cfdf4fa64ee5480fe8c511",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_003::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "fb898084f738a0080ffc62d7ae89db7b899627afcd1509a1fd945d4958089142",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_004::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0fe7ad811f6e378b425f6e296e5ee3de0ef00ef9d69599083242ba716a85eedd",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_005::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f060e3fafd81bbc597d43482fa1683492391177580b0a764fe575896262304db",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_006::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "185819344217d5251217f458643800ed5f95126599231f9d3474279014f691e1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_007::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f5dc78c7c18d7c95441f54ca3bfc7b2b4ca5b61c227d12564acd26230fb388c9",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_008::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5caff78cc3015ed9f5bbdc66d4939a2b2e530695ff75edd4debb2bc0b0603329",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_009::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "384816435bc75569f0410c2870afd59a4d71efc91774500d1ee3f5242b3c2bef",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_010::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "50863b66eecf0994c74b29731c136c64d2f5caf41eb1cbb119f39b32f0656d60",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_012::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "925eca028461ac5ddcaa93bab9e796b3effd681a17286dd51ac53a408510b439",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_013::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c1b7edb2fd0ad67a4e7f729cccc8b1cdae54322224b4e27f5543a462377ed7b6",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_013::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1615340315680f009626dd1e58ac6f0af334e219cde355d7c4902add6073a6e7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_014::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2ef235caff62530c27022fbd1061ed165957f8b6b4eb047fb2c44f2b0d531522",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_015::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "147b3a5de49876d467d84acd4182502fb4de6125cc5f9c87b846145b9bcdf67e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_016::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "51114e02d02a80ace04ef4549a8917c347e8bd1f301fb27388ec0d40eab23003",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.onnx_functions::onnx_functions_017::0": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "52a7c8f2c88552528849db9f514b967dca670b1192742d6730e2aac45d96d8c9",
+      "pending_symbols": [
+        "N"
+      ],
+      "samples": []
+    },
+    "example::examples.rl::ContinuousTanhPolicy::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "28152c6236861cc8b3174999832979bc7fa64187f255219c37ab5dba641e848e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.rl::DiscreteArgmaxPolicy::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ddc86ee2caa39449faf93db8cd4f6eb9604131a019ba0879ed0f62e69c2820e0",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::ClassificationHead::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c01dc059c360ae5191732b7cbcba5acd4d2fe869aa184ffb0f7aded9c23e76e3",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::ClassificationHeadFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "66cc54bb4387bfc9474ae96dd36f2e8f3e5de605b9d9621ac2b7f25c63afa62a",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::ConcatClsToken::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "09e2a8ab14bc446507225d11d603d26dcfef4750c690a8cda60c30e70558f8a6",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::ConcatClsTokenFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4a513692db0276f7017a9f0eb5eb8b4f08e0ab3cbe9d5b9817971f02c0c30f22",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::ConvEmbedding::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "17f02db168442cd93a621ce35b8dc4dacadcb263e90dfbc0ca8bc1a8aca8776d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::ConvEmbeddingFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "9c5843b4de1172a02eb06971dcb1349a299834346f31c6dad66e6910a5dfb304",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::FeedForward::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b992cc38ac140c9623c389b3aaac9bbfb8b91d8b2dc161b93a7ee8fcc132cee5",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::FeedForwardFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1bccba9e625d15af88011ed5721a07cbabb3e8e3f1cb9d59f6d22bf2eb3b5c9f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::GetToken::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b03605e1525b38e07f12adbbd13605d279632fe0ab25d88c5bb0b30f92e141dd",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::GetTokenFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ad1833bf2ac67c0d970fb9c67073357a288f9b1c8053c73cdf7853544d36e85f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::PatchEmbedding::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "138550ba585d5e49940be68c1bd4bbe7b58ef9eeede2da32cb27d885db3527f5",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::PatchEmbeddingFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "113bd4348fc95f4a976ef55aea605e66095242f9254e6e4e44f58f4722368d9c",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::PositionalEmbedding::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "d909a2e0efded77332a1d8dfd846d8fcb153a8d4ffa2b18a6b94459ae552d0f6",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::PositionalEmbeddingFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "13eae8c99a21e8cf8a4b4ae7d82f3208ebbe49892699350345268f30b938b852",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::TransformerBlock::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a8db4b1b02c0d08b0541684095c90aa2b05b199e7747180d6f08f162d2dee8d2",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::TransformerBlockFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2311a5123b155243546182795ac05a5885adc61a0ad1589a4d5838d546463e45",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::TransformerStack::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0d8c5ea4e90413ca221f67af527bb4d89a263003628561006b210a775448f338",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::TransformerStackFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2d3ee0b954a3b0f90f526c1869e19c4c528a8e0825ac095fe9cecf3d68aa0416",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::VisionTransformer::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b07c88dcdd1851761605375bc824ccf9e5dbb5e23e3e0d162f74eed92884def8",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::VisionTransformerFlatten::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "28b1abd03759d5d281267d270186049aaf6a2ce3ae1daaeb6a1806773875458e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "example::examples.vit::VisionTransformerFlatten::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0dd340184236cd76db7206425d0cfeb77a38efa318ab80d4b73c834e9a55adc8",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::broadcast_in_dim::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ce9f923d925b13528be9635a15067d947877f355c34cec8ec2f5e1c1ae806b23",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::broadcast_in_dim::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "952c90b73a380131f512ec4016187b19fcf088f0dbac2748a09adad8114bb87d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::concatenate::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "04db019dd7a41aa8e01a9b0c80ca6724fe987658a3b8f49d4fbf62226ba563ad",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::conv_general_dilated::12": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1d5f0218ddd6125b51529e88eb880e8b3a0841150611de9767dd32b6e7a3948e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::dim_as_value::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "cc76247da4167aa1d7e63a73a7333e9e189697b39e4aae7741eb3589bb638be3",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::div::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "fcc871bf378525c3f1203bb3d1a7cac8e958745c6fef8412d236ef53e88ffe62",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::dynamic_slice::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "7d8474d73107f541e5694fc5c686c626c5c5a19322b50ba5ac691fc52fc5b4be",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.adaptive_pool::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "5c4aa50af29113b7ddbd7664a7bd10558d4b1ec6c36bfd057df55fe1246d0383",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._pool.AdaptiveAvgPool2d"
+      ]
+    },
+    "plugin::eqx.nn.adaptive_pool::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "5a3efdb3313888bfc6a950d0fe279510ffdbf183b134c90070da16644925ba5f",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._pool.AdaptiveMaxPool2d"
+      ]
+    },
+    "plugin::eqx.nn.adaptive_pool::2": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "70a403a6eb8c60e54e344998232bd7b30ac44033c6aa9af9d4cc7877c6ddcd3e",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._pool.AdaptivePool"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.adaptive_pool::3": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "a61b1ace857529e158e850ac2f3d4ffb18f68f88c9551af7d664f7d05a197725",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._pool.AdaptiveAvgPool1d"
+      ]
+    },
+    "plugin::eqx.nn.avg_pool::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "20c204a074fb60ececc75b100b2c09466d4a7e66533504128889461f309650a2",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._pool.AvgPool2d"
+      ]
+    },
+    "plugin::eqx.nn.avg_pool::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "3a38aab258156825e3b0eb04cbe9a718a340ed3e05f6087872905e9657e92d25",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._pool.AvgPool2d"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.batch_norm::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "7845eb11f0542e1772561810b78967a3d8047e1d00a3f14a20437b9127427b38",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._batch_norm.BatchNorm",
+        "contract.callable.defaults.1: unsupported equinox.nn._stateful.State"
+      ]
+    },
+    "plugin::eqx.nn.conv::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "4af3027aeb642f0d7c9a2f11866a3a33ae9deb0c8f99e153d151583efd75d6a5",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._conv.Conv2d"
+      ]
+    },
+    "plugin::eqx.nn.conv::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "c8379004e4f6be4a256d4a63c1c6a0936dc9210f9744f807b304229f8dc5f1a5",
+      "original_unresolved_recipes": [
+        "contract.callable.capture.fun.capture.axis_name: unsupported builtins.object",
+        "contract.callable.capture.fun.capture.fun: unsupported equinox.nn._conv.Conv2d"
+      ]
+    },
+    "plugin::eqx.nn.dropout::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "4b7ac3297a7dd7a602d42a5e2a8efea40301efae1ddffca092d02c87c9450fd1",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._dropout.Dropout"
+      ]
+    },
+    "plugin::eqx.nn.dropout::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "22664f98502a0d30730547b7b5f4f1eef1ce5e6eee65bfb2dc79fb879448ae6b",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._dropout.Dropout"
+      ]
+    },
+    "plugin::eqx.nn.dropout::2": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "7f9d6b14ae54a436c7ff39fefedcd1f9b7d3a5bc4be6b539737ed27735c2d2c5",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.1: unsupported equinox.nn._dropout.Dropout"
+      ]
+    },
+    "plugin::eqx.nn.dropout::3": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "a60d6b3ba896ec0242ab4295995d7e68d495517190ce5e50f8eed959f4c924a2",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._dropout.Dropout"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.embedding::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "b3819c7366f663de8adfca69b294d7d91a9ba4fce49b7be6dee1fb64b80a3139",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._embedding.Embedding"
+      ]
+    },
+    "plugin::eqx.nn.embedding::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "c52c345affa557eccaf6a8fb084f3d7c5a15e10b4c56da4779c4f1ebc25e9c50",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._embedding.Embedding"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.group_norm::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "f1c5f92a712cde24b9fd14d39108e689e393cbd25085328fc9cd1cf59eaaecd4",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.GroupNorm"
+      ]
+    },
+    "plugin::eqx.nn.group_norm::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "f1c5f92a712cde24b9fd14d39108e689e393cbd25085328fc9cd1cf59eaaecd4",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.GroupNorm"
+      ]
+    },
+    "plugin::eqx.nn.group_norm::2": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "85239fbd14d361b2f906514f51b54c9e2437b871dfa4ff4e53300567bf34da4b",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.GroupNorm"
+      ]
+    },
+    "plugin::eqx.nn.gru_cell::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "8688bce427eaf5a79f495801ead6320e293f1cea7fd75c5d4a63bde5602f29d0",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._rnn.GRUCell"
+      ]
+    },
+    "plugin::eqx.nn.identity::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "710c760ccc134283547df4fe75f909c8ee97d668351f6acd87994e345e4d3f39",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._linear.Identity"
+      ]
+    },
+    "plugin::eqx.nn.identity::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "7800310802a21333d444362626821da3d61a2ed5a2607be73b3b3b32094cb67c",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._linear.Identity"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.lambda::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "1a752ce45558f35117fc1be11b8d237ea72aa527e9d232c9249123b260e3e6a5",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._sequential.Lambda"
+      ]
+    },
+    "plugin::eqx.nn.lambda::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "70e0866d35768e45cd99229520559f06702c7b6f8be4e9923fa21ef63a7ef0db",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._sequential.Lambda"
+      ]
+    },
+    "plugin::eqx.nn.layer_norm::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "28ff0cee91358c0be1ae4ea4cf2386e42620abc4d2ca545c69644d0ea5f10243",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.LayerNorm"
+      ]
+    },
+    "plugin::eqx.nn.layer_norm::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "ce9d57750c2d9a7be56dac839b7d5d7b21c6c14766d0f20efe732a23612d3135",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.LayerNorm"
+      ]
+    },
+    "plugin::eqx.nn.layer_norm::2": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "d3aeb83e25b9af77ec322414da31f61584914f3f36548f504cf85af53f54e769",
+      "original_unresolved_recipes": [
+        "contract.callable.capture.fun.capture.axis_name: unsupported builtins.object",
+        "contract.callable.capture.fun.capture.fun: unsupported equinox.nn._normalisation.LayerNorm"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.layer_norm::3": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "28ff0cee91358c0be1ae4ea4cf2386e42620abc4d2ca545c69644d0ea5f10243",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.LayerNorm"
+      ]
+    },
+    "plugin::eqx.nn.layer_norm::4": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "a07527a499f1abf95d9f1b56b92027a104114ce1f39d385ceba9a0248e483f63",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.LayerNorm"
+      ]
+    },
+    "plugin::eqx.nn.layer_norm::5": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "b14f78c4bb2d86952c05640b57fc81183312a93bdbd163429c7076021db73490",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.LayerNorm"
+      ]
+    },
+    "plugin::eqx.nn.layer_norm::6": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "0c5954fef8e22b60e77f92e6ded9f109b70ccbe7653a91e5909a0d5eb13603e1",
+      "original_unresolved_recipes": [
+        "contract.callable.capture.fun.capture.axis_name: unsupported builtins.object",
+        "contract.callable.capture.fun.capture.fun: unsupported equinox.nn._normalisation.LayerNorm"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.layer_norm::7": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "30dc566db5aad41865ea1b7bc8150fc87eeb29d8c59c65f62992eae6db8d48fb",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.LayerNorm"
+      ]
+    },
+    "plugin::eqx.nn.linear::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "f2dfa436248c81ba8a75cbb3e274084f2a2addbcafc45baf78ee7017faf06787",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._linear.Linear"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.linear::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "f2dfa436248c81ba8a75cbb3e274084f2a2addbcafc45baf78ee7017faf06787",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._linear.Linear"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.linear::2": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "bf041b3c1d7821b95ff05542a8f563d0823dea42dbae830a690ce000637ae86f",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._linear.Linear"
+      ]
+    },
+    "plugin::eqx.nn.linear::3": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "1525144d0f91dfa3837679df9278e40f8f56262c4e60cac7db38e4e7e2103a0f",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._linear.Linear"
+      ]
+    },
+    "plugin::eqx.nn.linear::4": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "bf041b3c1d7821b95ff05542a8f563d0823dea42dbae830a690ce000637ae86f",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._linear.Linear"
+      ]
+    },
+    "plugin::eqx.nn.lstm_cell::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "c7824f73536c9e84411e6e071b3526f0f8afa77d794170291e3eda497ebe5359",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._rnn.LSTMCell"
+      ]
+    },
+    "plugin::eqx.nn.max_pool::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "e082a2b9170104b0dd7b941fe04b51f644343d0db3f8725129faa0e95c11fe0a",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._pool.MaxPool2d"
+      ]
+    },
+    "plugin::eqx.nn.max_pool::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "79cc43be85192b5d0d01b937cbd6445f0fbcf228f8cd6f86de5708cca922d153",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._pool.MaxPool2d"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.multihead_attention::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0af4aeece696ca8605e1675b33b645f9c0541d673568e16f1ee3fd21c614aad4",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.multihead_attention::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "6fea4a646452786d4dd7441287dc8526b893366c7ddf363dc28dd43005d09d3d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.pool::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "8cee452c9db2e6e482c8a89814545fd411f18831315526a7c490d2265879d1c9",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._pool.Pool"
+      ]
+    },
+    "plugin::eqx.nn.pool::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "b32e258e6888588cd6b4c3e45d851bd2e7221f4bf8dd1ad2e7569ac2f478bd62",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._pool.Pool"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.prelu::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "1080822f5e6fbaf776d8941b01d3bd8db8a5e11ec3faebf26aaee857ce87ccaa",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._activations.PReLU"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.prelu::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "c4c547c3f76a1cd7ab7eacb693ef4c2de762c0970540c652a0e1b2e60d8a8607",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._activations.PReLU"
+      ]
+    },
+    "plugin::eqx.nn.rms_norm::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "e4c3a62e9afded1507287a3a71197cb366eccec9a6f8c1ff0a29725c7c6a387c",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.RMSNorm"
+      ]
+    },
+    "plugin::eqx.nn.rms_norm::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "6d3df88c55c2de733d6cd87fe323bb4b116e980cf6c884f044288c9c9c604f2e",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.RMSNorm"
+      ]
+    },
+    "plugin::eqx.nn.rms_norm::2": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "655d2319bf34b454501395a69a6bd87ef2c34ff76df5213bc41c67bb48da1291",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.RMSNorm"
+      ]
+    },
+    "plugin::eqx.nn.rms_norm::3": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "0615a151a2ba4ca6fb688df4c3d4ae5872bd4252332a9c617b3e629e0529c284",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.RMSNorm"
+      ]
+    },
+    "plugin::eqx.nn.rms_norm::4": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "2839e503220c5023f32b6a4a0e1c31d3569cb4c84e5f14f05cc1fdcbe741ecff",
+      "original_unresolved_recipes": [
+        "contract.callable.capture.fun.capture.axis_name: unsupported builtins.object",
+        "contract.callable.capture.fun.capture.fun: unsupported equinox.nn._normalisation.RMSNorm"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.rms_norm::5": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "9a4745c49e3a73471d20bf56de8301ee66fb2e971d13cef0bd8636686da49034",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._normalisation.RMSNorm"
+      ]
+    },
+    "plugin::eqx.nn.sequential::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "62fe91a9a8331a49e7d8aa84d28a9f337a9ce946da20152b7d31638c313bc8cf",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._sequential.Sequential"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.sequential::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "91caf1bbf104ae4711d72f2bc33e01de6ff31f7fdfd1504787074159ac32df57",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._sequential.Sequential"
+      ]
+    },
+    "plugin::eqx.nn.spectral_norm::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "504929beaae58cb8b9050068808e602a24521cd3accfead5fd341e7f58a837db",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._spectral_norm.SpectralNorm",
+        "contract.callable.defaults.1: unsupported equinox.nn._stateful.State"
+      ]
+    },
+    "plugin::eqx.nn.weight_norm::0": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "capture_original_object": true,
+      "contract_sha256": "bdf241988c49494d79048e7adfb7777705f51cb8a340172e00d308e0595565e4",
+      "original_unresolved_recipes": [
+        "contract.callable.defaults.0: unsupported equinox.nn._weight_norm.WeightNorm"
+      ],
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::eqx.nn.weight_norm::1": {
+      "adapter": "original-registered-dataclass-recipe-v1",
+      "capture_original_object": true,
+      "contract_sha256": "23f3e36389d24306d87d473172636be66a1ab3216b720661203f7daeaeac287a",
+      "original_unresolved_recipes": [
+        "contract.callable: unsupported equinox.nn._weight_norm.WeightNorm"
+      ]
+    },
+    "plugin::gather::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "03ad4c6011deb0b9dabd2d31fe26c91d482cab606bfa20b644e6c5eaab941607",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.celu::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "79dc1e8de5965febaed52da109f234692fb366809301b1d484cd8922eae04815",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.elu::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "584c1e31ae97df7466f65e6e603e0107f4219ef52cf68e1b24a1eb4b8a2c4ca8",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.gelu::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0f8c4e0aa695af8ea58a40b792f5c4d8fede892261b1aa1b6a21a4fdc0bbb945",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.gelu::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "dc90970fb0ae3957aa36944bda393d3f3aee9fbe2b5b29bbfec5b278b4e5b30e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.glu::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "18ea07ac7fa9d91c4258bd1b40d2df4a03ca14d490b6c71295beafa3f11d64e5",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.hard_sigmoid::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ea863b1e13e53952a1f31dc276fd2c9d59421ed85ad9b4d9a8ab5cfb0ced7208",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.hard_swish::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "e63588b84ac3bc43606a0e787ff83cfee53365bed3dcd50f5fd799aa50473a64",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.hard_tanh::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "59c38f185a701726737b6b6248eba187ab484049cd21bc0d37d5d03a8b0267ca",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.hardmax::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "54f5dfc29f998c2855eef092fa9d5d34c09efd52574b8bcf18f63a2bc872e4d8",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.identity::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bcdec2ca46b65b0b44668d248f13132a9275af5f3c50590c5404c0505936ddd7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.leaky_relu::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "824c8d3bcbc3dead0248f9437ac42ad827a742eb5fb54b226d16e885621911ed",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.log1mexp::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c9b4c7c7c23efc32aa24d0e9ec1f5df611896fb1d51eb85222b19196b2556fe2",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.log_sigmoid::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "fe3edc23532285053aa45fbeec3e289f99654904c89ca87fa557e4b72fb0923d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.log_softmax::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "aa4daaffa46339c95008647caedd1810034addae8deba5d7c9786f106f905c88",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.logmeanexp::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c6b21dc372e0fb2f4e3ca6875a0c9c7040367d94ffd4d2d73746f2a3297c4fec",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.logsumexp::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c5412bf1d425e0ac11b136fd7c305011a560c673794860ab98669cf9d720c9e1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.relu6::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "e6f4ade8c56bb6f4ca710b034d835b83681fc38bab79b019c9b97a32e9fecb81",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.relu::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "181a3f155cd310cbae770e17fc476ed0dbdbb2854a73b40c343d493c69e49123",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.selu::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a9fd9c2ed0da1e48a1090bdac2dcb1f4b1c8486b6c23f4be73be4ddb79d1293e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.silu::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "9b019aa97c0daf91b5f488216ec262b1fe069886a1a007008d65703f75a12de6",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.sparse_plus::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c367dbf63576196c05ca267057add636c4af96c8ad9e50221acdf00f61b6583f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.sparse_sigmoid::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "071cd793d80cff99957bf2e65c5489f6188f5da163040d42c0e543b2c74f6abe",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.standardize::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f1375713365eded5342344cecb50248fe9d6bebb239c5e51aae1e3dd11818163",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.tanh::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "143e1f262613663211ffa583539d254838e8002bae420c38bde76f2ee4866a23",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.nn.thresholded_relu::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2f741796bf52225d5148561786ff1f0321540365762dbe3416ccbba42d1c0a05",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.concatenate::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "faacf59c73790f947f83151f476013eb3ff2cfae77d0bc8c5052fa15295ebf54",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.concatenate::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "eea0a5295a66a989dacc708a82aa35a4c290280adb92d5b92143500139803b39",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.einsum::10": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a5e4e746b316a0fc13a5e4456f419ecfbc2b49068e41f8b6a9449f4ef5af53b2",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.einsum::11": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4f795baeb465f0eeef284fca1d02f98b24ea7b47487abff39ba5bc023f2b7576",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.einsum::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "734cb7cb38fb827456be7138027ef26e40f105fc4999277f9205a5df6f426cf7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.einsum::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c2f60d9e042661a3961e08d58207b8a115e9dd77bc36d16a59f8e9336d5ad075",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.einsum::8": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2eb272939dfc3822dca472fec5dbadca565a08860784441bdd20007ff4cd94f7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.einsum::9": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "6e468346badfff8a223b05b011f3eb6a318e35503a375d7c0d825b9a989a1ff7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.matmul::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "620115ebfa6606a2399d8d58866de0f736ee1e7f3e1a756a05c5445bf9124acc",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.matmul::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "56ba2b5913b56b5778c9d42b0c8d5fccf12a21c5ed1e7059502ed2f3df6f4b63",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.reshape::12": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "acfa01066c6a17fd4949786812576e1a695d6f4c774ba1e3305bd4cf0de66f87",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.reshape::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c50c7eb6087b2a9091b3f8c8d445c336bc99e6168d4cb759af3090560eb5180e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.reshape::7": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4f84a62b091e91d165443ce16c9380d4ff150152e6b18a7e2981254426a4a730",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.reshape::9": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "c262e304de4041f455224275d3198a8fe8152709840c1b08e9855536674a6eed",
+      "pending_symbols": [
+        "N"
+      ],
+      "samples": []
+    },
+    "plugin::jax.numpy.select::2": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "08ca5a86199b492d8b7765fee8fb679965870922879ca9399f3adb7a68d483a6",
+      "pending_symbols": [
+        "B",
+        "T"
+      ],
+      "samples": []
+    },
+    "plugin::jax.numpy.shape::1": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "7e9dbfb982ea40a59a59f7dd2d20638aba427aed207ce31def2c15351dca5cdc",
+      "pending_symbols": [
+        "B",
+        "T"
+      ],
+      "samples": []
+    },
+    "plugin::jax.numpy.size::3": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "0e82069c1069f23616888777424a51a194b0f5c04c20d60008a7759c2aaff23d",
+      "pending_symbols": [
+        "B",
+        "T"
+      ],
+      "samples": []
+    },
+    "plugin::jax.numpy.split::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "6e1a96fa1f66d4cf73118133721e8cf040be9d4e5e310c9afaaac5641005636a",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.squeeze::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "cd4b13b3290936a3b91adae6d0650bcb7d3c22cbe5606edea2a9b98a1980c756",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.squeeze::7": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "cb0046e491e62fbaeb4867e890e5b7942259eaed73dd5ac40c74c561c97e39cf",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.tile::10": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "d363b3097fe70843baef43de2de37e2b8fcdd17b02f6693b923630410c3f04b4",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.tile::14": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4c2f7bcf0df366d1fdec9a4f7ced1cd0360226e2cc96dd481f177ec0b9c5a13f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.tile::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4027d2c932fb26e1ddf0b2c0af5146240a8e781ed64c312388c251cf212dc606",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.tile::8": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f5fd589c9d5cd590cb3e6fed15e9fb1dd454a5a51bfc775916d114f5e56e8e94",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.trilu::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "7f11bc5de576220d7eb908f0efa09966ac3c47e05f9abe8dc88af1eded976e6e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.unique::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bd5dbdd6906ca06dd08a542a21cb7bba3cd4b1d7df994cc5209b3dc2df5d196b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.numpy.where::2": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "208a5370eaccf62b44420e2aab1e504015dfeb67a5e3a3a6db92fd1ebb868cef",
+      "pending_symbols": [
+        "B",
+        "T"
+      ],
+      "samples": []
+    },
+    "plugin::jax.numpy.where::6": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "208a5370eaccf62b44420e2aab1e504015dfeb67a5e3a3a6db92fd1ebb868cef",
+      "pending_symbols": [
+        "B",
+        "T"
+      ],
+      "samples": []
+    },
+    "plugin::jax.random.categorical::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "611dc977b222fac5ffde09f55c25f7ff12671d755538cbdb25ccc48d56add1c7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::jax.random.categorical::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "50bb44384d97a2bfe05bb2c4122dc6b9e231df12754bc2a61bffada73f6e6f80",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.avg_pool::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "7fb9fd33e7d17137a7b9e21d244c72fd1d0566d270ad41c51de6b9d0777671ae",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.avg_pool::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "7fb9fd33e7d17137a7b9e21d244c72fd1d0566d270ad41c51de6b9d0777671ae",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.avg_pool::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "7fb9fd33e7d17137a7b9e21d244c72fd1d0566d270ad41c51de6b9d0777671ae",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.avg_pool::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b6f85a153de4cacde86c671d5e39e143057fbd3228f8a0d619916933cb27058f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.avg_pool::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "719188eeac4dfaf82eba78cd9778586bf8a8db69063ce29adcb17523a6e4073c",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.avg_pool::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b6f85a153de4cacde86c671d5e39e143057fbd3228f8a0d619916933cb27058f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.avg_pool::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ae207f62d315a3c1cf20a01dbe2ceae11d50475213a0057a4e9306fa5d5090d9",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.avg_pool::7": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "408111bd95300e9c0a508699f77f1f54700828e7eab6da9fc785980ec6caf33d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.batch_norm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "251b5319449815f94c048ea492eaf87a8311720cafe33d8c2fe236067d7c8afa",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.batch_norm::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "7ff158198c1f4e4aacfa06431fe40e34dacf9e24c314df4b86719be904de04b9",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.batch_norm::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "aa041b2bc71f4e6c23cde854b29a9a5351462616964802d7d9e915c2f8e74d31",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.batch_norm::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "856ce8a2eb515be9ad51c44fd01bb057461757d658d0f15d92bf00a807d77a8f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.batch_norm::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "05a23e83512e6c1c576136e95f7f6a4ff6220b1636911952fd2cc9d120381532",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.batch_norm::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f18f736c1c3c2c424f61b3c58ec0ab44a76e0bc95dd2cfe57a28561e8ba9213b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.batch_norm::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b367595047eecbed4d6a39518521eaacccf48ba06c51bbe9bba5831373ee3d90",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.bidirectional::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "6c340260db57dfc6408dfb36ccbedf63c88c6c4c2f0762620eba4fc9347736ec",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.conv::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a8510023b4e2f6d06eaa94827866086e4b7dc133d29cea538bfc78a7733e4d22",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.conv_lstm_cell::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2309f195c3477818bfc3f82fb7b7d78072879595ba5c7a23c1f7da93ab320e01",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.conv_transpose::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "07aceaec279e3fe89899cab44aa2eec0c1c8dca58344ff55ec4756576bb28764",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.dense::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bad840f946ec44f6fa6fe56ffc6637a0ff303e17760fe20cb7d74e4a40a122ac",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.dense::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "35de0afea89147ee7f65a54a156116d568e95168e0182ea96b579bf5204155c2",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.dense::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a5f557a833ec7c5977539ea5ae211c3b53d0106ad049aaa1945706562917eec7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.dense_general::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "73a574949cd9d41a00e042eca7618252d2127f6d7c7627183f059567871b0939",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.dense_general::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bbbf1283c01a58baad6e357cb123d64ae032ac963a34518ad686b645f52b5801",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.dropout::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "53afd2269a77c78c536d40c34c3601bd6e6d4fa0f67b9d0158c80368c73bc536",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.dropout::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2e554d4de13a9cb58623ce4c54a8d69456d65e3da529593e92656e212a72b290",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.embed::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c3f69d0aae740951cc2fe2f739347d030ebe07c3518ffc7add0df4a553183b27",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.embed::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c0fbf28e56104141625e70c63f249a21cff5a9169c2d8867e124756845f7b11f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.group_norm::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5d051ac4510706721dea6b2dda858e7c2b52b437eb3449bc11a7e12b379f0f65",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.group_norm::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b654cdb5c4782647c34a4a0176694cc46fa0af079d205f11342bafe3e10c5df8",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.gru_cell::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "e81daabd8ef835583cb20ef2e73b03a9935d48616444b5a1ff83e4c4a66cb70c",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.instance_norm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "730b2cf783be6512cf76a0cab674764c79b2a2ad269ed9de33fcb972fdd20f41",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.instance_norm::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f5144edac8e9f1b308c3c766a11e5eb9e0e351084cfa7992e9069b139e1facdc",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.layer_norm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "32cc21c8909a3dcaf93e212dd79de063e577df743ac2c2ab0409e2965d93ed0c",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.layer_norm::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b1c8735f9f737e4e69136b0857a2a4431e01f3cea8617b87053c35b67069796b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.layer_norm::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "376a8783f49a68fbb7cc0eba3ec53303bceb962cff0a1f79b245f3d8ee70539f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.layer_norm::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ff13993a7b3a5172ae874ab70056b6c46839631a9b2dbee0448bfca8f43a5f8b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.layer_norm::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b33fe40a63fe66a7997d9ec6088908fa58a531d3a6857cc8eb65dd4d3190b3f5",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.layer_norm::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0b66d4068a2ce766b392387bcdc51ea684757682182620c0816c1c50db09926f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.layer_norm::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0894c287c2e9b96a3ecd20343ef698385245dc9e72f3bcf7cfd517d2d9055127",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.lstm_cell::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "3902faf54f82acf9c57eb31890f0732b3a6dcf93b2a7e8191675b792e38cbf1d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.max_pool::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5d42ce75c8ddd54724399522b5fcabda7e675029be8339ca63e9e292b1399019",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.max_pool::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0e3d9fce5646fd6b30e3f464cde58736b1e27813e80f2749af627d3938f41909",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.mgu_cell::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bd0dbf5330f75adf105ea7c34467dcbcff4189640d89abcc06403bf558c468cd",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.min_pool::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "410c8226eb5f1b37af47dbacf801d370c33c00a78cf5d98c81d0fab2bf44e2e5",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.multi_head_attention::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ed1c94a9f7bb8b29e7f26fbc76528e9dc9d467cd83432c59b582300a103ec5b1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.multi_head_attention::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "d831869ab84583ce10879cb48c94f80da6baf04401f5c88f7e4bb6fe06a33d67",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.multi_head_dot_product_attention::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "8ec45faae325793d70f3bc8f653a95b2b9dce20c4280e8a56bec4090a8b6f3fc",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.multi_head_dot_product_attention::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "72c45360486c0e50ea14478d19ba9238586bdf722bce55b97cb23516db9b53c1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.optimized_lstm_cell::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5fe850d46581ef3beb319ffee5b0068710080c0e1cf461b3326dfc5b93b909c0",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.pool::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "9029f5c3ff0271b19fc8c3100b80f9fa3beeea26b7981e9921c647c5726b647d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.pool::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "9029f5c3ff0271b19fc8c3100b80f9fa3beeea26b7981e9921c647c5726b647d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.pool::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "8a752dec14a6bfc23faff5f721156d2798df641c444f4bba09ab35305109ebad",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.prelu::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "253e44435e925506d3ee42de974aace69154662168528211db8e57b2483c767b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.rms_norm::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "40bc0f1e24e52bd05bd4d10b94dd06f61a01efc459daa9617666e2ce20c230fc",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.rnn::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a34c192800e6a09c8ba5008bdb9e9127cad92e6ea87acce953d55e4c59014efd",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.self_attention::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f3ff4bd30e2db5262007a05dfc6a72be7bdbae4ad1aa24f90bbfa80bd0d716d0",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.self_attention::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "41a56c418defd6830c67ea441c99b768a67c1ad1fac0a53840fec162646596f8",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.simple_cell::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "d835f3bef626c3f3a1ff3e364a07c4dec46efd84b6046ef7c0b681874b3841a5",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.spectral_norm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f2d55351772070cb40ad41a8df27ff5aa3fd3005369224887177d5bbfcb9a80e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::linen.weight_norm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "36459ddb51a2de3cbbba57190ebcfa5a6ddad1d8d0f146ee8d2d12dac04b9f83",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.avg_pool::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1fe637ec58aac86f005c25b432d3775465df662c2f1b9076af1de55854b640d1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.avg_pool::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1fe637ec58aac86f005c25b432d3775465df662c2f1b9076af1de55854b640d1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.avg_pool::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1fe637ec58aac86f005c25b432d3775465df662c2f1b9076af1de55854b640d1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.avg_pool::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "04395f14a537c96862c810d6f351f679cd9051b4abdd61a1a109be1460618c2e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.avg_pool::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "362e85004fb579a8235e1c8c082b999d1def18a75a59d295ef8928ec288041b3",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.avg_pool::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "04395f14a537c96862c810d6f351f679cd9051b4abdd61a1a109be1460618c2e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.avg_pool::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "7c7dddabeb37c1caaf05ee2f5cf4a8dcde8d6c1fb184efc3ad780fa1b742c29f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.avg_pool::7": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bedcd73c158a1fe2880479ce07107be06bd7535e4d16a34fb36ad2c235085652",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.batch_norm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "36975de416157d68683104ce6e512361debbf7743b842036cd6bdc9011931190",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.batch_norm::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "8ca2e26207dd746bf40c32053b3ef4e77d4e474ac5ab07235008062225edfe26",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.batch_norm::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "3a5bfc27dcc378e98e5dd1560c4a399f146d428f03fe7a26fca9653b05cd9e29",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.batch_norm::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b555ecd84c2726fc8ac7931e74ce9b36be77da4ac3b82490da353afba4c87924",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.batch_norm::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1bb00ae44154398c9ba756a39e99ffd7870bfe40081143dc4859cfc047973279",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.batch_norm::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5e1fc894ad090561c34836ed2aaf3dc561831f1bc3da30f908ade523db43c723",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.batch_norm::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f1adc368b3709c359d6766dec0abcf115233836e19dc59240c9f4144d1c889c7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.conv::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a7721241ac2e055574858cab1c88af98121741eee773a76ba8a49cf2af058bf0",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.conv::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bda136e45e153ec80ca8801b64dd294f89dea256034cd8a53bd637a61927454c",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.dropout::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1a03e4e351e83655aff54556b2c841068e0a3dcda44b7bb0bd3cfbf6fda7b17a",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.dropout::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "6c7e00b4e31e5d0932bf442f774e8687a0c85364f5ca5ad3c928820cb6fe030d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.elu::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c3a2c3a7df238ea9bac70161ce1af9c91aa6109845f43835ca2bb1cb65f8c401",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.embed::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a38cea6510f635eee798d1812df9f31975a1b65a9d2544dbeac0d52a47a07769",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.embed::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ee2f547df2abc37327f3623abe8f8b2b3774db3c3f443bf44da4463b60c94053",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.flip_sequences::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a5c3171f14c7a07504389b45ae55f71d1ac9bde1877ff2be304e869c59a96eb1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.gelu::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4ca98c326ee035762bea6429907cef2aed86868d45cdf3944059944a492ed0c2",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.gelu::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4ca98c326ee035762bea6429907cef2aed86868d45cdf3944059944a492ed0c2",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.gelu::7": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "69527d2469e3aa0af9e8456e3cb916c1f1fe250cf27d1e215278e9a79e5d358e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.glu::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "581a6e81149b3a4bf7b16ff15affe2a159b0423346a6fbfca6655204dc0afcae",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "699411393d84413cf6f092627ec846417453b4637944f00298a2c72a534216d0",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::10": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "6dbe56fa90548545494caa0cd432f9ad3183e9c3edeac70e7dc02f36cb206488",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::11": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b9b0aecaa81d78bc653a0aa3b317e4a6a852aad9b6d00a6d76992e6ef09a1003",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::12": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "fc079ea5ec459fe9720affd17a15177d6fee213ba8dabd3220fda6cc5b10c08a",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::13": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0936433e66936eb9b6826e2162455c0b9ce7555375f27803963ccfc36cbeb46f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::14": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ddfe19f64545be22b272eabc3fd38d63d8730b1dc182208d3628c339b905d463",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "8448d5b690c5aa75207bcf5bbdca3164780bfaa5ecb9f9dd458929d5319b9678",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "433bca9953b1124a78c24fc2fc69863149dd837448f84293b3df2a7c0e90bc0e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "762e31fe9c357b19185701c401163e1bfbcc31e24c5b5d0afa01d037b8392107",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5915ad2640e0aa462484e72ffd0f7bc0a935208755c3eb1c996f63e12586239d",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::7": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "3635f00f40309b5df589a21932086905d5426e2cf5fd9e801df2fda692946e02",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::8": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b888a2e2eba311326b49e6d503a89de0b03d79e4439322488206f9e862a119d4",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.group_norm::9": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4d6a717eee9f4a1863afd77dd153263ada81472ef996ae6c13d074217e117061",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.hard_tanh::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "12a68640c7dc0574492aeed670ccf536d568521acf2a4306f229a1e931cfd320",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "87e43b4dbd8bbb031ff0e968e0735251980b7f73e4b88bf4ec61ae22512e6e5e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "d50091c7c4db5714c72986d437af0e6ad1802ba33bc9f70177f74d7fbff1d7ec",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::10": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4da28f77eea76c24629b71bc9acf38c5ad1aec7cc2280c6f21017d25346eb573",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::11": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f547213d45d32caa75dcfa0cbe55c27b84bce9bd9ae6eea66efde23ae0fdb2fc",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::12": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "083a3b1f34988b909d14d2267e496648a18714f202f7125a93ed3c226c2d76eb",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::13": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "51a7863a574225600a8c0f435accfae27ed08870e7dbddde1ebd0a196b24eeaf",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::14": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "64b58523eb0e0fb14e5b095a7b40f91cf91ab69286c51326c29640b39d62c1c1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bf026adcbbc5742d5c768ec44c0fa3e1cd0140e3136802599c38ddf007eb2a88",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1e7329dac4c333452e0e94d7a959bec40a5a3f04e1cbe512fa3d2df17d4265b0",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "af0fc4f4485d1895af78b50057e55f54274b08867acd6c94d3fcd33e2af9cfd9",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c43ed0f5e6be4ac911313597af571d7676564f57d1206f759432e85bd4a27333",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f1134007ba577dcd5eb18f6d36cb7b8cac45f7492e89ebac09bc9c14b8545c11",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::7": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "15fd8a32e70652890df09b2f530d76b764c1a0525b8d71bc56fd4e0c87e83595",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::8": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "8fc138d204be5a200657ade547ea552d3a0843caf406140a162859b5e6561681",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.layer_norm::9": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "5803ae86668523245d20b3f70299cd4f8e6fb82ee112e2bf85911f6cb2f8647e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.leaky_relu::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "9c384b4828b2ea4a5c48816b76045375b82e6f3ccea1d70e20adc668f8c99761",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.linear::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "8c70628910c9d9bc30737e3bb959dafc3dea41c24eecfd7cc1853f076519a515",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.linear::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1cd71aad44dcd4dacd8fe905cfbdf33ace6449d76068de6b5c75ff19972ca6f1",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.linear::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "06c91c76e73a3daced2f70b65cb56d9e59797008354dababdcb3d4d2bebc77ef",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.linear::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f8b7d431126ed15e54097836becd3801f5443845d3ef663d0da9a558e1c3ac1a",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.linear::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "0103985dfdc0e23df89b7f9ebebe262e23fc7defcf53448c5a2c917aa0a0b0e8",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.linear_general::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f663f56f5f175a14b46c58c07b7bdac2441b04714cb7267eb665f9b79cde2b1b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.linear_general::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "1f38138af22dc04e497d9df46a54c393071b3d429f6fdba31a4a2a27d62b4aa9",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.linear_general::7": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "f4bfb1e139deb0ae629258c0730d2cea84de4340df86459e462794c541ba1e19",
+      "pending_symbols": [
+        "B",
+        "H"
+      ],
+      "samples": []
+    },
+    "plugin::nnx.log_sigmoid::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "53bb83e55b238b7c1f5b8219755e07ac96b560ac12f81205b14d8d15ae36096b",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.log_softmax::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "abdfa051caa206c0c8e8620fd49cdcff4320e7ceb211aee8a5e9e72b2a4ce2fe",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.lora::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "c9a17c7a5c808002abaa2e9cb56a46896e1557299ce0f224f77ccb199e76838e",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.lora_linear::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "162e97b9a6450624eaf454ba67eadaed2c137d8cd8bf53210a9efee1e7899ab8",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.lora_linear::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2257e36c14f64fbf506a8f164c30c03460ddbb088a02472b17deda480584ec26",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.max_pool::3": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "2e7bb6db24c0689a5366bdee21d38cb210e86e6691c7327b9a8d4d6516f98c95",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.max_pool::4": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "ec8dd8b8884b79c55c4190ac8c36753a656092e709b39414fc367194a4ab5953",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.prelu::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "35603bf0726ba36db7ea3b93801070a2ce5f0a353f9ab4f1bdc48bc1af5b958f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.relu::1": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f5b7b87e5e0f9d6a740a5675f39bb6733f6ad66cc5c0023255bc2042cd4a7bb4",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.rms_norm::5": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "8d0daa46835c62da248aa7f3b5015d48812e00f8bdef75118efba7b67ab46271",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.rms_norm::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "b6ff76c32dc2efc8f1998ce0ae934aec4a8531ca9f8f2580fa9792fd749586fe",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.sigmoid::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "8ceb2a4b297165d2a5000455db91622d6143a1e6a5043e40ccf1b3837614c6f4",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.silu::2": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "46200330ae82046e06fcd02177679354afdb7b3fdda7e5f5f34d27515c55bfe7",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::nnx.softmax::0": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a4cfd0196c1e1243f081f3e09ab78434755afd462ede3be361b891d50447a087",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::reshape::5": {
+      "binding_reason": "No exact reviewed binding for these named dimensions; retained replay-lane gap. No static sibling model is borrowed.",
+      "contract_sha256": "0eab70c2513ece80c109ed39714f1a89d11ab5ab7c65d10b272ffdabd3575a3d",
+      "pending_symbols": [
+        "K",
+        "M",
+        "N"
+      ],
+      "samples": []
+    },
+    "plugin::reshape::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "a5ed3cbf07e4529638b69b8f836f51558bd858fe396ae3d1fa6560a62c4dfe88",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::reshape::8": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "bce4ea1a6a6d6c9e0c8fabea2c6b37a2147dc9d713b7bd4b154c28c8bc9e57b5",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::tile::10": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "d363b3097fe70843baef43de2de37e2b8fcdd17b02f6693b923630410c3f04b4",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::tile::14": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4c2f7bcf0df366d1fdec9a4f7ced1cd0360226e2cc96dd481f177ec0b9c5a13f",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::tile::6": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "4027d2c932fb26e1ddf0b2c0af5146240a8e781ed64c312388c251cf212dc606",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    },
+    "plugin::tile::8": {
+      "binding_reason": "Explicit native sample declarations for the original atomic B; each is attempted on the same unchanged original callable. Native failure remains a failure.",
+      "contract_sha256": "f5fd589c9d5cd590cb3e6fed15e9fb1dd454a5a51bfc775916d114f5e56e8e94",
+      "samples": [
+        {
+          "B": 2
+        },
+        {
+          "B": 5
+        }
+      ]
+    }
+  },
+  "schema_version": 1,
+  "scope": "Exact internal replay sample/capture adapters, not product support, criteria or numerical acceptance. Original contracts and source objects remain unchanged."
+}

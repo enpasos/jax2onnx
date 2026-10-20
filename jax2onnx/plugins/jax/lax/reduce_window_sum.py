@@ -10,7 +10,14 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
+    NativeLoweringContext,
+)
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_pooling import validate_native_window_sum
+from jax2onnx.converter.source_profile import _Site, _tensor
+from jax2onnx.converter.source_representation import normalized_shape_dimensions
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
     _ensure_value_metadata,
@@ -218,6 +225,9 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
         _FLOAT_LIKE_DTYPES.add(np.dtype(np.bfloat16))
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            self._lower_source(ctx, eqn)
+            return
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = getattr(eqn, "params", {})
@@ -443,6 +453,97 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
             final_val = cast_out
 
         ctx.bind_value_for_var(out_var, final_val)
+
+    def _lower_source(self, ctx: NativeLoweringContext, eqn: Any) -> None:
+        """Split disjoint NHWC windows; preserve the separately traced division."""
+        site = _Site(
+            "reduce_window_sum lowering", ctx.builder.opset, eqn.primitive.name
+        )
+        inputs, outputs = (
+            [_tensor(var, site) for var in variables]
+            for variables in (eqn.invars, eqn.outvars)
+        )
+        kh, kw = validate_native_window_sum(eqn, inputs, outputs, site)
+        x = ctx.require_value_for_var(eqn.invars[0])
+        output = ctx.allocate_value_for_var(
+            eqn.outvars[0], name_hint="source_window_sum"
+        )
+        for value, tensor in ((x, inputs[0]), (output, outputs[0])):
+            if (
+                value.dtype != ir.DataType.FLOAT
+                or value.shape is None
+                or normalized_shape_dimensions(value.shape.dims) != tensor.shape
+            ):
+                raise TypeError(
+                    "SOURCE window sum physical storage differs from its native FP32 shape"
+                )
+        batch, height, width, channels = inputs[0].shape
+        height, width, channels = int(height), int(width), int(channels)
+        blocked_shape = (batch, height // kh, kh, width // kw, kw, channels)
+
+        def integers(values: list[int], hint: str) -> ir.Value:
+            return ctx.builder.add_initializer_from_array(
+                name=ctx.fresh_name(hint), array=np.asarray(values, dtype=np.int64)
+            )
+
+        if isinstance(batch, int):
+            shape = integers(
+                [int(value) for value in blocked_shape], "source_window_shape"
+            )
+        else:
+            # Read B from this actual typed operand, including inside Functions.
+            actual_shape = ctx.builder.op(
+                "Shape",
+                [x],
+                output=ir.val(
+                    ctx.fresh_name("source_window_input_shape"),
+                    dtype=ir.DataType.INT64,
+                    shape=[4],
+                ),
+            )
+            actual_batch = ctx.builder.op(
+                "Gather",
+                [actual_shape, integers([0], "source_window_batch_axis")],
+                {"axis": 0},
+                output=ir.val(
+                    ctx.fresh_name("source_window_actual_batch"),
+                    dtype=ir.DataType.INT64,
+                    shape=[1],
+                ),
+            )
+            shape = ctx.builder.op(
+                "Concat",
+                [
+                    actual_batch,
+                    integers(
+                        [height // kh, kh, width // kw, kw, channels],
+                        "source_window_tail",
+                    ),
+                ],
+                {"axis": 0},
+                output=ir.val(
+                    ctx.fresh_name("source_window_shape"),
+                    dtype=ir.DataType.INT64,
+                    shape=[6],
+                ),
+            )
+        blocked = ctx.builder.op(
+            "Reshape",
+            [x, shape],
+            {"allowzero": 0},
+            output=ir.val(
+                ctx.fresh_name("source_window_blocks"),
+                dtype=ir.DataType.FLOAT,
+                shape=blocked_shape,
+            ),
+        )
+        result = ctx.builder.op(
+            "ReduceSum",
+            [blocked, integers([2, 4], "source_window_axes")],
+            {"keepdims": 0},
+            output=output,
+        )
+        ctx.bind_value_for_var(eqn.outvars[0], result)
 
     def _apply_base_dilation(
         self,

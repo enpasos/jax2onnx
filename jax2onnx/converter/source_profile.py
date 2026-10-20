@@ -51,7 +51,12 @@ from jax2onnx.converter.source_elementary import (
     validate_static_zeros,
 )
 from jax2onnx.converter.source_loops import validate_loop_equation
+from jax2onnx.converter.source_scientific import (
+    validate_remat_equation,
+    validate_scatter_equation,
+)
 from jax2onnx.converter.source_convolution import validate_native_conv
+from jax2onnx.converter.source_pooling import validate_native_window_sum
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
     validate_source_shapes,
@@ -1928,6 +1933,7 @@ def _validate_equation(
             "erfc",
             "dot_general",
             "conv_general_dilated",
+            "reduce_window_sum",
             "jit",
             "select_n",
             "eq",
@@ -1972,6 +1978,10 @@ def _validate_equation(
         _validate_jit(eqn, site, ancestors)
     elif name in {"scan", "while"}:
         validate_loop_equation(eqn, site, ancestors)
+    elif name == "remat2":
+        validate_remat_equation(eqn, site, ancestors)
+    elif name in {"scatter", "scatter-add", "scatter-mul"}:
+        validate_scatter_equation(eqn, site, ancestors)
     elif name in {
         "random_seed",
         "random_wrap",
@@ -2173,6 +2183,8 @@ def _validate_equation(
         _validate_dot(eqn, inputs, outputs, site)
     elif name == "conv_general_dilated":
         validate_native_conv(eqn, inputs, outputs, site)
+    elif name == "reduce_window_sum":
+        validate_native_window_sum(eqn, inputs, outputs, site)
     elif name == "copy":
         _validate_copy(eqn, inputs, outputs, site)
     elif name == "reshape":

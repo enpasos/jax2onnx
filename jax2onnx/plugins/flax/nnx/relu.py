@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/relu.py
 
 from __future__ import annotations
-from typing import Any, Final, cast
+from typing import Any, Callable, Final, cast
 
 from jax2onnx._compat.jax import (
     JaxprEqn,
@@ -12,6 +12,7 @@ from flax import nnx
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -107,8 +108,19 @@ class ReluPlugin(PrimitiveLeafPlugin):
         def _patched_relu(x: ArrayLike) -> ArrayLike:
             return cast(ArrayLike, nnx_relu_p.bind(x))
 
+        def make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
+            original = getattr(orig_fn, "__j2o_nnx_relu_original__", orig_fn)
+
+            def patched(*args: Any, **kwargs: Any) -> Any:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return original(*args, **kwargs)
+                return _patched_relu(*args, **kwargs)
+
+            setattr(patched, "__j2o_nnx_relu_original__", original)
+            return patched
+
         return {
             "patch_targets": [nnx],
             "target_attribute": "relu",
-            "patch_function": lambda _: _patched_relu,
+            "patch_function": make_patch,
         }

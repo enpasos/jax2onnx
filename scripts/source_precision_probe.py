@@ -163,10 +163,15 @@ class ProbeStageEvidence:
     previous_sha256: str | None
     corpus_structure: CorpusStructureEvidence | None = None
     raw_callback_status: str = "not-executed"
+    replay_capture: Mapping[str, Any] | None = None
 
     @property
     def sha256(self) -> str:
-        return _fingerprint(asdict(self))
+        payload = asdict(self)
+        if self.replay_capture is None:
+            # Historical evidence hashes predate the general replay payload.
+            payload.pop("replay_capture")
+        return _fingerprint(payload)
 
 
 def _fingerprint(value: Any) -> str:
@@ -418,6 +423,9 @@ def execute_probe_plan(
     scenario: str | None = None,
     cases: frozenset[SourceProvenance] = frozenset(),
     _corpus_replay: bool = False,
+    raw_replay: bool = False,
+    replay_adapters: Mapping[str, Any] | None = None,
+    evidence_directory: Path | None = None,
 ) -> SourceProbePlan:
     """Run a bounded batch; unselected cells and known failures stay explicit."""
     if limit <= 0:
@@ -428,6 +436,20 @@ def execute_probe_plan(
         raise ValueError("Unknown raw scenario")
     if origins - {row.origin for row in plan.rows}:
         raise ValueError("Origin selectors must name registrations in the frozen plan")
+    if raw_replay:
+        if _corpus_replay or stage == "diagnostic":
+            raise ValueError("General raw replay is an ordinary product/prepare lane")
+        return _execute_raw_probe_plan(
+            plan,
+            registrations,
+            stage=stage,
+            limit=limit,
+            origins=origins,
+            scenario=scenario,
+            cases=cases,
+            adapters=replay_adapters or {},
+            evidence_directory=evidence_directory,
+        )
     registered = {origin: metadata for origin, _, metadata in registrations}
     if len(registered) != len(registrations):
         raise ValueError("Ambiguous raw registration provenance")
@@ -704,6 +726,260 @@ def execute_probe_plan(
             cell.history[-1].sha256 if cell.history else None,
             corpus_structure,
             raw_callback_status,
+        )
+        cells.append(replace(outcome, history=(*cell.history, evidence)))
+    return replace(plan, cells=tuple(cells))
+
+
+def _execute_raw_probe_plan(
+    plan: SourceProbePlan,
+    registrations: Sequence[tuple[str, str, Mapping[str, Any]]],
+    *,
+    stage: str,
+    limit: int,
+    origins: frozenset[str],
+    scenario: str | None,
+    cases: frozenset[SourceProvenance],
+    adapters: Mapping[str, Any],
+    evidence_directory: Path | None,
+) -> SourceProbePlan:
+    """Complete-denominator native/product observations, retaining every cell."""
+    import tempfile
+    from tests.extra_tests.converter.source_precision_raw_replay import (
+        RawReplayCapture,
+        prepare_raw_source_case,
+        replay_adapter,
+        run_raw_source_case,
+        structured_source_error,
+    )
+
+    registered = {origin: metadata for origin, _, metadata in registrations}
+    if len(registered) != len(registrations):
+        raise ValueError("Ambiguous raw registration provenance")
+    rows = {(row.origin, row.ordinal): row for row in plan.rows}
+    if any((case.origin, case.ordinal) not in rows for case in cases):
+        raise ValueError("Requested exact case is absent from the frozen plan")
+    directory = evidence_directory
+    if directory is None:
+        directory = Path(tempfile.mkdtemp(prefix="jax2onnx-raw-replay-"))
+    else:
+        directory.mkdir(parents=True, exist_ok=True)
+    selected = 0
+    cells = []
+    for cell in plan.cells:
+        if (
+            selected >= limit
+            or (origins and cell.origin not in origins)
+            or (scenario is not None and cell.scenario != scenario)
+            or (cases and SourceProvenance(cell.origin, cell.ordinal) not in cases)
+            or cell.stage not in {"scheduled", "recipe-pending", "source-prepared"}
+            or any(
+                CheckStatus.FAILED
+                in (
+                    item.source_reference,
+                    item.schema,
+                    item.artifact,
+                    item.lowering_audit,
+                )
+                for item in cell.history
+            )
+        ):
+            cells.append(cell)
+            continue
+        selected += 1
+        row = rows[(cell.origin, cell.ordinal)]
+        environment = ProbeEnvironment.observe()
+        capture = RawReplayCapture(directory / stage / _fingerprint(cell.identity))
+        prepared = None
+        result = None
+        declared = None
+        scenario_sha = _fingerprint(
+            {"identity": cell.identity, "contract": row.contract_sha256}
+        )
+        observed_settings: list[SourceSettings] = []
+        outcome = cell
+        try:
+            metadata = _resolve_case(row, registered)
+            adapter = replay_adapter(row, adapters)
+            declared = raw_source_scenarios(
+                metadata,
+                SourceProvenance(row.origin, row.ordinal),
+                criteria=row.criteria,
+                preserve_supplied_properties=True,
+            )[SCENARIOS.index(cell.scenario)]
+            if declared.input_values is not None:
+                capture.arrays("supplied-inputs", declared.input_values)
+            capture.document("adapter", adapter)
+            scenario_sha = _fingerprint(
+                {
+                    "identity": cell.identity,
+                    "contract": row.contract_sha256,
+                    "adapter": adapter,
+                    "criteria": asdict(row.criteria) if row.criteria else None,
+                }
+            )
+            prepared = prepare_raw_source_case(
+                metadata,
+                declared,
+                adapter=adapter,
+                capture=capture,
+                settings_observer=observed_settings.append,
+            )
+            outcome = replace(
+                cell, stage="source-prepared", source_reference=capture.readiness
+            )
+            if cell.history and (
+                cell.history[-1].environment != environment
+                or cell.history[-1].scenario_sha256 != scenario_sha
+                or cell.history[-1].inputs != prepared.input_evidence
+                or cell.history[-1].references != prepared.reference_evidence
+                or cell.history[-1].original_trace_json != prepared.original_trace_json
+                or cell.history[-1].actual_settings != prepared.settings
+            ):
+                outcome = replace(
+                    outcome,
+                    stage="source-drift",
+                    category="migration-gap",
+                    source_reference=CheckStatus.FAILED,
+                    detail="Original source inputs/reference/trace/settings changed; prior history retained.",
+                )
+            elif stage == "product":
+                # Ordinary validator remains active; no diagnostic adapter or ORT.
+                result = run_raw_source_case(prepared, capture=capture)
+                report = (
+                    get_precision_report(result.model)
+                    if result.model is not None
+                    else None
+                )
+                lowering = (
+                    next(
+                        (
+                            check.status
+                            for check in report.checks
+                            if check.category == "lowering"
+                        ),
+                        CheckStatus.UNVERIFIED,
+                    )
+                    if report
+                    else (
+                        capture.records.get(
+                            "product_audit_status", CheckStatus.UNVERIFIED
+                        )
+                    )
+                )
+                outcome = replace(
+                    outcome,
+                    stage=result.stage,
+                    category=result.category,
+                    schema=result.schema,
+                    artifact=(
+                        CheckStatus.VALIDATED
+                        if capture.records.get("artifact", {}).get("status")
+                        == "captured"
+                        else CheckStatus.UNVERIFIED
+                    ),
+                    lowering_audit=lowering,
+                    detail=result.audit.detail,
+                    artifact_sha256=capture.records.get("artifact", {}).get("sha256"),
+                )
+        except Exception as exc:
+            capture.failure("preparation", exc)
+            capture.records["source_error"] = structured_source_error(exc)
+            unavailable = cell.origin not in registered
+            category = (
+                "environment-unavailable"
+                if unavailable
+                else getattr(exc, "category", "replay-lane-gap")
+            )
+            lane_gap = category in {"replay-lane-gap", "environment-unavailable"}
+            outcome = replace(
+                cell,
+                stage="replay-adapter-pending" if lane_gap else "source-preparation",
+                category=category,
+                source_reference=(
+                    CheckStatus.UNVERIFIED if lane_gap else CheckStatus.FAILED
+                ),
+                detail=str(exc),
+            )
+        report = (
+            get_precision_report(result.model)
+            if result is not None and result.model is not None
+            else None
+        )
+        try:
+            supplied_evidence = (
+                tuple(
+                    value_evidence(
+                        value,
+                        _properties(
+                            value
+                            if hasattr(value, "dtype") and hasattr(value, "shape")
+                            else np.asarray(value)
+                        ),
+                    )
+                    for value in (declared.input_values or ())
+                )
+                if declared is not None
+                else ()
+            )
+        except Exception as exc:
+            capture.gap("supplied-input-evidence", exc)
+            supplied_evidence = ()
+        if (
+            capture.readiness is CheckStatus.UNVERIFIED
+            and capture.gaps
+            and outcome.source_reference is not CheckStatus.FAILED
+        ):
+            outcome = replace(
+                outcome,
+                source_reference=CheckStatus.UNVERIFIED,
+                stage="replay-capture-pending",
+                category="replay-lane-gap",
+                detail="; ".join(
+                    gap["role"] + ": " + gap["detail"] for gap in capture.gaps
+                ),
+            )
+        evidence = ProbeStageEvidence(
+            cell.identity,
+            stage,
+            row.contract_sha256,
+            scenario_sha,
+            environment,
+            cell.scenario == "raw-x64-on",
+            None,
+            (
+                prepared.settings
+                if prepared
+                else observed_settings[-1] if observed_settings else None
+            ),
+            result.export_settings if result else None,
+            prepared.original_trace_json if prepared else None,
+            (
+                hashlib.sha256(prepared.original_trace_json.encode()).hexdigest()
+                if prepared
+                else None
+            ),
+            supplied_evidence,
+            prepared.input_evidence if prepared else (),
+            prepared.reference_evidence if prepared else (),
+            outcome.source_reference,
+            CheckStatus.UNVERIFIED,
+            outcome.schema,
+            outcome.artifact,
+            outcome.lowering_audit,
+            CheckStatus.UNVERIFIED,
+            CheckStatus.UNVERIFIED,
+            outcome.stage,
+            outcome.category,
+            outcome.detail,
+            outcome.artifact_sha256,
+            report,
+            (),
+            cell.history[-1].sha256 if cell.history else None,
+            raw_callback_status=(
+                result.raw_callback_status if result else "not-executed"
+            ),
+            replay_capture=dict(capture.records),
         )
         cells.append(replace(outcome, history=(*cell.history, evidence)))
     return replace(plan, cells=tuple(cells))
@@ -1154,6 +1430,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--origin", action="append", default=[])
     parser.add_argument("--scenario", choices=SCENARIOS)
+    parser.add_argument("--evidence-directory", type=Path)
+    parser.add_argument(
+        "--replay-adapters",
+        type=Path,
+        default=REPOSITORY_ROOT / "internal_docs/precision/source_replay_adapters.json",
+    )
     parser.add_argument(
         "--case",
         action="append",
@@ -1168,6 +1450,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             or args.origin
             or args.case
             or args.scenario
+            or args.evidence_directory is not None
             or args.output is None
             or args.preparation_output is None
         ):
@@ -1213,6 +1496,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(
             "Execution needs an explicit positive --limit; default planning executes no models."
         )
+    if args.stage != "plan" and args.output is not None and args.output.exists():
+        parser.error("Retain previous batch bytes; choose a fresh --output path")
     payload = args.baseline.read_bytes()
     plan = build_probe_plan(
         json.loads(payload), baseline_sha256=hashlib.sha256(payload).hexdigest()
@@ -1226,6 +1511,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             limit=args.limit,
             origins=frozenset(args.origin),
             scenario=args.scenario,
+            raw_replay=args.stage in {"prepare", "product"},
+            replay_adapters=(
+                json.loads(args.replay_adapters.read_text())
+                if args.stage in {"prepare", "product"}
+                else None
+            ),
+            evidence_directory=args.evidence_directory,
             cases=frozenset(
                 SourceProvenance(origin, int(ordinal))
                 for origin, ordinal in (value.rsplit("::", 1) for value in args.case)

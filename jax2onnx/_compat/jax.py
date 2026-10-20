@@ -79,6 +79,13 @@ def native_jit_boolean_inline_hints() -> tuple[object, object]:
     return inline.AUTO, inline.JAX_LATE
 
 
+def native_remat_primitive() -> Primitive:
+    """Return native checkpoint identity without creating a primitive by name."""
+    from jax._src.ad_checkpoint import remat_p
+
+    return cast(Primitive, remat_p)
+
+
 def is_native_precision_pair(value: object) -> bool:
     """Recognize JAX's two native Precision enums, excluding algorithms/presets."""
     from jax import lax

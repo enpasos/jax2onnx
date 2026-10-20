@@ -142,6 +142,47 @@ obligations**. Full phases B–F still require one ordinary source-preserving
 export across every existing capability and fixed third-party source; no mixed
 public precision interface or activation is added.
 
+### Issue52 and opset-21 Min/Max test-contract correction
+
+Status: **WORK IN PROGRESS; TEST/DOCS CORRECTION AWAITS ROOT QUALIFICATION**.
+The [actual captures](/tmp/jax2onnx-cnn-scientific-root-integration-v1/root-original-scientific-and-dual-minmax-actual-captures-v1.json)
+and [independent decision](/tmp/jax2onnx-astra-issue52-minmax21-test-contract-decision-v1.md)
+support a bounded test correction. Issue52's unchanged saved PRIMARY artifact
+`339f16a5` has exact DOUBLE output shapes `(5,210,1,1)` and `(2,)`.
+All four actual-first comparisons against fresh native eager/JIT references
+satisfy the original `rtol=1e-5, atol=1e-6`; maximum absolute difference is
+`7.788436562350398e-11`. Its original structural assertion still failed.
+These measurements do not establish a SECONDARY Issue52 runtime pass.
+
+The correction permits rank-only annotations solely for unused internal
+Loop-body outputs proven to be native constant state, with matching dtype/rank
+and intact constant identity chains. Graph IO, mutable state, outer Loop and
+stacked results retain exact physical checks, as do initial-state inputs.
+Contradictory known dimensions fail. Production postprocessing and arithmetic
+are unchanged.
+
+The FP64 Min/Max witnesses check exact nonzero source operand selection
+independently of native-bitwise qualification. Fresh native eager/JIT return
+signed zeros on both measured CPU stacks; both ORT profiles select the nonzero
+operands. JAX documents [backend-dependent subnormal behavior](https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html#miscellaneous-divergences-from-numpy).
+That behavior does not establish a deliberate FTZ requirement in the typed
+source graph or an ONNX impossibility. Every unchanged native-bitwise sample
+must retain runtime execution **VALIDATED**, numerical acceptance **FAILED**
+and a raising acceptance gate, following the [opset-23 precedent](minmax_and_corpus_replay_findings.md#finite-minmax-implementation).
+A passing diagnostic confirms the unmet criterion; it does not certify native
+bitwise agreement or turn a historical failure into a pass. A caller requiring
+those native zero bits still has an unmet target requirement. Deliberate source
+conversions, rounding, criteria, public API and precision modes are unchanged.
+
+In `test_source_scientific_fp64.py`, the four historical failed IDs
+`test_fp64_minmax21_preserves_zero_polarity_nan_classes_and_subnormals[subnormal-{disabled,all}-{min,max}]`
+map to the two proposed
+`test_fp64_minmax21_subnormal_source_selection_and_native_failed_diagnostic[{min,max}]`
+IDs. Each diagnostic records both CPU profiles and both original native roles
+before assertions. Historical failed results remain retained in the linked
+captures and initial dual263 receipts; these renamed IDs are a forecast, not a
+collected or accepted runtime result.
+
 ## Historical checkpoint record
 
 The following pre-FP64 record is retained unchanged, including its then-current
