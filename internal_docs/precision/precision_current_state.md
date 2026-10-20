@@ -5,7 +5,14 @@ Public-behavior analysis baseline: 2026-10-17. Source snapshot:
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
 
-The private [CNN, pooling, scientific FP64 and raw-replay checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
+Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
+finite native/CPU qualification for static shapes at opsets 23/26. It retains
+declared pair storage and JAX's chosen width. The [latest checkpoint](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)
+separates those samples from the partial initial raw map and the **FAILED**
+ordering-kernel diagnostics. Public behavior remains **LEGACY**; all existing
+functionality, fixed sources and full B–F acceptance remain open.
+
+The preceding private [CNN, pooling, scientific FP64 and raw-replay checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
 is committed at **`118ddd8b`** after independent finite-checkpoint acceptance,
 corrected dual-stack checks, the complete PRIMARY suite and all seven normal
 code hooks. It retains the unchanged full-CNN nonzero comparison, native pooling

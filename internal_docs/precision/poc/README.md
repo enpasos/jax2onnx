@@ -1,6 +1,13 @@
 # Precision Contract Experiments
 
-The private [CNN, pooling, scientific FP64 and raw-replay checkpoint](source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
+Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
+finite native/CPU qualification for static shapes at opsets 23/26. It retains
+declared pair storage and JAX's chosen width. The [latest checkpoint](source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)
+separates those samples from the partial initial raw map and the **FAILED**
+ordering-kernel diagnostics. Public behavior remains **LEGACY**; all existing
+functionality, fixed sources and full B–F acceptance remain open.
+
+The preceding private [CNN, pooling, scientific FP64 and raw-replay checkpoint](source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
 is committed at **`118ddd8b`** after independent finite-checkpoint acceptance,
 corrected dual-stack checks, the complete PRIMARY suite and all seven normal
 code hooks. It retains the unchanged full-CNN nonzero comparison, native pooling
@@ -44,6 +51,7 @@ scopes and earlier experiments with their original evidence.
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
+| Complex Add and ordering kernels | Which declared complex widths preserve finite samples, and where do bare ordering kernels fail? | [Latest findings](source_integration_findings.md#complex-add-and-partial-ordering-checkpoint). The [standalone ordering probe](ordering_kernel_probe.py) preserves its predeclared inputs, exact criteria and FAILED results; it performs no SOURCE export or original-row replay. |
 | CNN, native pooling, scientific FP64 and raw replay | Do unchanged originals retain exact source structure and separately declared numerical criteria? | [Current findings](source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint): reviewed implementation; corrected scientific 141 cases / 423 phases pass per stack. The failed PRIMARY diagnostic1798 and its 49 raw-lane / 46 CNN controls are retained. Corrected dual37 and full PRIMARY pass; all seven normal code hooks pass and the exact 28-path checkpoint is committed at `118ddd8b`. Raw callbacks/criteria=None and native-bitwise subnormal FAILED evidence remain separate. |
 | Explicit FP64 Linear preparation | Can the unchanged full Linear receive explicitly selected FP64 computation/storage through ordinary SOURCE validation? | [Latest findings](source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint): eleven applied paths; accepted dual936/2,808 on unchanged production, fresh dual145/435 and full PRIMARY v4 10,596/31,788 PASS. Raw0/raw3 retain 24 prepared cases / 96 target returns per stack, a priori Fraction bounds, failed raw Gemm callbacks, criteria=None and UNVERIFIED reports. Full v3 failures retained; independent readiness and seven normal hooks pass, with exact qualified bytes committed at `b2a866bb`. Strict docs build passed; docs committed at `97929998`. |
 | Preceding native Conv/Scan integration | Do actual physical shapes survive child Function lowering while original sources/options remain intact? | [Latest findings](source_integration_findings.md#original-six-saved-samples-and-native-conv-integration): committed at `3223d080`; earlier failed epochs corrected and retained. V3 PRIMARY 687 PASS; SECONDARY 684 PASS/3 unchanged legacy SKIP, pytest exit 0 / strict wrapper exit 99. All 586 converter cases pass per stack; legacy post-skip numerics unexecuted. Complete PRIMARY 10,504 cases / 31,512 phases PASS, zero failures/errors/skips; all seven normal hooks pass and all 1,091 inputs hold through commit, with a clean worktree at verification. |
@@ -102,6 +110,18 @@ native-bitwise sample into numerical acceptance. General fixed sources,
 optional models, low precision and the full B–F migration remain open.
 
 ## Run it
+
+The standalone ordering feasibility probe uses the installed stack and writes
+only to a new directory outside the repository:
+
+```bash
+poetry run python internal_docs/precision/poc/ordering_kernel_probe.py --out /outside/repo/new-ordering-run --opset 23
+```
+
+It saves every native/target observation before comparison and exits nonzero
+when a selected check remains **FAILED**. Bare-kernel execution does not admit
+an operation to SOURCE or supply missing raw criteria. Its tracked executable
+body is identical to the reviewed v2 probe used for the recorded dual-stack run.
 
 The finite preparation proof is now reproducible from tracked files:
 

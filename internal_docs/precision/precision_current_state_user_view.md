@@ -21,6 +21,18 @@ not yet change how you prepare or export a model. The
 [technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
 records the exact scope, results and remaining diagnostics.
 
+Private checks now preserve same-width complex64 and complex128 addition,
+including captured values and calls through named functions. Complex128 still
+requires JAX x64 before tracing; export does not enable it or recover narrowed
+values. Other complex arithmetic and mixed widths still need implementation.
+
+Ordering diagnostics retain failed comparisons for ties, NaNs and subnormals;
+some native results also fail exact association with their original input.
+These limits do not change the public export call. See the
+[latest technical checkpoint](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)
+for the supported samples and retained failures. Full coverage, fixed-source
+workflows and the public transition remain open.
+
 Private work preserves selected loop state, runtime flags and empty results.
 All six selected original source configurations now have passing saved-artifact
 CPU samples on both supported JAX stacks, including their state and runtime

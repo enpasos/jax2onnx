@@ -1,5 +1,142 @@
 # Private source-policy integration
 
+## Complex Add and partial ordering checkpoint
+
+Status: **COMMITTED LOCAL CODE CHECKPOINT `18f3fcd7`; PRIVATE FINITE COMPLEX
+ADD QUALIFICATION; ORDERING DIAGNOSTIC FAILED; FULL MIGRATION OPEN**. Public behavior remains **LEGACY**. The following
+scopes are separate source epochs; none completes all existing functionality,
+fixed-source workflows or B–F.
+
+### Native complex Add
+
+The private route admits the actual parameter-free native Add with two operands
+and one result of the same complex width with static shapes at opsets 23/26.
+Complex64 uses
+FLOAT real/imaginary pairs and complex128 uses DOUBLE pairs. Both inputs must
+match their exact declared physical dtype/shape before lowering; complete result
+geometry comes from the native output declaration. Ordinary real trailing-two
+tensors keep their real meaning. Shared representation and strict core output
+validation remain unchanged.
+
+Finite controls cover scalar/vector/logical trailing-two/empty/broadcast shapes,
+all native weakness combinations, captured values, named/JIT scopes, real
+siblings and repeated outputs. Complex64 is checked with caller x64 both off
+and on. Complex128 is checked with x64 already effective and values that expose
+FP32 downcast; the explicit complex128/x64-off conflict and original stored
+capture controls remain. Mixed widths, real/complex mixing, other complex
+arithmetic and symbolic forms remain implementation gaps, not impossibility
+claims.
+
+The 148 added cases pass on each supported stack. The complete focused
+selection passes **2,082 cases / 6,246 unique phases per stack**, zero failures,
+errors or skips, with identical ordered IDs and source/input pins held.
+Native eager/fresh-JIT references, exact artifacts, both CPU optimization modes,
+arrays and optimized graphs are retained before acceptance assertions. The
+finite exact dyadic predicate is declared before targets; it does not establish
+provider-wide numerical behavior.
+
+The complete PRIMARY suite passes **11,032 cases / 33,096 unique phases**,
+zero failures, errors or skips. All **10,884 historical IDs** are retained in
+order with exactly **148 additions**; the actual process exits zero with source/
+input pins held (ROOT session `67393`, terminal `cfdaad`). These test results
+retain the separate FAILED numerical diagnostics described below and in history.
+
+Code checkpoint **`18f3fcd70459896905c067662eaccdcdf76e4bbf`**, parent
+`6f547bb64c3483d567ee01c8c19c9d68998ec0b9`, contains exactly the four reviewed
+and qualified paths. All seven actual normal hooks pass; all **941 Python /
+164 other inputs** retain their qualified contents through commit, and the
+worktree is clean at verification (ROOT session `20452`, terminal `103c23`,
+exit0). Fresh pinned Black/Ruff on those four Python paths, four whole-source
+policies and production mypy on **554 sources** also pass. These are finite
+checkpoint gates; the broader migration and numerical limits remain open.
+
+All six original Add caller cells per stack now pass product artifact/schema
+checks and their unchanged raw graph callbacks. These product-stage reports
+still have runtime/numerics **UNVERIFIED**; original `criteria=None` remains.
+The supplemental finite comparisons do not fabricate raw criteria, and the
+initial B000 complex exclusions remain immutable history.
+
+### Partial initial raw map
+
+The b000–b011 aggregate binds 24 actual cohorts from the preceding `118ddd8b`
+code epoch: **332 original rows / 664 caller cells per stack**, leaving **3,040
+caller cells unobserved per stack**. All original options, data, callbacks,
+criteria, and source/stage failures remain. This initial map performed no ORT
+execution; its runtime/numerical statuses remain **UNVERIFIED**. It is neither
+the full 1,852-row / 3,704-caller map nor coverage of the later complex packet.
+The six-cell Add correction above is a separate source epoch.
+
+### Ordering kernels: actual failures retained
+
+The standalone [ordering kernel probe](ordering_kernel_probe.py) compares native
+eager/fresh JIT with plain ArgMin/ArgMax/TopK kernels, using unchanged predeclared
+input words, exact index/component predicates and index/value association.
+Its tracked executable body matches the actual reviewed v2 script; relocation
+does not rerun it. These are supplemental kernels, with no SOURCE export,
+original nine-row replay or raw criterion replacement.
+
+Each stack records **32 FAILED / four passed of 36 grouped kernels** at original
+opset23 and CPU optimization off/all. The four passes are sampled BOOL ArgMin/
+ArgMax with exact BOOL-to-INT64 encoding. All native eager/JIT observations agree
+within their stack; target off/all outputs and target outputs across stacks
+agree. The failures retain these distinct causes:
+
+| Scope | Actual boundary |
+| --- | --- |
+| FP16 ArgMin/ArgMax | Later-position/multiple NaNs produce indices different from native references. Sampled finite ties, zeros, infinities and subnormals agree. |
+| FP32/FP64 ArgMin/ArgMax | NaN differences plus subnormal index differences; this is numerical behavior, not a missing CPU kernel. |
+| FP16/FP32/FP64 Approx min/max through TopK | Tied selections at k=1, NaNs and some signed-zero/exceptional selections disagree; FP32/FP64 also differ on subnormals. Unique ordinary finite rows agree. |
+| BF16 ArgMin/ArgMax | Schema passes, while both CPU modes report missing ArgMin/ArgMax(13) implementations. The probe provides typed BF16 transport; session creation fails before that transport is reached. |
+| BF16 TopK at opset23 | Schema rejects the input type and CPU reports INVALID_GRAPH; this is separate from the Arg kernel gap. |
+
+Approx top-k does not supply one portable stable tie order: the installed
+PRIMARY documentation explicitly states that tied selection is unstable, and
+both installed comparators ignore index arguments. Observed k=1 index3 versus
+TopK index0 therefore does not prove a universal native last-index policy.
+Native k=2/full results differ between stacks only on NaN-containing rows.
+The frozen stronger exact-index comparisons remain **FAILED**; no new policy
+for permitted tied subsets is introduced.
+
+A separate native association failure remains visible. FP32/FP64 Approx k=1
+returns positive zero with index4 on the recorded subnormal-1 row, whose original
+element4 has nonzero positive-subnormal word1. Both native roles fail exact
+original-byte association in all 16 corresponding checks per stack; every target
+association check passes. Exact agreement with those native words and the
+unchanged association predicate cannot both pass for that witness. This is a
+specific backend/sample conflict, not an ONNX impossibility claim. No FTZ,
+input/reference/predicate rewrite, floating cast or opset upgrade closes it.
+
+Ordering SOURCE admission stays closed. Arg NaN propagation, multiple-NaN
+selection and subnormal behavior need owning semantics; Approx needs separate
+option/comparator/selection ownership. Nondefault aggregation/recall/override
+options, other widths/shapes, x64-off behavior and broader compositions remain
+unqualified. Exact integer results cannot be accepted by widening a floating
+tolerance. The original nine rows retain opset23, options, data and
+`criteria=None`.
+
+Saved ordering summaries are under
+`/dev/shm/jax2onnx-cnn-scientific-runtime-v1/ordering-bare-kernel-dual-opset23-v2/{primary,secondary}/summary.json`.
+
+| Evidence | SHA256 |
+| --- | --- |
+| Code commit actual terminal: `/tmp/jax2onnx-complex-add-root-integration-v1/root-code-commit-18f3fcd7-actual-terminal-v1.json` | `10ede5cc115f2f22b25f0b344c226b99dfd9f711bea6a68dda84ee64264e5712` |
+| Fresh production quality: `/tmp/jax2onnx-complex-add-root-integration-v1/root-production-quality-v1.json` | `dde9f18dd81260f8e6a479470cbbc589d1f07c8e3b763b5cc9a629a024cab726` |
+| Actual focused dual terminals: `/tmp/jax2onnx-complex-add-root-integration-v1/root-dual-focused-v2-actual-terminals.json` | `38bae3d90c9ff061e60b318d8216dc9e58221909691cb97b562c86ab7bf63f35` |
+| Fresh quality and original-six product terminals | `e2336e70c6325337383efefc003254e8bf52955bd116660b67bcf153e3fadd68` |
+| Full PRIMARY actual terminal: `/tmp/jax2onnx-complex-add-root-integration-v1/root-full-primary-actual-terminal-v1.json` | `fdbbb898bc4cf6a1b3a4e501767dbd292676610e6da52dadb2e2ed8a0403bbe0` |
+| Initial b000–b011 aggregate: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/raw-first-barrier-map-b000-b011-summary-v2.json` | `4ab3f7191fe12444b8af88c72dd3e0e97736729ac8d77d080116c93a2c96e428` |
+| Actual ordering v2 PRIMARY summary | `133551d070d0f5a00ea10c2fd59a530d5cb1679928c95aa16487dee47f63a11a` |
+| Actual ordering v2 SECONDARY summary | `21c5643496f82ede7a0ddd4d206ff29b0fdca4c2081d0304b2717118cbd248bf` |
+| Executed ordering v2 script | `804cac4d0a930bb311b6b268a864b0bea751bfb22e8522379ce6859ccc8728fc` |
+| Independent ordering review: `/tmp/jax2onnx-astra-source-ordering-kernel-review-v2.md` | `dca334223132fe4de98559cd162efe3dc8c6a191169554272c4431720c53f1dd` |
+
+The earlier CNN/scientific/raw-lane checkpoint below retains its complete body
+and then-current statuses byte for byte. Its nonzero CNN predicate remains
+finite, with provider-wide guarantees **UNVERIFIED**; original raw callback
+failures/missing criteria and native-bitwise Min/Max subnormal **FAILED** evidence
+are unchanged. The full B–F migration, fixed-source coverage and public
+transition remain open.
+
 ## CNN pooling, scientific FP64 and raw replay checkpoint
 
 Status: **COMMITTED LOCAL CODE CHECKPOINT `118ddd8b`; INDEPENDENT FINITE

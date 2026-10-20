@@ -15,6 +15,18 @@ records exact results and remaining diagnostics; the
 [implementation work plan](precision_implementation_work_plan.md) defines the
 full coverage gates. No release or deadline is promised.
 
+Private checks now preserve same-width complex64 and complex128 addition,
+including captured values and calls through named functions. Complex128 still
+requires JAX x64 before tracing; export does not enable it or recover narrowed
+values. Other complex arithmetic and mixed widths still need implementation.
+
+Ordering diagnostics retain failed comparisons for ties, NaNs and subnormals;
+some native results also fail exact association with their original input.
+These limits do not change the public export call. See the
+[latest technical checkpoint](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)
+for the supported samples and retained failures. Full coverage, fixed-source
+workflows and the public transition remain open.
+
 Selected loop state, runtime flags and empty outputs have private export
 coverage. All six selected original source configurations now pass their frozen
 saved-artifact CPU comparisons on both supported stacks. These results retain
