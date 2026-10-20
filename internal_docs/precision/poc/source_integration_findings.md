@@ -1,5 +1,137 @@
 # Private source-policy integration
 
+## Canonical native capture checkpoint
+
+Status: **COMMITTED LOCAL CODE CHECKPOINT `98ace5f9`; ACTUAL AFFECTED
+DUAL-STACK, FULL PRIMARY, QUALITY AND ALL SEVEN NORMAL CODE HOOKS PASS**.
+This packet repairs
+exact source/state capture for selected native callables. It adds no SOURCE
+admission, target execution, numerical guarantee or public capability.
+Public behavior remains **LEGACY** and full B–F acceptance remains open.
+
+The adapter owns the canonical `logistic_p`, `reduce_window_sum_p` and
+`reduce_window_max_p` primitives and the `maximum`, `minimum` and `logical_xor`
+ufuncs, including their selected `bind`/`reduce` aliases and existing callable
+routes. It retains public/defining identities, class and instance state,
+Python code/defaults/closures/attributes, native JIT configuration and the
+Python cache-miss callback behind the bounded native cache interface. Typed
+scalar records distinguish Boolean/integer values and retain complete floating
+words. Unknown state and changed bindings remain explicit capture gaps;
+unowned key, annotation, descriptor and metaclass callbacks do not run merely
+to describe rejected state. Actual native outcomes and arrays are saved before
+a changed-state guard rejects further preparation.
+
+The earlier v4 affected executions remain **FAILED** on both stacks:
+**808 PASS / ten FAIL out of 818 cases**, with 2,454 phases each. Eight failures
+were fixture contamination: restoring an inherited Primitive attribute with
+`setattr` left an instance field behind. One control confused an unknown actual
+callable with a recursive metadata class token. The retained nonleading-symbol
+squeeze test and five original replay cells also exposed an unstable code hash.
+No complete PRIMARY runtime was run for that failed epoch.
+
+ROOT's independent stdlib witness on CPython 3.12.9 and 3.11.12 showed that
+retaining a nested function changes `marshal.dumps(outer.__code__)` reference
+bookkeeping while the outer code object and every constant identity remain
+unchanged. Unmarshalling yields equal code objects. The accepted v6 correction
+replaces the three code-hash sites with one exact structural fingerprint of
+the 18 public `CodeType` constructor fields, recursively typed constants and
+complete floating/complex words. Integer encoding also handles values beyond
+Python's decimal-string limit. It does not discard code, reset state or warm
+models to hide changes; private interpreter slots and universal semantic
+equivalence are outside this structural fingerprint claim.
+
+The fixture now restores exact instance-dictionary membership and checks all
+six canonical owners. Actual unsupported class callables are rejected at the
+target boundary, while recursive type metadata and the existing exact JAX
+scalar constructor adapter remain supported. All 166 original capture test
+IDs remain, with 41 added controls covering code fields, nested constants,
+reference stability, unsupported constants and target ownership.
+
+Actual corrected collections retain all prior IDs in order: **859 focused
+cases = 652 historical affected cases + 207 capture controls** per stack, and
+**11,322 full PRIMARY cases = 11,115 historical passing cases + 207 additions**.
+All 818 IDs from the failed focused epoch and all 11,281 IDs from its full
+collection are also retained in order, with 41 additions. The corrected
+focused executions pass **859 cases / 2,577 unique phases on each stack**,
+zero failures, errors or skips, with identical ordered IDs and actual process
+exits zero. All ten previously failed IDs pass. Independent review checked
+saved native outcomes, retained native-contract/scientific controls and the
+original Issue52 input words and criteria; those existing finite comparisons
+do not establish new provider-wide guarantees.
+
+The complete PRIMARY execution passes **11,322 cases / 33,966 unique phases**,
+zero failures, errors or skips. All four worker collections and controller
+views agree with the frozen collection; all five processes exit zero.
+Independent review verifies every setup/call/teardown phase exactly once,
+the XML results and both historical ID sets above (ROOT session `77044`,
+terminal `a79dea`, exit0).
+
+Fresh quality passes all eight checks, including production mypy on **555
+source files**. A strict documentation build at the code checkpoint also passes. All
+**945 Python / 164 other inputs** hold through quality, focused and full
+executions and the documentation check.
+
+Code checkpoint **`98ace5f9a68d02481434ac1551058d14a417f231`**, parent
+`4a9260c0bf4664c7fb56be284c99888cba7ed08f`, contains the exact three qualified
+paths: the compatibility module, raw replay helper and native capture tests.
+All seven actual normal code hooks pass; all **945 Python / 164 other inputs**
+retain their qualified contents through commit, and the worktree is clean at
+verification (ROOT session `39778`, terminal `2c6ad0`, exit0).
+
+The exact original replay selects 17 unchanged rows and both x64 caller
+scenarios, **34 cells per stack**, from the unchanged **1,852-row /
+3,704-caller-cell** plan. Each stack records **30 native-valid cells, four
+native failures and zero capture gaps**. Ten artifacts pass schema/lowering
+checks and their original callbacks; 20 cells remain SOURCE profile exclusions.
+All ten artifacts are byte-identical to the earlier epoch. Independent
+comparison of 224 available old/new saved-array roles per stack preserves
+dtype, shape, storage order and array payload bytes, without treating NPZ
+container timestamps as data.
+
+The four native failures are the x64-on original `reduce` rows 0/1 and
+`reduce_window` rows 1/2: FP32 operands meet native FP64 weak initial values.
+Eager execution, fresh JIT and both trace modes raise `TypeError`. The first
+three were already native failures in v1; row 2's same eager failure was saved
+before the old code-hash gap, and its remaining modes are now recorded. No
+input, initial value or original source was cast or rewritten. The old v1
+outcomes—ten artifact passes, 16 exclusions, three native failures and five
+capture gaps—remain immutable history. Both replay epochs preserve opset 23,
+all original options/callbacks and `criteria=None`; they execute no ONNX
+Runtime and leave runtime/numerics **UNVERIFIED**.
+
+The advertised **JAX 0.8.1 minimum now has an actual import defect**. An isolated
+native-only probe of compat `606f0824` raises `ModuleNotFoundError` for the newer
+PRNG module path. The v6 capture correction leaves that path unchanged. This
+later evidence supersedes the earlier minimum-version UNVERIFIED statements
+retained below; it does not constitute exporter, Flax, model or ORT qualification.
+The next separate repair owns old/new PRNG paths, native aval fields, recorded
+equation-context activation/restoration, all 21/22 JIT configuration fields and
+the older scan parameters, with minimum-stack and both current-stack evidence.
+The supported minimum and full functionality remain requirements.
+
+| Evidence | SHA256 |
+| --- | --- |
+| Retained failed v4 dual execution: `/tmp/jax2onnx-native-capture-root-integration-v1/root-dual-focused-failed-actual-terminals-v1.json` | `a97c44c0a4145adb01bd8b60c8bd44207c7c758bf0651856bfa3a1b247e5eb07` |
+| Actual marshal reference witness: `/tmp/jax2onnx-marshal-reference-bookkeeping-root-v1.json` | `3376fe7fa1a636c9361d541e8f2a17361d9751f75b6ca8f1920da10313b595f4` |
+| Exact v6 static acceptance: `/tmp/jax2onnx-astra-canonical-native-capture-static-review-v6.json` | `3eb7452a13583fedff2d01a27c5aa27ae14c97ec7631cdcace35815c8d4b27cc` |
+| Actual corrected quality: `/tmp/jax2onnx-native-capture-root-integration-v2/root-production-quality-v1.json` | `59e914815ea0383c273e8da6ce6454cffaecd86119300e8a17e7e938b9aab294` |
+| Actual corrected collections: `/tmp/jax2onnx-native-capture-root-integration-v2/root-collections-actual-terminals-v1.json` | `c5b909c87ae01bbf3e9caf155dad126001fe17fb5fe53675452181511d7af151` |
+| Actual corrected dual terminals: `/tmp/jax2onnx-native-capture-root-integration-v2/root-dual-focused-actual-terminals-v1.json` | `1f1f1de635fffd7eadd1cef75eaecfc0e23e871a2ee9b5947750583835a3d12a` |
+| Independent dual review: `/tmp/jax2onnx-astra-native-capture-focused-audit-v2.json` | `46845b52efd69f8d0cca5dbe9d80746eb397d536e39179dae02c5044e45aef34` |
+| Actual full PRIMARY terminal: `/tmp/jax2onnx-native-capture-root-integration-v2/root-full-primary-actual-terminal-v1.json` | `ce6c2b23f55fe82950e711a93085db9e09613e69496df6fa381dd22f3479ce8d` |
+| Actual strict current docs: `/tmp/jax2onnx-native-capture-root-integration-v2/root-code-docs-strict-v1.json` | `178376c8d608f1634550c9b911290e44e43c67be89e228107cfe9c91592f60b0` |
+| Independent final code-commit readiness: `/tmp/jax2onnx-astra-native-capture-full-readiness-bind-v2.json` | `eecd183b8d63a5204dd32a4968bdccb978ed5043e609b3591c18412fa05090a3` |
+| Actual code commit and normal hooks: `/tmp/jax2onnx-native-capture-root-integration-v2/root-code-commit-v1.json` | `56aeb3effcaccbda39e0d651dd96afd949dfb3635fdc0f36434026fa96270317` |
+| Original 17-row actual terminals: `/tmp/jax2onnx-native-capture-root-integration-v2/root-original17-actual-terminals-v1.json` | `8d65792cc3229fd8bb5c95d5273717a9511e00a49c57b886ec8dbf9a60c3e33a` |
+| Independent original replay/array audit: `/tmp/jax2onnx-astra-native-capture-original17-dual-audit-v2.json` | `63cbe5c2dfb577f54ca06bd5f24a11eaa71163ebe94658f3c2110595455c32c1` |
+| Actual JAX 0.8.1 native diagnostic: `/tmp/jax2onnx-jax081-native-runtime-v1/native-probe-v1.stdout.json` | `dbb5d1acce3e8023bf854b1bad8f97e5041604e58a93f7e39bb317bbf99242ce` |
+| Separate minimum-version repair plan: `/tmp/jax2onnx-astra-jax081-compatibility-handoff-v1.md` | `138532a211a3ca22fa78965e0eb8f38086640f69a8beb387b19fd10015d79a26` |
+
+The complete earlier findings body below remains byte-identical. Its failed
+ordering, FP16/subnormal, Erfc, Sign and raw callback diagnostics retain their
+own criteria and statuses. This bounded capture checkpoint does not complete
+the full raw map, fixed-source workflows, numerical acceptance or B–F migration.
+
 ## Shared native result contract checkpoint
 
 Status: **COMMITTED LOCAL CODE CHECKPOINT `00d0a43c`; ACTUAL FOCUSED DUAL-STACK,

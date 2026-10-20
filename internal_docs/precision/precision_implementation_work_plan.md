@@ -5,6 +5,31 @@ source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 
+The bounded canonical native capture adapter is committed at `98ace5f9`, with
+**859 cases / 2,577 phases on each installed stack**, including 207 capture controls and all 652 retained
+affected cases. Its exact original 17-row replay covers **34 caller cells per
+stack**: 30 native-valid cases, four original native failures, zero capture
+gaps, ten artifact/callback passes and 20 SOURCE profile exclusions. Original
+sources, feeds, options, opset 23 and `criteria=None` are unchanged. These replays
+run no ONNX Runtime and leave runtime/numerics **UNVERIFIED**. Earlier failed
+test epochs and native failures remain in the
+[canonical capture record](poc/source_integration_findings.md#canonical-native-capture-checkpoint).
+The complete PRIMARY suite passes **11,322 cases / 33,966 phases**, zero
+failures/errors/skips, retaining all 11,115 prior passing IDs and adding 207.
+Quality and all seven normal code hooks pass; all **945 Python / 164 other
+inputs** retain their qualified contents through commit.
+
+The next separate packet repairs a concrete compatibility defect at the
+advertised **JAX 0.8.1 minimum**, before generalized contractions. An isolated
+native probe actually failed to import the compatibility module's newer PRNG
+path; this supersedes the earlier minimum-version UNVERIFIED status. The repair
+must own the old/new PRNG bindings, native aval and equation-context protocols,
+all 21/22 JIT configuration fields and the older scan parameters centrally,
+with meaningful corruption/restoration controls and actual minimum-stack
+qualification. Keep JAX >=0.8.1, original native failures and all existing
+functionality; no public selector, legacy fallback or numerical-policy waiver
+is authorized. Full B–F migration and public activation remain open.
+
 The private shared native result check is committed at `00d0a43c`, with
 **627 cases / 1,881 phases on each supported stack**, the complete PRIMARY
 suite's **11,115 cases / 33,345 phases**, zero failures/errors/skips, and all
@@ -13,8 +38,8 @@ owners against frozen native evaluators, strict result metadata and the recorded
 native context. Owner-specific parameter, body and lowering checks remain
 essential. This refactor grants no new SOURCE admission, numerical/provider
 guarantee or public capability. This helper is qualified only on the installed
-JAX 0.10.2/0.11.2 stacks; compatibility with the advertised JAX 0.8.1 minimum
-remains **UNVERIFIED**. The [shared native result contract checkpoint](poc/source_integration_findings.md#shared-native-result-contract-checkpoint)
+JAX 0.10.2/0.11.2 stacks; the later minimum-version import failure and repair
+obligations are recorded above. The [shared native result contract checkpoint](poc/source_integration_findings.md#shared-native-result-contract-checkpoint)
 retains the failed quality epochs, accepted corrections and actual receipts.
 Public behavior remains **LEGACY** and full B–F acceptance remains open.
 
