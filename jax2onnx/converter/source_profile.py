@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import prod
-from typing import Any, Final, Literal, NoReturn
+from typing import Any, Final, Literal, NoReturn, cast
 
 import jax
 import numpy as np
@@ -59,6 +59,7 @@ from jax2onnx.converter.source_scientific import (
 )
 from jax2onnx.converter.source_convolution import validate_native_conv
 from jax2onnx.converter.source_pooling import validate_native_window_sum
+from jax2onnx.converter.source_native_contract import validate_native_results
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
     validate_source_shapes,
@@ -477,85 +478,112 @@ def _validate_erfc(
     )
 
 
-def _validate_ordinary_dot(
-    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
-) -> None:
-    lhs, rhs = inputs
-    rank = len(lhs.shape)
-    site.require(
-        rank in (2, 3, 4)
-        and len(rhs.shape) == rank
+class _DotDimensionLimit(ValueError):
+    """An individual tensor extent cannot be represented by ONNX INT64."""
+
+
+class _DotGroupingLimit(ValueError):
+    """The current flattened intermediate needs an unfinished alternative."""
+
+
+def _is_direct_tensor_matrix_dot(
+    lhs_shape: Sequence[object], rhs_shape: Sequence[object], dimensions: Any
+) -> bool:
+    """Keep the existing direct route without constructing grouped products."""
+    return (
+        len(lhs_shape) in (2, 3, 4)
+        and len(rhs_shape) == 2
         and all(
             isinstance(dim, (int, np.integer))
             and not isinstance(dim, (bool, np.bool_))
-            and dim > 0
-            for dim in (*lhs.shape, *rhs.shape)
-        ),
-        "ordinary matrix dimensions are outside the profile",
-        "equal positive static operand ranks 2, 3, or 4",
+            and 0 < dim <= np.iinfo(np.int64).max
+            for dim in (*lhs_shape, *rhs_shape)
+        )
+        and dimensions == (((len(lhs_shape) - 1,), (0,)), ((), ()))
     )
-    dimensions = eqn.params["dimension_numbers"]
-    site.require(
+
+
+@dataclass(frozen=True)
+class _DotContractionPlan:
+    """One static native axis plan; it does not prescribe reduction arithmetic."""
+
+    lhs_permutation: tuple[int, ...]
+    rhs_permutation: tuple[int, ...]
+    lhs_matrix_shape: tuple[int, ...]
+    rhs_matrix_shape: tuple[int, ...]
+    matrix_output_shape: tuple[int, ...]
+    output_shape: tuple[int, ...]
+    contracting_size: int
+    outer_product: bool
+
+
+def _dot_contraction_plan(
+    lhs_shape: Sequence[object], rhs_shape: Sequence[object], dimensions: Any
+) -> _DotContractionPlan:
+    """Pair axes in supplied order, then retain each operand's free-axis order."""
+    if not all(
+        isinstance(dim, (int, np.integer))
+        and not isinstance(dim, (bool, np.bool_))
+        and dim >= 0
+        for dim in (*lhs_shape, *rhs_shape)
+    ):
+        raise ValueError("generalized contraction requires static nonnegative extents")
+    lhs_dims: tuple[int, ...] = tuple(int(cast(int, dim)) for dim in lhs_shape)
+    rhs_dims: tuple[int, ...] = tuple(int(cast(int, dim)) for dim in rhs_shape)
+    if not (
         isinstance(dimensions, (tuple, list))
         and len(dimensions) == 2
         and all(
             isinstance(pair, (tuple, list)) and len(pair) == 2 for pair in dimensions
         )
-        and all(
-            isinstance(axes, (tuple, list)) for pair in dimensions for axes in pair
-        ),
-        "malformed matrix dimension_numbers",
-        "ordered contracting and batch axis pairs",
-        category="lowering-defect",
-    )
+        and all(isinstance(axes, (tuple, list)) for pair in dimensions for axes in pair)
+    ):
+        raise ValueError("malformed generalized contraction dimension_numbers")
     (lc, rc), (lb, rb) = (tuple(tuple(axes) for axes in pair) for pair in dimensions)
-    for contracting, batch in ((lc, lb), (rc, rb)):
+    for shape, contracting, batch in ((lhs_dims, lc, lb), (rhs_dims, rc, rb)):
         axes = contracting + batch
-        site.require(
+        if not (
             all(
                 isinstance(axis, (int, np.integer))
                 and not isinstance(axis, (bool, np.bool_))
-                and 0 <= axis < rank
+                and 0 <= axis < len(shape)
                 for axis in axes
             )
-            and len(set(axes)) == len(axes),
-            "invalid or overlapping matrix axes",
-            "distinct non-Boolean axes in the operand rank",
-            category="lowering-defect",
+            and len(set(axes)) == len(axes)
+        ):
+            raise ValueError("invalid or overlapping generalized contraction axes")
+    if len(lc) != len(rc) or len(lb) != len(rb):
+        raise ValueError("generalized contraction axis pair counts differ")
+    if any(
+        lhs_dims[left] != rhs_dims[right]
+        for left, right in (*zip(lc, rc, strict=True), *zip(lb, rb, strict=True))
+    ):
+        raise ValueError("generalized contraction paired dimensions differ")
+    lf = tuple(axis for axis in range(len(lhs_dims)) if axis not in lc + lb)
+    rf = tuple(axis for axis in range(len(rhs_dims)) if axis not in rc + rb)
+    batch = tuple(int(lhs_dims[axis]) for axis in lb)
+    left = tuple(int(lhs_dims[axis]) for axis in lf)
+    right = tuple(int(rhs_dims[axis]) for axis in rf)
+    k = prod(int(lhs_dims[axis]) for axis in lc)
+    m, n = prod(left), prod(right)
+    if any(size > np.iinfo(np.int64).max for size in (*lhs_dims, *rhs_dims)):
+        raise _DotDimensionLimit(
+            "an individual contraction dimension exceeds ONNX INT64"
         )
-    site.require(
-        len(lc) == len(rc) and len(lb) == len(rb),
-        "inconsistent matrix axis pair counts",
-        "equal numbers of paired contracting and batch axes",
-        category="lowering-defect",
-    )
-    site.require(
-        len(lc) == 1 and len(lb) == rank - 2,
-        "ordinary matrix axis cardinality is outside the profile",
-        "one contracting and one free axis per operand, with rank minus two paired batch axes",
-    )
-    site.require(
-        lhs.shape[lc[0]] == rhs.shape[rc[0]]
-        and all(
-            lhs.shape[left] == rhs.shape[right]
-            for left, right in zip(lb, rb, strict=True)
-        ),
-        "inconsistent matrix contracting/batch dimensions",
-        "equal paired contracting and batch sizes",
-        category="lowering-defect",
-    )
-    lf = next(axis for axis in range(rank) if axis not in lc + lb)
-    rf = next(axis for axis in range(rank) if axis not in rc + rb)
-    site.require(
-        outputs[0].dtype == lhs.dtype,
-        "ordinary matrix result dtype differs from its operands",
-        "the common operand dtype as the result dtype",
-        category="lowering-defect",
-    )
-    _same_shape(
-        outputs[0].shape,
-        tuple(lhs.shape[axis] for axis in lb) + (lhs.shape[lf], rhs.shape[rf]),
-        site,
+    if any(size > np.iinfo(np.int64).max for size in (m, k, n)):
+        raise _DotGroupingLimit(
+            "the current flattened contraction intermediate exceeds INT64; "
+            "another lowering strategy remains unfinished"
+        )
+    return _DotContractionPlan(
+        tuple(int(axis) for axis in lb + lf + lc),
+        tuple(int(axis) for axis in rb + rc + rf),
+        (*batch, m, k),
+        (*batch, k, n),
+        (*batch, m, n),
+        (*batch, *left, *right),
+        k,
+        not lc,
     )
 
 
@@ -686,48 +714,64 @@ def _validate_dot(
             "ordinary matrix preferred result type is outside the profile",
             "absent or same-dtype preferred_element_type",
         )
-        rank = len(inputs[0].shape)
-        if len(inputs[1].shape) == 2 and (
-            rank in (3, 4)
-            or (
-                rank == 2
-                and eqn.params["dimension_numbers"] == (((1,), (0,)), ((), ()))
-            )
-        ):
+    else:
+        site.require(
+            tuple(value.dtype for value in (*inputs, *outputs))
+            == ("float16", "float16", "float32")
+            and preferred is not None
+            and np.dtype(preferred) == np.dtype(np.float32),
+            "matrix operand/result types are outside the profile",
+            "FP16 operands with an explicitly preferred FP32 result",
+        )
+    if any(value.symbol is not None for value in (*inputs, *outputs)):
+        site.require(
+            inputs[0].dtype in {"float32", "float64"},
+            "symbolic preferred-FP32 contraction requires a separate product proof",
+            "the existing same-width symbolic tensor/matrix or leading-batch route",
+        )
+        if len(inputs[1].shape) == 2 and len(inputs[0].shape) in (2, 3, 4):
             _validate_tensor_matrix_dot(eqn, inputs, outputs, site)
-            return
-        if any(value.symbol is not None for value in (*inputs, *outputs)):
+        else:
             _validate_leading_batch_dot(eqn, inputs, outputs, site)
-            return
-        _validate_ordinary_dot(eqn, inputs, outputs, site)
-        return
-    site.require(
-        tuple(value.dtype for value in (*inputs, *outputs))
-        == ("float16", "float16", "float32")
-        and preferred is not None
-        and np.dtype(preferred) == np.dtype(np.float32),
-        "matrix operand/result types are outside the profile",
-        "FP16 operands with an explicitly preferred FP32 result",
+    elif inputs[0].dtype in {"float32", "float64"} and _is_direct_tensor_matrix_dot(
+        inputs[0].shape, inputs[1].shape, eqn.params["dimension_numbers"]
+    ):
+        _validate_tensor_matrix_dot(eqn, inputs, outputs, site)
+    else:
+        try:
+            plan = _dot_contraction_plan(
+                inputs[0].shape, inputs[1].shape, eqn.params["dimension_numbers"]
+            )
+        except _DotDimensionLimit as exc:
+            site.fail(
+                str(exc),
+                "individual tensor dimensions representable by ONNX INT64",
+                category="representation-limit",
+            )
+        except _DotGroupingLimit as exc:
+            site.fail(
+                str(exc),
+                "representable grouped intermediates for the current lowering; alternate lowering remains unfinished",
+                category="profile-exclusion",
+            )
+        except ValueError as exc:
+            site.fail(
+                str(exc),
+                "original distinct paired batch/contracting axes with matching nonnegative static extents",
+                category="lowering-defect",
+            )
+        _same_shape(outputs[0].shape, plan.output_shape, site)
+    validate_native_results(
+        eqn,
+        site,
+        primitive=jax.lax.dot_general_p,
+        parameters={
+            "dimension_numbers",
+            "precision",
+            "preferred_element_type",
+            "out_sharding",
+        },
     )
-    lhs, rhs = inputs
-    rank = len(lhs.shape)
-    batch = tuple(range(rank - 2))
-    dimensions = (((rank - 1,), (rank - 2,)), (batch, batch))
-    site.require(
-        rank in (2, 3)
-        and len(rhs.shape) == rank
-        and all(isinstance(dim, int) and dim > 0 for dim in (*lhs.shape, *rhs.shape))
-        and eqn.params.get("dimension_numbers") == dimensions,
-        "matrix dimensions are outside the profile",
-        "positive static rank-2 matrices or rank-3 matrices with batch axis 0 and standard contracting axes (-1, -2)",
-    )
-    site.require(
-        lhs.shape[-1] == rhs.shape[-2] and lhs.shape[:-2] == rhs.shape[:-2],
-        "inconsistent matrix contracting/batch dimensions",
-        "equal contracting and batch sizes",
-        category="lowering-defect",
-    )
-    _same_shape(outputs[0].shape, lhs.shape[:-1] + (rhs.shape[-1],), site)
 
 
 def _validate_leading_batch_dot(

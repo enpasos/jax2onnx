@@ -9,6 +9,7 @@ from flax import linen as nn
 from flax.linen import module as linen_module
 import onnx_ir as ir
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -262,7 +263,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("flax.linen.Einsum.__call__ is not available.")
             return orig_fn(self, inputs, einsum_str)
 
-        def patched(self: Any, inputs: Any, einsum_str: Any | None = None) -> Any:
+        def legacy(self: Any, inputs: Any, einsum_str: Any | None = None) -> Any:
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
                 return call_orig(self, inputs, einsum_str)
@@ -311,6 +312,13 @@ class EinsumPlugin(PrimitiveLeafPlugin):
                 precision=getattr(self, "precision", None),
                 preferred_element_type=getattr(self, "preferred_element_type", None),
             )
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError("Original native module call is unavailable")
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 

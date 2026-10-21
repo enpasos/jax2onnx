@@ -1815,7 +1815,11 @@ files = [
 ]
 
 [package.dependencies]
-jaxlib = ">=0.10.1,<=0.10.2"
+jax-cuda12-plugin = {version = "0.10.2", extras = ["with-cuda"], optional = true, markers = "extra == \"cuda12\""}
+jaxlib = [
+    {version = ">=0.10.1,<=0.10.2"},
+    {version = "0.10.2", optional = true, markers = "extra == \"cuda12\""},
+]
 ml_dtypes = ">=0.5.0"
 numpy = ">=2.0"
 opt_einsum = "*"
@@ -1848,7 +1852,11 @@ files = [
 ]
 
 [package.dependencies]
-jaxlib = ">=0.11.2,<=0.12.0"
+jax-cuda12-plugin = {version = "0.12.0", extras = ["with-cuda"], optional = true, markers = "extra == \"cuda12\""}
+jaxlib = [
+    {version = ">=0.11.2,<=0.12.0"},
+    {version = "0.12.0", optional = true, markers = "extra == \"cuda12\""},
+]
 ml_dtypes = ">=0.5.0"
 numpy = ">=2.2"
 opt_einsum = "*"
@@ -1867,6 +1875,114 @@ oneapi = ["jax-oneapi-plugin[with-oneapi] (==0.12.0)", "jaxlib (==0.12.0)"]
 rocm7-local = ["jax-rocm7-plugin (==0.12.0.*)", "jaxlib (==0.12.0)"]
 tpu = ["jaxlib (==0.12.0)", "libtpu (==0.0.50.*)", "requests"]
 xprof = ["xprof"]
+
+[[package]]
+name = "jax-cuda12-pjrt"
+version = "0.10.2"
+description = "JAX XLA PJRT Plugin for NVIDIA GPUs"
+optional = false
+python-versions = "*"
+groups = ["gpu"]
+markers = "python_version < \"3.13\""
+files = [
+    {file = "jax_cuda12_pjrt-0.10.2-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:b6f2d66548ee1ee910a836b5fe3d0ebbe1da04a62d0f468ba4822189036a32b3"},
+    {file = "jax_cuda12_pjrt-0.10.2-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:806d1fd29038b6acf5a2b289dd62192abea977ee26aef60ea295b1d28a23acf8"},
+]
+
+[[package]]
+name = "jax-cuda12-pjrt"
+version = "0.12.0"
+description = "JAX XLA PJRT Plugin for NVIDIA GPUs"
+optional = false
+python-versions = "*"
+groups = ["gpu"]
+markers = "python_version >= \"3.13\""
+files = [
+    {file = "jax_cuda12_pjrt-0.12.0-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:db469fb31f93cd9b4ac16f67dd3c29dcc56b266852b5d54c27d126e01d3082dc"},
+    {file = "jax_cuda12_pjrt-0.12.0-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:8e32fb9e25096bffe8a1653aa1e4b2d5aae3823f2408692b53834727ef600cdc"},
+]
+
+[[package]]
+name = "jax-cuda12-plugin"
+version = "0.10.2"
+description = "JAX Plugin for NVIDIA GPUs"
+optional = false
+python-versions = ">=3.11"
+groups = ["gpu"]
+markers = "python_version < \"3.13\""
+files = [
+    {file = "jax_cuda12_plugin-0.10.2-cp311-cp311-manylinux_2_27_aarch64.whl", hash = "sha256:9cd0937070bbd28e44b91435b52c7225c8ed6cb37ddb6a90e9c246873a03f9cd"},
+    {file = "jax_cuda12_plugin-0.10.2-cp311-cp311-manylinux_2_27_x86_64.whl", hash = "sha256:76bbfece2f6effb4e8908eb8a5fbf1abbc1125de667683ec2ffba51c63dc57af"},
+    {file = "jax_cuda12_plugin-0.10.2-cp312-cp312-manylinux_2_27_aarch64.whl", hash = "sha256:767a1482dbf652688403c4e22ff01470e1add13c48f9d817169fd8f7440afce5"},
+    {file = "jax_cuda12_plugin-0.10.2-cp312-cp312-manylinux_2_27_x86_64.whl", hash = "sha256:4eb6e8e0992fd9897db2468da33f276ae414ec84dc436804124404430502eeac"},
+    {file = "jax_cuda12_plugin-0.10.2-cp313-cp313-manylinux_2_27_aarch64.whl", hash = "sha256:69776ac849112f4fc2d6fa616f8772106daff38fcdb825c4e39f47e878f27610"},
+    {file = "jax_cuda12_plugin-0.10.2-cp313-cp313-manylinux_2_27_x86_64.whl", hash = "sha256:948a988927cb10843b501a215181ccb1daed3fa70531b2f1ae0842fe1c08b05e"},
+    {file = "jax_cuda12_plugin-0.10.2-cp313-cp313t-manylinux_2_27_aarch64.whl", hash = "sha256:febd9d3f488d182090758936042ad647a60470923715b48a385bc312cb943c63"},
+    {file = "jax_cuda12_plugin-0.10.2-cp313-cp313t-manylinux_2_27_x86_64.whl", hash = "sha256:1f1e20fba0aaa3f28ab0a3273754c8c098fa40b74bf4dac5b76c9f2a70425487"},
+    {file = "jax_cuda12_plugin-0.10.2-cp314-cp314-manylinux_2_27_aarch64.whl", hash = "sha256:4946ec57ddb795e2da8288ceb1ceddd58c2a204a0f7765af89eae486a1d3ace7"},
+    {file = "jax_cuda12_plugin-0.10.2-cp314-cp314-manylinux_2_27_x86_64.whl", hash = "sha256:0c7a0204155585cc1c4fcb30c66b7f881b38e57e1f0d8e97d48e1654bf0d27f8"},
+    {file = "jax_cuda12_plugin-0.10.2-cp314-cp314t-manylinux_2_27_aarch64.whl", hash = "sha256:c26a7dd5e71c9edf203b95480f02ec4ad60c9c7e11e38b7310b1fd1dd03ba116"},
+    {file = "jax_cuda12_plugin-0.10.2-cp314-cp314t-manylinux_2_27_x86_64.whl", hash = "sha256:c539b052056e8181082fa2635f17e098b3f625d87da53ba35470a2c13480801d"},
+]
+
+[package.dependencies]
+jax-cuda12-pjrt = "0.10.2"
+nvidia-cublas-cu12 = {version = ">=12.1.3.1", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-cupti-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-nvcc-cu12 = {version = ">=12.6.85", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-nvrtc-cu12 = {version = ">=12.1.55", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-runtime-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cudnn-cu12 = {version = ">=9.8,<10.0", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cufft-cu12 = {version = ">=11.0.2.54", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cusolver-cu12 = {version = ">=11.4.5.107", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cusparse-cu12 = {version = ">=12.1.0.106", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nccl-cu12 = {version = ">=2.18.1", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nvjitlink-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nvshmem-cu12 = {version = ">=3.2.5", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+
+[package.extras]
+with-cuda = ["nvidia-cublas-cu12 (>=12.1.3.1) ; sys_platform == \"linux\"", "nvidia-cuda-cupti-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-cuda-nvcc-cu12 (>=12.6.85) ; sys_platform == \"linux\"", "nvidia-cuda-nvrtc-cu12 (>=12.1.55) ; sys_platform == \"linux\"", "nvidia-cuda-runtime-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-cudnn-cu12 (>=9.8,<10.0) ; sys_platform == \"linux\"", "nvidia-cufft-cu12 (>=11.0.2.54) ; sys_platform == \"linux\"", "nvidia-cusolver-cu12 (>=11.4.5.107) ; sys_platform == \"linux\"", "nvidia-cusparse-cu12 (>=12.1.0.106) ; sys_platform == \"linux\"", "nvidia-nccl-cu12 (>=2.18.1) ; sys_platform == \"linux\"", "nvidia-nvjitlink-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-nvshmem-cu12 (>=3.2.5) ; sys_platform == \"linux\""]
+
+[[package]]
+name = "jax-cuda12-plugin"
+version = "0.12.0"
+description = "JAX Plugin for NVIDIA GPUs"
+optional = false
+python-versions = ">=3.12"
+groups = ["gpu"]
+markers = "python_version >= \"3.13\""
+files = [
+    {file = "jax_cuda12_plugin-0.12.0-cp312-cp312-manylinux_2_27_aarch64.whl", hash = "sha256:2bcbb7d1a3b97f30c316b28c04d18d4cf5792e38ea983afa8d42ba90be7abc2c"},
+    {file = "jax_cuda12_plugin-0.12.0-cp312-cp312-manylinux_2_27_x86_64.whl", hash = "sha256:821c150926c1ceaf877c97b01a7cc82dda5968bd4320be98694675643cb7904b"},
+    {file = "jax_cuda12_plugin-0.12.0-cp313-cp313-manylinux_2_27_aarch64.whl", hash = "sha256:1804e521624871f96e0fbafae8ddb0876e43fce7c005b4fa3ab5ba2463d192f3"},
+    {file = "jax_cuda12_plugin-0.12.0-cp313-cp313-manylinux_2_27_x86_64.whl", hash = "sha256:fa53def4132e96d6f7c8e9bfdbac6fb8a8d5c1b1872d8ab15f2448cfcb678b4f"},
+    {file = "jax_cuda12_plugin-0.12.0-cp314-cp314-manylinux_2_27_aarch64.whl", hash = "sha256:36201365188a13eb6c4fe514f8e03ea56dcecca20299eac006bf5e754c328da1"},
+    {file = "jax_cuda12_plugin-0.12.0-cp314-cp314-manylinux_2_27_x86_64.whl", hash = "sha256:c2280242bcd4025217565caafb648e6592d772b34f3c618a63c3c9736f5d0b41"},
+    {file = "jax_cuda12_plugin-0.12.0-cp314-cp314t-manylinux_2_27_aarch64.whl", hash = "sha256:c113dd803381457b7ba819b559af29a38eaa805177656ad4556bce7a0df37e60"},
+    {file = "jax_cuda12_plugin-0.12.0-cp314-cp314t-manylinux_2_27_x86_64.whl", hash = "sha256:55fc87253105335c1d2aed2501532d9ccf5998f729cb84629c6c94229952f8a2"},
+    {file = "jax_cuda12_plugin-0.12.0-cp315-cp315-manylinux_2_27_aarch64.whl", hash = "sha256:6df6ab8809c0cbc48af2990ffc64bd9be16d778128b529dcc9a6077550804515"},
+    {file = "jax_cuda12_plugin-0.12.0-cp315-cp315-manylinux_2_27_x86_64.whl", hash = "sha256:678512f6351a064e3d21c2e6252575bcc0feeac616b2d20a46de0a36f2a24e46"},
+    {file = "jax_cuda12_plugin-0.12.0-cp315-cp315t-manylinux_2_27_aarch64.whl", hash = "sha256:ef8153b102569dbbd1c707c19561bbbcbd76c7d8fc70e18f4012abdadc0f911a"},
+    {file = "jax_cuda12_plugin-0.12.0-cp315-cp315t-manylinux_2_27_x86_64.whl", hash = "sha256:a12aa26b933271b3a24506739e11968033f8d2c62cb3e2bbcc794c0c76399c0d"},
+]
+
+[package.dependencies]
+jax-cuda12-pjrt = "0.12.0"
+nvidia-cublas-cu12 = {version = ">=12.1.3.1", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-cupti-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-nvcc-cu12 = {version = ">=12.6.85", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-nvrtc-cu12 = {version = ">=12.1.55", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-runtime-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cudnn-cu12 = {version = ">=9.10.2.21,<10.0", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cufft-cu12 = {version = ">=11.0.2.54", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cusolver-cu12 = {version = ">=11.4.5.107", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cusparse-cu12 = {version = ">=12.1.0.106", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nccl-cu12 = {version = ">=2.18.1", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nvjitlink-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nvshmem-cu12 = {version = ">=3.2.5", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+
+[package.extras]
+with-cuda = ["nvidia-cublas-cu12 (>=12.1.3.1) ; sys_platform == \"linux\"", "nvidia-cuda-cupti-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-cuda-nvcc-cu12 (>=12.6.85) ; sys_platform == \"linux\"", "nvidia-cuda-nvrtc-cu12 (>=12.1.55) ; sys_platform == \"linux\"", "nvidia-cuda-runtime-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-cudnn-cu12 (>=9.10.2.21,<10.0) ; sys_platform == \"linux\"", "nvidia-cufft-cu12 (>=11.0.2.54) ; sys_platform == \"linux\"", "nvidia-cusolver-cu12 (>=11.4.5.107) ; sys_platform == \"linux\"", "nvidia-cusparse-cu12 (>=12.1.0.106) ; sys_platform == \"linux\"", "nvidia-nccl-cu12 (>=2.18.1) ; sys_platform == \"linux\"", "nvidia-nvjitlink-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-nvshmem-cu12 (>=3.2.5) ; sys_platform == \"linux\""]
 
 [[package]]
 name = "jaxlib"
@@ -2631,7 +2747,7 @@ files = [
 [package.dependencies]
 numpy = [
     {version = ">=2.1.0", markers = "python_version >= \"3.13\""},
-    {version = ">=2.0.0"},
+    {version = ">=2.0.0", markers = "python_version < \"3.13\""},
     {version = ">=2.3.0", markers = "python_version >= \"3.14\""},
 ]
 
@@ -3375,6 +3491,37 @@ files = [
 nvidia-cuda-nvrtc = "*"
 
 [[package]]
+name = "nvidia-cublas-cu12"
+version = "12.9.2.10"
+description = "CUBLAS native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cublas_cu12-12.9.2.10-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:5572131a59c3eebeeb1c4c8144f772d49372c20124916e072a0e3fc30df421d5"},
+    {file = "nvidia_cublas_cu12-12.9.2.10-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:e4f53a8ca8c5d6e8c492d0d0a3d565ecb59a751b19cfdaa4f6da0ab2104c1702"},
+    {file = "nvidia_cublas_cu12-12.9.2.10-py3-none-win_amd64.whl", hash = "sha256:623f43027d40d44ceadf0043f002bd25cf353e8f13ce90b9a87057019f560661"},
+]
+
+[package.dependencies]
+nvidia-cuda-nvrtc-cu12 = "*"
+
+[[package]]
+name = "nvidia-cuda-cccl-cu12"
+version = "12.9.27"
+description = "CUDA CCCL"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_cccl_cu12-12.9.27-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:d7898b38aa68beaa234d48f0868273702342a196d6e2e9d0ef058dca2390ebea"},
+    {file = "nvidia_cuda_cccl_cu12-12.9.27-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:37869e17ce2e1ecec6eddf1927cca0f8c34e64fd848d40453df559091e2d7117"},
+    {file = "nvidia_cuda_cccl_cu12-12.9.27-py3-none-win_amd64.whl", hash = "sha256:72106f95a9bb3be18472806b4f663ebf0f9248a86d14b4ae3305725b855d9d92"},
+]
+
+[[package]]
 name = "nvidia-cuda-cupti"
 version = "13.0.85"
 description = "CUDA profiling tools runtime libs."
@@ -3386,6 +3533,34 @@ files = [
     {file = "nvidia_cuda_cupti-13.0.85-py3-none-manylinux_2_25_aarch64.whl", hash = "sha256:796bd679890ee55fb14a94629b698b6db54bcfd833d391d5e94017dd9d7d3151"},
     {file = "nvidia_cuda_cupti-13.0.85-py3-none-manylinux_2_25_x86_64.whl", hash = "sha256:4eb01c08e859bf924d222250d2e8f8b8ff6d3db4721288cf35d14252a4d933c8"},
     {file = "nvidia_cuda_cupti-13.0.85-py3-none-win_amd64.whl", hash = "sha256:683f58d301548deeefcb8f6fac1b8d907691b9d8b18eccab417f51e362102f00"},
+]
+
+[[package]]
+name = "nvidia-cuda-cupti-cu12"
+version = "12.9.79"
+description = "CUDA profiling tools runtime libs."
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_cupti_cu12-12.9.79-py3-none-manylinux_2_25_aarch64.whl", hash = "sha256:791853b030602c6a11d08b5578edfb957cadea06e9d3b26adbf8d036135a4afe"},
+    {file = "nvidia_cuda_cupti_cu12-12.9.79-py3-none-manylinux_2_25_x86_64.whl", hash = "sha256:096bcf334f13e1984ba36685ad4c1d6347db214de03dbb6eebb237b41d9d934f"},
+    {file = "nvidia_cuda_cupti_cu12-12.9.79-py3-none-win_amd64.whl", hash = "sha256:1848a9380067560d5bee10ed240eecc22991713e672c0515f9c3d9396adf93c8"},
+]
+
+[[package]]
+name = "nvidia-cuda-nvcc-cu12"
+version = "12.9.86"
+description = "CUDA nvcc"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_nvcc_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:5d6a0d32fdc7ea39917c20065614ae93add6f577d840233237ff08e9a38f58f0"},
+    {file = "nvidia_cuda_nvcc_cu12-12.9.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:44e1eca4d08926193a558d2434b1bf83d57b4d5743e0c431c0c83d51da1df62b"},
+    {file = "nvidia_cuda_nvcc_cu12-12.9.86-py3-none-win_amd64.whl", hash = "sha256:8ed7f0b17dea662755395be029376db3b94fed5cbb17c2d35cc866c5b1b84099"},
 ]
 
 [[package]]
@@ -3418,6 +3593,20 @@ files = [
 ]
 
 [[package]]
+name = "nvidia-cuda-nvrtc-cu12"
+version = "12.9.86"
+description = "NVRTC native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_nvrtc_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:210cf05005a447e29214e9ce50851e83fc5f4358df8b453155d5e1918094dcb4"},
+    {file = "nvidia_cuda_nvrtc_cu12-12.9.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:096d4de6bda726415dfaf3198d4f5c522b8e70139c97feef5cd2ca6d4cd9cead"},
+    {file = "nvidia_cuda_nvrtc_cu12-12.9.86-py3-none-win_amd64.whl", hash = "sha256:72972ebdcf504d69462d3bcd67e7b81edd25d0fb85a2c46d3ea3517666636349"},
+]
+
+[[package]]
 name = "nvidia-cuda-runtime"
 version = "13.0.96"
 description = "CUDA Runtime native Libraries"
@@ -3430,6 +3619,37 @@ files = [
     {file = "nvidia_cuda_runtime-13.0.96-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:7f82250d7782aa23b6cfe765ecc7db554bd3c2870c43f3d1821f1d18aebf0548"},
     {file = "nvidia_cuda_runtime-13.0.96-py3-none-win_amd64.whl", hash = "sha256:f79298c8a098cec150a597c8eba58ecdab96e3bdc4b9bc4f9983635031740492"},
 ]
+
+[[package]]
+name = "nvidia-cuda-runtime-cu12"
+version = "12.9.79"
+description = "CUDA Runtime native Libraries"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_runtime_cu12-12.9.79-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:83469a846206f2a733db0c42e223589ab62fd2fabac4432d2f8802de4bded0a4"},
+    {file = "nvidia_cuda_runtime_cu12-12.9.79-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:25bba2dfb01d48a9b59ca474a1ac43c6ebf7011f1b0b8cc44f54eb6ac48a96c3"},
+    {file = "nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl", hash = "sha256:8e018af8fa02363876860388bd10ccb89eb9ab8fb0aa749aaf58430a9f7c4891"},
+]
+
+[[package]]
+name = "nvidia-cudnn-cu12"
+version = "9.27.0.42"
+description = "cuDNN runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cudnn_cu12-9.27.0.42-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:5bc22243563107ea06aa60f9116ad800063d5f4617cc75bc6670d5db78d9f336"},
+    {file = "nvidia_cudnn_cu12-9.27.0.42-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:0a4aa3a7d2264256506c6857fc41fc0c499982f78d70195b1cfcc9055c1957cd"},
+    {file = "nvidia_cudnn_cu12-9.27.0.42-py3-none-win_amd64.whl", hash = "sha256:06e9b0026f3bad97d2b58666330fabec04fe1672f776661ecb0ce0029c27f142"},
+]
+
+[package.dependencies]
+nvidia-cublas-cu12 = "*"
 
 [[package]]
 name = "nvidia-cudnn-cu13"
@@ -3464,6 +3684,23 @@ files = [
 
 [package.dependencies]
 nvidia-nvjitlink = "*"
+
+[[package]]
+name = "nvidia-cufft-cu12"
+version = "11.4.1.4"
+description = "CUFFT native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cufft_cu12-11.4.1.4-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1a28c9b12260a1aa7a8fd12f5ebd82d027963d635ba82ff39a1acfa7c4c0fbcf"},
+    {file = "nvidia_cufft_cu12-11.4.1.4-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:c67884f2a7d276b4b80eb56a79322a95df592ae5e765cf1243693365ccab4e28"},
+    {file = "nvidia_cufft_cu12-11.4.1.4-py3-none-win_amd64.whl", hash = "sha256:8e5bfaac795e93f80611f807d42844e8e27e340e0cde270dcb6c65386d795b80"},
+]
+
+[package.dependencies]
+nvidia-nvjitlink-cu12 = "*"
 
 [[package]]
 name = "nvidia-cufile"
@@ -3512,6 +3749,25 @@ nvidia-cusparse = "*"
 nvidia-nvjitlink = "*"
 
 [[package]]
+name = "nvidia-cusolver-cu12"
+version = "11.7.5.82"
+description = "CUDA solver native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cusolver_cu12-11.7.5.82-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:62efa83e4ace59a4c734d052bb72158e888aa7b770e1a5f601682f16fe5b4fd2"},
+    {file = "nvidia_cusolver_cu12-11.7.5.82-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:15da72d1340d29b5b3cf3fd100e3cd53421dde36002eda6ed93811af63c40d88"},
+    {file = "nvidia_cusolver_cu12-11.7.5.82-py3-none-win_amd64.whl", hash = "sha256:77666337237716783c6269a658dea310195cddbd80a5b2919b1ba8735cec8efd"},
+]
+
+[package.dependencies]
+nvidia-cublas-cu12 = "*"
+nvidia-cusparse-cu12 = "*"
+nvidia-nvjitlink-cu12 = "*"
+
+[[package]]
 name = "nvidia-cusparse"
 version = "12.6.3.3"
 description = "CUSPARSE native runtime libraries"
@@ -3547,6 +3803,23 @@ files = [
 nvidia-nvjitlink = "*"
 
 [[package]]
+name = "nvidia-cusparse-cu12"
+version = "12.5.10.65"
+description = "CUSPARSE native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cusparse_cu12-12.5.10.65-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:221c73e7482dd93eda44e65ce567c031c07e2f93f6fa0ecd3ba876a195023e83"},
+    {file = "nvidia_cusparse_cu12-12.5.10.65-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:73060ce019ac064a057267c585bf1fd5a353734151f87472ff02b2c5c9984e78"},
+    {file = "nvidia_cusparse_cu12-12.5.10.65-py3-none-win_amd64.whl", hash = "sha256:9e487468a22a1eaf1fbd1d2035936a905feb79c4ce5c2f67626764ee4f90227c"},
+]
+
+[package.dependencies]
+nvidia-nvjitlink-cu12 = "*"
+
+[[package]]
 name = "nvidia-cusparselt-cu13"
 version = "0.8.1"
 description = "NVIDIA cuSPARSELt"
@@ -3558,6 +3831,19 @@ files = [
     {file = "nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:4dca476c50bf4780d46cd0bfbd82e2bc10a08e4fef7950917ce8d7578d22a23f"},
     {file = "nvidia_cusparselt_cu13-0.8.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:786ce87568c303fadb5afcc7102d454cd3040d75f6f8626f5db460d1871f4dd0"},
     {file = "nvidia_cusparselt_cu13-0.8.1-py3-none-win_amd64.whl", hash = "sha256:dccbd362f91a7b9024d1f55ee9f548ac065027ff15d8c8b0db889ab3a8f31215"},
+]
+
+[[package]]
+name = "nvidia-nccl-cu12"
+version = "2.32.3"
+description = "NVIDIA Collective Communication Library (NCCL) Runtime"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_nccl_cu12-2.32.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:061af42ae1044816820e16b872075e243d1ac0656f51860fbc8e106c257aa83a"},
+    {file = "nvidia_nccl_cu12-2.32.3-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:bb94b2348e4861d5e8aa00b36c3d12d9bdf9c6369b82cbb723de0b582280a21c"},
 ]
 
 [[package]]
@@ -3587,6 +3873,36 @@ files = [
     {file = "nvidia_nvjitlink-13.4.92-py3-none-win_amd64.whl", hash = "sha256:b286f3a4f227a9363efdec263c7b91788cef1478d2b8a5fa8bab7f3e82ff82fd"},
     {file = "nvidia_nvjitlink-13.4.92-py3-none-win_arm64.whl", hash = "sha256:9e4a7ff4f0cafa8c624917055b863dc11f5c2912ead23c462889e166f3b0e57d"},
 ]
+
+[[package]]
+name = "nvidia-nvjitlink-cu12"
+version = "12.9.86"
+description = "Nvidia JIT LTO Library"
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_nvjitlink_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:e3f1171dbdc83c5932a45f0f4c99180a70de9bd2718c1ab77d14104f6d7147f9"},
+    {file = "nvidia_nvjitlink_cu12-12.9.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:994a05ef08ef4b0b299829cde613a424382aff7efb08a7172c1fa616cc3af2ca"},
+    {file = "nvidia_nvjitlink_cu12-12.9.86-py3-none-win_amd64.whl", hash = "sha256:cc6fcec260ca843c10e34c936921a1c426b351753587fdd638e8cff7b16bb9db"},
+]
+
+[[package]]
+name = "nvidia-nvshmem-cu12"
+version = "3.8.0"
+description = "NVSHMEM creates a global address space that provides efficient and scalable communication for NVIDIA GPU clusters."
+optional = false
+python-versions = ">=3"
+groups = ["gpu"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_nvshmem_cu12-3.8.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:313ba41c8aacf03f9524ca83ddb2c62e7b3d82f71af815a35e3739f3d64452b2"},
+    {file = "nvidia_nvshmem_cu12-3.8.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:b2e5760d6158aefe7bb74348d5128bb1b46a7dd1fd4b7b1e6fe55b4b07888f70"},
+]
+
+[package.dependencies]
+nvidia-cuda-cccl-cu12 = "*"
 
 [[package]]
 name = "nvidia-nvshmem-cu13"
@@ -3909,7 +4225,7 @@ files = [
 [package.dependencies]
 typing-extensions = [
     {version = ">=4.12.0", markers = "python_version >= \"3.13\""},
-    {version = ">=4.10.0", markers = "python_version < \"3.13\""},
+    {version = ">=4.10.0"},
     {version = ">=4.14.0", markers = "python_version >= \"3.15\""},
 ]
 
@@ -6908,4 +7224,4 @@ type = ["pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "f49858b987be23991de1c7bf9686ad6a4859acb92a31e684ba1bf672ca25d7e1"
+content-hash = "b90083ea698d0461a452b6c9d0deff6303d8a4e87207151ca6a2fcc63ed8189b"

@@ -12,7 +12,15 @@ import onnx_ir as ir
 
 from jax2onnx._compat.jax import is_native_precision_pair
 from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_profile import (
+    _Site,
+    _tensor,
+    _validate_dot,
+    _dot_contraction_plan,
+    _is_direct_tensor_matrix_dot,
+)
 from jax2onnx.converter.source_representation import (
+    representation_for_aval,
     normalized_shape_dimensions,
     source_shape_contract,
     validate_source_shapes,
@@ -287,15 +295,11 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         )
 
     def _lower_source(self, ctx: NativeLoweringContext, eqn: Any) -> None:
-        """Ordinary FP32/FP64 matrices and FP16 with a preferred FP32 result.
+        """Preserve native axes and declared widths; numerical evidence is separate.
 
-        JAX's preferred element type specifies the result and hints at the
-        accumulator; an explicit precision algorithm is a separate contract.
-        Finite FP16 operands and their products are exactly representable in
-        FP32. Widening operands before MatMul therefore retains those values
-        without introducing an FP16 product/result rounding. Reduction order,
-        runtime arithmetic, and cost still require target-specific validation.
-        No native low-precision hardware algorithm is promised by this lowering.
+        Finite FP16 operand values and products are exactly representable in
+        FP32. Only the existing explicitly preferred FP32 route widens operands.
+        No explicit native DotAlgorithm or backend arithmetic is reconstructed.
         """
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
@@ -334,78 +338,154 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 "default precision or native all-FP64 Precision enum pairs are covered, without an explicit algorithm"
             )
 
-        if (
+        same_width = (
             dtypes[0] in (np.dtype(np.float32), np.dtype(np.float64))
             and dtypes[0] == dtypes[1] == dtypes[2]
             and (preferred is None or np.dtype(preferred) == dtypes[2])
-        ):
-            rank = len(lhs_var.aval.shape)
-            if len(rhs_var.aval.shape) == 2 and (
-                rank in (3, 4)
-                or (
-                    rank == 2
-                    and params["dimension_numbers"] == (((1,), (0,)), ((), ()))
-                )
-            ):
-                self._lower_source_tensor_matrix(ctx, eqn, numpy_dtype_to_ir(dtypes[2]))
-                return
-            shapes = [tuple(var.aval.shape) for var in (*eqn.invars, out_var)]
-            contracts = [source_shape_contract(shape) for shape in shapes]
-            if any(symbol is not None for _, symbol in contracts):
-                self._lower_source_leading_batch(ctx, eqn, numpy_dtype_to_ir(dtypes[2]))
-                return
-            self._lower_source_ordinary(ctx, eqn, numpy_dtype_to_ir(dtypes[2]))
-            return
-        if (
-            dtypes != (np.dtype(np.float16), np.dtype(np.float16), np.dtype(np.float32))
-            or preferred is None
-            or np.dtype(preferred) != np.dtype(np.float32)
-        ):
+        )
+        widen = (
+            dtypes == (np.dtype(np.float16), np.dtype(np.float16), np.dtype(np.float32))
+            and preferred is not None
+            and np.dtype(preferred) == np.dtype(np.float32)
+        )
+        if not (same_width or widen):
             raise NotImplementedError(
                 "SOURCE dot_general: operand/result types "
                 f"{dtypes} and preferred_element_type={preferred} are outside "
-                "the audited private subset; same-type FP32/FP64 matrices or "
-                "FP16 operands with an explicitly preferred FP32 result are covered"
+                "the audited private subset; same-width FP32/FP64 or FP16 "
+                "operands with an explicitly preferred FP32 result are covered. "
+                "BF16 schema support does not establish its native accumulation/provider contract; "
+                "integer, Boolean and packed-complex arithmetic require their own proof"
             )
-
-        lhs_shape = tuple(lhs_var.aval.shape)
-        rhs_shape = tuple(rhs_var.aval.shape)
-        rank = len(lhs_shape)
-        batch = tuple(range(rank - 2))
-        expected_dimensions = (((rank - 1,), (rank - 2,)), (batch, batch))
-        dimensions = params["dimension_numbers"]
+        site = _Site("SOURCE dot_general lowering", ctx.builder.opset, "dot_general")
+        _validate_dot(
+            eqn,
+            [_tensor(var, site) for var in eqn.invars],
+            [_tensor(var, site) for var in eqn.outvars],
+            site,
+        )
+        native_shapes = [tuple(var.aval.shape) for var in (*eqn.invars, out_var)]
+        contracts = [source_shape_contract(shape) for shape in native_shapes]
+        dtype = numpy_dtype_to_ir(dtypes[2])
         if (
-            rank not in (2, 3)
-            or len(rhs_shape) != rank
-            or dimensions != expected_dimensions
-            or any(
-                not isinstance(dim, (int, np.integer)) or dim <= 0
-                for dim in (*lhs_shape, *rhs_shape)
+            same_width
+            and all(symbol is None for _, symbol in contracts)
+            and _is_direct_tensor_matrix_dot(
+                native_shapes[0], native_shapes[1], params["dimension_numbers"]
             )
         ):
-            raise NotImplementedError(
-                "SOURCE dot_general: shapes "
-                f"{lhs_shape}, {rhs_shape} with dimension_numbers={dimensions} "
-                "are outside the audited private subset; positive static "
-                "rank-2 matrices or rank-3 matrices with batch axis 0 and "
-                "contracting axes (-1, -2) are covered"
+            # Retain the established single-MatMul tensor/matrix graph after
+            # native validation. General geometry and zero extents use the plan.
+            self._lower_source_tensor_matrix(ctx, eqn, dtype)
+            return
+        if any(symbol is not None for _, symbol in contracts):
+            # Retain the established symbolic routes without forming products
+            # of symbolic dimensions or weakening their native scope proof.
+            if len(rhs_var.aval.shape) == 2:
+                self._lower_source_tensor_matrix(ctx, eqn, dtype)
+            else:
+                self._lower_source_leading_batch(ctx, eqn, dtype)
+            return
+        plan = _dot_contraction_plan(
+            native_shapes[0], native_shapes[1], params["dimension_numbers"]
+        )
+        operands = [ctx.require_value_for_var(var) for var in eqn.invars]
+        for var, value in zip(eqn.invars, operands, strict=True):
+            if not representation_for_aval(var.aval).matches_ir_value(value):
+                raise ValueError(
+                    "SOURCE dot_general: physical matrix dtype/shape differs from aval"
+                )
+        output = ctx.allocate_value_for_var(out_var, name_hint="dot_contraction")
+        if not representation_for_aval(out_var.aval).matches_ir_value(output):
+            raise ValueError(
+                "SOURCE dot_general: physical matrix dtype/shape differs from aval"
             )
 
-        def widen_operand(var: Any, name: str) -> ir.Value:
-            source = ctx.require_value_for_var(var)
-            output = ir.Value(
+        def temporary(name: str, shape: tuple[int, ...]) -> ir.Value:
+            return ir.Value(
                 name=ctx.fresh_name(name),
-                type=ir.TensorType(ir.DataType.FLOAT),
-                shape=source.shape,
-            )
-            return ctx.builder.op(
-                "Cast", [source], {"to": int(ir.DataType.FLOAT)}, output=output
+                type=ir.TensorType(dtype),
+                shape=ir.Shape(shape),
             )
 
-        lhs = widen_operand(lhs_var, "dot_lhs_float32")
-        rhs = widen_operand(rhs_var, "dot_rhs_float32")
-        output = ctx.allocate_value_for_var(out_var, name_hint="dot_float32")
-        result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
+        # No output element exists when a free or batch extent is zero. A zero
+        # contracting extent instead has the native positive-zero sum identity.
+        if 0 in plan.output_shape or plan.contracting_size == 0:
+            shape = _const_i64(
+                ctx, np.asarray(plan.output_shape, dtype=np.int64), "dot_zero_shape"
+            )
+            zero = ir.tensor(np.zeros((1,), dtype=dtypes[2]))
+            result = ctx.builder.op(
+                "ConstantOfShape",
+                [shape],
+                {"value": ir.AttrTensor("value", zero)},
+                output=output,
+            )
+            ctx.bind_value_for_var(out_var, result)
+            return
+
+        def normalize(
+            value: ir.Value,
+            shape: tuple[int, ...],
+            permutation: tuple[int, ...],
+            matrix_shape: tuple[int, ...],
+        ) -> ir.Value:
+            if widen:
+                value = ctx.builder.op(
+                    "Cast",
+                    [value],
+                    {"to": int(dtype)},
+                    output=temporary("dot_widen", shape),
+                )
+            if permutation != tuple(range(len(shape))):
+                shape = tuple(shape[axis] for axis in permutation)
+                value = ctx.builder.op(
+                    "Transpose",
+                    [value],
+                    {"perm": ir.AttrInt64s("perm", permutation)},
+                    output=temporary("dot_transpose", shape),
+                )
+            if shape != matrix_shape:
+                target = _const_i64(
+                    ctx, np.asarray(matrix_shape, dtype=np.int64), "dot_matrix_shape"
+                )
+                value = ctx.builder.op(
+                    "Reshape",
+                    [value, target],
+                    {"allowzero": 1},
+                    output=temporary("dot_reshape", matrix_shape),
+                )
+            return value
+
+        lhs = normalize(
+            operands[0],
+            tuple(int(dim) for dim in native_shapes[0]),
+            plan.lhs_permutation,
+            plan.lhs_matrix_shape,
+        )
+        rhs = normalize(
+            operands[1],
+            tuple(int(dim) for dim in native_shapes[1]),
+            plan.rhs_permutation,
+            plan.rhs_matrix_shape,
+        )
+        matrix_output = (
+            output
+            if plan.output_shape == plan.matrix_output_shape
+            else temporary("dot_matrix", plan.matrix_output_shape)
+        )
+        # With no contracting axes there is exactly one logical product. Mul
+        # retains that boundary, including the preferred FP32 product width.
+        result = ctx.builder.op(
+            "Mul" if plan.outer_product else "MatMul", [lhs, rhs], output=matrix_output
+        )
+        if matrix_output is not output:
+            shape = _const_i64(
+                ctx, np.asarray(plan.output_shape, dtype=np.int64), "dot_result_shape"
+            )
+            result = ctx.builder.op(
+                "Reshape", [result, shape], {"allowzero": 1}, output=output
+            )
         ctx.bind_value_for_var(out_var, result)
 
     def _lower_source_tensor_matrix(
@@ -595,118 +675,6 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 )
         result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
         ctx.bind_value_for_var(eqn.outvars[0], result)
-
-    def _lower_source_ordinary(
-        self, ctx: NativeLoweringContext, eqn: Any, dtype: ir.DataType
-    ) -> None:
-        """Normalize one free/contracting axis per operand into MatMul order."""
-        lhs_var, rhs_var = eqn.invars
-        out_var = eqn.outvars[0]
-        lhs_shape, rhs_shape = (tuple(var.aval.shape) for var in eqn.invars)
-        rank = len(lhs_shape)
-        dimensions = eqn.params["dimension_numbers"]
-        if (
-            rank not in (2, 3, 4)
-            or len(rhs_shape) != rank
-            or any(
-                isinstance(dim, (bool, np.bool_))
-                or not isinstance(dim, (int, np.integer))
-                or dim <= 0
-                for dim in (*lhs_shape, *rhs_shape)
-            )
-        ):
-            raise NotImplementedError(
-                "SOURCE dot_general: shapes "
-                f"{lhs_shape}, {rhs_shape} are outside the audited private subset; "
-                "ordinary matrices require equal positive static ranks 2 through 4"
-            )
-        try:
-            (lhs_contract, rhs_contract), (lhs_batch, rhs_batch) = dimensions
-            axes = tuple(
-                tuple(group)
-                for group in (lhs_contract, rhs_contract, lhs_batch, rhs_batch)
-            )
-        except (TypeError, ValueError) as exc:
-            raise ValueError("SOURCE dot_general: malformed dimension_numbers") from exc
-        lhs_contract, rhs_contract, lhs_batch, rhs_batch = axes
-        if any(
-            isinstance(axis, (bool, np.bool_))
-            or not isinstance(axis, (int, np.integer))
-            or not 0 <= axis < rank
-            for group in axes
-            for axis in group
-        ) or any(
-            len(set(contract + batch)) != len(contract + batch)
-            for contract, batch in (
-                (lhs_contract, lhs_batch),
-                (rhs_contract, rhs_batch),
-            )
-        ):
-            raise ValueError("SOURCE dot_general: invalid or overlapping matrix axes")
-        if (
-            len(lhs_contract) != 1
-            or len(rhs_contract) != 1
-            or len(lhs_batch) != rank - 2
-            or len(rhs_batch) != rank - 2
-        ):
-            raise NotImplementedError(
-                "SOURCE dot_general: dimension_numbers "
-                f"{dimensions} are outside the audited private subset; one "
-                "contracting and one free axis per operand are covered"
-            )
-        lhs_free = tuple(i for i in range(rank) if i not in lhs_contract + lhs_batch)
-        rhs_free = tuple(i for i in range(rank) if i not in rhs_contract + rhs_batch)
-        if lhs_shape[lhs_contract[0]] != rhs_shape[rhs_contract[0]] or any(
-            lhs_shape[left] != rhs_shape[right]
-            for left, right in zip(lhs_batch, rhs_batch, strict=True)
-        ):
-            raise ValueError("SOURCE dot_general: paired matrix dimensions differ")
-        output_shape = tuple(lhs_shape[axis] for axis in lhs_batch) + (
-            lhs_shape[lhs_free[0]],
-            rhs_shape[rhs_free[0]],
-        )
-        if tuple(out_var.aval.shape) != output_shape:
-            raise ValueError(
-                "SOURCE dot_general: matrix result differs from source aval"
-            )
-
-        lhs, rhs = (ctx.require_value_for_var(var) for var in eqn.invars)
-        output = ctx.allocate_value_for_var(out_var, name_hint="dot_matrix")
-        for value, shape in (
-            (lhs, lhs_shape),
-            (rhs, rhs_shape),
-            (output, output_shape),
-        ):
-            if (
-                _value_ir_dtype(value) != dtype
-                or value.shape is None
-                or tuple(value.shape) != shape
-            ):
-                raise ValueError(
-                    "SOURCE dot_general: physical matrix dtype/shape differs from aval"
-                )
-
-        def normalize(
-            value: ir.Value, shape: tuple[Any, ...], permutation: tuple[int, ...]
-        ) -> ir.Value:
-            if permutation == tuple(range(rank)):
-                return value
-            transposed = ir.Value(
-                name=ctx.fresh_name("dot_matrix_transpose"),
-                type=ir.TensorType(dtype),
-                shape=ir.Shape(tuple(shape[axis] for axis in permutation)),
-            )
-            return ctx.builder.op(
-                "Transpose",
-                [value],
-                {"perm": ir.Attr("perm", ir.AttributeType.INTS, permutation)},
-                output=transposed,
-            )
-
-        lhs = normalize(lhs, lhs_shape, lhs_batch + lhs_free + lhs_contract)
-        rhs = normalize(rhs, rhs_shape, rhs_batch + rhs_contract + rhs_free)
-        result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
-        ctx.bind_value_for_var(out_var, result)
 
     def _maybe_lower_complex(
         self,

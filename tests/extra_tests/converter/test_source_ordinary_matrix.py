@@ -748,10 +748,24 @@ def test_explicit_fp64_input_is_rejected_before_source_narrowing() -> None:
 def test_ordinary_local_boundary_rejects_malformed_and_pending_forms_before_emission(
     defect: str,
 ) -> None:
+    original = jax.make_jaxpr(_dot)(
+        *map(_spec, _canonical_values(np.float32))
+    ).jaxpr.eqns[0]
+
     def variable(shape: Any, dtype: Any = np.float32) -> Any:
-        return SimpleNamespace(
-            aval=SimpleNamespace(shape=shape, dtype=dtype, weak_type=False)
-        )
+        if any(isinstance(dim, str) for dim in shape):
+            from tests.extra_tests.converter.test_source_native_contract import (
+                _forged_aval,
+            )
+
+            aval = _forged_aval(
+                original.invars[0].aval, shape=shape, dtype=np.dtype(dtype)
+            )
+        else:
+            aval = original.invars[0].aval.update(
+                shape=shape, dtype=np.dtype(dtype), sharding=None
+            )
+        return SimpleNamespace(aval=aval)
 
     params: dict[str, Any] = {
         "dimension_numbers": _CANONICAL,
@@ -759,6 +773,9 @@ def test_ordinary_local_boundary_rejects_malformed_and_pending_forms_before_emis
         "preferred_element_type": None,
     }
     eqn = SimpleNamespace(
+        primitive=original.primitive,
+        ctx=original.ctx,
+        effects=original.effects,
         invars=[variable((3, 4)), variable((4, 2))],
         outvars=[variable((3, 2))],
         params=params,
@@ -798,8 +815,12 @@ def test_ordinary_local_boundary_rejects_malformed_and_pending_forms_before_emis
     else:
         eqn.invars = [variable((3, 4), np.int32), variable((4, 2), np.int32)]
         eqn.outvars = [variable((3, 2), np.int32)]
+    if defect in {"zero", "symbolic", "unequal_rank", "multi_contract"}:
+        expected = ValueError
     with pytest.raises(expected, match="SOURCE dot_general"):
-        DotGeneralPlugin()._lower_source(SimpleNamespace(), eqn)
+        DotGeneralPlugin()._lower_source(
+            SimpleNamespace(builder=SimpleNamespace(opset=23)), eqn
+        )
 
 
 @pytest.mark.parametrize(
@@ -831,6 +852,7 @@ def test_ordinary_physical_metadata_is_checked_without_mutating_operands(
         output.shape = ir.Shape((2, 3))
     before = [(copy(value.type), copy(value.shape)) for value in sources]
     ctx = SimpleNamespace(
+        builder=SimpleNamespace(opset=23),
         require_value_for_var=lambda var: sources[eqn.invars.index(var)],
         allocate_value_for_var=lambda *args, **kwargs: output,
     )

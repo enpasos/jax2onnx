@@ -8,7 +8,7 @@ This page is the quick briefing for automated agents (or humans) dropping into t
 
 - **Pipeline:** Everything runs through the IR-only converter. `converter/` builds `onnx_ir` graphs; `plugins/` land primitive-specific lowering; `tests/` cover both policy and regression cases.
 - **Docs map:** Start with `docs/developer_guide/architecture.md` for the architecture overview. Technical playbooks live under `docs/developer_guide/advanced_topics/` (builder etiquette, expect_graph usage, control-flow wiring, IR optimizer, reflection guardrails, etc.). Release history lives under `docs/about/`; coverage pages and examples live under `docs/user_guide/`.
-- **Tooling:** Python 3.11+, Poetry, Ruff, Black, mypy, pytest. Supported runtime stack is **JAX ≥0.8.1** and **Flax/NNX ≥0.12.1**.
+- **Tooling:** Python 3.11+, Poetry, Ruff, Black, mypy, pytest. Supported runtime stack is **JAX/JAXLIB ≥0.10.2** and **Flax/NNX ≥0.12.8**.
 - **Recent heads-up (2025-10-02):**
   - NNX examples construct RNGs via `with_rng_seed(...)`; avoid inline lambdas so callables stay hashable under current JAX releases.
   - Attention plugins normalise masked weights to avoid float32 NaNs; tests rely on that behaviour.
@@ -42,10 +42,13 @@ Keep these handy—most deep-dives live there instead of here.
   - No `jax_dynamic_shapes` auto-toggle.
   - Primitive parameters must be hashable; `construct_and_call(...).with_dtype(...)` constructs modules once per dtype.
   - Flax NNX requires attributes that hold arrays to be wrapped in `nnx.List` / `nnx.data`.
-- **Two supported stacks.** `jax>=0.11`, `numpy>=2.5` and `scipy>=1.18` all require
-  Python 3.12+, so the resolver pins Python 3.11 to the older `jax 0.10.2` stack.
-  Both must keep working — route version-sensitive APIs through
-  `jax2onnx/_compat/jax.py` instead of importing them directly.
+- **Locked framework variants.** Poetry selects JAX/JAXLIB `0.10.2` and Flax
+  `0.12.8` on Python 3.11/3.12, and JAX/JAXLIB `0.12.0` and Flax `0.12.10` on
+  Python 3.13/3.14. `uv.lock` selects JAX/JAXLIB `0.10.2` on Python 3.11 and
+  `0.12.0` on Python 3.12+, retaining Flax `0.12.8`.
+  Preserve each lock's versions and markers. Python 3.11 remains supported; route
+  version-sensitive APIs through `jax2onnx/_compat/jax.py` instead of importing
+  them directly. Retain the compatibility helpers when changing support floors.
   (`[tool.mypy] python_version` is 3.12 because numpy's stubs need PEP 695 parsing.)
 - JAX 0.11 specifics:
   - `ClosedJaxpr` **is** `Jaxpr`, and `Jaxpr.jaxpr` returns `self`. Recursive

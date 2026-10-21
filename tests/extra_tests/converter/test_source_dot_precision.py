@@ -320,19 +320,27 @@ def test_source_dot_rejects_unaudited_type_combinations(
     ],
 )
 def test_source_dot_rejects_unaudited_dimensions(
-    lhs_shape: tuple[int, ...], rhs_shape: tuple[int, ...], dimensions: Any
+    lhs_shape: tuple[int, ...],
+    rhs_shape: tuple[int, ...],
+    dimensions: Any,
+    tmp_path: Path,
 ) -> None:
     def model(x: jax.Array, w: jax.Array) -> jax.Array:
         return jax.lax.dot_general(x, w, dimensions, preferred_element_type=jnp.float32)
 
-    with pytest.raises(NotImplementedError, match="shapes .*private subset"):
-        export_source_dtypes(
-            model,
-            [
-                jax.ShapeDtypeStruct(lhs_shape, jnp.float16),
-                jax.ShapeDtypeStruct(rhs_shape, jnp.float16),
-            ],
-        )
+    # Retained historical ID: this geometry now has a positive native contract.
+    from tests.extra_tests.converter.test_source_generalized_contraction import (
+        _oracle,
+        _payload,
+        observe_contraction,
+    )
+
+    values = _payload(np.float16, lhs_shape), _payload(
+        np.float16, rhs_shape, right=True
+    )
+    observe_contraction(
+        model, values, tmp_path, expected=(_oracle(*values, dimensions, np.float32),)
+    )
 
 
 @pytest.mark.parametrize("double", [False, True])

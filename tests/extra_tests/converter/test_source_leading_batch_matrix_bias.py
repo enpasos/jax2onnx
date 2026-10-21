@@ -3,7 +3,6 @@
 """Finite leading-batch artifacts and binding; target numerics stay unverified."""
 
 from collections.abc import Iterator
-from copy import copy
 import hashlib
 import json
 from pathlib import Path
@@ -51,6 +50,7 @@ from tests.extra_tests.converter.source_nnx_linear_fixtures import (
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
+from tests.extra_tests.converter.test_source_native_contract import _forged_aval
 
 _CASES = (
     (
@@ -605,20 +605,30 @@ def test_symbolic_dot_scope_and_typed_metadata_fail_before_lowering(
     )(*specs)
     body = _body(native)
     original = body.eqns[0]
-    inputs = [SimpleNamespace(aval=copy(v.aval)) for v in original.invars]
-    output = SimpleNamespace(aval=copy(original.outvars[0].aval))
+    inputs = [SimpleNamespace(aval=_forged_aval(v.aval)) for v in original.invars]
+    output = SimpleNamespace(aval=_forged_aval(original.outvars[0].aval))
     params = original.params.copy()
+    equation = SimpleNamespace(
+        primitive=original.primitive,
+        invars=inputs,
+        outvars=[output],
+        params=params,
+        effects=original.effects,
+        ctx=original.ctx,
+    )
+    graph = SimpleNamespace(
+        invars=inputs, outvars=[output], constvars=(), eqns=[equation], effects=()
+    )
+    validate_source_jaxpr(graph, 23)
     (foreign,) = export.symbolic_shape("B")
     if defect == "scope":
-        inputs[1].aval = jax.ShapeDtypeStruct((foreign, 4, 5), np.float32)
+        inputs[1].aval = _forged_aval(inputs[1].aval, shape=(foreign, 4, 5))
     elif defect == "output-scope":
-        output.aval = jax.ShapeDtypeStruct((foreign, 3, 5), np.float32)
+        output.aval = _forged_aval(output.aval, shape=(foreign, 3, 5))
     elif defect == "dtype":
-        output.aval = jax.ShapeDtypeStruct(specs[0].shape[:2] + (5,), np.float64)
+        output.aval = _forged_aval(output.aval, dtype=np.dtype(np.float64))
     elif defect == "weak":
-        output.aval = jax.ShapeDtypeStruct(
-            specs[0].shape[:2] + (5,), np.float32, weak_type=True
-        )
+        output.aval = _forged_aval(output.aval, weak_type=True)
     elif defect == "axes":
         params["dimension_numbers"] = (((1,), (2,)), ((0,), (0,)))
     elif defect in {"bool-axis", "float-axis"}:
@@ -630,16 +640,6 @@ def test_symbolic_dot_scope_and_typed_metadata_fail_before_lowering(
         params["precision"] = (jax.lax.Precision.HIGHEST,) * 2
     else:
         params["out_sharding"] = object()
-    equation = SimpleNamespace(
-        primitive=original.primitive,
-        invars=inputs,
-        outvars=[output],
-        params=params,
-        effects=(),
-    )
-    graph = SimpleNamespace(
-        invars=inputs, outvars=[output], constvars=(), eqns=[equation], effects=()
-    )
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(graph, 23)
     assert caught.value.category == (
@@ -647,12 +647,22 @@ def test_symbolic_dot_scope_and_typed_metadata_fail_before_lowering(
         if defect in {"dtype", "weak", "bool-axis", "float-axis"}
         else "profile-exclusion"
     )
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("logical corruption must fail before reading or emitting IR")
+
+    context = SimpleNamespace(
+        require_value_for_var=forbidden,
+        allocate_value_for_var=forbidden,
+        bind_value_for_var=forbidden,
+        builder=SimpleNamespace(opset=23, op=forbidden),
+    )
     if defect in {"scope", "output-scope"}:
         with pytest.raises(ValueError, match="scope"):
-            DotGeneralPlugin()._lower_source(SimpleNamespace(), equation)
+            DotGeneralPlugin()._lower_source(context, equation)
     elif defect in {"bool-axis", "float-axis"}:
         with pytest.raises(ValueError, match="axes"):
-            DotGeneralPlugin()._lower_source(SimpleNamespace(), equation)
+            DotGeneralPlugin()._lower_source(context, equation)
 
 
 @pytest.mark.parametrize(
@@ -710,6 +720,7 @@ def test_symbolic_matmul_checks_canonical_physical_values_before_emission(
         lambda a, b: jax.lax.dot_general(a, b, (((2,), (1,)), ((0,), (0,))))
     )(*_specs([("B", 3, 4), ("B", 4, 5)]))
     equation = _body(native).eqns[0]
+    validate_source_jaxpr(native, 23)
     values = {
         name: ir.Value(type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape(shape))
         for name, shape in (
@@ -718,6 +729,35 @@ def test_symbolic_matmul_checks_canonical_physical_values_before_emission(
             ("output", ("B", 3, 5)),
         )
     }
+    emissions, bindings = [], []
+
+    def emit(operator: str, operands: Any, *, output: Any) -> Any:
+        emissions.append((operator, operands, output))
+        return output
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("invalid physical values must fail before emitting or binding")
+
+    context = SimpleNamespace(
+        require_value_for_var=lambda var: values[
+            "lhs" if var is equation.invars[0] else "rhs"
+        ],
+        allocate_value_for_var=lambda *args, **kwargs: values["output"],
+        bind_value_for_var=lambda var, value: bindings.append((var, value)),
+        builder=SimpleNamespace(opset=23, op=emit),
+    )
+    clean = tuple((v.type.dtype, tuple(v.shape)) for v in values.values())
+    DotGeneralPlugin()._lower_source(context, equation)
+    assert len(emissions) == len(bindings) == 1
+    operator, operands, output = emissions[0]
+    assert operator == "MatMul" and len(operands) == 2
+    assert operands[0] is values["lhs"] and operands[1] is values["rhs"]
+    assert output is values["output"]
+    assert bindings[0][0] is equation.outvars[0] and bindings[0][1] is output
+    assert tuple((v.type.dtype, tuple(v.shape)) for v in values.values()) == clean
+    emissions.clear()
+    bindings.clear()
+    context.builder.op = context.bind_value_for_var = forbidden
     value = values[port]
     if defect == "dtype":
         value.type = ir.TensorType(ir.DataType.DOUBLE)
@@ -730,19 +770,9 @@ def test_symbolic_matmul_checks_canonical_physical_values_before_emission(
         else:
             shape[0] = None
         value.shape = ir.Shape(shape)
-    snapshot = tuple((v.type, v.shape) for v in values.values())
-
-    def forbidden(*args: Any, **kwargs: Any) -> Any:
-        pytest.fail("invalid physical values must fail before emitting or binding")
-
-    context = SimpleNamespace(
-        require_value_for_var=lambda var: values[
-            "lhs" if var is equation.invars[0] else "rhs"
-        ],
-        allocate_value_for_var=lambda *args, **kwargs: values["output"],
-        bind_value_for_var=forbidden,
-        builder=SimpleNamespace(op=forbidden),
-    )
-    with pytest.raises(ValueError):
+    snapshot = tuple((v.type.dtype, tuple(v.shape)) for v in values.values())
+    expected = "requires a known named dimension" if defect == "unknown" else "physical"
+    with pytest.raises(ValueError, match=expected):
         DotGeneralPlugin()._lower_source(context, equation)
-    assert tuple((v.type, v.shape) for v in values.values()) == snapshot
+    assert not emissions and not bindings
+    assert tuple((v.type.dtype, tuple(v.shape)) for v in values.values()) == snapshot

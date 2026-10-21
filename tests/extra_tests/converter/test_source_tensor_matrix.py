@@ -829,22 +829,23 @@ def test_tensor_matrix_retains_actual_native_operand_and_result_weakness(
 
 def _graph(symbolic: bool = False) -> Any:
     leading: Any = export.symbolic_shape("B")[0] if symbolic else 2
-
-    def variable(shape: Any) -> Any:
-        return SimpleNamespace(aval=jax.ShapeDtypeStruct(shape, np.float32))
-
-    inputs = [variable((leading, 3, 4)), variable((4, 2))]
-    outputs = [variable((leading, 3, 2))]
+    native = jax.make_jaxpr(
+        lambda a, b: jax.lax.dot_general(a, b, (((2,), (0,)), ((), ())))
+    )(
+        jax.ShapeDtypeStruct((leading, 3, 4), np.float32),
+        jax.ShapeDtypeStruct((4, 2), np.float32),
+    ).jaxpr.eqns[
+        0
+    ]
+    inputs = [SimpleNamespace(aval=v.aval) for v in native.invars]
+    outputs = [SimpleNamespace(aval=v.aval) for v in native.outvars]
     equation = SimpleNamespace(
-        primitive=jax.lax.dot_general_p,
+        primitive=native.primitive,
         invars=inputs,
         outvars=outputs,
-        params={
-            "dimension_numbers": (((2,), (0,)), ((), ())),
-            "precision": None,
-            "preferred_element_type": None,
-        },
-        effects=(),
+        params=dict(native.params),
+        effects=native.effects,
+        ctx=native.ctx,
     )
     return SimpleNamespace(
         invars=inputs, constvars=(), outvars=outputs, eqns=[equation], effects=()
@@ -885,6 +886,7 @@ _DEFECTS = tuple(
 @pytest.mark.parametrize("defect", _DEFECTS)
 def test_tensor_matrix_rejects_unsupported_or_corrupt_native_contract_before_emission(
     defect: str,
+    tmp_path: Path,
 ) -> None:
     graph = _graph(defect in {"foreign-scope", "string-batch", "batch-expression"})
     eqn = graph.eqns[0]
@@ -894,9 +896,19 @@ def test_tensor_matrix_rejects_unsupported_or_corrupt_native_contract_before_emi
     def aval(
         variable: Any, shape: Any = None, dtype: Any = np.float32, weak: bool = False
     ) -> None:
-        variable.aval = jax.ShapeDtypeStruct(
-            variable.aval.shape if shape is None else shape, dtype, weak_type=weak
-        )
+        shape = variable.aval.shape if shape is None else shape
+        if any(isinstance(dim, str) for dim in shape):
+            from tests.extra_tests.converter.test_source_native_contract import (
+                _forged_aval,
+            )
+
+            variable.aval = _forged_aval(
+                variable.aval, shape=shape, dtype=np.dtype(dtype), weak_type=weak
+            )
+        else:
+            variable.aval = variable.aval.update(
+                shape=shape, dtype=np.dtype(dtype), weak_type=weak, sharding=None
+            )
 
     if defect == "rank-five":
         aval(lhs, (2, 2, 2, 3, 4))
@@ -955,11 +967,34 @@ def test_tensor_matrix_rejects_unsupported_or_corrupt_native_contract_before_emi
         batch = lhs.aval.shape[0]
         aval(lhs, (batch + 1, 3, 4))
         aval(output, (batch + 1, 3, 2))
+    if defect in {"rank-five", "zero", "noncanonical", "paired-axis"}:
+        from tests.extra_tests.converter.test_source_generalized_contraction import (
+            _oracle,
+            _payload,
+            observe_contraction,
+        )
+
+        dimensions = eqn.params["dimension_numbers"]
+        values = tuple(
+            _payload(np.float32, tuple(v.aval.shape), right=bool(i))
+            for i, v in enumerate(eqn.invars)
+        )
+
+        def fn(a, b) -> Any:
+            return jax.lax.dot_general(a, b, dimensions)
+
+        validate_source_jaxpr(graph, 23)
+        observe_contraction(
+            fn, values, tmp_path, expected=(_oracle(*values, dimensions, np.float32),)
+        )
+        return
     before = typed_trace_manifest(graph)
     with pytest.raises(SourcePrecisionError) as captured:
         validate_source_jaxpr(graph, 23)
     assert captured.value.category == (
-        "profile-exclusion" if defect in _EXCLUSIONS else "lowering-defect"
+        "profile-exclusion"
+        if defect in _EXCLUSIONS - {"rhs-rank"}
+        else "lowering-defect"
     )
     boundary = defect in {"string-batch", "batch-expression"}
     assert captured.value.location == ("input 0" if boundary else "equation 0")
@@ -976,12 +1011,12 @@ def test_tensor_matrix_rejects_unsupported_or_corrupt_native_contract_before_emi
         require_value_for_var=forbidden,
         allocate_value_for_var=forbidden,
         bind_value_for_var=forbidden,
-        builder=SimpleNamespace(op=forbidden),
+        builder=SimpleNamespace(opset=23, op=forbidden),
     )
     expected = (
         NotImplementedError
         if defect
-        in (_EXCLUSIONS - {"foreign-scope", "batch-expression"}) | {"output-dtype"}
+        in {"preferred", "high", "algorithm", "placement", "unknown", "output-dtype"}
         else ValueError
     )
     with pytest.raises(expected):
@@ -1037,7 +1072,7 @@ def test_tensor_matrix_checks_physical_metadata_before_emitting_or_mutating(
         ],
         allocate_value_for_var=lambda *args, **kwargs: values["output"],
         bind_value_for_var=forbidden,
-        builder=SimpleNamespace(op=forbidden),
+        builder=SimpleNamespace(opset=23, op=forbidden),
     )
     with pytest.raises(ValueError):
         DotGeneralPlugin()._lower_source(context, equation)

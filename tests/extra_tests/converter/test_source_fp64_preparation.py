@@ -7,7 +7,6 @@ The exact rational roundoff criterion below is separate and fixed before target
 observations. It covers only finite ordinary FP64 arithmetic on these samples.
 """
 
-from copy import copy
 from fractions import Fraction
 import json
 from pathlib import Path
@@ -50,6 +49,7 @@ from tests.extra_tests.converter.source_nnx_linear_fixtures import (
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
+from tests.extra_tests.converter.test_source_native_contract import _forged_aval
 from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
     _globals,
     _settings,
@@ -631,17 +631,31 @@ def test_fp64_enum_admission_keeps_semantic_shape_and_weakness_boundaries(
             ],
         )
     original = _body(native).eqns[0]
-    inputs = [SimpleNamespace(aval=copy(value.aval)) for value in original.invars]
-    output = SimpleNamespace(aval=copy(original.outvars[0].aval))
+    inputs = [
+        SimpleNamespace(aval=_forged_aval(value.aval)) for value in original.invars
+    ]
+    output = SimpleNamespace(aval=_forged_aval(original.outvars[0].aval))
     params = original.params.copy()
+    equation = SimpleNamespace(
+        primitive=original.primitive,
+        invars=inputs,
+        outvars=[output],
+        params=params,
+        effects=original.effects,
+        ctx=original.ctx,
+    )
+    graph = SimpleNamespace(
+        invars=inputs, constvars=(), outvars=[output], eqns=[equation], effects=()
+    )
+    validate_source_jaxpr(graph, 23)
     if defect.startswith("fp32-"):
         for value in (*inputs, output):
-            value.aval = value.aval.update(dtype=np.dtype(np.float32))
+            value.aval = _forged_aval(value.aval, dtype=np.dtype(np.float32))
         params["precision"] = (getattr(jax.lax.Precision, defect[5:].upper()),) * 2
     elif defect == "mixed":
-        inputs[0].aval = inputs[0].aval.update(dtype=np.dtype(np.float32))
+        inputs[0].aval = _forged_aval(inputs[0].aval, dtype=np.dtype(np.float32))
     elif defect == "result":
-        output.aval = output.aval.update(dtype=np.dtype(np.float32))
+        output.aval = _forged_aval(output.aval, dtype=np.dtype(np.float32))
     elif defect == "preferred":
         params["preferred_element_type"] = np.float32
     elif defect == "preset":
@@ -661,25 +675,25 @@ def test_fp64_enum_admission_keeps_semantic_shape_and_weakness_boundaries(
     elif defect == "axes":
         params["dimension_numbers"] = (((True,), (0,)), ((), ()))
     elif defect == "weak":
-        output.aval = output.aval.update(weak_type=True)
+        output.aval = _forged_aval(output.aval, weak_type=True)
     else:
-        output.aval = output.aval.update(shape=(2, 63))
-    equation = SimpleNamespace(
-        primitive=original.primitive,
-        invars=inputs,
-        outvars=[output],
-        params=params,
-        effects=(),
-    )
-    graph = SimpleNamespace(
-        invars=inputs, constvars=(), outvars=[output], eqns=[equation], effects=()
-    )
+        output.aval = _forged_aval(output.aval, shape=(2, 63))
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(graph, 23)
     assert caught.value.primitive == "dot_general"
     assert caught.value.phase == "profile-validation"
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("logical corruption must fail before reading or emitting IR")
+
+    context = SimpleNamespace(
+        require_value_for_var=forbidden,
+        allocate_value_for_var=forbidden,
+        bind_value_for_var=forbidden,
+        builder=SimpleNamespace(opset=23, op=forbidden),
+    )
     with pytest.raises((NotImplementedError, ValueError)):
-        DotGeneralPlugin()._lower_source(SimpleNamespace(), equation)
+        DotGeneralPlugin()._lower_source(context, equation)
 
 
 @pytest.mark.parametrize("port", ["lhs", "rhs", "output"])
@@ -698,15 +712,16 @@ def test_new_fp64_precision_path_still_checks_physical_storage_before_emission(
             ],
         )
     equation = _body(graph).eqns[0]
+    validate_source_jaxpr(graph, 23)
     values = {
         name: ir.Value(type=ir.TensorType(ir.DataType.DOUBLE), shape=ir.Shape(shape))
         for name, shape in (("lhs", (2, 128)), ("rhs", (128, 64)), ("output", (2, 64)))
     }
-    values[port].type = (
-        ir.TensorType(ir.DataType.FLOAT) if defect == "dtype" else values[port].type
-    )
-    if defect == "shape":
-        values[port].shape = ir.Shape((1, 1))
+    emissions, bindings = [], []
+
+    def emit(operator: str, operands: Any, *, output: Any) -> Any:
+        emissions.append((operator, operands, output))
+        return output
 
     def forbidden(*args: Any, **kwargs: Any) -> Any:
         pytest.fail("physical mismatch must fail before emission or binding")
@@ -716,11 +731,39 @@ def test_new_fp64_precision_path_still_checks_physical_storage_before_emission(
             "lhs" if var is equation.invars[0] else "rhs"
         ],
         allocate_value_for_var=lambda *args, **kwargs: values["output"],
-        bind_value_for_var=forbidden,
-        builder=SimpleNamespace(op=forbidden),
+        bind_value_for_var=lambda var, value: bindings.append((var, value)),
+        builder=SimpleNamespace(opset=23, op=emit),
+    )
+    clean = tuple((value.type.dtype, tuple(value.shape)) for value in values.values())
+    DotGeneralPlugin()._lower_source(context, equation)
+    assert len(emissions) == len(bindings) == 1
+    operator, operands, output = emissions[0]
+    assert operator == "MatMul" and len(operands) == 2
+    assert operands[0] is values["lhs"] and operands[1] is values["rhs"]
+    assert output is values["output"]
+    assert bindings[0][0] is equation.outvars[0] and bindings[0][1] is output
+    assert (
+        tuple((value.type.dtype, tuple(value.shape)) for value in values.values())
+        == clean
+    )
+    emissions.clear()
+    bindings.clear()
+    context.builder.op = context.bind_value_for_var = forbidden
+    values[port].type = (
+        ir.TensorType(ir.DataType.FLOAT) if defect == "dtype" else values[port].type
+    )
+    if defect == "shape":
+        values[port].shape = ir.Shape((1, 1))
+    snapshot = tuple(
+        (value.type.dtype, tuple(value.shape)) for value in values.values()
     )
     with pytest.raises(ValueError, match="physical"):
         DotGeneralPlugin()._lower_source(context, equation)
+    assert not emissions and not bindings
+    assert (
+        tuple((value.type.dtype, tuple(value.shape)) for value in values.values())
+        == snapshot
+    )
 
 
 def test_retained_getter_custom_promotion_and_dot_keep_their_actual_native_semantics() -> (

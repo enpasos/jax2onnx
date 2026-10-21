@@ -15,7 +15,8 @@
   operands and unified safe output allocation for native lowerings;
   cached finalized native `ir.Function` objects directly and introduced a
   closed native plugin context alongside the existing compatibility contract;
-  raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`.
+  raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`; and set the runtime
+  minimums to JAX/jaxlib `0.10.2` and Flax `0.12.8`, retaining Python 3.11+.
 - **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
   with explicit errors for input dilation combined with non-unit
   `window_strides` and complex transposed convolutions, and rejected

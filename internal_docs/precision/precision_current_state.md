@@ -5,45 +5,139 @@ Public-behavior analysis baseline: 2026-10-17. Source snapshot:
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
 
-Local branch status, 2026-10-21: the BF16 CPU sample boundary is committed at
-**`3d9ba486`**. Its PRIMARY full passes **11,668 unique cases**, zero failures,
-errors or skips; the same **275 focused cases pass on all three installed JAX
-stacks**, plus all **41 new cases on actual ORT 1.24.1**. Strict documentation
-checks, **266 rendered relative links across nine docs**, all seven normal hooks
-and committed-byte / clean-worktree verification pass. The preceding
-`b1e1e5f0` retains its PRIMARY **11,627 PASS** and later SECONDARY
-**11,620 PASS / two known SKIP** results.
+The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
+Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
+retained metadata from an unpublished pre-restart wheel declares those bounds.
+Existing locked package versions and Python variants are retained. Python 3.11 remains supported. The
+SECONDARY stack is the exact framework-floor target; its newer ONNX/ORT and
+other dependencies do not establish all-direct-dependency-minimum acceptance.
+ORT 1.24.1 and the other declared bounds are unchanged.
 
-The shared sample validator transports genuine BF16 inputs and physical BF16
-outputs without numerical conversion. One original execution supplies actual
-CPU tensor metadata for owned output storage, including dynamic sizes. Ordinary
-NumPy execution, evidence, comparisons and failure categories are unchanged.
-Missing Add kernels and prior failed samples remain distinct from successful
-transport; see the [BF16 record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification).
+Earlier JAX 0.8.1/Flax 0.12.1 runs retain their actual outcomes as historical
+evidence; they are no longer a supported-floor release gate. This decision
+does not fix numerical/provider gaps or remove any existing model, fixed source
+or numerical requirement from the single-interface migration target.
 
-The applied platform correction shares one exact Mosaic/default selector
-contract between lowering and SOURCE admission. Only the validated same-scope
-producer and matching two-branch metadata authorize that conditional; both
-native branch bodies remain checked. It neither guesses the export host's
-backend nor admits general device dispatch. SOURCE `eye` now forwards the exact
-original call before legacy argument normalization, preserving native dtype
-canonicalization, argument errors and decomposition.
+The preceding exact native platform-selector and SOURCE `eye` forwarding
+checkpoint is committed at **`b7eb923a`**, parent `3d9ba486`.
+Its PRIMARY full passes **11,685 unique cases**; the same **110 focused cases**
+pass on all three JAX stacks and actual ORT 1.24.1. Strict documentation,
+**269 rendered links across nine docs**, all seven normal hooks and exact
+qualified-byte verification pass. At commit verification, all **933 Python
+inputs** matched the full run and the worktree was clean. The earlier
+[platform record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
+retains its failed branch-capture epochs.
 
-The same **110 focused identities pass on PRIMARY, SECONDARY and MINIMUM**,
-including the original diagonal/NaN witness and generated Eye cases. All earlier
-104 identities are retained; each preceding 103-PASS / one-FAIL run remains
-failed history. Typing on **559 source files**, pinned Black/Ruff and four
-policies pass; **17 RNG factories** are an inventory count. The fresh PRIMARY
-full passes **11,685 unique cases**, zero failures/errors/skips, in
-**638.753850 seconds**. All **11,668** preceding identities and the same **110**
-focused identities are retained; exactly **17** cases are new. The same **110**
-also pass on actual **ORT 1.24.1**, with zero failures/errors/skips. Documentation,
-normal hooks and qualified-byte checks remain required checkpoint gates. Phase
-counts are **NOT_INSTRUMENTED**. The
-[current platform record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
-binds this finite scope. Full minimum-version and B–F acceptance remain open;
-public behavior and support floors are unchanged. Earlier checkpoints below
-retain their original scopes.
+The applied private generalized-contraction implementation uses a shared
+validated shape plan: supplied contracting and batch-axis pairing is retained,
+free axes retain native order, and only the required consumers transpose or
+reshape values. Same-width FP32/FP64 and the existing explicit
+FP16-operands/preferred-FP32-result boundary retain native abstract evaluation
+and physical metadata checks. Empty reductions produce the native additive
+identity; no-reduction products retain signed zero. The established canonical
+tensor-by-matrix route remains one MatMul. Individual dimensions outside ONNX
+INT64 and an unfinished oversized regrouping strategy have distinct reports.
+
+SOURCE LinearGeneral/DenseGeneral and JAX/NNX/Linen einsum call their captured
+native implementations with exact arguments before legacy normalization. Native
+promotion, callbacks, parameter storage, aliases, named Functions and JIT
+context remain observable. Other arithmetic types, explicit algorithms and
+broader symbolic forms remain implementation/qualification work; the finite
+boundary is not a permanent capability exclusion.
+
+The v3 selection passed the same **993 focused identities on all three
+then-installed JAX stacks**, with zero failures/errors/skips and held sources. The new owner contributes **376**
+cases. All three preceding 988-PASS / five-FAIL epochs remain failed history.
+The four historical minimum-stack named examples executed and validated against both
+native roles under both ORT optimization settings with unchanged bitwise
+criteria. Their actual captured function bodies, serialized ports, original
+kernel and output aliases are checked. The 22 original dot-row/caller replays
+remain separate: missing criteria and failed callbacks do not become numerical
+acceptance. Typing passed on **559 source files**; the **17 RNG factories** are
+an inventory count. Pinned Black/Ruff and all four policies passed for v3.
+
+The subsequent complete PRIMARY v3 run is **FAILED: 11,992 PASS / 69 FAIL
+of 12,061 unique cases**, zero errors/skips, **691.290155 seconds**. All 11,685
+preceding IDs, all 993 focused IDs and all 1,098 source/config pins were
+retained; the only 376 additions are the generalized-contraction owner.
+Both v4 affected runs also remain **FAILED: 1,419 PASS / 21 FAIL of 1,440**,
+zero errors/skips, with identical IDs and held sources.
+
+The v5 fixture correction retains each intended corruption using a fresh
+native annotation on the same test variable and checks the specific unknown
+physical-dimension error. It introduces no production mutable proxy, inference
+replacement, skip or changed numerical bound. The same **1,443 affected cases
+pass on SECONDARY and PRIMARY**, with zero failures/errors/skips: all 1,440
+previous identities plus the three minimum-installer tests. Sources and Git
+state hold within both runs; all 934 Python inputs still match after the
+separately reviewed lock update.
+
+The completed v5 PRIMARY full run passes **12,061 unique cases**, with zero
+failures, errors or skips, in **660.279726 seconds**. Every earlier v3 full
+identity and all 1,443 affected identities are present. Its 1,098 source/config
+pins matched the held source checkpoint before this five-document status
+update; all 934 Python inputs remain unchanged. This installed
+PRIMARY environment is Python 3.12.9 / JAX and jaxlib 0.12.0 / Flax 0.12.10;
+it is distinct from Poetry's Python 3.12 lock selection.
+
+The original SECONDARY full run was interrupted by the VM restart. Its log
+survives, but no terminal receipt or XML exists, so it has no passing result.
+The new complete SECONDARY run finishes with **12,054 PASS / two SKIP of
+12,056 unique cases**, zero failures/errors, in **1,836.001337 seconds**.
+It uses Python 3.11.12 / JAX and jaxlib 0.10.2 / Flax 0.12.8 and exactly the
+same 1,098 pinned source/config files as PRIMARY. All 1,443 affected identities
+are present and pass. The two skips are the absent optional Keras integration
+and JAX's absent `one_minus_square` primitive. Five PRIMARY-only identities
+are three feature-gated `no_collectives` context cases and two generated
+`one_minus_square` cases; no other identity is missing. These conditional
+cases and skips are explicit limits of this installed-stack result.
+
+The separate fresh Python 3.11 all-direct-minimum lane verifies all fifteen
+runtime dependencies at their declared lower bounds, including ORT 1.24.1.
+Its first actual sixteen-owner CI replay is **FAILED: 464 PASS / one FAIL of
+465 cases**, zero errors/skips: the isolated setup omitted the declared
+`mypy==2.3.1` development tool required by one typing test. This is a test-tool
+setup failure; that guard did not execute its intended typing check. The
+failed result is retained without changing source, criteria or runtime floors.
+After installing the declared tool, the unchanged local sixteen-owner replay
+passes **all 465 unique cases**, zero failures/errors/skips, in **104.421656
+seconds**. It retains exactly the failed epoch's 465 identities and the same
+1,098 original source/config and 960 execution-Python file hashes. This is a
+local replay of the CI selection at all fifteen direct runtime minima, not a
+hosted CI run or complete supported-functionality/B–F acceptance.
+
+Checkpoint acceptance requires final quality, strict docs, all seven normal
+hooks and qualified-byte verification. Full existing-functionality and B–F
+acceptance remain separate obligations.
+
+Phases are **NOT_INSTRUMENTED**.
+
+An external coordinator now preserves the full **1,852-row / 3,704-caller**
+product plan in bounded fresh processes with resumable durable receipts. Its
+actual smoke on immutable `b7eb923a` completed two cells and exactly one new
+cell on resume, preserving all prior evidence. All three stop at the existing
+Equinox Linear SOURCE barrier. Native results and state are retained; no ONNX
+artifact or runtime/numerical acceptance is implied. Equinox forwarding is a
+separate follow-up, and the full product map must run on a fresh committed
+contraction epoch. See the [current record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke).
+
+A separate [BF16 elementwise diagnostic](poc/source_integration_findings.md#bf16-elementwise-feasibility-observations)
+now has actual PRIMARY CPU observations: direct BF16 models fail to load on
+that provider, while FP32 operations with BF16 castback execute but fail the
+experiment's frozen bitwise comparisons. Original eager/fresh-JIT references
+and all raw artifacts are retained. This finite result does not admit BF16
+arithmetic, change missing raw criteria or prove a general target limitation.
+
+The BF16 CPU sample transport checkpoint remains committed at `3d9ba486`, with
+its **11,668 PRIMARY full passes**, same **275 focused cases on all three JAX
+stacks**, and **41 new cases at actual ORT 1.24.1**. It preserves physical BF16
+inputs/outputs through one original execution without numerical conversion,
+including dynamic sizes. Missing kernels and failed samples remain distinct
+from transport qualification; the [BF16 record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification)
+retains their exact evidence. Complete supported-floor and B–F acceptance
+remain open; public behavior stays **LEGACY**. The authorized support decision
+does not establish complete-model or numerical acceptance. Earlier checkpoints
+below retain their historical scopes and support policies.
 
 Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
 finite native/CPU qualification for static shapes at opsets 23/26. It retains

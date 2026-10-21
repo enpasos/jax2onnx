@@ -47,17 +47,17 @@ jobs:
       run: scripts/run_onnxruntime_web_smoke.sh
 
   minimum-dependencies:
-    name: minimum dependency versions
+    name: minimum dependency versions (Python 3.11)
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Set up Python 3.12
+    - name: Set up Python 3.11
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       with:
-        python-version: '3.12'
+        python-version: '3.11'
 
     - name: Install Poetry
       run: pip install "poetry>=2.0,<3.0"
@@ -71,14 +71,31 @@ jobs:
     - name: Report dependency versions
       run: |
         poetry run python - <<'PY'
+        import platform
+        import sys
+
         import flax
         import jax
+        import jaxlib
         import onnx
         import onnx_ir
         import onnxruntime
 
-        print(f"jax=={jax.__version__}")
-        print(f"flax=={flax.__version__}")
+        expected = {"jax": "0.10.2", "jaxlib": "0.10.2", "flax": "0.12.8"}
+        actual = {
+            "jax": jax.__version__,
+            "jaxlib": jaxlib.__version__,
+            "flax": flax.__version__,
+        }
+        print(f"python=={platform.python_version()}")
+        for package, version in actual.items():
+            print(f"{package}=={version}")
+        if sys.version_info[:2] != (3, 11):
+            raise SystemExit("Minimum-dependency CI requires Python 3.11")
+        if actual != expected:
+            raise SystemExit(
+                f"Expected declared framework minimums {expected}; resolved {actual}"
+            )
         print(f"onnx=={onnx.__version__}")
         print(f"onnx-ir=={onnx_ir.__version__}")
         print(f"onnxruntime=={onnxruntime.__version__}")

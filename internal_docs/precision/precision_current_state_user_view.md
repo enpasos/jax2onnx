@@ -35,14 +35,26 @@ regression run, documentation checks and the normal commit hooks. The preceding
 checkpoint also completed full regression runs on two installed stacks, with
 two known skips on the older stack.
 
-The next correction preserves the tested native diagonal calculations when
-off-diagonal entries contain NaNs, and keeps JAX's shape and dtype choices for
-identity matrices. It passes focused checks on all three installed stacks and the declared ONNX
-Runtime minimum, and its full PRIMARY regression run passes. Documentation and
-normal commit checks remain required before the local checkpoint. Wider matrix
-calculations and the complete existing-model replay are next. The public export call, defaults and
-dependency floors remain unchanged. The [current technical record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
-keeps these results separate from earlier failures and full migration acceptance.
+The correction for native diagonal calculations and identity-matrix dtype
+choices is now committed locally, with focused checks on all three installed
+JAX stacks and the declared ONNX Runtime minimum, a passing full regression
+run, documentation checks and normal hooks.
+
+The supported framework baseline is **JAX and jaxlib 0.10.2 or newer and
+Flax 0.12.8 or newer**. **Python 3.11 remains supported.**
+
+Further private work preserves the precision chosen by the source for a wider
+range of tensor contractions with static shapes. This includes scalar and empty
+results, stored parameters captured by a model, and calls through named
+functions. Broader regression checks on both supported framework stacks and
+the separate checks at the declared dependency minima have completed.
+
+Complete-model and numerical coverage remain unfinished. Original-model
+replays still expose an Equinox Linear conversion gap, and low-precision
+arithmetic needs further work. The public `to_onnx(...)` call, options and
+defaults remain unchanged. The
+[current technical record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke)
+describes the checked capabilities, retained failures and remaining work.
 
 Private checks now preserve same-width complex64 and complex128 addition,
 including captured values and calls through named functions. Complex128 still

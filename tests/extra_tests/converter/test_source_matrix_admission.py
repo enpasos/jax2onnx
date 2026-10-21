@@ -15,6 +15,7 @@ import onnx_ir as ir
 import pytest
 
 from jax2onnx import onnx_function, to_onnx, user_interface
+from jax2onnx._compat.jax import Var
 from jax2onnx.converter.conversion_api import _activate_plugin_worlds
 from jax2onnx.converter.precision_policy import (
     PrecisionPolicy,
@@ -31,6 +32,7 @@ from tests.extra_tests.converter import test_source_ordinary_matrix as d2a
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
+from tests.extra_tests.converter.test_source_native_contract import _forged_aval
 
 _CANONICAL = (((1,), (0,)), ((), ()))
 _WEIGHT = np.arange(8, dtype=np.float32).reshape(4, 2) / np.float32(8)
@@ -451,28 +453,67 @@ def test_native_strict_dtype_and_rank_errors_are_preserved() -> None:
         assert str(actual.value) == str(expected.value)
 
 
-def _graph() -> Any:
-    def variable(shape: Any, dtype: Any = np.float32) -> Any:
-        return SimpleNamespace(
-            aval=SimpleNamespace(shape=shape, dtype=dtype, weak_type=False)
+def _graph(dtype: Any = np.float32, preferred: Any = None) -> Any:
+    def native(left: Any, right: Any) -> Any:
+        if preferred is None:
+            return jax.lax.dot_general(left, right, _CANONICAL)
+        return jax.lax.dot_general(
+            left, right, _CANONICAL, preferred_element_type=preferred
         )
 
-    left, right, result = variable((3, 4)), variable((4, 2)), variable((3, 2))
+    closed = jax.make_jaxpr(native)(
+        jax.ShapeDtypeStruct((3, 4), dtype),
+        jax.ShapeDtypeStruct((4, 2), dtype),
+    )
+    body = d2a._body(closed)
+    assert not body.constvars and len(body.eqns) == 1
+    original = body.eqns[0]
+    left, right, result = [
+        Var(_forged_aval(var.aval)) for var in (*original.invars, *original.outvars)
+    ]
     equation = SimpleNamespace(
-        primitive=SimpleNamespace(name="dot_general"),
+        primitive=original.primitive,
         invars=[left, right],
         outvars=[result],
-        params=dict(
-            dimension_numbers=_CANONICAL, precision=None, preferred_element_type=None
-        ),
-        effects=(),
+        params=dict(original.params),
+        effects=original.effects,
+        ctx=original.ctx,
     )
-    return SimpleNamespace(
+    graph = SimpleNamespace(
         invars=[left, right],
         constvars=(),
         outvars=[result],
         eqns=[equation],
         effects=(),
+    )
+    validate_source_jaxpr(graph, 23)
+    return graph
+
+
+def _native_geometry_companion(defect: str, directory: Path) -> None:
+    from tests.extra_tests.converter.test_source_generalized_contraction import (
+        _oracle,
+        observe_contraction,
+    )
+
+    lhs, rhs, dimensions = {
+        "zero": ((0, 4), (4, 2), _CANONICAL),
+        "unequal-rank": ((3, 4), (1, 4, 2), (((1,), (1,)), ((), ()))),
+        "rank-five": ((1, 1, 1, 3, 4), (1, 1, 1, 4, 2), _CANONICAL),
+        "multi-contract": ((2, 3, 4), (3, 4, 5), (((1, 2), (0, 1)), ((), ()))),
+    }[defect]
+    values = np.ones(lhs, np.float32), np.ones(rhs, np.float32)
+
+    def native(left: Any, right: Any) -> Any:
+        return jax.lax.dot_general(left, right, dimensions)
+
+    # This positive companion derives its actual native output. The original
+    # malformed equation below retains its stale output/pairing corruption.
+    observe_contraction(
+        native,
+        values,
+        directory,
+        expected=(_oracle(*values, dimensions, np.float32),),
     )
 
 
@@ -492,13 +533,33 @@ def _graph() -> Any:
         ("batch-paired", "lowering-defect", "equation 0"),
         ("result-type", "lowering-defect", "equation 0"),
         ("result-shape", "lowering-defect", "equation 0"),
-        ("zero", "profile-exclusion", "equation 0"),
+        pytest.param(
+            "zero",
+            "lowering-defect",
+            "equation 0",
+            id="zero-profile-exclusion-equation 0",
+        ),
         ("negative", "profile-exclusion", "input 0"),
         ("boolean-extent", "profile-exclusion", "input 0"),
         ("symbolic", "profile-exclusion", "input 0"),
-        ("unequal-rank", "profile-exclusion", "equation 0"),
-        ("rank-five", "profile-exclusion", "equation 0"),
-        ("multi-contract", "profile-exclusion", "equation 0"),
+        pytest.param(
+            "unequal-rank",
+            "lowering-defect",
+            "equation 0",
+            id="unequal-rank-profile-exclusion-equation 0",
+        ),
+        pytest.param(
+            "rank-five",
+            "lowering-defect",
+            "equation 0",
+            id="rank-five-profile-exclusion-equation 0",
+        ),
+        pytest.param(
+            "multi-contract",
+            "lowering-defect",
+            "equation 0",
+            id="multi-contract-profile-exclusion-equation 0",
+        ),
         ("fp16", "profile-exclusion", "equation 0"),
         ("bf16", "profile-exclusion", "equation 0"),
         ("integer", "profile-exclusion", "equation 0"),
@@ -517,13 +578,45 @@ def _graph() -> Any:
     ],
 )
 def test_early_attributed_admission_failures_never_reach_lowering(
-    defect: str, category: str, location: str, monkeypatch: pytest.MonkeyPatch
+    defect: str,
+    category: str,
+    location: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    if defect in {"zero", "unequal-rank", "rank-five", "multi-contract"}:
+        _native_geometry_companion(defect, tmp_path / "native-valid-companion")
     graph = _graph()
     eqn = graph.eqns[0]
     lhs, rhs = graph.invars
     output = graph.outvars[0]
     params = eqn.params
+
+    def corrupt(variable: Any, **changes: Any) -> None:
+        # Native ShapedArray annotations are immutable. Rebind only this Var,
+        # keeping its topology/aliases and the prior native annotation intact.
+        original = variable.aval
+        fields = tuple(
+            name
+            for name in (
+                "shape",
+                "dtype",
+                "weak_type",
+                "sharding",
+                "manual_axis_type",
+                "vma",
+                "memory_space",
+                "layout",
+                "_stripped_weak_type",
+            )
+            if hasattr(original, name)
+        )
+        before = tuple(getattr(original, name) for name in fields)
+        variable.aval = _forged_aval(original, **changes)
+        assert variable.aval is not original
+        assert type(variable.aval) is type(original)
+        assert tuple(getattr(original, name) for name in fields) == before
+
     if defect == "arity":
         eqn.invars.pop()
     elif defect == "missing":
@@ -533,11 +626,10 @@ def test_early_attributed_admission_failures_never_reach_lowering(
     elif defect == "paired-count":
         params["dimension_numbers"] = (((1,), ()), ((), ()))
     elif defect == "batch-count":
-        lhs.aval.shape, rhs.aval.shape, output.aval.shape = (
-            (2, 3, 4),
-            (2, 4, 2),
-            (2, 3, 2),
-        )
+        for variable, shape in zip(
+            (lhs, rhs, output), ((2, 3, 4), (2, 4, 2), (2, 3, 2)), strict=True
+        ):
+            corrupt(variable, shape=shape)
         params["dimension_numbers"] = (((2,), (1,)), ((0,), ()))
     elif defect in {"boolean-axis", "range", "duplicate", "overlap"}:
         params["dimension_numbers"] = {
@@ -547,44 +639,52 @@ def test_early_attributed_admission_failures_never_reach_lowering(
             "overlap": (((1,), (0,)), ((1,), (1,))),
         }[defect]
     elif defect == "paired":
-        rhs.aval.shape = (5, 2)
+        corrupt(rhs, shape=(5, 2))
     elif defect == "batch-paired":
-        lhs.aval.shape, rhs.aval.shape, output.aval.shape = (
-            (2, 3, 4),
-            (5, 4, 2),
-            (2, 3, 2),
-        )
+        for variable, shape in zip(
+            (lhs, rhs, output), ((2, 3, 4), (5, 4, 2), (2, 3, 2)), strict=True
+        ):
+            corrupt(variable, shape=shape)
         params["dimension_numbers"] = (((2,), (1,)), ((0,), (0,)))
     elif defect == "result-type":
-        output.aval.dtype = np.float64
+        corrupt(output, dtype=np.dtype(np.float64))
     elif defect == "result-shape":
-        output.aval.shape = (3, 3)
+        corrupt(output, shape=(3, 3))
     elif defect in {"zero", "negative", "boolean-extent", "symbolic"}:
-        lhs.aval.shape = (
-            {"zero": 0, "negative": -1, "boolean-extent": True, "symbolic": "B"}[
-                defect
-            ],
-            4,
+        corrupt(
+            lhs,
+            shape=(
+                {"zero": 0, "negative": -1, "boolean-extent": True, "symbolic": "B"}[
+                    defect
+                ],
+                4,
+            ),
         )
     elif defect == "unequal-rank":
-        rhs.aval.shape = (1, 4, 2)
+        corrupt(rhs, shape=(1, 4, 2))
     elif defect == "rank-five":
-        lhs.aval.shape, rhs.aval.shape = (1, 1, 1, 3, 4), (1, 1, 1, 4, 2)
+        corrupt(lhs, shape=(1, 1, 1, 3, 4))
+        corrupt(rhs, shape=(1, 1, 1, 4, 2))
     elif defect == "multi-contract":
-        lhs.aval.shape, rhs.aval.shape = (2, 3, 4), (3, 4, 5)
+        corrupt(lhs, shape=(2, 3, 4))
+        corrupt(rhs, shape=(3, 4, 5))
         params["dimension_numbers"] = (((1, 2), (0, 1)), ((), ()))
     elif defect in {"fp16", "bf16", "integer", "complex"}:
-        lhs.aval.dtype = rhs.aval.dtype = output.aval.dtype = {
-            "fp16": np.float16,
-            "bf16": jnp.bfloat16,
-            "integer": np.int32,
-            "complex": np.complex64,
-        }[defect]
+        dtype = np.dtype(
+            {
+                "fp16": np.float16,
+                "bf16": jnp.bfloat16,
+                "integer": np.int32,
+                "complex": np.complex64,
+            }[defect]
+        )
+        for variable in (lhs, rhs, output):
+            corrupt(variable, dtype=dtype)
     elif defect == "mixed":
-        rhs.aval.dtype = np.float64
+        corrupt(rhs, dtype=np.dtype(np.float64))
     elif defect == "preferred-wide":
         params["preferred_element_type"] = np.float64
-        output.aval.dtype = np.float64
+        corrupt(output, dtype=np.dtype(np.float64))
     elif defect in {"unknown", "out_dtype", "sharding", "placement"}:
         params["out_sharding" if defect == "placement" else defect] = (
             object() if defect == "placement" else None
@@ -610,6 +710,10 @@ def test_early_attributed_admission_failures_never_reach_lowering(
         validate_source_jaxpr(graph, 23)
     assert not calls
     assert caught.value.category == category and caught.value.location == location
+    if defect in {"zero", "rank-five", "multi-contract"}:
+        assert "result shape" in caught.value.detail
+    elif defect == "unequal-rank":
+        assert "paired dimensions differ" in caught.value.detail
     assert caught.value.primitive == (
         "dot_general" if location.startswith("equation") else None
     )
@@ -636,16 +740,20 @@ def test_effect_attribution_localizes_only_actual_effectful_dot_equations(
 
 
 def test_existing_fp16_branch_and_absent_optional_parameters_remain_valid() -> None:
-    graph = _graph()
-    for var in graph.invars:
-        var.aval.dtype = np.float16
-    graph.eqns[0].params["preferred_element_type"] = np.float32
+    graph = _graph(np.float16, np.float32)
     validate_source_jaxpr(graph, 23)
+    # Omitted public kwargs produce explicit None primitive parameters. The
+    # original native evaluator requires those parameters on an equation.
+    graph = _graph()
+    assert graph.eqns[0].params["precision"] is None
+    assert graph.eqns[0].params["preferred_element_type"] is None
+    validate_source_jaxpr(graph, 26)
     for key in ("precision", "preferred_element_type"):
         del graph.eqns[0].params[key]
-    for var in graph.invars:
-        var.aval.dtype = np.float32
-    validate_source_jaxpr(graph, 26)
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(graph, 26)
+    assert caught.value.category == "lowering-defect"
+    assert "native abstract signature" in caught.value.detail
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])

@@ -3,6 +3,7 @@
 """Finite profile admission is typed, recursive, and independent of execution."""
 
 from collections.abc import Iterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -249,15 +250,29 @@ def test_profile_rejects_matrix_precision_requirements_with_context(
     ],
 )
 def test_profile_rejects_unaudited_matrix_types_and_empty_shapes(
-    shape: tuple[int, ...], dtype: Any, preferred: Any
+    shape: tuple[int, ...], dtype: Any, preferred: Any, tmp_path: Path
 ) -> None:
+    def native(x: Any, w: Any) -> Any:
+        return _dot(x, w, preferred_element_type=preferred)
+
     trace = _trace(
-        lambda x, w: _dot(x, w, preferred_element_type=preferred),
+        native,
         _spec(shape, dtype),
         _spec((shape[-1], 2), dtype),
     )
-    with pytest.raises(SourcePrecisionError, match="matrix .* outside the profile"):
+    if shape == (0, 2) and dtype is np.float16 and preferred is np.float32:
+        from tests.extra_tests.converter.test_source_generalized_contraction import (
+            observe_contraction,
+        )
+
         validate_source_jaxpr(trace, 23)
+        values = np.ones(shape, dtype), np.ones((shape[-1], 2), dtype)
+        observe_contraction(
+            native, values, tmp_path, expected=(np.empty((0, 2), np.float32),)
+        )
+    else:
+        with pytest.raises(SourcePrecisionError, match="matrix .* outside the profile"):
+            validate_source_jaxpr(trace, 23)
 
 
 def test_profile_admits_ordinary_fp32_with_same_dtype_preference() -> None:
@@ -269,16 +284,22 @@ def test_profile_admits_ordinary_fp32_with_same_dtype_preference() -> None:
     validate_source_jaxpr(trace, 23)
 
 
-def test_profile_rejects_valid_but_unaudited_matrix_axes() -> None:
-    trace = _trace(
-        lambda x, w: jax.lax.dot_general(
-            x, w, (((0,), (0,)), ((), ())), preferred_element_type=jnp.float32
-        ),
-        _spec((2, 3), np.float16),
-        _spec((2, 4), np.float16),
+def test_profile_rejects_valid_but_unaudited_matrix_axes(tmp_path: Path) -> None:
+    from tests.extra_tests.converter.test_source_generalized_contraction import (
+        observe_contraction,
     )
-    with pytest.raises(SourcePrecisionError, match="matrix dimensions are outside"):
-        validate_source_jaxpr(trace, 23)
+
+    def native(x: Any, w: Any) -> Any:
+        return jax.lax.dot_general(
+            x, w, (((0,), (0,)), ((), ())), preferred_element_type=jnp.float32
+        )
+
+    trace = _trace(native, _spec((2, 3), np.float16), _spec((2, 4), np.float16))
+    validate_source_jaxpr(trace, 23)
+    values = np.ones((2, 3), np.float16), np.ones((2, 4), np.float16)
+    observe_contraction(
+        native, values, tmp_path, expected=(np.full((3, 4), 2, np.float32),)
+    )
 
 
 def test_profile_bitcast_representation_failure_is_actionable() -> None:

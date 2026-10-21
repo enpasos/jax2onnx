@@ -2,13 +2,332 @@
 
 ## Minimum-version result and current JAX upgrade
 
-Status, 2026-10-21: **BF16 CHECKPOINT `3d9ba486` COMMITTED;
-EXACT PLATFORM/EYE THREE-STACK AND ORT-FLOOR FOCUS, QUALITY AND PRIMARY FULL PASS**.
-The declared-minimum full remains unqualified. Public behavior stays **LEGACY**;
-full B–F acceptance and the public transition remain open. Floors remain
-**Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**; no proposed floor change has been
-authorized or applied. Earlier failed and passing epochs below retain their
-own source and evidence scopes.
+Status, 2026-10-21: **AUTHORIZED FRAMEWORK FLOORS APPLIED; V5 AFFECTED
+CHECKS PASS ON BOTH SUPPORTED STACKS; BOTH FULL RUNS COMPLETE;
+ALL-DIRECT-MINIMUM LOCAL CI-OWNER REPLAY PASS**.
+
+The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
+Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
+retained metadata from an unpublished pre-restart wheel declares those bounds.
+Existing locked package versions and Python variants are retained. Python 3.11 remains supported. The
+SECONDARY stack is the exact framework-floor target; its newer ONNX/ORT and
+other dependencies do not establish all-direct-dependency-minimum acceptance.
+ORT 1.24.1 and the other declared bounds are unchanged.
+
+Earlier JAX 0.8.1/Flax 0.12.1 runs retain their actual outcomes as historical
+evidence; they are no longer a supported-floor release gate. This decision
+does not fix numerical/provider gaps or remove any existing model, fixed source
+or numerical requirement from the single-interface migration target.
+
+Public behavior stays **LEGACY**; full B–F acceptance remains open.
+
+### Generalized native contractions and product-map smoke
+
+The shared contraction plan preserves ordered contracting/batch-axis pairs and
+native free-axis order through typed Transpose/Reshape consumers and MatMul.
+It covers the reviewed static same-width FP32/FP64 geometry and explicit
+FP16-input/preferred-FP32-result boundary, including scalar, outer, batch and
+empty cases. No-reduction products preserve signed zero; empty reductions use
+the additive identity. The established positive tensor-by-matrix path remains
+one MatMul. Native primitive identity, frozen abstract evaluation, aval/context,
+result and physical representation checks remain mandatory. Oversized individual
+ONNX dimensions and unfinished grouped intermediates have distinct categories;
+an alternate strategy remains work, not a claim of mathematical impossibility.
+
+SOURCE LinearGeneral/DenseGeneral and JAX/NNX/Linen einsum forward the captured
+original call with exact positional and keyword arguments. Legacy bodies are
+unchanged. Actual callback hooks, stored parameters, bias, consumer dtypes,
+weakness, native errors and restored settings remain checked. Other dtypes,
+explicit algorithms and broader symbolic contractions remain implementation or
+qualification obligations rather than permanent exclusions.
+
+The first applied v2 selection completed on all three stacks with **993 unique
+cases: 988 PASS / five FAIL / zero ERROR or SKIP**. Four named tests failed
+before export because their recorder compared a native dot directly with the
+intentional named-function carrier. The fifth expected success after corrupting
+`multiple_results`, which the frozen original native evaluator itself rejects.
+The corrected tests retain their IDs and sources: they observe the actual
+function-body trace paired with its exported definition, verify call context,
+JIT parameters, original kernel/aliases/ports and native dot semantics, and
+compare both native body roles plus whole-model outputs. Mutable abstract-eval
+replacement cannot forge validation; corrupted result convention fails closed.
+No production evaluator is copied or reconstructed. The three v2 failed epochs
+remain in `generalized-contraction-v2-{minimum,secondary,primary}/`.
+
+The first typing run also failed on three shape-annotation errors. Distinct
+normalized `tuple[int, ...]` locals correct those errors without changing runtime
+validation, arithmetic or branch order; the whole production AST is identical
+after normalizing only those local names/annotations. Actual typing now passes
+on **559 source files**; the **17 RNG factories** are an inventory count.
+
+The corrected v3 selection passes the same **993 unique identities on PRIMARY,
+SECONDARY and MINIMUM**, with **zero failures/errors/skips** and held sources/Git. The
+new generalized-contraction owner contributes **376** cases. All five failed IDs
+and all earlier 993 identities are retained. MINIMUM completes in **55.405045
+seconds**, SECONDARY in **43.990266 seconds** and PRIMARY in **43.215915 seconds**.
+On MINIMUM all **1,098 inputs**,
+including **934 Python files**, match the run. Its four named models produce
+**16 validated bitwise sample reports** (two native roles and both runtime
+optimization settings). Saved native/oracle payloads match; actual captured-body
+outputs match the original native outputs, and all four output/reference evidence
+records agree in every sample. The original sources, bounds and parameter bytes
+are unchanged.
+
+The **22 original dot-row/caller observations on MINIMUM** retain **18 FAILED
+raw callbacks, two PASSED callbacks and two profile-validation outcomes whose
+callbacks did not execute**. All retain `criteria=None`; runtime and numerics
+remain **UNVERIFIED**, and this replay performs no ORT execution. Passing these
+recorder tests does not accept the failed callbacks or close the eleven-row
+family. Pinned Black/Ruff on all twelve changed Python paths and all four
+policies pass; receipts are in `generalized-contraction-style-policy-v3/`.
+
+The subsequent complete PRIMARY v3 run is **FAILED: 11,992 PASS / 69 FAIL
+of 12,061 unique cases**, zero errors/skips, **691.290155 seconds**. All 11,685
+preceding IDs, all 993 focused IDs and all 1,098 source/config pins were
+retained; the only 376 additions are the generalized-contraction owner.
+Both v4 affected runs also remain **FAILED: 1,419 PASS / 21 FAIL of 1,440**,
+zero errors/skips, with identical IDs and held sources.
+
+The v5 fixture correction retains each intended corruption using a fresh
+native annotation on the same test variable and checks the specific unknown
+physical-dimension error. It introduces no production mutable proxy, inference
+replacement, skip or changed numerical bound. The same **1,443 affected cases
+pass on SECONDARY and PRIMARY**, with zero failures/errors/skips: all 1,440
+previous identities plus the three minimum-installer tests. Sources and Git
+state hold within both runs; all 934 Python inputs still match after the
+separately reviewed lock update.
+
+The completed v5 PRIMARY full run passes **12,061 unique cases**, with zero
+failures, errors or skips, in **660.279726 seconds**. Every earlier v3 full
+identity and all 1,443 affected identities are present. Its 1,098 source/config
+pins matched the held source checkpoint before this five-document status
+update; all 934 Python inputs remain unchanged. This installed
+PRIMARY environment is Python 3.12.9 / JAX and jaxlib 0.12.0 / Flax 0.12.10;
+it is distinct from Poetry's Python 3.12 lock selection.
+
+The original SECONDARY full run was interrupted by the VM restart. Its log
+survives, but no terminal receipt or XML exists, so it has no passing result.
+The new complete SECONDARY run finishes with **12,054 PASS / two SKIP of
+12,056 unique cases**, zero failures/errors, in **1,836.001337 seconds**.
+It uses Python 3.11.12 / JAX and jaxlib 0.10.2 / Flax 0.12.8 and exactly the
+same 1,098 pinned source/config files as PRIMARY. All 1,443 affected identities
+are present and pass. The two skips are the absent optional Keras integration
+and JAX's absent `one_minus_square` primitive. Five PRIMARY-only identities
+are three feature-gated `no_collectives` context cases and two generated
+`one_minus_square` cases; no other identity is missing. These conditional
+cases and skips are explicit limits of this installed-stack result.
+
+The separate fresh Python 3.11 all-direct-minimum lane verifies all fifteen
+runtime dependencies at their declared lower bounds, including ORT 1.24.1.
+Its first actual sixteen-owner CI replay is **FAILED: 464 PASS / one FAIL of
+465 cases**, zero errors/skips: the isolated setup omitted the declared
+`mypy==2.3.1` development tool required by one typing test. This is a test-tool
+setup failure; that guard did not execute its intended typing check. The
+failed result is retained without changing source, criteria or runtime floors.
+After installing the declared tool, the unchanged local sixteen-owner replay
+passes **all 465 unique cases**, zero failures/errors/skips, in **104.421656
+seconds**. It retains exactly the failed epoch's 465 identities and the same
+1,098 original source/config and 960 execution-Python file hashes. This is a
+local replay of the CI selection at all fifteen direct runtime minima, not a
+hosted CI run or complete supported-functionality/B–F acceptance.
+
+Checkpoint acceptance requires final quality, strict docs, all seven normal
+hooks and qualified-byte verification. Full existing-functionality and B–F
+acceptance remain separate obligations.
+
+The failed full receipt/XML/log are in `generalized-contraction-full-v3-primary/`.
+XML SHA256: `a0b7bdb23520631d460157ff0a206d211cca9425830623606ccbe5cfc1627e2c`;
+log SHA256: `68419be50b23688eb396833185c44df92a47dab23977de947e1d705aad65cc06`.
+The 69 failures exposed stale source fingerprints and native/context fixtures,
+plus obsolete rejection expectations. Source review confirms all eleven
+registration recipes, the NNX Linear module and established direct MatMul
+lowerer bodies are unchanged. The source and dependent descriptor pins were
+updated without changing counterpart topology/parameter-byte/status guards.
+The v4 failures comprise 18 frozen-aval writes and three over-specific physical
+error expectations; all original failures remain in their separate directories.
+Strict docs, all seven normal hooks and qualified-byte verification remain
+checkpoint gates. Phase counts are **NOT_INSTRUMENTED**.
+
+The v5 affected receipts are `generalized-contraction-v5-floor-secondary/`
+(**48.778984 seconds**) and `generalized-contraction-v5-floor-primary/`
+(**46.197382 seconds**). Independent XML identity comparison retains every
+prior 1,440 ID and exactly the three installer tests, with the same 1,443-ID
+set on both stacks. The completed PRIMARY full evidence is in
+`generalized-contraction-v5-floor-full-primary/`: XML SHA256
+`f0f353122866fc1980512302eb9a41f300c9b799094241e8e0e68751559e9ee7`, log SHA256
+`eb48896ca553c223e81b6e48807720a8fa7f6c0a31cddacedb7d612c7e6d3755`.
+The interrupted `generalized-contraction-v5-floor-full-secondary/` retains
+its inputs, version record, launch and partial log; no terminal result exists.
+The independent restart audit verified receipt hashes, pre-documentation source pins,
+all 12,061 historical PRIMARY full identities and the equal 1,443 focused ID sets.
+The completed new SECONDARY evidence is in
+`generalized-contraction-v6-serial-recovery-secondary/`: XML SHA256
+`cde151623348d743ae1c243d61b34dfdcebac259c9934f647ed7c7b7e3eeeca7`, log SHA256
+`e69171e1b9e539541cf0f82c6635d9604db020b3306bc96a28955a9853b03020`.
+`astra-secondary-full-terminal-audit-v1.json` independently checks the actual
+12,056 identities, both focused sets, all 1,098 pins and the source-based
+conditional reasons. No skipped or absent case is counted as a pass.
+
+The authorized support declarations were checked in an unpublished wheel;
+its retained METADATA bytes match `support-floor-wheel-metadata-v1.json`. Both refreshed locks pass their
+native consistency checks. UV retains all 66 package rows; Poetry retains all
+188 previous package versions and adds 17 rows confined to the optional GPU
+group. The corrected CUDA12 extra names an actual JAX extra; this is resolver
+evidence, not GPU runtime qualification. Existing framework versions and
+Python markers remain unchanged in each lock. The ml-dtypes and optree marker
+normalizations preserve their effective dependency minima. The two lock audits
+are `support-floor-{poetry,uv}-lock-audit-v1.json`. The exact framework-floor
+stack remains distinct from all-direct-dependency-minimum installation.
+
+The first fresh Python 3.11 all-direct-minimum installation failed in pip with
+`OSError: [Errno 12] Cannot allocate memory`; no native compatibility tests ran.
+This is an installation resource failure, not evidence of incompatible minimum
+versions. The failed preparation receipt/log and the separately pinned source
+snapshot remain available. The fresh Linux environment then installs all fifteen
+direct runtime minima and passes `pip check`; origins resolve to its own Python
+3.11 environment and isolated source. Test generation succeeds inside that
+snapshot. Its `direct-minimum-ci-py311-v2/` replay records **464 PASS / one FAIL
+of 465**, zero errors/skips, in **104.723806 seconds**, holding all 1,098 original
+source/config files and all 960 execution Python files, including generated
+owners. The sole failure is `No module named mypy` from the typing guard's
+subprocess; the declaration already requires `mypy==2.3.1`. XML SHA256 is
+`c16039e6f0e95d0f0d5befd026d60949626e4d417d91a25ec8a8a279c57414a1`;
+log SHA256 is `3d20f674c63c34e19c9a3f2217ace93d5259cd504de169bb691813078bedb11b`.
+The failed epoch and its model archive remain retained. Installing the declared
+development tool preserves all fifteen runtime minima and `pip check` passes.
+The unchanged sixteen-owner replay in `direct-minimum-ci-py311-v3/` then passes
+**all 465 unique cases**, zero failures/errors/skips, in **104.421656 seconds**.
+Its exact ID set and all 1,098 original/960 execution-Python hashes match v2;
+no source, test body or numerical criterion changed. The actual versions again
+verify all fifteen direct runtime minima, isolated origins, Python 3.11 and
+JAX x64; `mypy==2.3.1` is present. XML SHA256 is
+`bce02fa0de76ae85bf117961dee7c3234aeb3d72a35cb9639d32e71ad709ce7d`;
+log SHA256 is `58e428077b36efffbdaa2fd04c43db249acd3c2ada9e15bb819f293402aa32a3`.
+`astra-direct-minimum-v{2-failure,3-terminal}-audit.json` independently verifies
+both raw outcomes. This is the local exact CI-owner replay, not a GitHub CI
+result, a full minimum-environment suite or whole-migration acceptance.
+
+Both minimum replay trees are durably archived, including each run's 227 ONNX
+models in its own `onnx/` directory, basetemp outputs and original evidence.
+Each tar is 6,922,240 bytes. The retained failed-v2 tar SHA256 is
+`7efe1d61b26bedb2d39aa6dcb8bc1eaadbe467515c961766cef03fba873ab8be`;
+the passing-v3 tar SHA256 is
+`be77fab3814a05b784cd78423752f0023cb674afdb746bdef2f011eb025253ce`.
+Their separate bundles are `ram-artifact-archives/direct-minimum-ci-py311-v{2,3}/`
+under the same owned Windows evidence root. Neither RAM tree is released.
+
+The restart cleared all remaining `/dev/shm` trees, including the contraction
+pytest model outputs and the wheel itself. The durable test receipts, XML/logs,
+source hashes and wheel METADATA survive; they substantiate the recorded runs,
+but do not make those lost model or wheel bytes available for replay. Earlier
+explicitly archived BF16 artifacts remain separate. The new SECONDARY run's
+RAM/basetemp artifacts are durably archived under the owned Windows evidence
+root in `ram-artifact-archives/generalized-contraction-v6-serial-recovery-secondary/`.
+Its 1,926,748,160-byte tar has SHA256
+`859bdcf000cab6269854986e41a6997fa056edeba1638221e4f9f9358ab469cb`; its manifest
+has SHA256 `2b4bba4620d4b33b2ba20ca55807a9aad1c175c0eb0f01a7b858b5a82ba38dda`.
+ROOT verified all 13,945 entries, exact original evidence and the unchanged
+source inventory. The archive contains 1,588 ONNX files and two `.onnx.data`
+files under `tmp/`, plus cache files. It does not contain the cwd-relative
+`onnx/` tree of generated models. The existing MAIN `onnx/` directory is a
+mixed-age observation, with no unique SECONDARY attribution. It is now preserved
+separately in the host `observed-generated-models-v2/` bundle: 3,754 entries,
+including 3,710 ONNX files and fourteen `.onnx.data` files. ROOT verified every
+archive member, the unchanged source inventory and all 1,098 repository pins
+before this documentation update.
+The 6,394,439,680-byte tar has SHA256
+`0996a1d5918487c7ee801335a7b3e72e509fc1b53e9bcc913d76fce366953128`;
+its manifest SHA256 is
+`eba78fd7e72d560254e1a261686aae5d700ed2c5bbfa2d7809e3fd4bdc1e1d70`.
+The source tree remains in place. This observed snapshot does not establish
+which full run produced each model; lost pre-restart artifacts are not recovered.
+
+These archives record incomplete visibility into the protected owned `ssh-agent`
+process. Archive-only copying was explicitly authorized; the RAM source remains
+retained and strict release stays blocked by that visibility gap. No closed-tree
+release is claimed. Fresh minimum-lane generated models are routed to each run's
+owned RAM directory, so their model files and basetemp evidence are archived
+together before rerun. `astra-secondary-archive-scope-audit-v1.json` records the
+precise full-run archive scope; lost pre-restart RAM bytes remain lost.
+
+Receipts, XML/logs and typing failures/passes are under
+`/tmp/jax2onnx-restart-checkpoint-20261021/`, in
+`generalized-contraction-v3-{minimum,secondary,primary}/` and
+`generalized-contraction-typing-v{2,3}.log`. MINIMUM XML SHA256 is
+`b37eca64524c863d25eb6316041a3caa84013e9c53c396c7edc2894ac0489896`;
+log SHA256 is
+`d0c657dfa48daebcb9fe1a92152357550ef6be14c9fe88d623c29fcf1a196675`.
+
+The separate external coordinator calls the unchanged full-plan product API,
+retaining **1,852 rows / 3,704 caller cells**, all **50 optional rows** and
+**104 separate metadata-free anchors**. One fresh process per cell, bounded
+resources, pinned imports/sources and durable attempt records separate ordinary
+probe outcomes from interruptions. Sixteen synthetic tests precede actual smoke
+on the immutable platform commit `b7eb923a`.
+
+That smoke completes cells 0/1, then exactly cell 2 on resume. All **38 prior
+files** remain byte-identical; all **54 published capture-file hashes** and
+**1,097 frozen source/config pins** hold. Three attempts produce three ordinary
+SOURCE profile exclusions at **`eqx.nn.linear`**, leaving **3,701 cells not
+started**. Original eager/JIT/traces and model state are captured and state is
+unchanged. The FP32 training native roles differ in bits, and those results are
+retained. No artifact, graph callback, runtime or numerical acceptance is claimed;
+raw criteria remain missing. Records live in
+`/mnt/c/Users/enpasos/AppData/Local/jax2onnx/precision-evidence/20261021/source-product-platform-smoke-v1/`.
+This is operational smoke qualification, not completion of the product map.
+
+After the contraction checkpoint, run a fresh full-map epoch on its immutable
+code, then use actual shared barriers to prioritize repairs. Exact Equinox Linear
+forwarding is a measured separate next step. Three externally reviewed packets
+remain **unapplied and natively unqualified**: `eqx-linear-source-draft-v2`,
+`shared-symbolic-contraction-draft-v3` and the incremental
+`symbolic-output-axis-boundary-draft-v2`. They prepare original-call forwarding,
+one actual atomic batch symbol at admitted intermediate axes, and exact
+input-derived symbolic output binding on arbitrary admitted axes. The latter
+builds on the shared packet; these finite stages neither establish runtime
+acceptance nor define a permanent target restriction. Original MLP models,
+parameters, options and criteria remain fixed. Complete
+runtime/numerical criteria, original callbacks, optional models, metadata-free
+anchors, fixed-source workflows and supported-floor/B–F acceptance remain open.
+
+### BF16 elementwise feasibility observations
+
+A separate frozen diagnostic completed on PRIMARY JAX/JAXLIB 0.12.0 and
+ORT 1.31.0 CPU with x64 disabled, using both disabled and full optimization.
+All seven declared models pass full ONNX schema checking. Its fourteen
+observations keep runtime-load failures separate from executed comparisons:
+
+| Frozen diagnostic branch | Actual result in each optimization mode |
+| --- | --- |
+| Direct BF16 Neg, Add and Add/Add/Neg chain | All three fail at session creation because this CPU provider has no matching BF16 kernels; no execution occurs. |
+| FP32 Neg with BF16 castback | Physical BF16 input/output executes once; 252 of 65,536 words differ from each original native role, all involving NaN words. |
+| FP32 Add with BF16 castback | Physical BF16 input/output executes once; 69,711 of 692,800 declared pairs differ, including 69,280 non-NaN differences. |
+| Chain with BF16 rounding before both consumers | Each of its three 16-word outputs differs at three positions from each native role. |
+| Delayed-rounding chain control | The second output differs at ten positions; the other two still differ at three each. |
+
+Original eager and fresh-JIT outputs agree on all declared inputs. The saved
+word comparisons retain the experiment's predeclared bitwise criterion,
+including its NaN-word differences; they do not impose that criterion on raw
+rows with `criteria=None`. The finite input catalogue, this provider/version
+and the tested representations establish neither BF16 arithmetic
+admission nor a general impossibility result. No production fallback or public
+behavior changes. A broader numerical contract still requires its own prior
+criterion and evidence.
+
+The diagnostic exits zero because observation collection completed; its failed
+branch/reference verdicts remain failed. The owned host bundle
+`bf16-elementwise-primary-v1/` contains all 50 hashed artifacts, 8,978,921 bytes,
+plus receipt SHA256
+`0a48e382f4c94a539dccbb32b949b2004a28d4e7c1f136822f6ace4b05306cbd`.
+`astra-bf16-elementwise-primary-audit-v1.json` independently rehashes every
+artifact, reproduces every saved word/group comparison and verifies the held
+source/probe/input pins. Context restoration passes; peak RSS is 337,624 KiB.
+The earlier resource-guarded attempt remains recorded as not started.
+
+The checkpoint sections below preserve their original support policies and
+outcomes. Statements there about mandatory 0.8.1 acceptance, a pending floor
+decision or then-next implementation work are historical; the current
+authorized policy and remaining gates are stated above.
 
 ### Exact platform selector and native eye forwarding
 
@@ -67,19 +386,25 @@ are in `platform-index-ort124-v3/`; XML SHA256 is
 `a8b7ef00066bd15317f519d8d04b380af83fed8bae683447f46f32a6c8522786`
 and log SHA256 is
 `d797ff7101bc85b4c736c55a029450972225348b9c59d732279cbea889695c86`.
-Phases are **NOT_INSTRUMENTED**. Strict documentation, all seven normal hooks
-and qualified-byte verification remain required local checkpoint commit gates;
-no platform checkpoint commit is claimed here.
-
-The next work combines generalized native contractions with a resumable full
-**1,852-row / 3,704-caller** product map, followed by repairs prioritized from
-actual shared barriers and affected model families. The coordinator is external
-preparation and the complete map has not run. Product-map completion does not
-supply missing runtime/numerical criteria, optional-model or fixed-source
-acceptance. The 104 registrations without metadata remain separate obligations.
-Full minimum-version and B–F acceptance still precede the public transition.
+Phases are **NOT_INSTRUMENTED**. This exact ten-path checkpoint is committed at
+**`b7eb923a93f642a82002636f8b7bf5999f6713f7`**, parent `3d9ba486`. Strict MkDocs
+passes in **6.45 seconds**, with **269 rendered relative-link targets across nine
+docs** passing. All seven normal hooks pass. At commit verification, all **933
+Python inputs** and qualified committed bytes matched the full run, and the
+worktree was clean. Commit records are in `platform-index-commit-v3/`; the hook
+log SHA256 is
+`a61522d4ad50ef0f1ee13bc24967738551ac149ccaa17e0d6baa2e76283060ae`.
+The current contraction and full-map work is recorded above; complete minimum
+and B–F acceptance still precede the public transition.
 
 ### BF16 CPU sample transport qualification
+
+The closed BF16 full-run pytest model tree was moved from RAM to a verified
+durable archive. Original paths remain in raw reports;
+`/tmp/jax2onnx-restart-checkpoint-20261021/bf16-full-artifact-relocation-v1.json`
+records the mapping. Durable receipts, XML/logs and input pins remain intact,
+and the archived models retain their original bytes.
+
 
 Checkpoint **`b1e1e5f0579f64c083e985435fbe510ef8802f56`** is committed across
 seven qualified paths. Its PRIMARY full **11,627 PASS** and later locked

@@ -19,24 +19,48 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-Local branch status, 2026-10-21: the BF16 sample-validation checkpoint is
-committed at **`3d9ba486`**, with **11,668 PRIMARY full-suite passes**, focused
-qualification on all three JAX stacks and actual ONNX Runtime 1.24.1, and all
-seven normal hooks passing. The subsequent exact native platform-selector and
-`eye` forwarding correction passes the same **110 focused cases on all three
-stacks** and at actual **ONNX Runtime 1.24.1**, with zero failures/errors/skips.
-Its fresh PRIMARY full passes **11,685 unique cases**; typing, style and policy
-checks also pass. Documentation and normal commit gates remain required.
-The [current qualification record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
-retains the earlier failed runs and separates focused evidence from full-suite
-and commit gates.
+The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
+Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
+retained metadata from an unpublished pre-restart wheel declares those bounds.
+Existing locked package versions and Python variants are retained. Python 3.11 remains supported. The
+SECONDARY stack is the exact framework-floor target; its newer ONNX/ORT and
+other dependencies do not establish all-direct-dependency-minimum acceptance.
+ORT 1.24.1 and the other declared bounds are unchanged.
 
-Next work combines generalized native contractions with a resumable replay of
-the complete **1,852-row / 3,704-caller** SOURCE map, then uses actual shared
-failures to prioritize remaining functionality. Numerical criteria, optional
-models and fixed-source workflows remain separate acceptance obligations.
-Public behavior stays **LEGACY**; dependency floors and full B–F acceptance
-remain unchanged. Earlier checkpoints below retain their own evidence scopes.
+Earlier JAX 0.8.1/Flax 0.12.1 runs retain their actual outcomes as historical
+evidence; they are no longer a supported-floor release gate. This decision
+does not fix numerical/provider gaps or remove any existing model, fixed source
+or numerical requirement from the single-interface migration target.
+
+The preceding exact native platform-selector and `eye` forwarding checkpoint
+is committed at **`b7eb923a`**. Its PRIMARY full passes
+**11,685 unique cases**; the same **110 focused cases** pass on all three JAX
+stacks and at actual ONNX Runtime 1.24.1. Strict documentation, all seven normal
+hooks and qualified-byte verification pass.
+
+The applied private contraction work preserves ordered contracting/batch axes,
+scalar and empty results, native result dtypes and exact calls through
+LinearGeneral/DenseGeneral and JAX/NNX/Linen einsum. The latest PRIMARY full run
+passes **12,061 unique cases** with zero failures/errors/skips. The SECONDARY
+full run records **12,054 PASS / two SKIP of 12,056 unique cases**, zero
+failures/errors; its skips and five feature-conditional PRIMARY-only cases
+are explicitly accounted for. The unchanged sixteen-owner local CI replay at
+all direct dependency minima passes **all 465 cases**. Checkpoint acceptance
+requires final quality, strict documentation and normal commit checks. The
+[current contraction record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke)
+retains every failed epoch, exact test identity and evidence digest, and
+separates these checks from whole-model numerical acceptance.
+
+The resumable SOURCE-map coordinator has actual two-cell and resume smoke
+qualification on the preceding committed snapshot. It retains three measured
+profile exclusions and the complete **1,852-row / 3,704-caller** denominator;
+no complete map or runtime/numerical acceptance is claimed. Run the full map on
+a separately pinned contraction checkpoint, then prioritize remaining shared
+barriers. Numerical criteria, optional models, the 104 registrations without
+metadata and fixed-source workflows remain separate obligations. Public
+behavior stays **LEGACY** and full B–F gates remain open. The support-floor
+change does not waive numerical acceptance or existing functionality. Earlier
+checkpoints below retain their historical evidence scopes and support policies.
 
 Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
 finite native/CPU qualification for static shapes at opsets 23/26. It retains

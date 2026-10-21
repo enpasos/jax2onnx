@@ -16,6 +16,7 @@ from jax2onnx._compat.jax import (
     batching,
 )
 from numpy.typing import ArrayLike
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -463,7 +464,7 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.einsum not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def legacy(
                 equation: str,
                 *operands: ArrayLike,
                 **kwargs: Any,
@@ -481,6 +482,11 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                         bind_kwargs[key] = value
 
                 return cls._PRIM.bind(*operands, **bind_kwargs)
+
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return legacy(*args, **kwargs)
 
             return _patched
 
