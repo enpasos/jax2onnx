@@ -1033,3 +1033,67 @@ def test_scan_linearity_and_split_metadata_cannot_escape_the_native_schema(
     )
     with pytest.raises(SourcePrecisionError):
         validate_source_jaxpr(test_graph, 23)
+
+
+@pytest.mark.parametrize("mutation", ["dtype", "shape", "weakness"])
+def test_closed_scan_native_typed_constant_roles_remain_strict(mutation: str) -> None:
+    from tests.extra_tests.framework.test_jax_compat import (
+        _native_typed_constant,
+        _native_typed_constant_state,
+        _assert_native_typed_constant_state,
+    )
+
+    graph = _trace_loop("scan")
+    equation = next(e for e in graph.eqns if e.primitive.name == "scan")
+    params = dict(equation.params)
+    closed = params["jaxpr"]
+    body = closed.jaxpr
+    nc, _, _ = scan_arity(params, len(body.invars))
+    assert nc >= 1
+    captured = body.invars[0]
+    rebound = body.replace(
+        invars=body.invars[1:], constvars=[captured, *body.constvars]
+    )
+    if "ft_in" in params:
+        descriptor = copy(params["ft_in"])
+        descriptor.elts = (
+            descriptor.elts[0].filter_with_mask([False, *([True] * (nc - 1))]),
+            *descriptor.elts[1:],
+        )
+        params["ft_in"] = descriptor
+    else:
+        params["num_consts"] -= 1
+    if "linear" in native_scan_parameter_names():
+        assert type(params["linear"]) is tuple
+        assert len(params["linear"]) == len(equation.invars)
+        params["linear"] = params["linear"][1:]
+    payload = np.asarray([0.25, 0.5, 0.75], np.float32)
+    words = payload.tobytes()
+    value = _native_typed_constant(payload)
+
+    def carrier(constant: Any) -> Any:
+        current = dict(params)
+        current["jaxpr"] = ClosedJaxpr(rebound, [constant, *closed.consts])
+        changed = equation.replace(invars=equation.invars[1:], params=current)
+        return SimpleNamespace(
+            invars=graph.invars,
+            constvars=graph.constvars,
+            outvars=changed.outvars,
+            effects=(),
+            eqns=[*graph.eqns[: graph.eqns.index(equation)], changed],
+        )
+
+    validate_source_jaxpr(carrier(value), 23)
+    if mutation == "dtype":
+        value = _native_typed_constant(payload.astype(np.float64))
+    elif mutation == "shape":
+        value = _native_typed_constant(payload[:1])
+    else:
+        value = _native_typed_constant(payload, True)
+    before = _native_typed_constant_state(value)
+    with pytest.raises(SourcePrecisionError) as error:
+        validate_source_jaxpr(carrier(value), 23)
+    assert error.value.category == "lowering-defect"
+    assert "constant 0" in str(error.value) and "scan-body" in error.value.location
+    _assert_native_typed_constant_state(value, before)
+    assert payload.tobytes() == words

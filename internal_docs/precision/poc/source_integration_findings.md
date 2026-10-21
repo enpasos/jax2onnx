@@ -2,13 +2,118 @@
 
 ## Minimum-version result and current JAX upgrade
 
-Status, 2026-10-21: **WAVE-2 JAX 0.12 PRIMARY FULL AND SECONDARY AFFECTED
-SELECTION PASS; DECLARED MINIMUM REMAINS FAILED**. This is a local WIP progress
-snapshot. Public behavior remains **LEGACY**; all-supported-stack acceptance,
-full B–F migration and the public transition remain open. These finite results
-support only a local WIP progress snapshot, not a completed migration checkpoint.
+Status, 2026-10-21: **PRIMARY FULL AND THREE-STACK AFFECTED CHECKS PASS;
+DECLARED MINIMUM FULL REMAINS UNQUALIFIED**. This is a local progress snapshot.
+Public behavior remains **LEGACY**; all-supported-stack qualification, full
+B–F migration and the public transition remain open. Declared floors remain
+**Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**.
 
-The current JAX/JAXLIB **0.12.0** PRIMARY full run passes **11,518 cases /
+### Restart recovery and native fixture qualification
+
+A machine restart removed the shared-memory evidence and stopped the prior
+SECONDARY run before a recoverable terminal result. The preceding PRIMARY
+**11,616-case pass** had been observed and independently reviewed; its raw
+receipt, XML and payloads are no longer available. It remains a historical
+observation and does not qualify the current code. The current regression
+record uses fresh durable runs; no result is inferred for the lost SECONDARY
+execution.
+
+The renewed Python 3.11 SECONDARY full completed **11,611 unique cases**:
+**11,605 PASS / one FAIL / five SKIP / zero ERROR**, with source held. These
+ordinary runs have no instrumented phase totals. The failure is the FP16
+decoder normalization benchmark; the five skips retain their individual native
+or optional-integration conditions. The log, XML and receipt are retained in
+`/tmp/jax2onnx-restart-checkpoint-20261021/secondary/`.
+
+That environment still used ONNX **1.22.0** and ONNX Runtime **1.29.0**, while
+the unchanged lock specifies ONNX **1.23.2** and ONNX Runtime **1.31.0**, both
+compatible with Python 3.11. A diagnostic preserves the original FP16 weights,
+inputs, native references and `rtol=atol=0.002`. Native eager and JIT references
+match exactly. With 1.29, `auto` fails under full runtime optimization and passes
+with optimization disabled; `prefer_native` fails under both settings. Replaying
+the same saved artifacts and inputs on 1.31 passes **all eight runtime
+configurations**, with maximum absolute error **0.001953125**. This locates the measured discrepancy
+in that runtime target. The original failed full and failing 1.29 comparisons
+remain failed history; no benchmark code, model, reference, dtype or tolerance was
+changed. The failed first diagnostic, which stopped at a typed-key serializer
+before references or exports, is retained separately.
+
+The SECONDARY environment has now been synchronized to the existing lock.
+Dependency and lock checks pass; JAX/JAXLIB **0.10.2**, Flax **0.12.8** and
+NumPy **2.4.6** are unchanged. Fresh SECONDARY execution after
+that synchronization now passes the same **234-case** NNX/benchmark selection,
+including all seven benchmark tests, with zero failures, errors or skips. The
+current production converter and repository script contents are unchanged from
+the durable failed SECONDARY full; the subsequent source corrections are test
+fixtures. A fresh SECONDARY full remains a follow-up, so this focused success
+does not relabel the failed full or establish qualification across all stacks.
+The diagnostic and same-artifact replay are in `decoder-diagnostic-v2/`, and
+the fresh affected receipt, XML and log are in `nnx-focused-v2-secondary/`.
+
+A separate native-only NNX probe captures the unchanged seed-zero Linear rows
+0/3 under both caller-x64 settings, with two fresh instances per setting on
+each of the three stacks. Independent audit checks all **324 archived arrays**.
+The minimum JAX/JAXLIB **0.8.1** / Flax **0.12.1** kernel differs from the modern
+kernel in **29 of 8,192 FP32 values**, by at most **2.9802322387695312e-8**.
+The existing bias and feeds match, and each stack's repeated, eager and JIT
+observations match exactly. This is native-constructor evidence, not ONNX or
+numerical acceptance; its durable JSON and NPZ files are in `nnx/`.
+
+The reviewed shared test fixture recognizes that exact minimum package pair,
+original recipe and measured CPU settings while retaining the fixed modern
+expectation. Original parameters, source-to-ONNX payload checks and rational
+FP64 bounds remain unchanged. The fixture correction is applied locally.
+The first minimum affected run remains **FAILED**: **225 PASS / nine FAIL /
+zero ERROR or SKIP**, **234 unique cases**. Its fixed-hash guards all advance;
+the nine failures expose older placement-argument and variable-hook APIs. The
+subsequent fixture-only API correction preserves native/SOURCE behavior and
+modern argument coverage. Fresh minimum execution now passes **all 234 cases**
+in the four NNX owner modules and the benchmark module, including every prior
+failure and all seven benchmark tests, with zero errors or skips. Its durable
+record is `nnx-focused-v2-minimum/`; the failed predecessor remains in
+`nnx-focused-minimum/`. A later formatter-only correction preserves the Python
+syntax tree and has separate verification.
+
+Fresh minimum core validation also passes **1,652 cases**, zero failures,
+errors or skips, across nine whole modules: JIT, loops, predicates, typed values,
+framework compatibility, typed trace carriers, precision diagnostics, Gather and
+probe evidence. The durable receipt, XML and log are in `typed-focused-minimum/`.
+Independent XML review confirms **1,886 distinct passing minimum cases** across
+these two disjoint selections and the same 234 NNX/benchmark identities before
+and after the API correction. Phase counts are **NOT_INSTRUMENTED**. The same
+**234 NNX/benchmark cases pass on all three installed stacks**, each with zero
+failures, errors or skips.
+
+The fresh ordinary JAX/JAXLIB **0.12.0** PRIMARY full now passes **11,622 unique
+cases**, with **zero failures, errors or skips**, source and Git state held
+(ROOT `40730` / `3263ba`, exit0). The durable runner records **797.65 seconds**.
+Phase counts are **NOT_INSTRUMENTED**; no phase totals are inferred. Its receipt,
+XML and log are retained in `primary/` under the durable restart directory.
+Independent review confirms retention of all **11,611** identities from the
+durable SECONDARY full, plus six new NNX controls and five existing PRIMARY-only
+native-conditioned identities. The focused PRIMARY and minimum-core identities
+are included and passing. No identity comparison is claimed against the lost
+older PRIMARY raw collection.
+
+Current quality passes typing across **557 source files**, four policy checks,
+Ruff on **20 touched Python files**, and their formatting checks. One earlier
+pinned-Black formatter-only correction has a separately verified unchanged
+syntax tree. The **strict documentation build passes**. The **seven normal
+commit hooks are required for the local WIP checkpoint**. A fresh SECONDARY
+full remains a follow-up; the declared MINIMUM
+full remains unqualified. The complete precision migration, full B–F acceptance
+and public transition remain open.
+
+The historical minimum full below remains **FAILED and unaccepted**. Earlier
+focused corrections do not close the other historical normalization, Equinox
+interop, operator/API, matrix/array-creation or fixed-numerical failure groups.
+Their current status needs actual qualification rather than subtracting repaired
+case counts from the old full. Public LEGACY behavior and full B–F obligations
+remain unchanged.
+
+### Earlier wave-2 and declared-minimum baseline
+
+The wave-2 JAX/JAXLIB **0.12.0** PRIMARY full run passes **11,518 cases /
 34,554 phases**, **zero failures, errors or skips**, in **801.272 seconds**
 (ROOT `80151` / `723e37`, exit0). ROOT and independent review verify each
 collected identity's setup/call/teardown exactly once, matching controller/four
@@ -52,7 +157,7 @@ controls do not relabel those reports. The earlier repair selection passed
 (ROOT `73657` / `7c499d`, exit0); those ordinary focused runs have **no
 instrumented phase-count proof**.
 
-Current quality passes **all eight checks**, holding **953 Python / 164 other
+Wave-2 quality passes **all eight checks**, holding **953 Python / 164 other
 inputs**, **1,117 total**, including **582 production Python files**, under
 source epoch `dbfc367467f4ef929f3fd23803f13fd2cf54acb1d533f2c9455bd70c659fc18d`.
 Typing covers **557 source files**; **17 RNG factories** is an inventory count,
@@ -94,17 +199,49 @@ retained in the [work plan](../precision_implementation_work_plan.md#current-bin
 No public selector, legacy fallback or numerical-policy waiver is authorized.
 The original **1,852-row / 3,704-caller** SOURCE baseline remains unchanged;
 the polynomial adapter adds no accepted row. Modern PRIMARY full and affected
-SECONDARY qualification and their independent actual reviews are complete.
-Normal hooks and strict documentation checks are required before
+SECONDARY qualification and their independent actual reviews are complete at
+that wave-2 source epoch. Normal hooks and strict documentation checks are required before
 committing a **local WIP progress snapshot**. That snapshot does not
 qualify the failed minimum or complete the existing-functionality, fixed-source,
 full B–F or public-transition targets.
 
+### Subsequent minimum-stack repairs
+
+Before the restart, the native TypedNdArray adapter preserved owned payloads
+and effective weakness across the installed stacks. The initial five-module
+run passed **1,420 cases** on MINIMUM; each modern stack recorded **1,417 PASS /
+three fixture-preparation failures**. All 37 original minimum typed failures
+passed. The corrected typed/alias selection later passed **144 cases per
+stack**, and serializer controls passed **36 per stack**. Original failures and
+negative criteria were retained; these were focused results.
+
+The Gather and diagnostic correction passed **195 cases per stack**, including
+the 97 original Gather setup-error identities. The native-only captures and
+trace recognition supplied no exporter, runtime or numerical acceptance. A
+subsequent whole-oracle descriptor refresh passed **93 cases per stack**, with
+all 14 failures from the preceding **11,602 PASS / 14 FAIL** PRIMARY full
+retained. That selection comprised two whole modules plus two exact cases.
+Its copied "three whole modules" description was a metadata error; actual child
+arguments determine its scope.
+
+The successor PRIMARY full's **11,616 PASS** and the focused results above
+were observed before the restart; their shared-memory raw evidence is now
+unavailable. Ordinary focused and full runs had no instrumented phase counts.
+Earlier quality passes belong to those source epochs. The current fixture
+changes require their own affected, quality and full checks before a local
+checkpoint. No historical failed numerical report is relabeled.
+
+### Historical evidence references
+
+The following references retain their original source epochs. Shared-memory
+paths lost during the restart are historical references, not currently available
+raw evidence. Durable restart records are identified above.
+
 | Evidence | SHA256 |
 | --- | --- |
-| Current JAX 0.12 full raw receipt: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-full-primary-jax012-compat-v2/run/root-receipt.json` | `50edccc8d45141120436b05ae4cde387c11e4e5361ee0d6a0bda0a6d8f7ebc89` |
-| ROOT current full actual terminal: `/tmp/jax2onnx-jax012-root-integration-v2/root-full-primary-actual-terminal-v1.json` | `c65e7c634869dd3abc69b3278431bc75c6e9c2f0bff8b3ddeb838b12109d154c` |
-| Independent current full actual audit: `/tmp/jax2onnx-astra-jax012-wave2-primary-full-actual-audit-v1.json` | `68a96c45c19e8afbfaa6fee1c8c86629ae63518f3b5da69173fc9835a8dccba7` |
+| Wave-2 JAX 0.12 full raw receipt: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-full-primary-jax012-compat-v2/run/root-receipt.json` | `50edccc8d45141120436b05ae4cde387c11e4e5361ee0d6a0bda0a6d8f7ebc89` |
+| ROOT wave-2 full actual terminal: `/tmp/jax2onnx-jax012-root-integration-v2/root-full-primary-actual-terminal-v1.json` | `c65e7c634869dd3abc69b3278431bc75c6e9c2f0bff8b3ddeb838b12109d154c` |
+| Independent wave-2 full actual audit: `/tmp/jax2onnx-astra-jax012-wave2-primary-full-actual-audit-v1.json` | `68a96c45c19e8afbfaa6fee1c8c86629ae63518f3b5da69173fc9835a8dccba7` |
 | Wave-2 first gates/control actual receipt: `/tmp/jax2onnx-jax012-root-integration-v2/root-first-gates-and-controls-actual-v1.json` | `ea9d84c6867fec6b95d05d5f547cb44ad283e61ee0531e773460523cb342ac3c` |
 | Independent wave-2 first gates and collection audit: `/tmp/jax2onnx-astra-jax012-wave2-first-gates-collection-audit-v1.json` | `d5050d3a3b6e9d84bdfc65034b6bd926d0ddf0e5c24e5e59fbd64e53f79e41b1` |
 | SECONDARY affected20 collection only: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-affected20-secondary-jax012-compat-v2/collect/root-receipt.json` | `b2f6009c13066a5336ccfd0b59ac96ebd7fa51ae293a4b3eaa4f20f3035b615f` |
@@ -124,10 +261,9 @@ full B–F or public-transition targets.
 | ROOT minimum OS-terminal limitation: `/tmp/jax2onnx-jax081-compat-root-integration-v7/root-full-minimum-actual-os-terminal-v1.json` | `936b59c9d3c1d3b1d97412229d187fe7d7c2db48fb95daed168b77f16555505b` |
 | Historical JAX 0.11.2 v7 full receipt: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-full-primary-jax081-compat-v7/run/root-receipt.json` | `c284daa8a13c44c73c211c899bbb08f4d14b956ca0e31c4b5525440e966e8f30` |
 
-All prior draft evidence bindings remain in the external manifest. The complete
-earlier findings body below remains byte-identical. Its installed-stack scopes,
-minimum-import diagnostic and then-next-packet wording describe their original
-epochs; the current status above supersedes those earlier planning statements.
+The earlier findings below retain their original checkpoint scopes. Their
+then-next-packet wording is historical; the current qualification obligations
+are stated above.
 
 ## Canonical native capture checkpoint
 

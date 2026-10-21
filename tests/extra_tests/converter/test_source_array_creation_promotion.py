@@ -19,7 +19,13 @@ import onnxruntime as ort
 import pytest
 
 from jax2onnx import onnx_function, to_onnx, user_interface
-from jax2onnx._compat.jax import DropVar, Literal, ShapedArray, scan_arity
+from jax2onnx._compat.jax import (
+    DropVar,
+    Literal,
+    ShapedArray,
+    TypePromotionError,
+    scan_arity,
+)
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import (
     PrecisionPolicy,
@@ -414,9 +420,9 @@ def test_where_weak_outputs_broadcast_and_native_strict_errors(
 
             arguments = np.asarray([True, False]), np.asarray([0.125, 0.25], np.float32)
         if kind in {"mixed_strong", "integer_weak_float"} and promotion == "strict":
-            with pytest.raises(jax.dtypes.TypePromotionError):
+            with pytest.raises(TypePromotionError):
                 _reference(fn, arguments)
-            with pytest.raises(jax.dtypes.TypePromotionError):
+            with pytest.raises(TypePromotionError):
                 user_interface._to_onnx(
                     fn,
                     [_shape_spec(jnp.asarray(value)) for value in arguments],

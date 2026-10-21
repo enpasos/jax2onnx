@@ -30,6 +30,9 @@ from jax2onnx.precision import (
 from scripts import source_precision_probe as probe
 from scripts.source_precision_inventory import raw_registrations
 from tests.extra_tests.converter import source_precision_corpus_oracles as oracles
+from tests.extra_tests.converter.source_nnx_linear_fixtures import (
+    assert_original_linear,
+)
 from tests.extra_tests.converter import source_precision_support as source
 from tests.extra_tests.converter import (
     test_source_leading_batch_matrix_bias as production,
@@ -147,7 +150,7 @@ def test_exact_five_raw_sources_prepare_one_instance_artifact_and_two_batch_feed
         assert any(
             v.shape == kernel.shape and v.tobytes() == kernel.tobytes() for v in arrays
         )
-        assert production._sha(kernel) == production._KERNEL_SHA
+        assert_original_linear(prepared.fn, recipe, case[1], settings=prepared.settings)
         if case[1] == 0:
             bias = np.asarray(prepared.fn.bias[...])
             assert any(
@@ -438,7 +441,7 @@ def test_current_counterpart_rejects_stale_or_other_checkout_source(
 
 
 def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
-    """Current v5 controls keep the historical test and all v1/v2/v3/v4 rejects."""
+    """Current v6 controls keep the historical test and all v1/v2/v3/v4/v5 rejects."""
     registrations, _ = raw_registrations()
     blob = probe.DEFAULT_BASELINE.read_bytes()
     plan = probe.build_probe_plan(
@@ -447,10 +450,20 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
     controls = probe._corpus_product_controls(plan, registrations)
     assert (
         len(controls) == 4
-        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v5"
+        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v6"
     )
     assert probe._corpus_controls_admitted(controls)
-    for defect in ("identifier", "digest", "v3-digest", "v1", "v2", "v3", "v4"):
+    for defect in (
+        "identifier",
+        "digest",
+        "v3-digest",
+        "v1",
+        "v2",
+        "v3",
+        "v4",
+        "v5",
+        "v5-digest",
+    ):
         broken = deepcopy(controls)
         if defect == "identifier":
             broken[2]["corpus_structure"][
@@ -464,6 +477,11 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
             broken[2]["corpus_structure"][
                 "counterpart_sha256"
             ] = "7a75bc04f47a300181f7df403311378dbeb3393f2f17e4b71f5c9ba376952637"
+        elif defect == "v5-digest":
+            # The current revision must not admit a retagged old whole-module pin.
+            broken[2]["corpus_structure"][
+                "counterpart_sha256"
+            ] = "e7e629c9c9506ec0d77049f7ff34e78959041a2a2b70d35af3c9264078e35b11"
         else:
             broken[2]["control_revision"] = "source-static-add-ordinary-dot-" + defect
         assert not probe._corpus_controls_admitted(broken)

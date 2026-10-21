@@ -33,6 +33,7 @@ from jax2onnx._compat.jax import (
     AbstractValue,
     atomic_symbolic_dimension,
     ClosedJaxpr,
+    native_typed_array_payload,
     DropVar,
     Literal as JaxLiteral,
     is_empty_jit_mesh,
@@ -1903,9 +1904,19 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
         category="lowering-defect",
     )
     for index, (var, value) in enumerate(zip(body.constvars, consts, strict=True)):
+        try:
+            typed_payload = native_typed_array_payload(value)
+        except TypeError as exc:
+            site.fail(
+                f"JIT constant {index} has an invalid native typed-array payload: {exc}",
+                "the unchanged exact native host carrier and its numeric storage",
+                category="lowering-defect",
+            )
         site.require(
-            isinstance(
-                value, (np.ndarray, np.generic, jax.Array, bool, int, float, complex)
+            typed_payload is not None
+            or issubclass(
+                type(value),
+                (np.ndarray, np.generic, jax.Array, bool, int, float, complex),
             ),
             f"JIT constant {index} is not an array or scalar payload",
             "a concrete numeric payload without conversion hooks",
@@ -1913,7 +1924,9 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
         )
         selected_key = is_selected_prng_key_dtype(var.aval.dtype)
         array = np.asarray(
-            selected_prng_key_words(value) if selected_key else value
+            selected_prng_key_words(value)
+            if selected_key
+            else value if typed_payload is None else typed_payload[0]
         )  # Never use jnp.asarray: ambient x64 must not recanonicalize it.
         site.require(
             array.dtype
@@ -1921,6 +1934,12 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
             and array.shape == ((2,) if selected_key else tuple(var.aval.shape)),
             f"JIT constant {index} payload dtype or shape disagrees with its aval",
             "exact payload dtype/shape while retaining declared weakness and bytes",
+            category="lowering-defect",
+        )
+        site.require(
+            typed_payload is None or typed_payload[1] is var.aval.weak_type,
+            f"JIT constant {index} payload weakness disagrees with its aval",
+            "the original native typed-array weakness without reconstruction",
             category="lowering-defect",
         )
     from jax2onnx.plugins.jax.random._source_prng import (

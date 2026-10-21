@@ -12,11 +12,18 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+from jax.extend import random as native_random
 import numpy as np
 import pytest
 
 from jax2onnx import onnx_function
-from jax2onnx._compat.jax import Primitive, ShapedArray, Var
+from jax2onnx._compat.jax import (
+    PRNGKeyDType,
+    Primitive,
+    ShapedArray,
+    Var,
+    native_mul_parameter_names,
+)
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY, import_all_plugins
 from jax2onnx.precision import CheckStatus, get_precision_report
@@ -151,7 +158,13 @@ def test_typed_trace_manifest_retains_actual_key_avals_and_constant_payloads(
 def test_typed_trace_manifest_observes_key_specs_and_dtype_parameters(
     implementation: str, dtype_name: str, word_count: int
 ) -> None:
-    dtype = jax.random.key_dtype(implementation)
+    native_impl = {
+        "threefry2x32": native_random.threefry_prng_impl,
+        "rbg": native_random.rbg_prng_impl,
+    }[implementation]
+    dtype = PRNGKeyDType(native_impl)
+    assert type(dtype) is PRNGKeyDType
+    assert dtype._impl is native_impl
     metadata = {
         "dtype": dtype_name,
         "key_implementation": implementation,
@@ -213,7 +226,28 @@ def test_mul_explicit_none_and_omitted_field_preserve_native_float_results(
     closed = _trace(lambda x: x * x, dtype=dtype)
     equation = closed.jaxpr.eqns[0]
     assert equation.primitive.name == "mul"
+    parameter_names = native_mul_parameter_names()
+    assert parameter_names in (frozenset(), frozenset({"out_dtype"}))
+    assert frozenset(equation.params) == parameter_names
     for params in ({}, {"out_dtype": None}):
+        if params and not parameter_names:
+            with pytest.raises(TypeError, match="out_dtype") as native_caught:
+                equation.primitive.abstract_eval(
+                    *(var.aval for var in equation.invars), **params
+                )
+            assert type(native_caught.value) is TypeError
+            observer = DiagnosticValidator()
+            with pytest.raises(
+                SourcePrecisionError, match="Invalid known operation parameters"
+            ) as caught:
+                observer(
+                    closed.jaxpr.replace(eqns=[equation.replace(params=params)]), 23
+                )
+            assert caught.value.phase == "diagnostic-validation"
+            assert caught.value.category == "lowering-defect"
+            assert caught.value.primitive == "mul"
+            assert observer.failure is caught.value and not observer.scopes
+            continue
         inferred, effects = equation.primitive.abstract_eval(
             *(var.aval for var in equation.invars), **params
         )
@@ -269,6 +303,10 @@ def test_mul_explicit_none_does_not_admit_nonfloating_operands(dtype: Any) -> No
 def test_mul_none_keeps_original_abstract_result_checks(corruption: str) -> None:
     closed = _trace(lambda x: x * x)
     original = closed.jaxpr.eqns[0]
+    params = dict(original.params)
+    assert frozenset(params) == native_mul_parameter_names()
+    if params:
+        assert params["out_dtype"] is None
     bad = Var(
         ShapedArray(
             (3, 2) if corruption == "shape" else (2, 3),
@@ -276,7 +314,7 @@ def test_mul_none_keeps_original_abstract_result_checks(corruption: str) -> None
             weak_type=corruption == "weakness",
         )
     )
-    equation = original.replace(params={"out_dtype": None}, outvars=[bad])
+    equation = original.replace(params=params, outvars=[bad])
     graph = closed.jaxpr.replace(eqns=[equation], outvars=[bad])
     with pytest.raises(SourcePrecisionError) as caught:
         DiagnosticValidator()(graph, 23)

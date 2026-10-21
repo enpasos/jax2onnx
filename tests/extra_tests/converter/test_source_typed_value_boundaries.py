@@ -36,7 +36,6 @@ from tests.extra_tests.converter.test_source_predicate_families import (
     _restore_context as _restore_context,
 )
 
-
 _DTYPES = ("bool", *_INTEGER_DTYPES, *_FLOAT_DTYPES, "complex64", "complex128")
 _BITWISE = SampleCriteria("bitwise")
 
@@ -526,3 +525,92 @@ def test_typed_symbolic_samples_reject_malformed_contracts_before_ort(
         assert result.status is CheckStatus.FAILED and result.target is None
         with pytest.raises(SampleAcceptanceError):
             result.require_sample_acceptance()
+
+
+@pytest.mark.parametrize(
+    "mutation", ["dtype", "shape", "weakness", "foreign", "subclass"]
+)
+def test_jit_native_typed_constant_corruptions_reject_without_conversion(
+    mutation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jax2onnx._compat import jax as compat
+    from jax2onnx.converter import ir_context
+    from tests.extra_tests.framework.test_jax_compat import (
+        _native_typed_constant,
+        _native_typed_constant_state,
+        _assert_native_typed_constant_state,
+    )
+
+    invoked = []
+    captured = np.asarray([-0.0, np.nan], np.float64)
+    words = captured.tobytes()
+
+    def body(x: Any) -> Any:
+        return x, captured, x, captured
+
+    def model(x: Any) -> Any:
+        return jax.jit(body)(x)
+
+    def no_context(*args: Any, **kwargs: Any) -> Any:
+        invoked.append("context")
+        raise AssertionError("constant validation constructed an IR context")
+
+    class Foreign:
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            invoked.append("array")
+            raise AssertionError("foreign constant conversion ran")
+
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("foreign constant reflection ran")
+
+    with jax.enable_x64(True):
+        graph = jax.make_jaxpr(model)(jax.ShapeDtypeStruct((2,), np.float64)).jaxpr
+        equation = next(e for e in graph.eqns if e.primitive.name == "jit")
+        closed = equation.params["jaxpr"]
+        assert len(closed.consts) == len(closed.jaxpr.constvars) == 1
+        value = _native_typed_constant(captured)
+
+        def carrier(payload: Any) -> Any:
+            params = dict(equation.params)
+            params["jaxpr"] = compat.ClosedJaxpr(closed.jaxpr, [payload])
+            return graph.replace(
+                eqns=[
+                    e.replace(params=params) if e is equation else e for e in graph.eqns
+                ]
+            )
+
+        monkeypatch.setattr(ir_context.IRContext, "__init__", no_context)
+        # Calibrate the same native closed-body/outer-equation counterpart.
+        validate_source_jaxpr(carrier(value), 23)
+        if mutation == "dtype":
+            value = _native_typed_constant(captured.astype(np.float32))
+        elif mutation == "shape":
+            value = _native_typed_constant(captured[:1])
+        elif mutation == "weakness":
+            value = _native_typed_constant(captured, True)
+        elif mutation == "foreign":
+            value = Foreign()
+        else:
+
+            class Subclass(compat._NATIVE_TYPED_ARRAY_TYPE):
+                pass
+
+            value = (
+                Subclass(captured, False)
+                if compat._NATIVE_TYPED_ARRAY_TYPE.__bases__ == (object,)
+                else Subclass(captured)
+            )
+            Subclass.__array__ = Foreign.__array__
+        before = (
+            _native_typed_constant_state(value)
+            if type(value) is compat._NATIVE_TYPED_ARRAY_TYPE
+            else None
+        )
+        with pytest.raises(SourcePrecisionError) as error:
+            validate_source_jaxpr(carrier(value), 23)
+        assert error.value.category == "lowering-defect"
+        assert "JIT constant 0" in str(error.value)
+        if before is not None:
+            _assert_native_typed_constant_state(value, before)
+        assert not invoked and captured.tobytes() == words

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import asdict, dataclass
+from enum import Enum
 from functools import lru_cache
 import hashlib
 import inspect
@@ -21,6 +22,7 @@ from flax import nnx
 import numpy as np
 import onnx
 
+from jax2onnx._compat import jax as jax_compat
 from jax2onnx.precision import CheckStatus
 from scripts.source_precision_inventory import canonical_contract
 
@@ -55,6 +57,14 @@ _GATHER_NATIVE_TRACE_SHA256: Final = (
     "9a14661837181e7170fd3d2e0a780d7fd927299c4c96349ad05cb185926f3cda",
     "44fef1e2b0e2260469c30e76bf4186b75b73a4c0f52d7de9153bbbf61e8fcac1",
 )
+# Fully concrete original trace measured on the native Mul schema without
+# out_dtype. Its Boolean inline hint and all original payloads remain exact.
+_GATHER_NATIVE_TRACE_NO_OUT_DTYPE_SHA256: Final = (
+    "98f139d5ecf0b043c57b1605a3eb114245d42129ddb8a130839016d337823457"
+)
+_GATHER_NATIVE_FALSE_INLINE_HINT: Final = jax_compat.native_jit_boolean_inline_hints()[
+    0
+]
 _GATHER_VALUE_SHA256: Final = (
     "924dee132820525df56cbdc03823b4622404d1d9bd32a741780427b73478efcb",
     "709f61b4a913b4cfd4c4bd8e61a12c894f315137de193462b74e1e2645bd5bfc",
@@ -892,6 +902,31 @@ def _gather_graph_signature(model: onnx.ModelProto) -> dict[str, Any]:
     }
 
 
+def _gather_native_trace_sha256() -> str:
+    fields = jax_compat.native_mul_parameter_names()
+    hint = jax_compat.native_jit_boolean_inline_hints()[0]
+    if type(fields) is not frozenset or any(type(name) is not str for name in fields):
+        raise ValueError("Gather counterpart native trace schema is unreviewed")
+    if hint is False:
+        if fields == frozenset():
+            return _GATHER_NATIVE_TRACE_NO_OUT_DTYPE_SHA256
+        if fields == frozenset({"out_dtype"}):
+            return _GATHER_NATIVE_TRACE_SHA256[0]
+    elif (
+        fields == frozenset({"out_dtype"})
+        and hint is _GATHER_NATIVE_FALSE_INLINE_HINT
+        and isinstance(hint, Enum)
+    ):
+        unresolved: list[str] = []
+        descriptor = canonical_contract(hint, unresolved=unresolved)
+        if not unresolved and descriptor == {
+            "enum": "jax._src.api.Inline",
+            "name": "AUTO",
+        }:
+            return _GATHER_NATIVE_TRACE_SHA256[1]
+    raise ValueError("Gather counterpart native trace schema is unreviewed")
+
+
 @dataclass(frozen=True)
 class GatherCounterpart:
     case: CorpusCase
@@ -917,7 +952,6 @@ class GatherCounterpart:
         return {"identifier": self.identifier, "sha256": self.sha256, **asdict(self)}
 
     def _check_source(self, prepared: PreparedSourceCase) -> None:
-        from jax2onnx._compat.jax import native_jit_boolean_inline_hints
         from tests.extra_tests.converter.source_precision_diagnostics import (
             typed_trace_manifest,
         )
@@ -1034,10 +1068,9 @@ class GatherCounterpart:
                 "Gather counterpart actual feed/reference payload or weak type changed"
             )
         actual = json.loads(json.dumps(typed_trace_manifest(prepared.original_jaxpr)))
-        native_index = 0 if native_jit_boolean_inline_hints()[0] is False else 1
         if (
             json.loads(prepared.original_trace_json) != actual
-            or fingerprint(actual) != _GATHER_NATIVE_TRACE_SHA256[native_index]
+            or fingerprint(actual) != _gather_native_trace_sha256()
         ):
             raise ValueError(
                 "Gather counterpart complete original native trace changed"

@@ -19,7 +19,13 @@ from typing import Any, Final, NoReturn
 import jax
 import numpy as np
 
-from jax2onnx._compat.jax import DropVar, Literal, PRNGKeyDType, scan_arity
+from jax2onnx._compat.jax import (
+    DropVar,
+    Literal,
+    PRNGKeyDType,
+    native_typed_array_payload,
+    scan_arity,
+)
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from scripts.source_precision_inventory import canonical_contract
 
@@ -223,6 +229,9 @@ def typed_trace_manifest(closed: Any, _depth: int = 0) -> dict[str, Any]:
         return _typed(aval)
 
     def parameter(value: Any, key: str = "parameter") -> Any:
+        payload = native_typed_array_payload(value)
+        if payload is not None:
+            return canonical_contract(payload[0], unresolved=unresolved, location=key)
         candidate = _body(value)
         if all(hasattr(candidate, name) for name in ("eqns", "invars", "outvars")):
             return typed_trace_manifest(value, _depth + 1)

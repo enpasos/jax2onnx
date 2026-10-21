@@ -24,7 +24,6 @@ import onnx_ir as ir
 import onnxruntime as ort
 import pytest
 
-from internal_docs.precision.poc import fixed_source_preparation as poc
 from jax2onnx import user_interface as ui
 from jax2onnx._source_preparation import SourcePreparationError, prepare_nnx_linear
 from jax2onnx.converter.conversion_api import _activate_plugin_worlds
@@ -45,6 +44,9 @@ from jax2onnx.precision import (
     validate_source_samples,
 )
 from tests.extra_tests.converter import source_precision_support as source
+from tests.extra_tests.converter.source_nnx_linear_fixtures import (
+    assert_original_linear,
+)
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
@@ -108,7 +110,7 @@ def _raw(ordinal: int) -> tuple[Any, dict[str, Any]]:
     recipe = metadata["callable"]
     assert recipe._args == (128, 64) and recipe._dtype is recipe._instance is None
     model = recipe.instantiate()
-    assert poc.digest(np.asarray(model.kernel[...]).tobytes()) == _KERNEL_SHA
+    assert_original_linear(model, recipe, ordinal)
     assert (model.bias is None) == (ordinal == 3)
     return model, metadata
 
@@ -540,7 +542,7 @@ def test_private_preparation_rejects_unsupported_requests_without_changes(
         elif defect == "storage-family":
             model.kernel.set_value(jnp.zeros((128, 64), np.float16))
         elif defect == "setter-hook":
-            model.kernel.set_metadata(on_set_value=(lambda variable, value: value,))
+            model.kernel.set_metadata(on_set_value=lambda variable, value: value)
         elif defect == "param-subclass":
 
             class DifferentParam(nnx.Param):
@@ -747,13 +749,13 @@ def test_retained_getter_custom_promotion_and_dot_keep_their_actual_native_seman
             calls["dot"] += 1
             return dot_original(*args, **kwargs)
 
-        model.kernel.set_metadata(on_get_value=(getter,), on_set_value=(setter,))
+        model.kernel.set_metadata(on_get_value=getter, on_set_value=setter)
         model.promote_dtype, model.dot_general = promote, dot
         snapshot = calls.copy()
         prepared = prepare_nnx_linear(model, compute_dtype=np.float64)
         assert calls == snapshot
-        assert prepared.kernel.get_metadata("on_get_value") == (getter,)
-        assert prepared.kernel.get_metadata("on_set_value") == (setter,)
+        assert prepared.kernel.get_metadata("on_get_value") is getter
+        assert prepared.kernel.get_metadata("on_set_value") is setter
         assert prepared.promote_dtype is promote and prepared.dot_general is dot
         spec = _spec(np.float64)
         trace = _trace(prepared, [spec])

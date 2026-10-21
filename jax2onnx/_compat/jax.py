@@ -32,6 +32,8 @@ from jax._src import pjit as _native_pjit
 from jax._src import named_sharding as _native_named_sharding
 from jax import tree_util as _native_tree_util
 from jax._src import core as _native_core
+from jax._src import literals as _native_literals
+from jax._src.dtypes import TypePromotionError as TypePromotionError
 from jax._src import config as _native_config
 from jax._src import mesh as _native_mesh
 from jax._src import xla_metadata_lib as _native_xla_metadata
@@ -90,6 +92,29 @@ try:
     DropVar = jax_core_ext.DropVar
 except AttributeError:  # pragma: no cover - compatibility with older JAX versions
     DropVar = jax_core.DropVar
+
+
+# Closed native constants: pin the native host carrier before plugin binding.
+_NATIVE_TYPED_ARRAY_TYPE: type[Any] = _native_literals.TypedNdArray
+_NATIVE_TYPED_ARRAY_MEMBERS: tuple[tuple[str, object], ...] = tuple(
+    vars(_NATIVE_TYPED_ARRAY_TYPE).items()
+)
+_NATIVE_TYPED_ARRAY_BASES: tuple[type[Any], ...] = _NATIVE_TYPED_ARRAY_TYPE.__bases__
+_NATIVE_TYPED_ARRAY_ARRAY_FUNCTION: object = vars(_NATIVE_TYPED_ARRAY_TYPE).get(
+    "__array__"
+)
+_NATIVE_TYPED_ARRAY_ARRAY_STATE: tuple[object, ...] | None = (
+    (
+        _NATIVE_TYPED_ARRAY_ARRAY_FUNCTION.__code__,
+        _NATIVE_TYPED_ARRAY_ARRAY_FUNCTION.__defaults__,
+        _NATIVE_TYPED_ARRAY_ARRAY_FUNCTION.__kwdefaults__,
+        _NATIVE_TYPED_ARRAY_ARRAY_FUNCTION.__closure__,
+        _NATIVE_TYPED_ARRAY_ARRAY_FUNCTION.__globals__,
+    )
+    if type(_NATIVE_TYPED_ARRAY_ARRAY_FUNCTION) is types.FunctionType
+    else None
+)
+_NATIVE_TYPED_ARRAY_ASARRAY: object = np.asarray
 
 
 # Recipe metadata only: pin the actual native function before plugin binding.
@@ -924,6 +949,104 @@ def _require_plain_native_aval(aval: Any) -> None:
         raise TypeError("native signature has unsupported manual axes")
     if schema == "manual-layout" and aval.layout is not _native_core.AutoLayout:
         raise TypeError("native signature has unsupported explicit layout")
+
+
+def native_typed_array_payload(value: Any) -> tuple[np.ndarray, bool] | None:
+    """Read an exact native host carrier without coercion or metadata mutation.
+
+    The original constant remains bound for lowering. None means this is not a
+    native typed-array carrier; ordinary payload and typed-key policy is separate.
+    """
+    carrier_type = _NATIVE_TYPED_ARRAY_TYPE
+    if type(value) is not carrier_type:
+        if issubclass(type(value), carrier_type):
+            raise TypeError("native typed-array subclasses need a separate adapter")
+        return None
+    members = vars(carrier_type)
+    if not (
+        vars(_native_literals).get("TypedNdArray") is carrier_type
+        and len(carrier_type.__bases__) == len(_NATIVE_TYPED_ARRAY_BASES)
+        and all(
+            actual is expected
+            for actual, expected in zip(
+                carrier_type.__bases__, _NATIVE_TYPED_ARRAY_BASES, strict=True
+            )
+        )
+        and tuple(members) == tuple(name for name, _ in _NATIVE_TYPED_ARRAY_MEMBERS)
+        and all(members[name] is member for name, member in _NATIVE_TYPED_ARRAY_MEMBERS)
+        and np.asarray is _NATIVE_TYPED_ARRAY_ASARRAY
+    ):
+        raise TypeError("native typed-array class or conversion binding changed")
+
+    def read_slot(name: str) -> Any:
+        descriptor = members[name]
+        if type(descriptor) is not types.MemberDescriptorType:
+            raise TypeError("native typed-array member is not an actual slot")
+        try:
+            return descriptor.__get__(value, carrier_type)
+        except AttributeError as exc:
+            raise TypeError("native typed-array slot is uninitialized") from exc
+
+    slots = members["__slots__"]
+    if (
+        len(_NATIVE_TYPED_ARRAY_BASES) == 1
+        and _NATIVE_TYPED_ARRAY_BASES[0] is object
+        and slots == ("val", "weak_type")
+    ):
+        conversion = _NATIVE_TYPED_ARRAY_ARRAY_FUNCTION
+        if not (
+            type(conversion) is types.FunctionType
+            and _NATIVE_TYPED_ARRAY_ARRAY_STATE is not None
+            and conversion.__code__ is _NATIVE_TYPED_ARRAY_ARRAY_STATE[0]
+            and conversion.__defaults__ is _NATIVE_TYPED_ARRAY_ARRAY_STATE[1]
+            and conversion.__kwdefaults__ is _NATIVE_TYPED_ARRAY_ARRAY_STATE[2]
+            and conversion.__closure__ is _NATIVE_TYPED_ARRAY_ARRAY_STATE[3]
+            and conversion.__globals__ is _NATIVE_TYPED_ARRAY_ARRAY_STATE[4]
+            and conversion.__kwdefaults__ is None
+            and conversion.__closure__ is None
+            and type(conversion.__defaults__) is tuple
+            and len(conversion.__defaults__) == 2
+            and all(item is None for item in conversion.__defaults__)
+            and conversion.__globals__.get("np") is np
+        ):
+            raise TypeError("native typed-array conversion implementation changed")
+        array = read_slot("val")
+        weak = read_slot("weak_type")
+        if type(array) is not np.ndarray:
+            raise TypeError("native typed-array backing is not an exact ndarray")
+    elif (
+        len(_NATIVE_TYPED_ARRAY_BASES) == 1
+        and _NATIVE_TYPED_ARRAY_BASES[0] is np.ndarray
+        and slots
+        == (
+            "_aval",
+            "_weak_type",
+        )
+    ):
+        # Calling .aval/.weak_type here would populate a currently empty cache.
+        aval = read_slot("_aval")
+        array = np.ndarray.view(value, np.ndarray)
+        if aval is None:
+            weak = read_slot("_weak_type")
+        else:
+            if not (
+                type(aval) is ShapedArray
+                and issubclass(type(aval.dtype), np.dtype)
+                and type(aval.shape) is tuple
+                and all(type(dim) is int and dim >= 0 for dim in aval.shape)
+                and aval.dtype == array.dtype
+                and aval.shape == array.shape
+            ):
+                raise TypeError("native typed-array cached aval disagrees with storage")
+            _require_plain_native_aval(aval)
+            weak = aval.weak_type
+    else:
+        raise TypeError("native typed-array schema needs an exact adapter")
+    if type(weak) is not bool:
+        raise TypeError("native typed-array weakness is not a native Boolean")
+    if array.dtype.hasobject:
+        raise TypeError("native typed-array object storage is unsupported")
+    return array, weak
 
 
 def _native_context_protocol() -> str:
@@ -1971,6 +2094,7 @@ __all__ = [
     "Primitive",
     "ShapedArray",
     "Tracer",
+    "TypePromotionError",
     "Var",
     "ad",
     "atomic_symbolic_dimension",

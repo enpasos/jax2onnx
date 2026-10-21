@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from types import SimpleNamespace
+from types import MemberDescriptorType, SimpleNamespace
 
 import numpy as np
 
@@ -590,3 +590,387 @@ def test_native_logistic_metadata_uses_original_row_hash_guard_and_pending_crite
         assert raw["input_shapes"] == [(4, 3)]
     assert raw == before
     assert probe._resolve_case(row, registrations)["callable"] is raw["callable"]
+
+
+def _native_typed_constant(array: np.ndarray, weak: bool = False) -> Any:
+    owner = compat._NATIVE_TYPED_ARRAY_TYPE
+    if owner.__bases__ == (object,):
+        return owner(array, weak_type=weak)
+    return owner(
+        array, aval=compat.ShapedArray(array.shape, array.dtype, weak_type=weak)
+    )
+
+
+def _native_typed_constant_state(value: Any) -> tuple[Any, ...]:
+    members = dict(compat._NATIVE_TYPED_ARRAY_MEMBERS)
+    result = []
+    for name in members["__slots__"]:
+        try:
+            result.append(members[name].__get__(value, type(value)))
+        except AttributeError:
+            result.append(_native_typed_constant_state)
+    return tuple(result)
+
+
+def _assert_native_typed_constant_state(value: Any, before: tuple[Any, ...]) -> None:
+    assert all(
+        actual is expected
+        for actual, expected in zip(
+            _native_typed_constant_state(value), before, strict=True
+        )
+    )
+
+
+def _native_aval_slot_state(aval: Any) -> tuple[Any, ...]:
+    assert type(aval) is compat.ShapedArray
+    assert all(
+        not vars(parent).get("__slots__") for parent in compat.ShapedArray.__mro__[1:-1]
+    )
+    result = []
+    for name in compat.ShapedArray.__slots__:
+        if name == "__weakref__":
+            continue
+        slot = vars(compat.ShapedArray)[name]
+        assert type(slot) is MemberDescriptorType
+        assert slot.__objclass__ is compat.ShapedArray and slot.__name__ == name
+        try:
+            item = slot.__get__(aval, compat.ShapedArray)
+        except AttributeError as error:
+            assert type(error) is AttributeError
+            result.append((name, slot, False, None))
+        else:
+            result.append((name, slot, True, item))
+    return tuple(result)
+
+
+def _assert_original_native_aval_untouched(audit: tuple[Any, ...]) -> None:
+    original, state, array, dtype, shape, words = audit
+    current = _native_aval_slot_state(original)
+    assert len(current) == len(state)
+    assert all(
+        actual[0] == expected[0]
+        and all(a is b for a, b in zip(actual[1:], expected[1:], strict=True))
+        for actual, expected in zip(current, state, strict=True)
+    )
+    assert array.dtype == dtype and array.shape == shape
+    assert array.tobytes() == words
+
+
+def _corrupt_isolated_native_cached_aval(
+    value: Any, field: str, malformed: Any
+) -> tuple[Any, ...]:
+    owner = compat._NATIVE_TYPED_ARRAY_TYPE
+    assert type(value) is owner and owner.__bases__ == (np.ndarray,)
+    cache_slot = dict(compat._NATIVE_TYPED_ARRAY_MEMBERS)["_aval"]
+    assert type(cache_slot) is MemberDescriptorType
+    assert cache_slot.__objclass__ is owner and cache_slot.__name__ == "_aval"
+    original = cache_slot.__get__(value, owner)
+    state = _native_aval_slot_state(original)
+    valid = compat.native_typed_array_payload(value)
+    assert valid is not None
+    array, weak = valid
+    audit = (original, state, array, array.dtype, array.shape, array.tobytes())
+    # Bypass the constructor/interner only for this explicitly malformed fixture.
+    # Every initialized canonical slot is copied; unset slots remain unset.
+    isolated = object.__new__(compat.ShapedArray)
+    assert type(isolated) is compat.ShapedArray and isolated is not original
+    for _, slot, initialized, item in state:
+        if initialized:
+            slot.__set__(isolated, item)
+    cache_slot.__set__(value, isolated)
+    calibrated = compat.native_typed_array_payload(value)
+    assert calibrated is not None
+    assert type(calibrated[0]) is np.ndarray
+    assert calibrated[0].dtype == array.dtype and calibrated[0].shape == array.shape
+    assert calibrated[0].tobytes() == audit[-1] and calibrated[1] is weak
+    _assert_original_native_aval_untouched(audit)
+    selected = next(slot for name, slot, _, _ in state if name == field)
+    selected.__set__(isolated, malformed)
+    _assert_original_native_aval_untouched(audit)
+    return audit
+
+
+@pytest.mark.parametrize(
+    "dtype", ["bool", "uint64", "float32", "float64", "bfloat16", "complex128"]
+)
+@pytest.mark.parametrize("weak", [False, True])
+@pytest.mark.parametrize("caller_x64", [False, True])
+def test_native_typed_constant_adapter_preserves_storage_and_weakness(
+    dtype: str, weak: bool, caller_x64: bool
+) -> None:
+    backing = np.full((2, 3), True if dtype == "bool" else -0.0, dtype)
+    value = _native_typed_constant(backing, weak)
+    before = _native_typed_constant_state(value)
+    words = backing.tobytes()
+    with jax.enable_x64(caller_x64):
+        result = compat.native_typed_array_payload(value)
+    assert result is not None
+    array, actual_weak = result
+    assert type(array) is np.ndarray
+    assert array.dtype == backing.dtype and array.shape == backing.shape
+    assert array.tobytes() == words and actual_weak is weak
+    if type(value).__bases__ == (object,):
+        assert array is backing
+    _assert_native_typed_constant_state(value, before)
+    assert backing.tobytes() == words
+
+
+def test_native_typed_constant_cache_empty_and_cached_weakness_precedence() -> None:
+    backing = np.asarray([-0.0, np.nan], np.float64)
+    owner = compat._NATIVE_TYPED_ARRAY_TYPE
+    if owner.__bases__ == (object,):
+        values = [_native_typed_constant(backing, weak) for weak in (False, True)]
+    else:
+        empty = owner(backing)
+        assert (
+            dict(compat._NATIVE_TYPED_ARRAY_MEMBERS)["_aval"].__get__(empty, owner)
+            is None
+        )
+        cached = _native_typed_constant(backing, True)
+        # __new__(aval=...) leaves the raw initializer flag False. The cached
+        # native aval remains the authoritative effective weakness.
+        assert (
+            dict(compat._NATIVE_TYPED_ARRAY_MEMBERS)["_weak_type"].__get__(
+                cached, owner
+            )
+            is False
+        )
+        values = [empty, cached]
+    for value, weak in zip(values, (False, True), strict=True):
+        before = _native_typed_constant_state(value)
+        result = compat.native_typed_array_payload(value)
+        assert result is not None and result[1] is weak
+        assert result[0].tobytes() == backing.tobytes()
+        _assert_native_typed_constant_state(value, before)
+
+
+@pytest.mark.parametrize(
+    "fault", ["weakness", "object-storage", "missing-slot", "foreign-backing-or-aval"]
+)
+def test_native_typed_constant_rejects_malformed_owned_storage_without_hooks(
+    fault: str,
+) -> None:
+    backing = np.asarray([-0.0, np.nan], np.float32)
+    value = _native_typed_constant(backing)
+    assert compat.native_typed_array_payload(value) is not None
+    owner = type(value)
+    legacy = owner.__bases__ == (object,)
+    invoked = []
+    isolation = None
+
+    class Foreign:
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            invoked.append("array")
+            raise AssertionError("foreign storage conversion ran")
+
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("foreign storage reflection ran")
+
+    if fault == "weakness":
+        if legacy:
+            value.weak_type = 1
+        else:
+            isolation = _corrupt_isolated_native_cached_aval(value, "weak_type", 1)
+    elif fault == "object-storage":
+        object_array = np.asarray([object(), object()], dtype=object)
+        value = owner(object_array, False) if legacy else owner(object_array)
+    elif fault == "missing-slot":
+        delattr(value, "val" if legacy else "_aval")
+    elif legacy:
+        value.val = Foreign()
+    else:
+        value._aval = Foreign()
+    before = _native_typed_constant_state(value)
+    words = backing.tobytes()
+    with pytest.raises(TypeError, match="native typed-array"):
+        compat.native_typed_array_payload(value)
+    assert not invoked and backing.tobytes() == words
+    _assert_native_typed_constant_state(value, before)
+    if isolation is not None:
+        _assert_original_native_aval_untouched(isolation)
+
+
+@pytest.mark.parametrize("kind", ["foreign", "subclass"])
+def test_native_typed_constant_adapter_never_calls_unowned_array_or_attribute_hooks(
+    kind: str,
+) -> None:
+    backing = np.asarray([-0.0, np.nan], np.float32)
+    valid = _native_typed_constant(backing)
+    assert compat.native_typed_array_payload(valid) is not None
+    invoked = []
+
+    class Foreign:
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            invoked.append("array")
+            raise AssertionError("unowned array hook ran")
+
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("unowned attribute hook ran")
+
+    class Subclass(compat._NATIVE_TYPED_ARRAY_TYPE):
+        pass
+
+    if kind == "foreign":
+        value = Foreign()
+        assert compat.native_typed_array_payload(value) is None
+    else:
+        if type(valid).__bases__ == (object,):
+            value = Subclass(backing, False)
+        else:
+            value = Subclass(backing)
+        Subclass.__array__ = Foreign.__array__
+        Subclass.__getattribute__ = Foreign.__getattribute__
+        with pytest.raises(TypeError, match="subclasses"):
+            compat.native_typed_array_payload(value)
+    assert not invoked
+    assert backing.tobytes() == np.asarray([-0.0, np.nan], np.float32).tobytes()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["binding", "member", "conversion-code", "conversion-defaults", "numpy-binding"],
+)
+def test_native_typed_constant_owner_and_invoked_conversion_remain_exact(
+    fault: str, monkeypatch: MonkeyPatch
+) -> None:
+    backing = np.asarray([-0.0, np.nan], np.float32)
+    value = _native_typed_constant(backing)
+    assert compat.native_typed_array_payload(value) is not None
+    before = _native_typed_constant_state(value)
+    words = backing.tobytes()
+    owner = type(value)
+    invoked = []
+
+    def foreign_array(self: Any, dtype: Any = None, copy: Any = None) -> Any:
+        invoked.append("array")
+        raise AssertionError("changed conversion implementation ran")
+
+    with monkeypatch.context() as changes:
+        if fault == "binding":
+            changes.setattr(compat._native_literals, "TypedNdArray", object)
+        elif fault == "member":
+            slot = "val" if owner.__bases__ == (object,) else "_aval"
+            changes.setattr(owner, slot, property(foreign_array))
+        elif fault == "numpy-binding":
+            changes.setattr(np, "asarray", foreign_array)
+        elif owner.__bases__ == (object,):
+            conversion = compat._NATIVE_TYPED_ARRAY_ARRAY_FUNCTION
+            if fault == "conversion-code":
+                # Same function identity, no closure: identity-only checks
+                # would miss this exact downstream invoked-method mutation.
+                def replacement(self: Any, dtype: Any = None, copy: Any = None) -> Any:
+                    raise AssertionError("changed native conversion code ran")
+
+                changes.setattr(conversion, "__code__", replacement.__code__)
+            else:
+                changes.setattr(conversion, "__defaults__", (np.float64, False))
+        else:
+            # Current ndarray carriers have no Python __array__ method to pin;
+            # introducing one changes their exact native conversion ownership.
+            changes.setattr(owner, "__array__", foreign_array, raising=False)
+        with pytest.raises(TypeError, match="native typed-array"):
+            compat.native_typed_array_payload(value)
+        assert not invoked and backing.tobytes() == words
+        _assert_native_typed_constant_state(value, before)
+    assert compat.native_typed_array_payload(value) is not None
+    _assert_native_typed_constant_state(value, before)
+
+
+@pytest.mark.parametrize("mutation", ["dtype", "shape", "placement"])
+def test_native_typed_constant_cached_aval_geometry_or_legacy_direct_storage(
+    mutation: str,
+) -> None:
+    backing = np.asarray([-0.0, np.nan], np.float32)
+    value = _native_typed_constant(backing)
+    valid = compat.native_typed_array_payload(value)
+    assert valid is not None
+    if type(value).__bases__ == (object,):
+        # This native layout has direct val/weak slots and no cached aval role.
+        assert valid[0] is backing and valid[1] is False
+        return
+    aval = value._aval
+    isolation = None
+    if mutation == "dtype":
+        value._aval = aval.update(dtype=np.float64)
+    elif mutation == "shape":
+        value._aval = aval.update(shape=(1,))
+    else:
+        field, varying = compat.native_manual_axis_metadata(frozenset({"test_axis"}))
+        isolation = _corrupt_isolated_native_cached_aval(value, field, varying)
+    before = _native_typed_constant_state(value)
+    words = backing.tobytes()
+    with pytest.raises(TypeError, match="cached aval|native signature"):
+        compat.native_typed_array_payload(value)
+    _assert_native_typed_constant_state(value, before)
+    assert backing.tobytes() == words
+
+    if isolation is not None:
+        _assert_original_native_aval_untouched(isolation)
+
+
+def test_native_typed_constant_nested_foreign_dtype_or_legacy_backing_has_no_hooks() -> (
+    None
+):
+    backing = np.asarray([-0.0, np.nan], np.float32)
+    value = _native_typed_constant(backing)
+    assert compat.native_typed_array_payload(value) is not None
+    invoked = []
+
+    class Foreign:
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            invoked.append("array")
+            raise AssertionError("nested foreign dtype or storage conversion ran")
+
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("nested foreign dtype or storage reflection ran")
+
+    foreign = Foreign()
+    isolation = None
+    if type(value).__bases__ == (object,):
+        # The native legacy wrapper has no cached aval. Exercise its actual
+        # direct-storage boundary instead of inventing a synthetic cache.
+        value.val = foreign
+        cached_aval = None
+        cached_state = None
+    else:
+        isolation = _corrupt_isolated_native_cached_aval(value, "dtype", foreign)
+        cached_aval = value._aval
+        cached_state = (
+            cached_aval.shape,
+            cached_aval.dtype,
+            cached_aval.weak_type,
+        )
+    before = _native_typed_constant_state(value)
+    words = backing.tobytes()
+    with pytest.raises(TypeError, match="native typed-array"):
+        compat.native_typed_array_payload(value)
+    assert not invoked and backing.tobytes() == words
+    _assert_native_typed_constant_state(value, before)
+    if cached_aval is not None:
+        assert cached_state is not None
+        assert all(
+            actual is expected
+            for actual, expected in zip(
+                (cached_aval.shape, cached_aval.dtype, cached_aval.weak_type),
+                cached_state,
+                strict=True,
+            )
+        )
+
+    if isolation is not None:
+        _assert_original_native_aval_untouched(isolation)
+
+
+def test_type_promotion_error_is_exact_native_exception_and_restores_context() -> None:
+    from jax._src.dtypes import TypePromotionError as NativeTypePromotionError
+
+    assert compat.TypePromotionError is NativeTypePromotionError
+    previous = jax.config.jax_numpy_dtype_promotion
+    with jax.numpy_dtype_promotion("strict"):
+        with pytest.raises(compat.TypePromotionError) as caught:
+            jnp.result_type(np.dtype(np.int32), np.dtype(np.float32))
+        assert type(caught.value) is compat.TypePromotionError
+    assert jax.config.jax_numpy_dtype_promotion == previous

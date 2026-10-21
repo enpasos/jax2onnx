@@ -17,6 +17,7 @@ import numpy as np
 
 from jax2onnx._compat.jax import (
     ClosedJaxpr,
+    native_typed_array_payload,
     native_scan_flat_tree_partitions,
     native_scan_parameter_names,
     scan_arity,
@@ -62,22 +63,38 @@ def _closed_body(closed: Any, site: _Site, ancestors: frozenset[int]) -> Any:
     for index, (var, value) in enumerate(
         zip(body.constvars, closed.consts, strict=True)
     ):
+        try:
+            typed_payload = native_typed_array_payload(value)
+        except TypeError as exc:
+            site.fail(
+                f"loop constant {index} has an invalid native typed-array payload: {exc}",
+                "the unchanged exact native host carrier and its numeric storage",
+                category="lowering-defect",
+            )
         site.require(
-            isinstance(
-                value, (np.ndarray, np.generic, jax.Array, bool, int, float, complex)
+            typed_payload is not None
+            or issubclass(
+                type(value),
+                (np.ndarray, np.generic, jax.Array, bool, int, float, complex),
             ),
             f"loop constant {index} is not an array or scalar payload",
             "a concrete numeric payload without conversion hooks",
             category="lowering-defect",
         )
         array = np.asarray(
-            value
+            value if typed_payload is None else typed_payload[0]
         )  # Never recanonicalize stored payloads with jnp.asarray.
         site.require(
             array.dtype == np.dtype(var.aval.dtype)
             and array.shape == tuple(var.aval.shape),
             f"loop constant {index} payload dtype or shape disagrees with its aval",
             "the exact constant payload dtype, shape and bytes",
+            category="lowering-defect",
+        )
+        site.require(
+            typed_payload is None or typed_payload[1] is var.aval.weak_type,
+            f"loop constant {index} payload weakness disagrees with its aval",
+            "the original native typed-array weakness without reconstruction",
             category="lowering-defect",
         )
     return body

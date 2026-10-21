@@ -72,7 +72,7 @@ from tests.extra_tests.converter.source_precision_corpus_oracles import (  # noq
 
 
 SCENARIOS: Final[tuple[str, str]] = ("raw-x64-off", "raw-x64-on")
-CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v5"
+CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v6"
 _CONTROL_CONTRACTS: Final = {
     "plugin::jax.numpy.add": "39f16c5258b9354829fd94c8825deb0e8a389215d0be1fcced026de8ae82a922",
     "plugin::dot_general": "6957d2d4640c79d15f46c7e930fcbd67467e3b278929165cf8619e6f88c7f8d4",
@@ -1225,7 +1225,7 @@ def _corpus_controls_admitted(controls: Sequence[Mapping[str, Any]]) -> bool:
             != "static-dot-source-counterpart-v2:plugin::dot_general:0"
             or structure.get("counterpart_sha256")
             # The descriptor also binds the reviewed whole oracle module.
-            != "e7e629c9c9506ec0d77049f7ff34e78959041a2a2b70d35af3c9264078e35b11"
+            != "32de603c9d418c554a2172c4c178da11b4bd5765726674a8328f5f0429ca9bf3"
             or structure.get("source_structure") != CheckStatus.VALIDATED
             or structure.get("raw_callback_status") != "failed"
             or control.get("raw_callback_status") != "failed"

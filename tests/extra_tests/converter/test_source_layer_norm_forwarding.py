@@ -19,6 +19,7 @@ import onnxruntime as ort
 from onnxruntime.capi import _pybind_state as ort_state
 import pytest
 
+from jax2onnx._compat.jax import TypePromotionError
 from jax2onnx.converter.conversion_api import _activate_plugin_worlds
 from jax2onnx.converter.precision_policy import (
     PrecisionPolicy,
@@ -352,7 +353,7 @@ def test_native_weak_scalar_and_ambient_context(framework: str) -> None:
             value = jnp.asarray([[0.5, 1.0, 2.0]], dtype=jnp.float64)
             fn, _ = _flax_model(framework, value, param_dtype=jnp.float64)
             with jax.numpy_dtype_promotion("strict"):
-                with pytest.raises(jax.dtypes.TypePromotionError) as original:
+                with pytest.raises(TypePromotionError) as original:
                     fn(value)
                 with (
                     precision_policy_scope(PrecisionPolicy.SOURCE),

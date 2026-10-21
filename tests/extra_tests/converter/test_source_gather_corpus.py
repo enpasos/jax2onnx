@@ -535,7 +535,7 @@ def test_gather_is_one_exact_mapping_in_unchanged_26_cell_selector() -> None:
     )
     assert len(oracles.CORPUS_REPLAY_CASES) == 13
     assert len(oracles.DOT_COUNTERPARTS) == 4 and len(oracles.LINEAR_COUNTERPARTS) == 2
-    assert probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v5"
+    assert probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v6"
 
 
 def _node(model: onnx.ModelProto, op: str, *, last: bool = False) -> onnx.NodeProto:
@@ -896,3 +896,136 @@ def test_schema_failure_is_distinct_from_valid_schema_structure_rejection(
     evidence = _COUNTERPART.check(prepared, model)
     assert evidence.source_structure is CheckStatus.FAILED
     assert not evidence.accepted
+
+
+def test_gather_native_schema_selects_the_exact_observed_original_trace(
+    original: Any,
+) -> None:
+    _, _, prepared, _ = original
+    observed = json.loads(prepared.original_trace_json)
+    assert oracles._gather_native_trace_sha256() == oracles.fingerprint(observed)
+    assert oracles._GATHER_NATIVE_TRACE_SHA256 == (
+        "9a14661837181e7170fd3d2e0a780d7fd927299c4c96349ad05cb185926f3cda",
+        "44fef1e2b0e2260469c30e76bf4186b75b73a4c0f52d7de9153bbbf61e8fcac1",
+    )
+    assert (
+        oracles._GATHER_NATIVE_TRACE_NO_OUT_DTYPE_SHA256
+        == "98f139d5ecf0b043c57b1605a3eb114245d42129ddb8a130839016d337823457"
+    )
+    _COUNTERPART._check_source(prepared)
+
+
+@pytest.mark.parametrize(
+    "defect", ["toggle-absent-and-None", "nondefault-out-dtype", "unknown-None"]
+)
+def test_gather_full_trace_gate_rejects_forged_mul_even_with_matching_stored_trace(
+    original: Any, defect: str
+) -> None:
+    _, _, prepared, _ = original
+    original_json = prepared.original_trace_json
+    body = prepared.original_jaxpr.jaxpr
+    equations = list(body.eqns)
+    assert len(equations) == 12 and equations[6].primitive.name == "mul"
+    params = dict(equations[6].params)
+    if defect == "toggle-absent-and-None":
+        if "out_dtype" in params:
+            assert params.pop("out_dtype") is None
+        else:
+            params["out_dtype"] = None
+    elif defect == "nondefault-out-dtype":
+        params["out_dtype"] = np.dtype(np.float32)
+    else:
+        params["unreviewed_schema_key"] = None
+    equations[6] = equations[6].replace(params=params)
+    forged = ClosedJaxpr(body.replace(eqns=equations), prepared.original_jaxpr.consts)
+    actual = json.loads(json.dumps(typed_trace_manifest(forged)))
+    broken = replace(
+        prepared,
+        original_jaxpr=forged,
+        original_trace_json=json.dumps(actual, sort_keys=True, separators=(",", ":")),
+    )
+    # Matching stored/actual JSON cannot waive the complete native-schema hash.
+    assert json.loads(broken.original_trace_json) == actual
+    assert oracles.fingerprint(actual) != oracles._gather_native_trace_sha256()
+    with pytest.raises(ValueError, match="complete original native trace changed"):
+        _COUNTERPART._check_source(broken)
+    assert prepared.original_trace_json == original_json
+    _COUNTERPART._check_source(prepared)
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "unknown-field",
+        "wrong-field-container",
+        "field-subclass",
+        "falsey-zero",
+        "true-hint",
+        "canonical-looking-mapping",
+        "lookalike-enum",
+        "incompatible-native-hint",
+        "native-helper-error",
+    ],
+)
+def test_gather_native_schema_selector_rejects_unowned_metadata_without_export(
+    defect: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from enum import Enum
+
+    expected = oracles._gather_native_trace_sha256()
+    native_hints = oracles.jax_compat.native_jit_boolean_inline_hints()
+    fields: Any = frozenset({"out_dtype"})
+    hint: Any = False
+    if defect == "unknown-field":
+        fields = frozenset({"out_dtype", "unreviewed"})
+    elif defect == "wrong-field-container":
+        fields = {"out_dtype"}
+    elif defect == "field-subclass":
+
+        class Field(str):
+            pass
+
+        fields = frozenset({Field("out_dtype")})
+    elif defect == "falsey-zero":
+        hint = 0
+    elif defect == "true-hint":
+        hint = True
+    elif defect == "canonical-looking-mapping":
+        hint = {"enum": "jax._src.api.Inline", "name": "AUTO"}
+    elif defect == "lookalike-enum":
+        lookalike = Enum("Inline", {"AUTO": "auto"})
+        lookalike.__module__ = "jax._src.api"
+        hint = lookalike.AUTO
+        assert oracles.canonical_contract(hint, unresolved=[]) == {
+            "enum": "jax._src.api.Inline",
+            "name": "AUTO",
+        }
+    elif defect == "incompatible-native-hint":
+        fields = frozenset()
+        # The installed enum/AUTO + no-out_dtype pair is unobserved. Older
+        # Boolean stacks exercise their actual True hint, without a fake enum API.
+        hint = native_hints[0] if isinstance(native_hints[0], Enum) else native_hints[1]
+
+    def unsupported() -> frozenset[str]:
+        raise TypeError("controlled native schema failure")
+
+    with monkeypatch.context() as changes:
+        changes.setattr(
+            oracles.jax_compat,
+            "native_mul_parameter_names",
+            unsupported if defect == "native-helper-error" else lambda: fields,
+        )
+        changes.setattr(
+            oracles.jax_compat,
+            "native_jit_boolean_inline_hints",
+            lambda: (hint, native_hints[1]),
+        )
+        error = TypeError if defect == "native-helper-error" else ValueError
+        message = (
+            "controlled native schema failure"
+            if defect == "native-helper-error"
+            else "native trace schema is unreviewed"
+        )
+        with pytest.raises(error, match=message):
+            oracles._gather_native_trace_sha256()
+    assert oracles._gather_native_trace_sha256() == expected

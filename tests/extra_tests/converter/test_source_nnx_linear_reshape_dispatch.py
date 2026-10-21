@@ -3,7 +3,10 @@
 """Native Linear/reshape dispatch; static diagnostics do not establish numerics."""
 
 from collections.abc import Iterator
+from copy import copy
+from dataclasses import replace
 import hashlib
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +32,12 @@ from jax2onnx.plugins.flax.nnx.linear import LinearPlugin
 from jax2onnx.plugins.jax.numpy.reshape import JnpReshapePlugin
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 from jax2onnx.precision import CheckStatus, get_precision_report
+from tests.extra_tests.converter import source_nnx_linear_fixtures as native_fixtures
+from tests.extra_tests.converter.source_nnx_linear_fixtures import (
+    assert_original_linear,
+    expected_original_linear_kernel,
+)
+from tests.extra_tests.converter.source_precision_support import SourceSettings
 from tests.extra_tests.converter.source_precision_diagnostics import (
     DiagnosticValidator,
     typed_trace_manifest,
@@ -36,6 +45,7 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
 
 
 _LINEAR = nnx.Linear.__call__
+_LINEAR_HAS_OUT_SHARDING = "out_sharding" in inspect.signature(_LINEAR).parameters
 _RESHAPE = jnp.reshape
 _KERNEL_SHA = "d443c758235aff0c56e9af2d5862ae9807f6ca8e96d9aaf5289450663e4d3ef9"
 _BIAS_SHA = "5341e6b2646979a70e57653007a1f310169421ec9bdd9f1a5648f75ade005af1"
@@ -135,12 +145,74 @@ def _original_model(ordinal: int) -> Any:
     )
     assert recipe._kwargs["rngs"].metadata["rng_trace"].seed == 0
     model = recipe.instantiate()
-    assert model.dtype == jnp.float32 and _sha(model.kernel[...]) == _KERNEL_SHA
+    assert_original_linear(model, recipe, ordinal)
     if ordinal == 0:
         assert _sha(model.bias[...]) == _BIAS_SHA
     else:
         assert recipe._kwargs["use_bias"] is False and model.bias is None
     return model
+
+
+@pytest.mark.parametrize("defect", ["seed", "shape", "dtype", "bias"])
+def test_native_fixture_rejects_changed_original_recipe(defect: str) -> None:
+    model = _original_model(0)
+    original = PLUGIN_REGISTRY["nnx.linear"].metadata["testcases"][0]["callable"]
+    recipe = copy(original)
+    recipe._kwargs = dict(original._kwargs)
+    if defect == "seed":
+        rng = copy(recipe._kwargs["rngs"])
+        rng._metadata = dict(rng.metadata)
+        rng._metadata["rng_trace"] = replace(rng.metadata["rng_trace"], seed=1)
+        recipe._kwargs["rngs"] = rng
+    elif defect == "shape":
+        recipe._args = (127, 64)
+    elif defect == "dtype":
+        recipe = recipe.with_dtype(jnp.float32)
+    else:
+        recipe._kwargs["use_bias"] = False
+    with pytest.raises(AssertionError):
+        assert_original_linear(model, recipe, 0)
+    assert original._dtype is None and original._instance is None
+    assert original._kwargs["rngs"].metadata["rng_trace"].seed == 0
+
+
+def test_native_fixture_rejects_unknown_kernel_and_wrong_stack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _original_model(0)
+    recipe = PLUGIN_REGISTRY["nnx.linear"].metadata["testcases"][0]["callable"]
+    minimum = ("0.8.1", "0.8.1", "0.12.1")
+    # Exercise the real native payload against an incompatible claimed binding.
+    wrong = (
+        ("0.8.1", "0.8.1", "0.12.2")
+        if native_fixtures._native_versions() == minimum
+        else minimum
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(native_fixtures, "_native_versions", lambda: wrong)
+        with pytest.raises(AssertionError, match="Native kernel differs"):
+            assert_original_linear(
+                model,
+                recipe,
+                0,
+                settings=SourceSettings(False, None, "cpu", "standard", "allow"),
+            )
+    model.kernel[...] = model.kernel[...] + jnp.float32(1)
+    with pytest.raises(AssertionError, match="Native kernel differs"):
+        assert_original_linear(model, recipe, 0)
+
+
+def test_minimum_native_fixture_rejects_unmeasured_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _original_model(0)
+    recipe = PLUGIN_REGISTRY["nnx.linear"].metadata["testcases"][0]["callable"]
+    monkeypatch.setattr(
+        native_fixtures, "_native_versions", lambda: ("0.8.1", "0.8.1", "0.12.1")
+    )
+    with jax.default_matmul_precision("highest"):
+        with pytest.raises(AssertionError, match="Unmeasured minimum settings"):
+            assert_original_linear(model, recipe, 0)
 
 
 def _nonzero_model() -> Any:
@@ -265,8 +337,14 @@ def test_original_recipes_symbolic_and_concrete_native_semantics(
             assert _signature(_body(trace).outvars) == (
                 ("float32", (shape[0], 64), False),
             )
+            expected_kernel = expected_original_linear_kernel(
+                PLUGIN_REGISTRY["nnx.linear"].metadata["testcases"][ordinal][
+                    "callable"
+                ],
+                ordinal,
+            )
             assert [_sha(c) for c in trace.consts] == (
-                [_KERNEL_SHA, _BIAS_SHA] if ordinal == 0 else [_KERNEL_SHA]
+                [expected_kernel, _BIAS_SHA] if ordinal == 0 else [expected_kernel]
             )
 
 
@@ -294,9 +372,7 @@ def test_real_module_dtype_precision_callbacks_and_actual_weakness(kind: str) ->
 
             model.promote_dtype, model.dot_general = custom_promote, custom_dot
         value = jax.ShapeDtypeStruct((2, 128), np.float32, weak_type=kind == "weak")
-        trace = _compare(
-            lambda x: model(inputs=x, out_sharding=None), value, execute=False
-        )
+        trace = _compare(lambda x: model(inputs=x), value, execute=False)
         names = [e.primitive.name for e in _body(trace).eqns]
         dot = next(e for e in _body(trace).eqns if e.primitive.name == "dot_general")
         if kind == "dtype":
@@ -311,10 +387,9 @@ def test_real_module_dtype_precision_callbacks_and_actual_weakness(kind: str) ->
             for _, operands, kwargs in (c for c in calls if c[0] == "dot"):
                 assert [tuple(a.shape) for a in operands[:2]] == [(2, 128), (128, 64)]
                 assert operands[2] == (((1,), (0,)), ((), ()))
-                expected_kwargs = {
-                    "precision": None,
-                    "out_sharding": None,
-                }
+                expected_kwargs = {"precision": None}
+                if _LINEAR_HAS_OUT_SHARDING:
+                    expected_kwargs["out_sharding"] = None
                 if kind == "preferred":
                     expected_kwargs["preferred_element_type"] = jnp.float64
                 assert kwargs == expected_kwargs
@@ -330,7 +405,25 @@ def test_native_linear_inputs_keyword_and_positional_placement() -> None:
     model = _original_model(0)
     value = jnp.ones((2, 128), np.float32)
     _compare(lambda x: model(inputs=x), value)
-    _compare(lambda x: model(x, None), value)
+    for call in (
+        lambda x: model(inputs=x, out_sharding=None),
+        lambda x: model(x, None),
+    ):
+        if _LINEAR_HAS_OUT_SHARDING:
+            _compare(call, value)
+        else:
+            # Unsupported native placement hints stay unsupported in SOURCE.
+            for evaluate in (lambda: call(value), lambda: jax.make_jaxpr(call)(value)):
+                with pytest.raises(TypeError) as native:
+                    evaluate()
+                with (
+                    precision_policy_scope(PrecisionPolicy.SOURCE),
+                    _activate_plugin_worlds(),
+                ):
+                    with pytest.raises(TypeError) as source:
+                        evaluate()
+                assert type(source.value) is type(native.value)
+                assert str(source.value) == str(native.value)
 
 
 def test_explicit_module_precision_is_traced_and_rejected_by_existing_lowerer(
@@ -654,7 +747,7 @@ def test_cache_orders_two_instances_captured_references_and_nested_restoration(
         with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
             patched = nnx.Linear.__call__, jnp.reshape
             with _activate_plugin_worlds():
-                _same_outputs(_LINEAR(model, inputs=value, out_sharding=None), eager)
+                _same_outputs(_LINEAR(model, inputs=value), eager)
                 _same_outputs(_RESHAPE(value, (1, -1)), value.reshape(1, -1))
             assert (nnx.Linear.__call__, jnp.reshape) == patched
             with pytest.raises(ValueError, match="scope failure"):

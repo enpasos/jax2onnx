@@ -44,6 +44,10 @@ from jax2onnx.precision import (
 )
 from scripts import source_precision_probe as probe
 from scripts.source_precision_inventory import raw_registrations
+from tests.extra_tests.converter.source_nnx_linear_fixtures import (
+    assert_original_linear,
+    expected_original_linear_kernel,
+)
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
@@ -169,7 +173,7 @@ def _original(case: Any) -> tuple[Any, Any]:
     if origin == "plugin::nnx.linear":
         assert fn._args == (128, 64) and fn._dtype is None and fn._instance is None
         fn = fn.instantiate()
-        assert _sha(fn.kernel[...]) == _KERNEL_SHA
+        assert_original_linear(fn, metadata["callable"], ordinal)
         assert (_sha(fn.bias[...]) if fn.bias is not None else None) == (
             _BIAS_SHA if ordinal == 0 else None
         )
@@ -291,8 +295,13 @@ def test_five_unchanged_raw_sources_keep_one_symbolic_artifact(
         assert report.exported_outputs[0].shape[0] == "B"
         if case[0] == "plugin::nnx.linear":
             arrays = [onnx.numpy_helper.to_array(t) for t in proto.graph.initializer]
-            assert any(v.shape == (128, 64) and _sha(v) == _KERNEL_SHA for v in arrays)
-            assert _sha(fn.kernel[...]) == _KERNEL_SHA
+            expected_kernel = expected_original_linear_kernel(
+                metadata["callable"], case[1]
+            )
+            assert any(
+                v.shape == (128, 64) and _sha(v) == expected_kernel for v in arrays
+            )
+            assert _sha(fn.kernel[...]) == expected_kernel
             if case[1] == 0:
                 assert any(v.size == 64 and _sha(v) == _BIAS_SHA for v in arrays)
                 assert _sha(fn.bias[...]) == _BIAS_SHA

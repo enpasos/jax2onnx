@@ -23,7 +23,13 @@ from onnx.reference import ReferenceEvaluator
 import pytest
 
 from jax2onnx import onnx_function, to_onnx, user_interface
-from jax2onnx._compat.jax import DropVar, Literal, ShapedArray, scan_arity
+from jax2onnx._compat.jax import (
+    DropVar,
+    Literal,
+    ShapedArray,
+    TypePromotionError,
+    scan_arity,
+)
 from jax2onnx.converter.precision_policy import (
     PrecisionPolicy,
     active_precision_policy,
@@ -656,9 +662,9 @@ def test_linspace_resolves_native_promotion_before_lowering(
         else:
             fn, arguments = lambda: jnp.linspace(0, 1, 5, dtype=np.float64), ()
         if kind == "mixed_i32_f32" and promotion == "strict":
-            with pytest.raises(jax.dtypes.TypePromotionError):
+            with pytest.raises(TypePromotionError):
                 _reference(fn, arguments)
-            with pytest.raises(jax.dtypes.TypePromotionError):
+            with pytest.raises(TypePromotionError):
                 user_interface._to_onnx(
                     fn,
                     [_spec(jnp.asarray(value)) for value in arguments],
