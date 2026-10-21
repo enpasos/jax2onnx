@@ -19,18 +19,24 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-Local branch status, 2026-10-21: committed checkpoint **`b1e1e5f0`** now has
-full PRIMARY **11,627 PASS** and locked SECONDARY **11,620 PASS / two known
-SKIP**, with all seven normal hooks passing. A later BF16 sample-validation
-change passes **275 focused cases on each of three JAX stacks**, plus all
-**41 new cases on ONNX Runtime 1.24.1**. The new PRIMARY full passes
-**11,668 cases**, with zero failures/errors/skips and held sources. Typing,
-style and policy checks pass. Strict documentation checks and all seven normal
-hooks are required for the local checkpoint commit. See the
-[current qualification record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification).
-These are bounded local results. Public behavior stays **LEGACY**; dependency
-floors and the full B–F target remain unchanged. Earlier checkpoints below
-retain their own source and evidence scopes.
+Local branch status, 2026-10-21: the BF16 sample-validation checkpoint is
+committed at **`3d9ba486`**, with **11,668 PRIMARY full-suite passes**, focused
+qualification on all three JAX stacks and actual ONNX Runtime 1.24.1, and all
+seven normal hooks passing. The subsequent exact native platform-selector and
+`eye` forwarding correction passes the same **110 focused cases on all three
+stacks** and at actual **ONNX Runtime 1.24.1**, with zero failures/errors/skips.
+Its fresh PRIMARY full passes **11,685 unique cases**; typing, style and policy
+checks also pass. Documentation and normal commit gates remain required.
+The [current qualification record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
+retains the earlier failed runs and separates focused evidence from full-suite
+and commit gates.
+
+Next work combines generalized native contractions with a resumable replay of
+the complete **1,852-row / 3,704-caller** SOURCE map, then uses actual shared
+failures to prioritize remaining functionality. Numerical criteria, optional
+models and fixed-source workflows remain separate acceptance obligations.
+Public behavior stays **LEGACY**; dependency floors and full B–F acceptance
+remain unchanged. Earlier checkpoints below retain their own evidence scopes.
 
 Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
 finite native/CPU qualification for static shapes at opsets 23/26. It retains

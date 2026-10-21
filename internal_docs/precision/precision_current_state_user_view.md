@@ -29,14 +29,20 @@ exact and tolerance-based comparisons are also tested. Missing CPU operations,
 including the tested bfloat16 addition, still fail to load. Successful sample
 transport does not make those operations available or certify a complete model.
 
-The preceding local checkpoint completed full regression runs on two installed
-stacks, with two known skips on the older stack.
-The newer bfloat16 change passes focused tests on all three installed JAX stacks
-and at the declared ONNX Runtime minimum, and now also passes the full PRIMARY
-regression run. A local checkpoint requires documentation checks and the normal
-commit hooks. The public export call, defaults and dependency floors remain
-unchanged. The [current technical record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification)
-keeps these results separate from earlier failed samples.
+The bfloat16 change is now committed locally after focused checks on all three
+installed JAX stacks, checks at the declared ONNX Runtime minimum, a full PRIMARY
+regression run, documentation checks and the normal commit hooks. The preceding
+checkpoint also completed full regression runs on two installed stacks, with
+two known skips on the older stack.
+
+The next correction preserves the tested native diagonal calculations when
+off-diagonal entries contain NaNs, and keeps JAX's shape and dtype choices for
+identity matrices. It passes focused checks on all three installed stacks and the declared ONNX
+Runtime minimum, and its full PRIMARY regression run passes. Documentation and
+normal commit checks remain required before the local checkpoint. Wider matrix
+calculations and the complete existing-model replay are next. The public export call, defaults and
+dependency floors remain unchanged. The [current technical record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
+keeps these results separate from earlier failures and full migration acceptance.
 
 Private checks now preserve same-width complex64 and complex128 addition,
 including captured values and calls through named functions. Complex128 still

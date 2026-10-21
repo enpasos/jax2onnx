@@ -1,52 +1,39 @@
 # Source Precision Implementation Work Plan
 
-Status: updated 2026-10-21; **DUAL-FULL CHECKPOINT COMMITTED;
-BF16 FOCUSED/FLOOR/QUALITY AND PRIMARY FULL PASS**.
+Status: updated 2026-10-21; **BF16 CHECKPOINT `3d9ba486` COMMITTED;
+PLATFORM/EYE THREE-STACK AND ORT-FLOOR FOCUS, QUALITY AND PRIMARY FULL PASS**.
 The declared-minimum full remains unqualified.
 
-Committed checkpoint **`b1e1e5f0`** now has PRIMARY **11,627 PASS** and locked
-SECONDARY **11,620 PASS / two known SKIP**, zero failures/errors, on the same
-**929 Python files**. All seven normal hooks pass; qualified committed bytes
-and a clean worktree were verified. Phase counts are **NOT_INSTRUMENTED**.
-Its strict documentation build and **218 relative links across nine docs pass**.
+The BF16 checkpoint passes **11,668 unique PRIMARY full-suite cases**, the same
+**275 focused cases on all three installed JAX stacks**, and all **41 new cases
+on actual ORT 1.24.1**, with zero failures/errors/skips. Its strict documentation
+build, **266 rendered relative links across nine docs**, all seven normal hooks
+and qualified-byte / clean-worktree verification pass. The preceding
+`b1e1e5f0` remains a separate completed checkpoint with PRIMARY **11,627 PASS**
+and later locked SECONDARY **11,620 PASS / two known SKIP**.
 
-The later BF16 CPU sample boundary passes the same **275 focused cases on all
-three installed JAX stacks**, with zero failures/errors/skips, plus all **41
-new cases on actual ORT 1.24.1**. It preserves physical BF16 sample bits and
-actual dynamic output shapes without model/input/reference promotion. Failed
-references and unavailable kernels retain their separate failure categories.
-Actual typing on 557 sources, pinned Black/Ruff and all four policies pass;
-17 RNG factories are an inventory count. The fresh PRIMARY full passes
-**11,668 unique cases**, zero failures/errors/skips, with sources held: all
-11,627 prior identities plus exactly 41 new BF16 cases. Phases are
-**NOT_INSTRUMENTED**. Strict documentation checks, all seven normal hooks and
-qualified-byte verification are required for the local checkpoint commit.
+The applied exact platform-selector and SOURCE `eye` forwarding correction
+passes the same **110 focused identities on all three stacks**, zero failures,
+errors or skips, with sources held. Its first three-stack epoch remains
+**103 PASS / one FAIL of 104** on each stack; the corrected selection retains
+all 104 identities and adds two new eye controls plus four existing generated
+Eye cases. Typing on **559 source files**, pinned Black/Ruff and four policies
+pass; **17 RNG factories** are an inventory count. The fresh PRIMARY full passes
+**11,685 unique cases**, zero failures/errors/skips, in **638.753850 seconds**.
+All **11,668** preceding identities and all **110** focused identities are
+retained; exactly **17** cases are new. The same **110** also pass on actual
+**ORT 1.24.1**, with zero failures/errors/skips. Phase counts are
+**NOT_INSTRUMENTED**; documentation and normal commit checks remain required
+checkpoint gates.
 
-The earlier checkpoint **`2b4882b1`** is committed across **22 qualified paths**,
-with all seven normal hooks and its strict documentation build passing. Its
-historical PRIMARY full passed **11,622 unique cases**; the same **234 NNX/benchmark cases pass on all
-three installed stacks**, and the separate MINIMUM core selection passes
-**1,652 cases**. These results have zero failures, errors or skips; phase counts
-are **NOT_INSTRUMENTED**.
-
-Two subsequent unchanged MINIMUM selections fail: **243 PASS / 42 FAIL** across
-285 cases, and **1,372 PASS / 29 FAIL** across 1,401 cases, each with zero errors
-or skips and held sources. They are separate selections, not a combined or full
-minimum result. After sequence, diagnostic-fixture and Conv corrections, the
-same **412 cases across five complete test modules pass on all three stacks**, with zero
-failures, errors or skips and held sources. This includes the whole 125-case
-sequence module; its earlier **115-PASS / 10-FAIL** fixture epoch remains failed
-history. Its typing, style/policy, documentation and seven-hook gates passed
-before commit `b1e1e5f0`; the BF16 change has separate qualification gates.
-
-The [canonical findings](poc/source_integration_findings.md#fresh-minimum-baselines-and-sequence-fixture-repair)
-record the remaining native numerical, API and metadata differences. Diagnostic
-success supplies no SOURCE admission or numerical acceptance. The
-[BF16 record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification)
-separates new accepted samples from retained failures. The complete minimum
-suite and full **B–F** acceptance remain open; public behavior stays **LEGACY**. Current floors remain **Python >=3.11 /
-JAX >=0.8.1 / Flax >=0.12.1**. Any support-floor change awaits the user's
-explicit decision and has not been applied.
+The [canonical platform record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
+records the shared contract, unchanged branch validation and retained failures.
+Earlier [minimum baselines](poc/source_integration_findings.md#fresh-minimum-baselines-and-sequence-fixture-repair)
+and [BF16 evidence](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification)
+retain their original outcomes. Complete minimum-version and full **B–F**
+acceptance remain open; public behavior stays **LEGACY**. Floors remain
+**Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**. No support-floor change has been
+authorized or applied.
 
 ## Current binding minimum-version obligation
 
@@ -68,22 +55,29 @@ no public selector, legacy fallback or numerical-policy waiver is authorized.
 
 The immediate gates are:
 
-1. Complete strict documentation checks and all seven normal hooks, verify
-   qualified bytes and commit the BF16 checkpoint. Retain its actual 11,668-case
-   PRIMARY full, 275-case three-stack, 41-case ORT-floor and passing quality
-   results, the completed `b1e1e5f0` dual-full milestone and all failed history.
-2. Next qualify the exact platform-index SOURCE packet on all three stacks;
-   that approved draft is still external. Then implement generalized native
-   contractions and exact forwarding for LinearGeneral/DenseGeneral and
-   JAX/NNX/Linen einsum, refreshed and qualified on all three stacks. The old
-   twelve-path draft remains unexecuted and supplies no acceptance.
-3. Resolve remaining array-creation admission, normalization, operator/API,
-   metadata and numerical obligations and qualify the **complete advertised
-   minimum** before the public transition. This remains mandatory while
-   independent common implementation proceeds; focused passes do not close it.
-4. Continue existing-functionality, fixed-source and full **B–F** acceptance
-   before any public transition. Public behavior remains **LEGACY**; the target,
-   floors and absence of a public mode/profile selector are unchanged.
+1. Complete strict documentation, all seven normal hooks and qualified-byte
+   verification for the platform/eye local checkpoint. Its PRIMARY full and
+   three-stack plus declared-runtime-floor focused checks have passed. Retain all
+   failed 104-case epochs; the preceding BF16 checkpoint `3d9ba486` is already committed and independently verified.
+2. Implement generalized native contractions and exact forwarding for
+   LinearGeneral/DenseGeneral and JAX/NNX/Linen einsum against the current shared
+   contracts. Qualify the unchanged original recipes and affected owners on all
+   three stacks. The historical twelve-path draft remains unexecuted; a fresh
+   twelve-path candidate is under independent review and is not yet applied.
+3. Qualify the small resumable coordinator and execute the complete **1,852-row /
+   3,704-caller** product map on pinned code and environments. Preserve every
+   identity, original option, source/reference and failed epoch. Durable
+   per-cell records and bounded fresh processes must distinguish infrastructure
+   interruptions from native failures. The coordinator is external preparation;
+   no complete map has run. Product observations leave runtime/numerics
+   **UNVERIFIED**. Use actual shared barriers and affected model families to
+   prioritize the next implementation work; repeat the map after repairs.
+4. Close remaining numerical criteria, original callbacks, optional models,
+   the **104 registrations without metadata**, handwritten/fixed-source
+   workflows and **complete advertised-minimum** qualification. These are
+   separate obligations, not deductions from the raw-map denominator. Continue
+   full **B–F** acceptance before any public transition, with one coherent
+   `to_onnx` and no permanent public selector or per-operation legacy fallback.
 
 ## Historical committed checkpoint context
 
@@ -573,6 +567,8 @@ planning work is separate from production-code ownership.
 | Masked FP64 saved sample | Preserve the unchanged artifact, original inputs/criterion and saved PRIMARY eager/JIT references. | Independently accepted four target returns on both ORT stacks; eight comparisons / 48 scalars, maximum absolute error 4.440892098500626e-16; four sample-API validations. No fresh SECONDARY native claim. | Separate finite saved-sample evidence; current Issue52 opset-21 qualification is recorded above, while whole-family acceptance remains open |
 | CNN, pooling, scientific FP64 and raw replay | Preserve original model/parameters, native sum/conversion/Div, fixed finite nonzero predicate, original Issue52 inputs/criterion and raw lane outcomes. | Corrected scientific 141 cases / 423 phases PASS per stack; original failed diagnostic37 retained. Raw callbacks and native-bitwise subnormal FAILED samples remain explicit. | `118ddd8b`; independent finite acceptance, corrected dual37 and full PRIMARY PASS, all seven normal code hooks PASS; full inventory map not run. [Canonical record](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint) |
 | Explicit FP64 Linear preparation | Configure the actual full Linear clone; retain original source, weights, options/state and native all-FP64 enum pairs. | Eleven applied paths; accepted dual936/2,808 on unchanged production, fresh dual145/435 after the two provenance pins, and complete PRIMARY v4 10,596/31,788 PASS. Raw0/raw3: 24 prepared cases / 96 target returns per stack under the separate a priori exact Fraction bound; raw Gemm callbacks FAILED, criteria=None and stored reports UNVERIFIED unchanged. | Full v3 10,559 PASS/37 FAIL remains failed history. Independent readiness and seven normal code hooks pass; the exact eleven paths are committed at `b2a866bb`. Strict docs build passed and docs are committed at `97929998`; broader scientific FP64/B–F remain open. [Canonical record](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) |
+| BF16 CPU sample transport | Preserve physical BF16 inputs and actual output sizes through one original CPU execution, with unchanged comparisons and failure categories. | Same 275 cases pass on all three JAX stacks; 41 new cases pass at actual ORT 1.24.1; PRIMARY full 11,668 PASS, zero failures/errors/skips. Failed transport alternatives and Add load failures remain retained. | `3d9ba486`; exact seven qualified paths, strict docs / 266 rendered links and all seven normal hooks pass. |
+| Exact platform selector and native eye forwarding | Share the Mosaic/default contract, validate both native branches, and forward original SOURCE eye calls without legacy normalization. | Same 110 cases pass on all three stacks; all three earlier 103-PASS / one-FAIL epochs remain failed. Same 110 cases pass at actual ORT 1.24.1; PRIMARY full 11,685 PASS, zero failures/errors/skips. Typing, style and policy gates pass. | Applied five-code-path checkpoint; documentation/hooks/qualified-byte commit gates remain required. [Current record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding). |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in

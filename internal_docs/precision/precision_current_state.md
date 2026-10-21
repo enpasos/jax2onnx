@@ -5,27 +5,45 @@ Public-behavior analysis baseline: 2026-10-17. Source snapshot:
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
 
-Local branch status, 2026-10-21: **`b1e1e5f0`** is a committed dual-full
-checkpoint: PRIMARY **11,627 PASS**; locked SECONDARY **11,620 PASS / two known
-SKIP**, zero failures/errors, with the same **929 Python files** held through
-qualification and all seven normal hooks passing. Public behavior and floors
-remain unchanged; the declared-minimum full and full B–F acceptance remain open.
+Local branch status, 2026-10-21: the BF16 CPU sample boundary is committed at
+**`3d9ba486`**. Its PRIMARY full passes **11,668 unique cases**, zero failures,
+errors or skips; the same **275 focused cases pass on all three installed JAX
+stacks**, plus all **41 new cases on actual ORT 1.24.1**. Strict documentation
+checks, **266 rendered relative links across nine docs**, all seven normal hooks
+and committed-byte / clean-worktree verification pass. The preceding
+`b1e1e5f0` retains its PRIMARY **11,627 PASS** and later SECONDARY
+**11,620 PASS / two known SKIP** results.
 
-The later shared CPU sample validator now transports genuine BF16 inputs and
-physical BF16 outputs without numerical conversion. One original execution
-returns actual CPU tensors; their dtype, shape and byte count authorize an
-owned BF16 result. Ordinary NumPy execution, evidence, comparisons and failure
-categories are unchanged. Focused qualification passes **275 cases on each of
-PRIMARY, SECONDARY and MINIMUM**, plus all **41 new cases at ORT 1.24.1**.
-These results precede a comment-only typing correction with identical module
-AST. Actual typing on 557 sources, pinned Black/Ruff and all four policies now
-pass; 17 RNG factories are an inventory count. The fresh PRIMARY full passes
-**11,668 unique cases**, zero failures/errors/skips, on the final bytes. All
-11,627 prior identities and exactly 41 new BF16 cases pass; phases are
-**NOT_INSTRUMENTED**. Strict documentation checks, all seven normal hooks and
-qualified-byte verification are required for the local checkpoint commit. The [current record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification)
-separates successful transport from missing kernels and historical failures.
-Earlier checkpoints below retain their original scopes.
+The shared sample validator transports genuine BF16 inputs and physical BF16
+outputs without numerical conversion. One original execution supplies actual
+CPU tensor metadata for owned output storage, including dynamic sizes. Ordinary
+NumPy execution, evidence, comparisons and failure categories are unchanged.
+Missing Add kernels and prior failed samples remain distinct from successful
+transport; see the [BF16 record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification).
+
+The applied platform correction shares one exact Mosaic/default selector
+contract between lowering and SOURCE admission. Only the validated same-scope
+producer and matching two-branch metadata authorize that conditional; both
+native branch bodies remain checked. It neither guesses the export host's
+backend nor admits general device dispatch. SOURCE `eye` now forwards the exact
+original call before legacy argument normalization, preserving native dtype
+canonicalization, argument errors and decomposition.
+
+The same **110 focused identities pass on PRIMARY, SECONDARY and MINIMUM**,
+including the original diagonal/NaN witness and generated Eye cases. All earlier
+104 identities are retained; each preceding 103-PASS / one-FAIL run remains
+failed history. Typing on **559 source files**, pinned Black/Ruff and four
+policies pass; **17 RNG factories** are an inventory count. The fresh PRIMARY
+full passes **11,685 unique cases**, zero failures/errors/skips, in
+**638.753850 seconds**. All **11,668** preceding identities and the same **110**
+focused identities are retained; exactly **17** cases are new. The same **110**
+also pass on actual **ORT 1.24.1**, with zero failures/errors/skips. Documentation,
+normal hooks and qualified-byte checks remain required checkpoint gates. Phase
+counts are **NOT_INSTRUMENTED**. The
+[current platform record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
+binds this finite scope. Full minimum-version and B–F acceptance remain open;
+public behavior and support floors are unchanged. Earlier checkpoints below
+retain their original scopes.
 
 Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
 finite native/CPU qualification for static shapes at opsets 23/26. It retains

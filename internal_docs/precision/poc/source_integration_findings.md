@@ -2,15 +2,82 @@
 
 ## Minimum-version result and current JAX upgrade
 
-Status, 2026-10-21: **DUAL-FULL CHECKPOINT `b1e1e5f0` COMMITTED;
-BF16 FOCUSED/FLOOR/QUALITY AND PRIMARY FULL PASS**.
-The declared-minimum full remains unqualified. The earlier committed `2b4882b1`
-checkpoint retains its historical **11,622-case** PRIMARY pass. New minimum
-selections retain their failed epochs; the corrected five-owner selection
-passes **412 cases on each of the three stacks**. These are finite local results.
-Public behavior remains **LEGACY**; full B–F acceptance and the public transition
-remain open. Floors remain **Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**;
-a proposed change awaits the user's explicit decision and has not been applied.
+Status, 2026-10-21: **BF16 CHECKPOINT `3d9ba486` COMMITTED;
+EXACT PLATFORM/EYE THREE-STACK AND ORT-FLOOR FOCUS, QUALITY AND PRIMARY FULL PASS**.
+The declared-minimum full remains unqualified. Public behavior stays **LEGACY**;
+full B–F acceptance and the public transition remain open. Floors remain
+**Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**; no proposed floor change has been
+authorized or applied. Earlier failed and passing epochs below retain their
+own source and evidence scopes.
+
+### Exact platform selector and native eye forwarding
+
+One shared contract now validates the exact native
+`platform_index(platforms=(("mosaic",), None))` selector: no inputs or effects,
+one strong scalar INT32 result and ordinary compiler-domain result 1. SOURCE
+admits its conditional only from that successfully validated same-scope producer
+with matching two-branch metadata and signatures. Both branch bodies remain
+validated. This is not general CPU/GPU/TPU dispatch; no host-backend guess,
+source substitution or unselected-branch bypass is used.
+
+The initial three-owner selection completed on all three installed stacks with
+**104 unique cases: 103 PASS / one FAIL / zero ERROR or SKIP**. The shared failure
+was the SOURCE NaN-diagonal test's public selector witness: its unselected
+Mosaic branch called `jnp.eye`, whose existing wrapper substituted a custom
+carrier outside the profile. The original native diagonal constructs its eye
+before dispatch. These failures remain in `platform-index-v2-{minimum,secondary,primary}/`.
+
+The correction forwards SOURCE `eye` calls to the captured original with exact
+arguments before any normalization; the legacy signature and body remain
+unchanged. No eye carrier or new branch primitive is admitted. Fresh native and
+activated traces match, including nested branch parameters, result dtypes,
+shapes and weakness. Tests retain both original NaN witnesses and check native
+x64 defaults, explicit FP64 canonicalization with x64 disabled, a rectangular
+offset, and exact argument/error forwarding without the private carrier.
+
+The same **110 unique cases pass on PRIMARY, SECONDARY and MINIMUM**, with
+**zero failures/errors/skips** and held sources. All 104 earlier identities are
+retained and passing; the scope adds two new eye controls and four existing
+generated Eye cases. It comprises 17 platform-owner, 52 SOURCE-profile,
+37 composite-reuse and four generated Eye cases. Raw XML/log hashes and current
+source bytes have independent review. Receipts and raw logs are in
+`platform-index-v3-{minimum,secondary,primary}/` under
+`/tmp/jax2onnx-restart-checkpoint-20261021/`.
+
+Actual typing passes on **559 source files**; **17 RNG factories** are an
+inventory count. Pinned Black/Ruff and all four policies pass; the latter
+receipts/logs are in `platform-index-style-policy-v3/`.
+
+The fresh ordinary PRIMARY full passes **11,685 unique cases**, with **zero
+failures/errors/skips**, in **638.753850 seconds**. All **11,668** identities from
+the preceding BF16 full and all **110** focused identities are retained; exactly
+**17** additions belong to the platform test owner. All **1,097** source/config
+pins, including **933 Python files** and the five changed code paths, match the
+run inputs. Git state was held. The receipt and raw XML/log are in
+`platform-index-full-v3-primary/`; XML SHA256 is
+`f7f68d4036a853e82574cfaa1bbd49cc40706f93531466b6bac2784b694472e8`
+and log SHA256 is
+`084724da95dfc46ed001532170184cd8fd375d5da4264d7849430eacb07bf4c3`.
+
+The same **110 unique focused identities** additionally pass on actual extracted
+**ONNX Runtime 1.24.1**, with **zero failures/errors/skips**, in **16.862991
+seconds**. Source, Git, driver and extracted runtime files were held; this uses
+the PRIMARY JAX stack with the declared-minimum ORT. Its receipt and raw XML/log
+are in `platform-index-ort124-v3/`; XML SHA256 is
+`a8b7ef00066bd15317f519d8d04b380af83fed8bae683447f46f32a6c8522786`
+and log SHA256 is
+`d797ff7101bc85b4c736c55a029450972225348b9c59d732279cbea889695c86`.
+Phases are **NOT_INSTRUMENTED**. Strict documentation, all seven normal hooks
+and qualified-byte verification remain required local checkpoint commit gates;
+no platform checkpoint commit is claimed here.
+
+The next work combines generalized native contractions with a resumable full
+**1,852-row / 3,704-caller** product map, followed by repairs prioritized from
+actual shared barriers and affected model families. The coordinator is external
+preparation and the complete map has not run. Product-map completion does not
+supply missing runtime/numerical criteria, optional-model or fixed-source
+acceptance. The 104 registrations without metadata remain separate obligations.
+Full minimum-version and B–F acceptance still precede the public transition.
 
 ### BF16 CPU sample transport qualification
 
@@ -62,10 +129,16 @@ identities** and exactly **41 new BF16 cases** pass, including every focused
 275-case identity. All **1,094 source/input files** hold; phases are
 **NOT_INSTRUMENTED**. Final production/test SHA256 prefixes are `35267aed` /
 `6403a243`.
-Strict documentation checks, all seven normal hooks and qualified-byte / clean
-worktree verification are required for the local checkpoint commit. Historical
-NumPy-interface failures and failed numerical reports retain their original
-artifacts and epochs.
+This exact seven-path checkpoint is committed at
+**`3d9ba486913ce5f9ab75ffcbadb67c9eed0cdda8`**, parent `b1e1e5f0`. All seven
+normal hooks pass. At commit verification, committed/worktree bytes and all
+**930 Python inputs** from the full run matched qualification, and the worktree
+was clean. Strict MkDocs passes in **6.44 seconds**, with **266
+rendered relative-link targets across nine docs** passing. Commit records are
+in `bf16-runtime-commit-v1/`; its actual hook log has SHA256
+`26092f5532bc52ff47d26908fa9d01a7749f89f96f8994045a2fb08ced939ce0`.
+Historical NumPy-interface failures and failed numerical reports retain their
+original artifacts and epochs.
 
 Durable records under `/tmp/jax2onnx-restart-checkpoint-20261021/` include
 `sequence-conv-commit-v1/receipt.json`, `sequence-conv-full-v1-secondary/`,

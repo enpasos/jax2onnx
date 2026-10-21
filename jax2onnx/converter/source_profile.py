@@ -63,6 +63,10 @@ from jax2onnx.converter.source_representation import (
     source_shape_contract,
     validate_source_shapes,
 )
+from jax2onnx.plugins.jax.core._platform_index_contract import (
+    is_mosaic_default_platforms,
+    mosaic_default_platform_index,
+)
 
 SOURCE_STATIC_PROFILE: Final[str] = "source-static-v1"
 SourcePrecisionCategory = Literal[
@@ -1973,6 +1977,8 @@ def _validate_equation(
     site: _Site,
     formal_symbols: set[tuple[str, object | None]],
     ancestors: frozenset[int],
+    *,
+    platform_selector: bool = False,
 ) -> None:
     inputs = [_tensor(var, site) for var in eqn.invars]
     outputs = [_tensor(var, site) for var in eqn.outvars]
@@ -2048,6 +2054,17 @@ def _validate_equation(
         _validate_dim_as_value(eqn, outputs, formal_symbols, site)
     elif name == "jit":
         _validate_jit(eqn, site, ancestors)
+    elif name == "platform_index":
+        try:
+            mosaic_default_platform_index(eqn)
+        except NotImplementedError as exc:
+            site.fail(str(exc), "the exact native Mosaic/default selector")
+        except ValueError as exc:
+            site.fail(
+                str(exc),
+                "no inputs/effects and one strong scalar int32 output",
+                category="lowering-defect",
+            )
     elif name in {"scan", "while"}:
         validate_loop_equation(eqn, site, ancestors)
     elif name == "remat2":
@@ -2300,7 +2317,25 @@ def _validate_equation(
                 category="representation-limit",
             )
     elif name == "cond":
-        _params(eqn, {"branches"}, site, required={"branches"})
+        parameters = (
+            {"branches", "branches_platforms"} if platform_selector else {"branches"}
+        )
+        _params(eqn, parameters, site, required=parameters)
+        if platform_selector:
+            site.require(
+                type(eqn.params) is dict
+                and set(eqn.params) == parameters
+                and type(eqn.params["branches"]) is tuple
+                and len(eqn.params["branches"]) == 2,
+                "platform conditional has unaudited parameters or branch count",
+                "exactly two native branches and only branches/branches_platforms parameters",
+                category="lowering-defect",
+            )
+            site.require(
+                is_mosaic_default_platforms(eqn.params["branches_platforms"]),
+                "conditional platform metadata disagrees with its proven selector",
+                "the exact native Mosaic/default branch order matching the direct producer",
+            )
         site.require(
             bool(inputs),
             "conditional selector is missing",
@@ -2438,6 +2473,7 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
         "a pure, effect-free traced function",
     )
     selector_producers: set[int] = set()
+    platform_selectors: set[int] = set()
     for eqn in jaxpr.eqns:
         if (
             eqn.primitive.name == "convert_element_type"
@@ -2499,18 +2535,31 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
             "equation effects are outside the profile",
             "effect-free primitive equations",
         )
+        platform_selector = (
+            eqn.primitive.name == "cond"
+            and bool(eqn.invars)
+            and id(eqn.invars[0]) in platform_selectors
+        )
         if (
             eqn.primitive.name == "cond"
             and eqn.invars
             and not isinstance(eqn.invars[0], JaxLiteral)
         ):
             eqn_site.require(
-                id(eqn.invars[0]) in selector_producers,
+                platform_selector or id(eqn.invars[0]) in selector_producers,
                 "conditional selector lacks an audited Boolean conversion",
-                "a scalar bool-to-int32 conversion in this scope",
+                "a scalar bool-to-int32 conversion or direct validated Mosaic/default selector in this scope",
             )
         try:
-            _validate_equation(eqn, eqn_site, formal_symbols, ancestors)
+            _validate_equation(
+                eqn,
+                eqn_site,
+                formal_symbols,
+                ancestors,
+                platform_selector=platform_selector,
+            )
+            if eqn.primitive.name == "platform_index":
+                platform_selectors.add(id(eqn.outvars[0]))
         except SourcePrecisionError:
             raise
         except (AttributeError, IndexError, TypeError, ValueError) as exc:
