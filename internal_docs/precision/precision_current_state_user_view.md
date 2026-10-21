@@ -21,6 +21,23 @@ not yet change how you prepare or export a model. The
 [technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
 records the exact scope, results and remaining diagnostics.
 
+On the local branch, the sample validator can now check real bfloat16 inputs
+and outputs without converting them to float32. The checks cover scalar, empty
+and mixed outputs, and results whose size depends on input values. Exact-bit
+checks preserve signed zeros, very small values and NaN payloads; ordinary
+exact and tolerance-based comparisons are also tested. Missing CPU operations,
+including the tested bfloat16 addition, still fail to load. Successful sample
+transport does not make those operations available or certify a complete model.
+
+The preceding local checkpoint completed full regression runs on two installed
+stacks, with two known skips on the older stack.
+The newer bfloat16 change passes focused tests on all three installed JAX stacks
+and at the declared ONNX Runtime minimum, and now also passes the full PRIMARY
+regression run. A local checkpoint requires documentation checks and the normal
+commit hooks. The public export call, defaults and dependency floors remain
+unchanged. The [current technical record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification)
+keeps these results separate from earlier failed samples.
+
 Private checks now preserve same-width complex64 and complex128 addition,
 including captured values and calls through named functions. Complex128 still
 requires JAX x64 before tracing; export does not enable it or recover narrowed

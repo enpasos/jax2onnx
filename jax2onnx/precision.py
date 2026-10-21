@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
+import ctypes
 from enum import Enum
 import hashlib
 import json
@@ -20,6 +21,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import sys
 from typing import Any, Literal, TypeAlias, cast
 
 import numpy as np
@@ -584,6 +586,78 @@ def _compare(
     return None if matches else f"values fail {criteria.mode} comparison"
 
 
+def _bfloat16_cpu_array(value: Any) -> np.ndarray[Any, Any]:
+    """Copy actual CPU BF16 storage while its runtime owner remains alive."""
+    if (
+        not value.is_tensor()
+        or value.device_name() != "cpu"
+        or value.element_type() != onnx.TensorProto.BFLOAT16
+    ):
+        raise ValueError("Expected a CPU BFLOAT16 tensor for sample readback")
+    shape = tuple(value.shape())
+    size = value.tensor_size_in_bytes()
+    if (
+        any(type(dim) is not int or dim < 0 for dim in shape)
+        or type(size) is not int
+        or not 0 <= size <= sys.maxsize
+        or size != math.prod(shape) * 2
+    ):
+        raise ValueError("Invalid BFLOAT16 tensor shape or byte count")
+    if size:
+        address = value.data_ptr()
+        if type(address) is not int or address <= 0:
+            raise ValueError("Nonempty BFLOAT16 tensor has no valid data pointer")
+        # The local OrtValue owner stays alive until the independent bytes copy
+        # completes. Shape and byte count come only from that actual CPU tensor.
+        raw = ctypes.string_at(address, size)
+    else:
+        raw = b""  # Empty tensors need neither a pointer query nor a memory read.
+    dtype = onnx.helper.tensor_dtype_to_np_dtype(onnx.TensorProto.BFLOAT16)
+    return np.frombuffer(raw, dtype=dtype).reshape(shape).copy(order="C")
+
+
+def _run_cpu_samples(
+    session: Any,
+    feeds: Mapping[str, np.ndarray[Any, Any]],
+    model: onnx.ModelProto,
+) -> tuple[np.ndarray[Any, Any], ...]:
+    """Acquire physical outputs once, without NumPy's unsupported BF16 marshal."""
+    bf16 = np.dtype(onnx.helper.tensor_dtype_to_np_dtype(onnx.TensorProto.BFLOAT16))
+    if not any(array.dtype == bf16 for array in feeds.values()) and not any(
+        port.type.tensor_type.elem_type == onnx.TensorProto.BFLOAT16
+        for port in model.graph.output
+    ):
+        return tuple(np.asarray(value) for value in session.run(None, feeds))
+
+    import onnxruntime as ort  # type: ignore[import-untyped]
+
+    # copy(order="C") preserves scalar rank, unlike ascontiguousarray. Explicit
+    # owners retain both physical input storage and OrtValues through execution.
+    owners = {name: array.copy(order="C") for name, array in feeds.items()}
+    runtime_feeds = {
+        name: (
+            ort.OrtValue.ortvalue_from_numpy_with_onnx_type(
+                array.view(np.uint16), onnx.TensorProto.BFLOAT16
+            )
+            if array.dtype == bf16
+            else ort.OrtValue.ortvalue_from_numpy(array)
+        )
+        for name, array in owners.items()
+    }
+    actual = session.run_with_ort_values(None, runtime_feeds)
+    outputs = []
+    for value, port in zip(actual, model.graph.output, strict=True):
+        element_type = port.type.tensor_type.elem_type
+        if value.element_type() != element_type:
+            raise ValueError("Runtime output dtype differs from the physical artifact")
+        outputs.append(
+            _bfloat16_cpu_array(value)
+            if element_type == onnx.TensorProto.BFLOAT16
+            else np.asarray(value.numpy())
+        )
+    return tuple(outputs)
+
+
 def _source_batch_boundaries(
     model: onnx.ModelProto,
 ) -> tuple[tuple[TensorProperties, ...], tuple[TensorProperties, ...]] | None:
@@ -1000,7 +1074,7 @@ def validate_source_samples(
             try:
                 # Optional runtime loading follows the SOURCE input/reference
                 # gate, so invalid-only samples construct no execution session.
-                import onnxruntime as ort  # type: ignore[import-untyped]
+                import onnxruntime as ort
 
                 level = (
                     ort.GraphOptimizationLevel.ORT_DISABLE_ALL
@@ -1085,7 +1159,7 @@ def validate_source_samples(
                 feeds = values
             else:
                 feeds = dict(zip(names, values.values(), strict=True))
-            outputs = tuple(np.asarray(value) for value in session.run(None, feeds))
+            outputs = _run_cpu_samples(session, feeds, model)
             output_records = tuple(
                 _array_evidence(str(i), value) for i, value in enumerate(outputs)
             )

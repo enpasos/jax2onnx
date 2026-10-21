@@ -1,13 +1,26 @@
 # Source Precision Implementation Work Plan
 
-Status: updated 2026-10-21; **CURRENT PRIMARY FULL PASS;
-DECLARED MINIMUM FULL STILL UNQUALIFIED**.
+Status: updated 2026-10-21; **DUAL-FULL CHECKPOINT COMMITTED;
+BF16 FOCUSED/FLOOR/QUALITY AND PRIMARY FULL PASS**.
+The declared-minimum full remains unqualified.
 
-The current PRIMARY full passes **11,627 unique cases**, with zero failures,
-errors or skips and held source/Git state. Phase counts are **NOT_INSTRUMENTED**.
-The strict documentation build and **218 relative links across nine docs pass**.
-The seven normal hooks are a **required gate for this local checkpoint's
-commit**.
+Committed checkpoint **`b1e1e5f0`** now has PRIMARY **11,627 PASS** and locked
+SECONDARY **11,620 PASS / two known SKIP**, zero failures/errors, on the same
+**929 Python files**. All seven normal hooks pass; qualified committed bytes
+and a clean worktree were verified. Phase counts are **NOT_INSTRUMENTED**.
+Its strict documentation build and **218 relative links across nine docs pass**.
+
+The later BF16 CPU sample boundary passes the same **275 focused cases on all
+three installed JAX stacks**, with zero failures/errors/skips, plus all **41
+new cases on actual ORT 1.24.1**. It preserves physical BF16 sample bits and
+actual dynamic output shapes without model/input/reference promotion. Failed
+references and unavailable kernels retain their separate failure categories.
+Actual typing on 557 sources, pinned Black/Ruff and all four policies pass;
+17 RNG factories are an inventory count. The fresh PRIMARY full passes
+**11,668 unique cases**, zero failures/errors/skips, with sources held: all
+11,627 prior identities plus exactly 41 new BF16 cases. Phases are
+**NOT_INSTRUMENTED**. Strict documentation checks, all seven normal hooks and
+qualified-byte verification are required for the local checkpoint commit.
 
 The earlier checkpoint **`2b4882b1`** is committed across **22 qualified paths**,
 with all seven normal hooks and its strict documentation build passing. Its
@@ -23,26 +36,29 @@ minimum result. After sequence, diagnostic-fixture and Conv corrections, the
 same **412 cases across five complete test modules pass on all three stacks**, with zero
 failures, errors or skips and held sources. This includes the whole 125-case
 sequence module; its earlier **115-PASS / 10-FAIL** fixture epoch remains failed
-history. Current typing and six style/policy checks pass. A local checkpoint
-commit requires the seven normal hooks; locked SECONDARY full-suite
-qualification remains a separate follow-up.
+history. Its typing, style/policy, documentation and seven-hook gates passed
+before commit `b1e1e5f0`; the BF16 change has separate qualification gates.
 
 The [canonical findings](poc/source_integration_findings.md#fresh-minimum-baselines-and-sequence-fixture-repair)
 record the remaining native numerical, API and metadata differences. Diagnostic
-success supplies no SOURCE admission or numerical acceptance. The complete
-minimum suite, a fresh locked SECONDARY full and full **B–F** acceptance remain
-open; public behavior stays **LEGACY**. Current floors remain **Python >=3.11 /
+success supplies no SOURCE admission or numerical acceptance. The
+[BF16 record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification)
+separates new accepted samples from retained failures. The complete minimum
+suite and full **B–F** acceptance remain open; public behavior stays **LEGACY**. Current floors remain **Python >=3.11 /
 JAX >=0.8.1 / Flax >=0.12.1**. Any support-floor change awaits the user's
 explicit decision and has not been applied.
 
 ## Current binding minimum-version obligation
 
-Qualify the advertised **JAX 0.8.1 / Flax 0.12.1** minimum before generalized
-contractions. Central old/new PRNG bindings, native aval and equation-context
+Complete advertised **JAX 0.8.1 / Flax 0.12.1** minimum acceptance before the
+public transition. Central old/new PRNG bindings, native aval and equation-context
 adapters, all **21/22 recorded JIT configuration fields**, older scan parameter
-ownership and typed-carrier repairs are implemented and have focused minimum
-coverage. The earlier import failure is historical. The minimum full suite and
-other affected families still require actual qualification.
+ownership and typed-carrier repairs now have actual focused minimum
+qualification. The earlier import failure is historical. Independent common
+SOURCE features may proceed with focused qualification on all three installed
+stacks; the complete minimum suite and its unresolved families remain mandatory
+before the public transition. This changes implementation order, not support
+floors, original failures or numerical criteria.
 
 Keep all existing functionality, original fixed sources and native failures,
 and meaningful corruption, rejection and state-restoration controls. Focused
@@ -52,18 +68,22 @@ no public selector, legacy fallback or numerical-policy waiver is authorized.
 
 The immediate gates are:
 
-1. The seven normal hooks are required for a local checkpoint commit. Retain
-   the completed PRIMARY full, strict docs, relative-link checks,
-   412-case three-stack selection and current typing/style/policy results.
-   Preserve the reviewed subnormal and native statistics findings. The earlier
-   `2b4882b1` checkpoint and its commit gates remain complete.
-2. Resolve remaining array-creation admission, normalization, operator/API,
-   metadata and numerical obligations on the declared minimum, then qualify the
-   **complete minimum suite**. This remains binding before generalized
-   contractions; focused passes do not close it.
-3. Complete the **SECONDARY full-suite follow-up** on its locked environment
-   and continue existing-functionality, fixed-source and full **B–F** acceptance
-   before any public transition. Public behavior remains **LEGACY**.
+1. Complete strict documentation checks and all seven normal hooks, verify
+   qualified bytes and commit the BF16 checkpoint. Retain its actual 11,668-case
+   PRIMARY full, 275-case three-stack, 41-case ORT-floor and passing quality
+   results, the completed `b1e1e5f0` dual-full milestone and all failed history.
+2. Next qualify the exact platform-index SOURCE packet on all three stacks;
+   that approved draft is still external. Then implement generalized native
+   contractions and exact forwarding for LinearGeneral/DenseGeneral and
+   JAX/NNX/Linen einsum, refreshed and qualified on all three stacks. The old
+   twelve-path draft remains unexecuted and supplies no acceptance.
+3. Resolve remaining array-creation admission, normalization, operator/API,
+   metadata and numerical obligations and qualify the **complete advertised
+   minimum** before the public transition. This remains mandatory while
+   independent common implementation proceeds; focused passes do not close it.
+4. Continue existing-functionality, fixed-source and full **B–F** acceptance
+   before any public transition. Public behavior remains **LEGACY**; the target,
+   floors and absence of a public mode/profile selector are unchanged.
 
 ## Historical committed checkpoint context
 

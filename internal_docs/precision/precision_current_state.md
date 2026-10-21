@@ -5,6 +5,28 @@ Public-behavior analysis baseline: 2026-10-17. Source snapshot:
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
 
+Local branch status, 2026-10-21: **`b1e1e5f0`** is a committed dual-full
+checkpoint: PRIMARY **11,627 PASS**; locked SECONDARY **11,620 PASS / two known
+SKIP**, zero failures/errors, with the same **929 Python files** held through
+qualification and all seven normal hooks passing. Public behavior and floors
+remain unchanged; the declared-minimum full and full B–F acceptance remain open.
+
+The later shared CPU sample validator now transports genuine BF16 inputs and
+physical BF16 outputs without numerical conversion. One original execution
+returns actual CPU tensors; their dtype, shape and byte count authorize an
+owned BF16 result. Ordinary NumPy execution, evidence, comparisons and failure
+categories are unchanged. Focused qualification passes **275 cases on each of
+PRIMARY, SECONDARY and MINIMUM**, plus all **41 new cases at ORT 1.24.1**.
+These results precede a comment-only typing correction with identical module
+AST. Actual typing on 557 sources, pinned Black/Ruff and all four policies now
+pass; 17 RNG factories are an inventory count. The fresh PRIMARY full passes
+**11,668 unique cases**, zero failures/errors/skips, on the final bytes. All
+11,627 prior identities and exactly 41 new BF16 cases pass; phases are
+**NOT_INSTRUMENTED**. Strict documentation checks, all seven normal hooks and
+qualified-byte verification are required for the local checkpoint commit. The [current record](poc/source_integration_findings.md#bf16-cpu-sample-transport-qualification)
+separates successful transport from missing kernels and historical failures.
+Earlier checkpoints below retain their original scopes.
+
 Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
 finite native/CPU qualification for static shapes at opsets 23/26. It retains
 declared pair storage and JAX's chosen width. The [latest checkpoint](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)

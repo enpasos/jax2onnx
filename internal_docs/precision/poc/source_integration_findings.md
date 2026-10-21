@@ -2,15 +2,80 @@
 
 ## Minimum-version result and current JAX upgrade
 
-Status, 2026-10-21: **CURRENT PRIMARY FULL 11,627 PASS;
-DECLARED MINIMUM FULL REMAINS UNQUALIFIED**. The earlier committed `2b4882b1`
+Status, 2026-10-21: **DUAL-FULL CHECKPOINT `b1e1e5f0` COMMITTED;
+BF16 FOCUSED/FLOOR/QUALITY AND PRIMARY FULL PASS**.
+The declared-minimum full remains unqualified. The earlier committed `2b4882b1`
 checkpoint retains its historical **11,622-case** PRIMARY pass. New minimum
-selections retain their actual failed epochs; the corrected five-owner
-selection passes **412 cases on each of the three stacks**. These are finite
-local results.
+selections retain their failed epochs; the corrected five-owner selection
+passes **412 cases on each of the three stacks**. These are finite local results.
 Public behavior remains **LEGACY**; full B–F acceptance and the public transition
 remain open. Floors remain **Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**;
 a proposed change awaits the user's explicit decision and has not been applied.
+
+### BF16 CPU sample transport qualification
+
+Checkpoint **`b1e1e5f0579f64c083e985435fbe510ef8802f56`** is committed across
+seven qualified paths. Its PRIMARY full **11,627 PASS** and later locked
+SECONDARY full **11,620 PASS / two known SKIP** have zero failures/errors. The same
+**929 Python files** hold across both full runs; all seven normal hooks pass,
+committed bytes match qualification and the worktree is clean at verification.
+The SECONDARY skips retain their original conditions and do not establish
+acceptance after the skipped assertions. Phase counts are **NOT_INSTRUMENTED**.
+
+The later shared sample validator selects BF16 transport from actual BF16 feeds
+or physical BF16 artifact outputs before one original execution. Genuine inputs
+keep their dtype through same-width storage views; actual CPU output dtype,
+shape and byte count authorize an owned BF16 byte copy. Empty outputs require no
+pointer read. Ordinary `Session.run`, model bytes, references, comparisons,
+evidence format and failure categories are unchanged. No kernel emulation, numeric
+cast, reference-driven allocation or retry is introduced.
+
+The preceding `copy_tensors` dynamic proof remains **FAILED** on both ORT
+**1.24.1 and 1.31.0**: ten positive runs per runtime returned actual tensors but
+readback failed because no data transfer implementation was registered. The
+separate bounded owned-byte proof passes on actual ORT **1.24.1 and 1.31.0**, each with **14 sole original runs,
+12 nonempty reads, zero empty reads and two preserved Add load failures**.
+Its twenty decoded outputs per runtime agree exactly across runtimes and with
+independent raw references. These are finite transport measurements.
+
+Applied production qualification passes the same **275 unique cases on each of
+PRIMARY, SECONDARY and MINIMUM**, including all **41 new BF16 cases**, with
+zero failures/errors/skips and held sources. Actual extracted **ORT 1.24.1**
+passes those same **41 new cases**, with source/driver/runtime files held.
+This includes exact and tolerant criteria, signed-zero/subnormal/NaN bits,
+noncontiguous inputs, scalar/empty/mixed outputs, value-dependent output sizes,
+wrong-reference numerical failures and pre-read metadata guards. The original
+explicit BF16 arange samples now match on all three stacks; the old constant
+omitted-step sample matches on MINIMUM, and legacy dynamic BF16 arange at
+opset 23 matches on all three. Modern omitted-step Add still fails runtime
+loading; opset 27 remains a runtime-opset failure, and data-dependent SOURCE
+arange remains unfinished native tracing work. No SOURCE admission is added.
+
+The first typing run failed on one redundant import-ignore comment; its log
+remains retained. The applied comment-only correction preserves the whole
+module AST. Actual typing now passes on **557 source files**; pinned Black/Ruff
+and all four policies pass. The **17 RNG factories** are an inventory count.
+Focused tests precede that correction. The fresh PRIMARY ordinary full binds
+the final bytes and passes **11,668 unique cases**, **zero failures/errors/skips**,
+in **672.969802 seconds** (ROOT `79263` / `a633f2`, exit0). All **11,627 prior
+identities** and exactly **41 new BF16 cases** pass, including every focused
+275-case identity. All **1,094 source/input files** hold; phases are
+**NOT_INSTRUMENTED**. Final production/test SHA256 prefixes are `35267aed` /
+`6403a243`.
+Strict documentation checks, all seven normal hooks and qualified-byte / clean
+worktree verification are required for the local checkpoint commit. Historical
+NumPy-interface failures and failed numerical reports retain their original
+artifacts and epochs.
+
+Durable records under `/tmp/jax2onnx-restart-checkpoint-20261021/` include
+`sequence-conv-commit-v1/receipt.json`, `sequence-conv-full-v1-secondary/`,
+`bf16-ortvalue-dynamic-v1/{current-v1,floor-v1}/`,
+`bf16-ortvalue-dynamic-v2/{current-v1,floor-v1}/`,
+`bf16-runtime-adapter-v1-{primary,secondary,minimum}/`,
+`bf16-runtime-ort124-v1-primary/` and `bf16-runtime-full-v1-primary/`. The records
+retain their receipts and raw logs or tensor payloads; none replaces an earlier
+failed epoch. The authoritative new full receipt has SHA256
+`cb80e1dc98960eb6a8a3e221292837847c92f3df06a845941cf578fa12230ce1`.
 
 ### Restart recovery and native fixture qualification
 
@@ -49,8 +114,9 @@ that synchronization now passes the same **234-case** NNX/benchmark selection,
 including all seven benchmark tests, with zero failures, errors or skips. The
 production converter and repository script contents at checkpoint `2b4882b1`
 were unchanged from the durable failed SECONDARY full; those corrections were test
-fixtures. The later Conv forwarding correction is recorded separately below. A fresh SECONDARY full remains a follow-up, so this focused success
-does not relabel the failed full or establish qualification across all stacks.
+fixtures. The later Conv forwarding correction is recorded separately below.
+This focused result preceded the completed locked SECONDARY full recorded above;
+it does not relabel the failed earlier full.
 The diagnostic and same-artifact replay are in `decoder-diagnostic-v2/`, and
 the fresh affected receipt, XML and log are in `nnx-focused-v2-secondary/`.
 
@@ -158,9 +224,11 @@ it stopped at an incorrect diagnostic-callback count. After that fixture
 correction, the whole module passes the same **125 unique cases on MINIMUM,
 SECONDARY and PRIMARY**, each with zero failures, errors or skips and held
 sources; phases are **NOT_INSTRUMENTED**. These are focused test results, not a
-new full-suite qualification. The old BF16 runtime-execution failure and its
-raising diagnostic remain retained; SOURCE admission and numerical acceptance
-remain **UNVERIFIED**. Earlier failed sequence epochs are not relabelled.
+new full-suite qualification. At that fixture epoch, the old BF16 runtime
+interface failure and raising diagnostic remained retained, with SOURCE
+admission and numerical acceptance **UNVERIFIED**. The later BF16 sample
+boundary qualifies new executions separately; earlier failed sequence epochs
+are not relabelled.
 
 The exact subnormal replays on MINIMUM and the locked SECONDARY produce
 **48 actual FAILED numerical reports** and **48 raising acceptance-guard checks**,
@@ -193,17 +261,20 @@ failures, errors or skips**, source and Git state held, in **694.655 seconds**
 receipt, raw XML and log are retained in `sequence-conv-full-v1-primary/` under
 the durable restart directory. The strict documentation build passes (ROOT
 `37473` / `4dc6de`, exit0, **8.08 seconds**), and **218 relative links across
-nine docs pass**. The seven normal hooks are a **required gate for this local
-checkpoint's commit**. Locked SECONDARY full-suite qualification remains a
-separate follow-up.
+nine docs pass**. All seven normal hooks subsequently passed and the exact
+seven paths were committed at **`b1e1e5f0`**, with qualified bytes and a clean
+worktree verified. Its locked SECONDARY full subsequently completed **11,620
+PASS / two known SKIP**, zero failures/errors, on the same 929 Python files;
+its durable record is `sequence-conv-full-v1-secondary/`.
 
 Other retained minimum obligations include metadata and native-scope schemas,
 platform-index lowering, attention numerics and native APIs unavailable in the
 oldest packages. Each needs its own source-preserving qualification. No floor
 change is authorized while the user's decision is pending: **Python >=3.11 /
-JAX >=0.8.1 / Flax >=0.12.1** remains binding. The complete minimum suite, locked
-SECONDARY full and existing-functionality/fixed-source B–F acceptance remain
-open; public behavior remains **LEGACY**.
+JAX >=0.8.1 / Flax >=0.12.1** remains binding. The complete minimum suite,
+existing-functionality/fixed-source B–F acceptance remain open. Strict docs,
+normal hooks and qualified-byte verification are required for a checkpoint
+commit; public behavior remains **LEGACY**.
 
 ### Earlier wave-2 and declared-minimum baseline
 
