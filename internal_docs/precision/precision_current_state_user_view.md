@@ -1,8 +1,8 @@
 # Computation Precision: Current User Experience
 
-Public behavior snapshot: `main` at `fae17822`, 2026-10-17, after the merged
-double-consumer repair. A newer local branch experiment is identified separately;
-it changes private converter code, while public options and defaults stay the same.
+Public precision-policy snapshot: `main` at `fae17822`, 2026-10-17, after the
+merged double-consumer repair. Newer local-branch precision and shared file-
+storage work is identified separately below.
 
 This document explains the precision behavior currently available to JAX model
 exporters. See the [technical details](precision_current_state.md) for evidence
@@ -10,16 +10,17 @@ and implementation analysis, or the [precision overview](README.md) for the
 complete document set. The [target user experience](precision_target_state_user_view.md)
 and [migration guide](precision_migration_plan_user_view.md) describe proposed
 changes, rather than capabilities already available.
-The current repair makes selected double-precision calculations load and run
-consistently; the broader precision contract remains a proposal.
+The merged double-consumer repair covers selected double-precision loading
+and execution; the broader precision contract remains a proposal.
 
-Public `to_onnx(...)` behavior and the existing `enable_double_precision`
-argument are unchanged. Private work preserves more selected calculations at
-the precision chosen by the model and JAX configuration. Complete-model,
-low-precision and deployment acceptance remain unfinished, so this work does
-not yet change how you prepare or export a model. The
-[technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
-records the exact scope, results and remaining diagnostics.
+The public precision policy, options and defaults, including
+`enable_double_precision`, remain unchanged. On the local branch, ordinary
+public file exports also receive a shared storage correction: constants inside
+an ONNX Function stay inline while large root initializers can remain in a
+sidecar file. The exact tensor contents are preserved; storage layout becomes
+consistent across supported ONNX versions. This does not establish new model
+numerical accuracy. The [current technical record](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform)
+separates this correction from the unfinished precision migration.
 
 On the local branch, the sample validator can now check real bfloat16 inputs
 and outputs without converting them to float32. The checks cover scalar, empty
@@ -49,7 +50,8 @@ includes scalar and empty results, stored parameters captured by a model, and ca
 functions. Broader regression checks on both supported framework stacks and
 the separate checks at the declared dependency minima have completed.
 
-The current private work addresses the recorded Equinox Linear conversion gap
+The preceding private work is committed locally at `c686304c` and addresses
+the recorded Equinox Linear conversion gap
 by preserving the original call. It carries an input-derived batch size through
 more tensor layouts and binds it to the correct output axis. For mixed FP32 and
 FP64 dot operands, the local computation follows JAX's native result choice,
@@ -66,18 +68,40 @@ passing diagnostic variants do not turn them into successful default behavior.
 The capability-scoped minimum checks now pass, and affected framework checks
 are accounted for across separate runs, including corrected whole-owner
 checks on both supported stacks and at the declared minima. The original
-failed runs remain recorded. Quality checks pass on the later header-comment
-epoch; strict documentation and normal commit checks remain required. The
+failed runs remain recorded. The later checkpoint completed its normal commit
+with all seven actual hooks and exact qualified-byte verification. These are
+separate source-bound runs, without a unified green full-suite result. The
 [checkpoint record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
 separates working finite samples, retained failures and remaining gates.
 
+Current precision work preserves original Dropout calls, model state and
+numerical comparisons. A separate harness lifetime repair and the branch-
+output correction retain their earlier focused passes. The current shared
+storage checks pass on both tested environments, and broader affected-owner
+checks pass on both framework stacks and on the supported minimum subset.
+Some minimum-runtime target capabilities still fail and remain requirements.
+
+All seven current code-quality checks pass; full PRIMARY has 12,600 cases with 0 failures, 0 errors and 0 skips.
+At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00),
+documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
+checks and commit had not yet run. Later closeout evidence is recorded separately. Earlier failed runs and
+their original numerical criteria remain visible. The original MLP0/1 graph
+callbacks still fail and numerical criteria remain absent; their raw checks
+do not execute ONNX Runtime or establish model numerical acceptance.
+
+Further wrapper/state capture and numerical work remains separate and unapplied.
+Public precision policy, options and defaults stay unchanged while shared file
+storage is corrected as described above. The
+[current technical evidence](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform)
+records the exact source epochs, retained failures and remaining gates.
+
 Complete-model and numerical coverage remain unfinished, including general
-fixed-source preparation, original callbacks/criteria and low-precision
-arithmetic. A native JIT gap for a captured outer function body remains an
+fixed-source preparation, original callbacks/criteria, MLP2/DINO state and
+replay capture, and low-precision arithmetic. A native JIT gap for a captured outer function body remains an
 explicit implementation/evidence obligation. It is not a general limit on the
 target format or a permanent restriction on model support. The public
-`to_onnx(...)` call, options and defaults remain unchanged. The
-[current technical record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
+precision policy, options and defaults remain unchanged. The
+[current technical record](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform)
 describes the checked capabilities, retained failures and remaining work.
 
 Private checks now preserve same-width complex64 and complex128 addition,

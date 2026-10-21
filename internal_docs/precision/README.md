@@ -38,31 +38,46 @@ is committed at **`b7eb923a`**. Its PRIMARY full passes
 stacks and at actual ONNX Runtime 1.24.1. Strict documentation, all seven normal
 hooks and qualified-byte verification pass.
 
-The preceding generalized-contraction/support-floor checkpoint is committed at
-**`7b70b22f`**. Current private work preserves the original Equinox Linear call,
-shared native contraction/transpose layouts and exact output-axis sample/report
-binding for one input-derived batch size. Mixed FP32/FP64 dots follow native
-FP64 or explicitly preferred FP32 work through local consumer conversions;
-stored parameters, inputs and returned aliases keep their widths. A guarded
-shared representation also preserves static empty additions.
+The preceding Equinox Linear, shared symbolic-contraction/output-axis and
+static-empty-Add checkpoint is committed locally at **`c686304c`**, with all
+seven normal hooks and held-byte verification complete. Its original PRIMARY
+full remains **12,410 PASS / six FAIL of 12,416**; the separate corrected
+190-case whole-owner runs and explicit coverage partitions remain recorded.
+There is no unified green full-run claim. The
+[preceding record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
+retains its failed epochs and provider-negative samples.
 
-Current regression coverage is accounted for across explicit run partitions.
-The original failed PRIMARY full and SECONDARY affected runs remain retained;
-corrected whole-owner reruns pass on both stacks and at actual direct minima.
-The capability-scoped minimum result and its supplement are separate receipts.
-Runtime failures remain separate from these test results: some FP64 artifacts validate with optimization disabled
-while default ALL fails load, and subnormal comparisons retain their exact
-failed bits. No default, source cast, fallback or numerical criterion changes.
-The [checkpoint record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
-binds exact receipts, capability exclusions, failed history and remaining
-quality/documentation/commit gates.
+The current local checkpoint preserves original Equinox Dropout calls and
+shared static rank-one uniform contracts. Literal branch-result, logical-key
+report and seed/feed lifetime repairs retain original source, state, aliases,
+runtime settings and criteria. The same current five storage cases pass at
+direct minima and PRIMARY; all seven direct quality checks pass on 13 Python
+paths and 1,108 held inputs.
 
-Public behavior stays **LEGACY**. Complete models, fixed-source preparation,
-original numerical requirements and full B–F acceptance remain open. The target
-remains one ordinary source-preserving export contract across existing
-functionality and fixed third-party sources. The full product map belongs on a
-clean committed checkpoint; the separately frozen callable-preparation packet
-remains unapplied and native-unqualified.
+The shared file serializer also corrects ordinary public LEGACY exports:
+root initializers can remain external while ONNX Function tensor attributes
+stay inline across supported ONNX versions. Exact payloads are preserved;
+this is a storage-contract correction, without new numerical acceptance.
+The public precision policy, options and defaults remain unchanged.
+
+The current 26-owner runs pass **1,752 supported minimum cases** and all
+**1,813 cases on SECONDARY and PRIMARY**, zero failures/errors/skips. The
+**61 separately identified minimum target-capability cases** remain outside
+positive qualification and remain requirements. The failed 1,810-case minimum
+run, earlier literal/helper and storage-fixture failures, and older 680/lifetime
+source epochs remain retained. The full PRIMARY suite records **12,600 PASS / 0 FAIL / 0 ERROR / 0 SKIP of 12,600 cases**, in 1451.264381 seconds. At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
+documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
+checks and commit had not yet run. Later closeout evidence is recorded separately. The [canonical current record](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform)
+binds the exact partitions, receipts and limitations.
+
+The independent immutable `c686304c` map now retains **87 ordinary terminal
+cells, one original incomplete attempt and 3,616 unstarted**, all **1,852 rows /
+3,704 callers**. It does not qualify current MAIN runtime or numerics. Future
+wrapper/callable/context packets remain unapplied, and numerical certificates
+retain their hard context hold. Public precision policy stays **LEGACY**;
+all fixed sources, existing functionality and full B–F acceptance remain open,
+through one ordinary export contract without permanent selectors or capability
+loss.
 
 The preceding private contraction work preserves ordered contracting/batch axes,
 scalar and empty results, native result dtypes and exact calls through
@@ -77,16 +92,14 @@ requires final quality, strict documentation and normal commit checks. The
 retains every failed epoch, exact test identity and evidence digest, and
 separates these checks from whole-model numerical acceptance.
 
-The resumable SOURCE-map coordinator has actual two-cell and resume smoke
-qualification on the preceding committed snapshot. It retains three measured
-profile exclusions and the complete **1,852-row / 3,704-caller** denominator;
-no complete map or runtime/numerical acceptance is claimed. Run the full map on
-a separately pinned contraction checkpoint, then prioritize remaining shared
-barriers. Numerical criteria, optional models, the 104 registrations without
-metadata and fixed-source workflows remain separate obligations. Public
-behavior stays **LEGACY** and full B–F gates remain open. The support-floor
-change does not waive numerical acceptance or existing functionality. Earlier
-checkpoints below retain their historical evidence scopes and support policies.
+The coordinator's earlier two-cell/resume smoke and its three measured
+profile exclusions remain historical evidence on their original source epoch.
+The later immutable `c686304c` map has the separate paused status above; neither
+is complete-product or numerical acceptance. Numerical criteria, optional
+models, the 104 registrations without metadata and fixed-source workflows
+remain obligations. The support-floor change waives no existing functionality
+or numerical requirement. Earlier checkpoints below retain their evidence
+scopes and support policies.
 
 Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
 finite native/CPU qualification for static shapes at opsets 23/26. It retains

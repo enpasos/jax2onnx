@@ -414,6 +414,9 @@ def test_original_mlp_cpu_state_feedback_and_reset_replay(
                 for family, x in families.items():
                     for replay in range(2):
                         words = tuple(np.array(word, copy=True) for word in initial)
+                        # Some state outputs alias their inputs. Keep the initial
+                        # state arrays and every feed alive throughout this replay.
+                        replay_owners: list[Any] = [words]
                         _same_state(words, initial)
                         for step_index, flag in enumerate(_FLAGS):
                             before = _state(words)
@@ -421,22 +424,15 @@ def test_original_mlp_cpu_state_feedback_and_reset_replay(
                                 _same_state(
                                     words, references[family][role][step_index].before
                                 )
-                            outputs = tuple(
-                                session.run(
-                                    None,
-                                    dict(
-                                        zip(
-                                            names,
-                                            (
-                                                x,
-                                                np.asarray(flag, dtype=np.bool_),
-                                                *words,
-                                            ),
-                                            strict=True,
-                                        )
-                                    ),
+                            feed = dict(
+                                zip(
+                                    names,
+                                    (x, np.asarray(flag, dtype=np.bool_), *words),
+                                    strict=True,
                                 )
                             )
+                            replay_owners.append(feed)
+                            outputs = tuple(session.run(None, feed))
                             runs += 1
                             assert len(outputs) == 1 + len(initial)
                             assert outputs[0].dtype == np.dtype(dtype)

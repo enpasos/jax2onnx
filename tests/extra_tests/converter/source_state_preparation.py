@@ -3,7 +3,7 @@
 """Internal, explicitly requested state lifting of unchanged native calls.
 
 This is preparation, not automatic conversion of a captured mutable program.
-The two adapters below cover only this test's NNX and Linen Dropout owners.
+The adapters below cover only this test's exact native Dropout owners.
 Control-flow callers must thread every returned word through every invocation.
 """
 
@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import Any, Protocol
 
+import equinox as eqx
 from flax import linen, nnx
 import jax
 import numpy as np
@@ -256,6 +257,49 @@ class LinenDropoutState:
     def target_from_words(self, words: tuple[Any, ...]) -> FunctionType:
         if words:
             raise ValueError("A fixed Linen external key is not mutable input state")
+        self.original.assert_original()
+        return self.original.original
+
+    def words_from_target(self, target: FunctionType) -> tuple[Any, ...]:
+        assert target is self.original.original
+        self.original.assert_original()
+        return ()
+
+
+@dataclass(frozen=True)
+class EqxDropoutState:
+    """Keep the actual Equinox owner and fixed external key in native branches."""
+
+    original: NativeClosure
+    initial_words: tuple[Any, ...] = ()
+    state_names: tuple[str, ...] = ()
+
+    @property
+    def flag_is_unused(self) -> bool:
+        probability = closure_contents(self.original.original)["block"].p
+        return isinstance(probability, (int, float)) and probability == 0
+
+    @classmethod
+    def from_target(cls, target: Any) -> EqxDropoutState:
+        original = NativeClosure.capture(target, None)
+        captures = closure_contents(target)
+        if (
+            set(captures) != {"block", "key"}
+            or type(captures["block"]) is not eqx.nn.Dropout
+        ):
+            raise TypeError(
+                "Only the declared native Equinox Dropout captures are prepared"
+            )
+        key = captures["key"]
+        if not is_selected_prng_key_dtype(key.dtype) or key.shape != ():
+            raise ValueError(
+                "The original fixed key must be a scalar selected native key"
+            )
+        return cls(original)
+
+    def target_from_words(self, words: tuple[Any, ...]) -> FunctionType:
+        if words:
+            raise ValueError("A fixed Equinox external key is not mutable input state")
         self.original.assert_original()
         return self.original.original
 

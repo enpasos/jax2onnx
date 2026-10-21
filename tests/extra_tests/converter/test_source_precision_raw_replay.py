@@ -665,6 +665,28 @@ def test_referenced_custom_class_state_has_an_explicit_unknown_boundary(
         capture.bind_target(target)
     assert error.value.category == "replay-lane-gap"
     assert capture.records["native_outcomes"] == {}
+    failure = capture.records["instantiated-target-state"]
+    assert failure["detail"] == (
+        "Referenced function class/static state needs an exact adapter"
+    )
+    diagnostic = failure["diagnostic"]
+    assert diagnostic["class"] == {
+        "module": UnknownClassState.__module__,
+        "qualname": UnknownClassState.__qualname__,
+    }
+    assert diagnostic["metaclass"] == {"module": "builtins", "qualname": "type"}
+    assert diagnostic["path"] == ["root", "global:_CONTINUOUS_W1"]
+    assert diagnostic["callable"] == {
+        "module": target.__module__,
+        "qualname": target.__qualname__,
+        "code_sha256": raw.canonical_code_fingerprint(target.__code__),
+    }
+    assert diagnostic["defining_module_binding"] == "not-top-level"
+    assert failure["status"] == "failed"
+    assert capture.readiness is CheckStatus.UNVERIFIED
+    assert capture.records["product_admission"] == "not-attempted"
+    assert capture.records["facade_return"] == {"status": "not-attempted"}
+    assert capture.records["raw_callback"] == {"status": "not-executed"}
 
 
 @pytest.mark.parametrize("return_mode", ["ir", "file"])
@@ -965,3 +987,364 @@ def test_jax_scalar_alias_boundary_rejects_spoofed_or_owned_class_state(
     with pytest.raises(SourcePreparationError, match="class/static state") as error:
         raw._function_owned_data(value, lambda item: {"unexpected": str(item)})
     assert error.value.category == "replay-lane-gap"
+
+
+@pytest.mark.parametrize(
+    "owner,expected_path",
+    [
+        ("defaults", ["root", "defaults", "item[0]"]),
+        ("kwdefaults", ["root", "kwdefaults", "mapping[0].value"]),
+        ("attributes", ["root", "attributes", "mapping[0].value"]),
+        (
+            "closure",
+            ["root", "capture:payload", "mapping[0].value", "item[0]"],
+        ),
+        (
+            "partial",
+            ["root", "partial-args", "item[0]", "defaults", "item[0]"],
+        ),
+        ("dataclass", ["root", "field:callback", "defaults", "item[0]"]),
+    ],
+)
+def test_class_gap_diagnostic_retains_supported_owner_paths(
+    tmp_path, owner, expected_path
+):
+    from dataclasses import dataclass
+    import functools
+
+    from tests.extra_tests.converter.source_precision_support import (
+        SourcePreparationError,
+    )
+
+    class Unknown:
+        def __repr__(self):
+            pytest.fail("Class-gap capture must not format an unknown instance")
+
+    def target(value=None):
+        pytest.fail("Class-gap capture must not invoke the source")
+
+    if owner == "defaults":
+        target.__defaults__ = (Unknown,)
+    elif owner == "kwdefaults":
+
+        def target(*, value=None):
+            pytest.fail("Class-gap capture must not invoke the source")
+
+        target.__kwdefaults__ = {"value": Unknown}
+    elif owner == "attributes":
+        target.state = Unknown
+    elif owner == "closure":
+        payload = {"state": [Unknown]}
+
+        def target(value=None):
+            return payload[value]
+
+    elif owner == "partial":
+        target.__defaults__ = (Unknown,)
+        target = functools.partial(lambda callback: callback(), target)
+    else:
+        target.__defaults__ = (Unknown,)
+
+        @dataclass
+        class DataclassOwner:
+            callback: Any
+
+        DataclassOwner.__module__ = "jax2onnx.plugins.examples.eqx.diagnostic_fixture"
+        target = DataclassOwner(target)
+    capture = raw.RawReplayCapture(tmp_path / owner)
+    with pytest.raises(SourcePreparationError, match="exact state capture adapter"):
+        capture.bind_target(target)
+    failure = capture.records["instantiated-target-state"]
+    assert failure["detail"] == (
+        "Referenced function class/static state needs an exact adapter"
+    )
+    assert failure["diagnostic"]["path"] == expected_path
+    assert failure["diagnostic"]["class"]["qualname"] == Unknown.__qualname__
+    assert capture.records["native_outcomes"] == {}
+    assert capture.records["product_admission"] == "not-attempted"
+    assert capture.records["raw_callback"] == {"status": "not-executed"}
+
+
+def test_class_gap_diagnostic_retains_bounded_module_binding(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    from tests.extra_tests.converter.source_precision_support import (
+        SourcePreparationError,
+    )
+
+    module = types.ModuleType("jax.raw_replay_diagnostic_fixture")
+    branch = types.ModuleType(module.__name__ + ".branch")
+    module.branch = branch
+    unknown = type("Dependency", (), {"__module__": branch.__name__})
+    branch.Dependency = unknown
+    monkeypatch.setitem(sys.modules, branch.__name__, branch)
+    monkeypatch.setitem(globals(), "_RAW_REPLAY_DIAGNOSTIC_MODULE", module)
+
+    def target(value):
+        return _RAW_REPLAY_DIAGNOSTIC_MODULE.branch.Dependency(value)  # noqa: F821
+
+    capture = raw.RawReplayCapture(tmp_path / "module-binding")
+    with pytest.raises(SourcePreparationError, match="exact state capture adapter"):
+        capture.bind_target(target)
+    diagnostic = capture.records["instantiated-target-state"]["diagnostic"]
+    assert diagnostic["path"] == [
+        "root",
+        "global:_RAW_REPLAY_DIAGNOSTIC_MODULE",
+        "attribute:branch",
+        "attribute:Dependency",
+    ]
+    assert diagnostic["class"] == {
+        "module": branch.__name__,
+        "qualname": "Dependency",
+    }
+    assert diagnostic["defining_module_binding"] == "exact"
+    assert capture.records["native_outcomes"] == {}
+
+
+@pytest.mark.parametrize("binding", ["exact", "different", "missing"])
+def test_class_diagnostic_binding_is_observation_only(monkeypatch, binding):
+    import sys
+    import types
+
+    module = types.ModuleType("raw_replay_diagnostic_binding_fixture")
+    unknown = type("Dependency", (), {"__module__": module.__name__})
+    if binding != "missing":
+        module.Dependency = unknown if binding == "exact" else object()
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    diagnostic = raw._class_state_diagnostic(
+        unknown, location=("root", "global:dependency"), function=None
+    )
+    assert diagnostic["defining_module_binding"] == binding
+    assert diagnostic["callable"] is None
+
+
+def test_class_diagnostic_bypasses_hostile_metaclass_and_module_descriptors(
+    monkeypatch,
+):
+    import sys
+    import types
+
+    calls = []
+
+    class Descriptor:
+        def __get__(self, instance, owner=None):
+            calls.append("descriptor")
+            raise AssertionError("diagnostics resolved a hostile descriptor")
+
+        def __set__(self, instance, value):
+            calls.append("descriptor-set")
+            raise AssertionError("diagnostics changed hostile state")
+
+    class Meta(type):
+        __dict__ = Descriptor()
+        __module__ = Descriptor()
+
+        def __getattribute__(self, name):
+            calls.append("metaclass-getattribute")
+            raise AssertionError("diagnostics resolved metaclass attributes")
+
+        def __repr__(self):
+            calls.append("repr")
+            raise AssertionError("diagnostics formatted an unknown class")
+
+    class HostileModule(types.ModuleType):
+        __dict__ = Descriptor()
+
+        def __getattribute__(self, name):
+            calls.append("module-getattribute")
+            raise AssertionError("diagnostics resolved module attributes")
+
+    module_name = "raw_replay_diagnostic_hostile_fixture"
+    module = HostileModule(module_name)
+    unknown = Meta("Dependency", (), {"__module__": module_name})
+    namespace = vars(types.ModuleType)["__dict__"].__get__(module)
+    namespace["Dependency"] = unknown
+    monkeypatch.setitem(sys.modules, module_name, module)
+    diagnostic = raw._class_state_diagnostic(
+        unknown, location=("root", "global:dependency"), function=None
+    )
+    assert diagnostic["class"] == {"module": module_name, "qualname": "Dependency"}
+    assert diagnostic["metaclass"] == {
+        "module": None,
+        "qualname": Meta.__qualname__,
+    }
+    assert diagnostic["defining_module_binding"] == "exact"
+    assert calls == []
+
+
+def test_class_gap_diagnostic_rejects_hostile_nonmodule_without_property_calls(
+    tmp_path, monkeypatch
+):
+    import sys
+
+    from tests.extra_tests.converter.source_precision_support import (
+        SourcePreparationError,
+    )
+
+    calls = []
+
+    class NotAModule:
+        @property
+        def __class__(self):
+            calls.append("__class__")
+            raise RuntimeError("diagnostic must not read this property")
+
+        def __repr__(self):
+            calls.append("repr")
+            raise RuntimeError("diagnostic must not format this object")
+
+    name = "raw_replay_bad_module_fixture"
+    unknown = type("Dependency", (), {"__module__": name})
+    monkeypatch.setitem(sys.modules, name, NotAModule())
+
+    def target(value=unknown):
+        raise AssertionError("Class-gap capture must not invoke the source")
+
+    capture = raw.RawReplayCapture(tmp_path / "nonmodule")
+    with pytest.raises(
+        SourcePreparationError, match="exact state capture adapter"
+    ) as error:
+        capture.bind_target(target)
+    cause = error.value.__cause__
+    assert type(cause) is SourcePreparationError
+    assert cause.category == error.value.category == "replay-lane-gap"
+    failure = capture.records["instantiated-target-state"]
+    assert failure["exception"].endswith(".SourcePreparationError")
+    assert (
+        failure["detail"]
+        == "Referenced function class/static state needs an exact adapter"
+    )
+    assert (
+        failure["diagnostic"]["defining_module_binding"]
+        == "module-dictionary-unavailable"
+    )
+    assert calls == []
+    assert capture.records["native_outcomes"] == {}
+    assert capture.readiness is CheckStatus.UNVERIFIED
+    assert capture.records["product_admission"] == "not-attempted"
+    assert capture.records["facade_return"] == {"status": "not-attempted"}
+    assert capture.records["raw_callback"] == {"status": "not-executed"}
+    assert all(
+        capture.records[role] == {"status": "not-attempted"}
+        for role in (
+            "eager",
+            "fresh-jit",
+            "concrete-typed-trace",
+            "declared-typed-trace",
+        )
+    )
+
+
+def test_class_gap_diagnostic_failure_preserves_original_rejection(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter.source_precision_support import (
+        SourcePreparationError,
+    )
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("injected unavailable diagnostic fact")
+
+    class Unknown:
+        pass
+
+    def target(value=Unknown):
+        raise AssertionError("Class-gap capture must not invoke the source")
+
+    monkeypatch.setattr(raw, "_class_state_diagnostic", unavailable)
+    capture = raw.RawReplayCapture(tmp_path / "diagnostic-unavailable")
+    with pytest.raises(
+        SourcePreparationError, match="exact state capture adapter"
+    ) as error:
+        capture.bind_target(target)
+    assert type(error.value.__cause__) is SourcePreparationError
+    assert error.value.__cause__.category == "replay-lane-gap"
+    failure = capture.records["instantiated-target-state"]
+    assert (
+        failure["detail"]
+        == "Referenced function class/static state needs an exact adapter"
+    )
+    assert failure["diagnostic"] == {
+        "kind": "unsupported-function-class-state",
+        "unavailable": "diagnostic-facts-unavailable",
+    }
+    assert capture.records["native_outcomes"] == {}
+    assert capture.records["product_admission"] == "not-attempted"
+
+
+def test_class_diagnostic_exact_oversize_counterexample_is_bounded():
+    unknown = type("D" * 1_000_000, (), {"__module__": "m" * 1_000_000})
+    location = ("root", "global:" + "g" * 1_000_000)
+    diagnostic = raw._class_state_diagnostic(unknown, location=location, function=None)
+    repeated = raw._class_state_diagnostic(unknown, location=location, function=None)
+    payload = json.dumps(diagnostic, ensure_ascii=True, separators=(",", ":"))
+    assert len(payload.encode("ascii")) <= 32768
+    assert diagnostic == repeated
+    for label in (
+        diagnostic["class"]["module"],
+        diagnostic["class"]["qualname"],
+        diagnostic["path"][1],
+    ):
+        assert label["truncated"] is True
+        assert label["characters"] >= 1_000_000
+        assert len(label["prefix"]) + len(label["suffix"]) <= 96
+        assert len(label["sha256_utf8_surrogatepass"]) == 64
+
+
+@pytest.mark.parametrize("suffix", ["end", "\ud800"])
+def test_class_diagnostic_bounds_all_labels_and_preserves_original_loaded_binding(
+    monkeypatch, suffix
+):
+    import sys
+    import types
+
+    text = "\U0001f680" * 4096 + suffix
+    module_name = "module" + text
+    qualname = "Dependency" + text
+    module = types.ModuleType(module_name)
+    meta = type("DiagnosticMeta", (type,), {"__module__": "meta-module" + text})
+    type.__setattr__(meta, "__qualname__", "Meta" + text)
+    unknown = meta("Dependency", (), {"__module__": module_name})
+    type.__setattr__(unknown, "__qualname__", qualname)
+    namespace = vars(types.ModuleType)["__dict__"].__get__(module)
+    namespace[qualname] = unknown
+    monkeypatch.setitem(sys.modules, module_name, module)
+
+    def target(value):
+        raise AssertionError("Diagnostics must not invoke the source")
+
+    target.__module__ = "callable-module" + text
+    target.__qualname__ = "Callable" + text
+    location = ("root",) + tuple("entry:" + str(index) + text for index in range(100))
+    diagnostic = raw._class_state_diagnostic(
+        unknown, location=location, function=target
+    )
+    repeated = raw._class_state_diagnostic(unknown, location=location, function=target)
+    payload = json.dumps(diagnostic, ensure_ascii=True, separators=(",", ":"))
+    assert payload == json.dumps(repeated, ensure_ascii=True, separators=(",", ":"))
+    assert len(payload.encode("ascii")) <= 32768
+    assert diagnostic["defining_module_binding"] == "exact"
+    assert len(diagnostic["path"]) == 12
+    assert diagnostic["path_truncation"] == {
+        "total_segments": 101,
+        "retained_prefix": 4,
+        "retained_suffix": 8,
+    }
+    for group in ("class", "metaclass", "callable"):
+        for field in ("module", "qualname"):
+            label = diagnostic[group][field]
+            assert label["truncated"] is True
+            assert label["characters"] > 4096
+            assert len(label["prefix"]) + len(label["suffix"]) == 96
+    for label in diagnostic["path"][1:]:
+        assert label["truncated"] is True
+        assert len(label["prefix"]) + len(label["suffix"]) == 64
+    original_module = diagnostic["class"]["module"]
+    assert (
+        original_module["sha256_utf8_surrogatepass"]
+        == hashlib.sha256(module_name.encode("utf-8", "surrogatepass")).hexdigest()
+    )
+    assert diagnostic["callable"]["code_sha256"] == raw.canonical_code_fingerprint(
+        target.__code__
+    )

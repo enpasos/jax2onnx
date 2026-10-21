@@ -1,6 +1,6 @@
 # tests/extra_tests/converter/test_source_dropout_parameters.py
 
-"""Native Dropout state lifting; Equinox retains its diagnostic sample contract."""
+"""Native Dropout preparation; retain separate diagnostic sample properties."""
 
 from __future__ import annotations
 
@@ -52,6 +52,7 @@ from jax2onnx.plugins.plugin_system import (
 from jax2onnx.precision import CheckStatus, get_precision_report
 from tests.extra_tests.converter import source_precision_diagnostics as diagnostics
 from tests.extra_tests.converter.source_state_preparation import (
+    EqxDropoutState,
     ExplicitStatePreparation,
     LinenDropoutState,
     NNXDropoutState,
@@ -161,7 +162,8 @@ class DropoutDiagnosticValidator(diagnostics.DiagnosticValidator):
                 and eqn.primitive.name == f"onnx_fn::{__name__}._dropout_state_named"
                 and name == "preparation"
                 and type(value.value) is ExplicitStatePreparation
-                and type(value.value.adapter) in {NNXDropoutState, LinenDropoutState}
+                and type(value.value.adapter)
+                in {NNXDropoutState, LinenDropoutState, EqxDropoutState}
                 and value.value.original_body.__module__ == __name__
                 and value.value.original_body.__name__ == "_dropout_named"
             ):
@@ -388,12 +390,17 @@ class NativeDropoutDiagnosticValidator(DropoutDiagnosticValidator):
             if eqn.primitive.name in self._random:
                 validate_selected_random_equation(eqn)
                 return True
-            if eqn.primitive.name == "jit" and (
-                prove_native_uniform(eqn) is not None
-                or native_bernoulli_uniform(eqn) is not None
+            if eqn.primitive is jax.lax.stop_gradient_p or (
+                eqn.primitive.name == "jit"
+                and (
+                    prove_native_uniform(eqn) is not None
+                    or native_bernoulli_uniform(eqn) is not None
+                )
             ):
                 # Keep all actual carrier context, placement, parameter, literal,
                 # conversion and definition/use checks from the audited packet.
+                # Native Eqx also stops the probability's gradient. Its exact
+                # pure copy schema must pass the mandatory product validator.
                 formals = []
                 for var in eqn.invars:
                     if not isinstance(var, Literal) and all(
@@ -710,7 +717,11 @@ def _prepare(framework: str, rate: float) -> ExplicitStatePreparation:
     adapter = (
         NNXDropoutState.from_target(target)
         if framework == "nnx"
-        else LinenDropoutState.from_target(target)
+        else (
+            LinenDropoutState.from_target(target)
+            if framework == "linen"
+            else EqxDropoutState.from_target(target)
+        )
     )
     return ExplicitStatePreparation(adapter, _dropout_named)
 
@@ -1016,7 +1027,7 @@ def _native_matrix(
     result = {}
     for family, x in families.items():
         reference = _sequential_native(framework, rate, scope, x, effective)
-        if framework == "linen":
+        if framework in {"linen", "eqx"}:
             training = [
                 step
                 for flag, step in zip(effective, reference, strict=True)
@@ -1081,7 +1092,7 @@ def _native_matrix(
         result[family] = (x, reference)
     preparation.adapter.original.assert_original()
     captures = closure_contents(preparation.adapter.original.original)
-    if framework == "linen":
+    if framework in {"linen", "eqx"}:
         np.savez(
             tmp_path / "original-captured-key.npz",
             words=np.asarray(selected_prng_key_words(captures["key"])),
@@ -1115,6 +1126,8 @@ def _eqx_native(rate: float, scope: str, tmp_path: Path, *, local: Any = None) -
                 "root_flags": _FLAGS,
                 "native_flags": effective,
                 "target_criterion": "unchanged diagnostic Dropout sample properties; no native stochastic mask equivalence claim",
+                "prepared_native_equality": "separate bitwise evidence from the actual concrete-flag native branches",
+                "raw_dynamic_flag_native_contract": "Original Equinox uses a Python inference condition; a traced flag requires the explicitly prepared caller",
             },
         )
         matrix[family] = (x, reference)
@@ -1382,7 +1395,7 @@ def _prepared_flow(
         assert any(
             any(output in live for output in loop["outputs"]) for loop in flow.loops
         )
-    if framework == "linen" and active_training and scope != "root":
+    if framework in {"linen", "eqx"} and active_training and scope != "root":
         key = closure_contents(preparation.adapter.original.original)["key"]
         expected = np.asarray(selected_prng_key_words(key))
         paths = [
@@ -1408,6 +1421,7 @@ def _runtime_prepared(
     tmp_path: Path,
     *,
     local: Any = None,
+    sample_properties: Callable[..., None] | None = None,
 ) -> None:
     payload = proto.SerializeToString()
     parameter = "runtime" if local is None else "deterministic"
@@ -1454,6 +1468,8 @@ def _runtime_prepared(
                     )
                     actual = session.run(None, feed)
                     _physical_contract(actual, step, x, flag, rate, scope, state_width)
+                    if sample_properties is not None:
+                        sample_properties(actual[0], step, x, flag, rate, scope)
                     words = tuple(actual[1 : 1 + state_width])
                     for state, expected in zip(words, step.after, strict=True):
                         _exact(state, expected)
@@ -1475,57 +1491,73 @@ def _runtime_prepared(
     assert get_precision_report(proto).checks[-1].status is CheckStatus.UNVERIFIED
 
 
-def _eqx_runtime(scope: str, rate: float, tmp_path: Path) -> None:
-    matrix = _eqx_native(rate, scope, tmp_path)
-    model = _model(_target("eqx", rate), scope)
-    original = matrix["ones"][1][0].output[0]
-    np.testing.assert_array_equal(original, np.ones(32, np.float32), strict=True)
-    proto, observer = _export(model, {"runtime": True})
-    assert observer.scopes
-    assert [value.name for value in proto.graph.input] == ["features", "runtime"]
-    flag = proto.graph.input[1].type.tensor_type
-    assert flag.elem_type == onnx.TensorProto.BOOL and not flag.shape.dim
-    flow = DropoutFlow(proto)
-    assert flow.controls
-    live = flow.reach(flow.outputs)
-    assert all(
-        any(output in live for output in control["outputs"])
-        for control in flow.controls
-    )
-    dynamic = [
-        control
-        for control in flow.controls
-        if "root/runtime" in flow.reach([control["training"]])
-    ]
-    if rate == 0:
-        assert not dynamic
+def _eqx_sample_properties(
+    actual: Any, step: _NativeStep, x: Any, inference: bool, rate: float, scope: str
+) -> None:
+    # Retain the pre-existing diagnostic criterion separately from the new
+    # native bitwise comparisons in _physical_contract and saved evidence.
+    assert actual.dtype == np.dtype(np.float32) and actual.shape == (32,)
+    assert np.isfinite(actual).all()
+    if inference or rate == 0:
+        _exact(actual, step.output[0])
     else:
-        assert len(dynamic) == len(flow.controls)
-    assert all(control["training_operator"] == "Not" for control in dynamic)
-    assert all(control["rate"] == rate for control in flow.controls)
-    for optimize in (False, True):
-        session = _session(proto, optimize)
-        saved = {}
-        for family, (x, reference) in matrix.items():
-            for replay in range(2):
-                for index, (inference, step) in enumerate(
-                    zip(_FLAGS, reference, strict=True)
+        factor = np.float32(4 if scope == "loop" else 2)
+        assert np.logical_or(actual == 0, actual == x * factor).all()
+
+
+def _eqx_runtime(scope: str, rate: float, tmp_path: Path, *, local: Any = None) -> None:
+    # _target, _model and _eqx_native remain unchanged native reference owners.
+    # Only this explicit caller adapts native Python flag selection to lax.cond.
+    matrix = _eqx_native(rate, scope, tmp_path, local=local)
+    preparation = _prepare("eqx", rate)
+    model = (
+        _lifted_model(preparation, scope)
+        if local is None
+        else _lifted_local_model(preparation, local)
+    )
+    parameter = "runtime" if local is None else "deterministic"
+    prepared_arrays = {}
+    for family, (x, reference) in matrix.items():
+        prepared = _prepared_native(model, preparation, x, _FLAGS, reference, parameter)
+        prepared_arrays.update(
+            {
+                f"{family}_call{index}_output{j}": value
+                for index, result in enumerate(prepared)
+                for j, value in enumerate(result)
+            }
+        )
+    np.savez(tmp_path / "prepared-native-equality.npz", **prepared_arrays)
+    original_key = closure_contents(preparation.adapter.original.original)["key"]
+    np.savez(
+        tmp_path / "original-captured-key.npz",
+        words=np.asarray(selected_prng_key_words(original_key)),
+    )
+    if local not in {"default", True}:
+        for _, reference in matrix.values():
+            training = [
+                step for flag, step in zip(_FLAGS, reference, strict=True) if not flag
+            ]
+            for step in training[1:]:
+                for actual, expected in zip(
+                    step.output, training[0].output, strict=True
                 ):
-                    (actual,) = session.run(
-                        None, {"features": x, "runtime": np.asarray(inference)}
-                    )
-                    assert actual.dtype == np.dtype(np.float32) and actual.shape == (
-                        32,
-                    )
-                    assert np.isfinite(actual).all()
-                    if inference or rate == 0:
-                        _exact(actual, step.output[0])
-                    else:
-                        factor = np.float32(4 if scope == "loop" else 2)
-                        assert np.logical_or(actual == 0, actual == x * factor).all()
-                    saved[f"{family}_replay{replay}_step{index}"] = actual
-        np.savez(tmp_path / f"actual-{'all' if optimize else 'disabled'}.npz", **saved)
-    assert get_precision_report(proto).checks[-1].status is CheckStatus.UNVERIFIED
+                    _exact(actual, expected)
+    params = {parameter: True if local is None else False}
+    proto, observer = _export_prepared(model, preparation, scope, params)
+    assert observer.scopes
+    _prepared_flow(proto, preparation, "eqx", rate, scope, local=local)
+    # Native Bernoulli/Threefry is visible here, never ONNX Dropout randomness.
+    assert not DropoutFlow(proto).controls
+    _runtime_prepared(
+        proto,
+        preparation,
+        matrix,
+        rate,
+        scope,
+        tmp_path,
+        local=local,
+        sample_properties=_eqx_sample_properties,
+    )
 
 
 @pytest.mark.parametrize("framework", ["nnx", "linen", "eqx"])
@@ -1566,41 +1598,7 @@ def test_dropout_nested_default_and_literal_override_ignore_same_named_root_samp
             if framework == "eqx":
                 evidence = tmp_path / f"x64-{x64}"
                 evidence.mkdir()
-                matrix = _eqx_native(0.5, "function", evidence, local=local)
-                model = _original_local_model(_target(framework, 0.5), local)
-                proto, _ = _export(model, {"deterministic": False})
-                flow = DropoutFlow(proto)
-                assert flow.controls
-                for control in flow.controls:
-                    assert "root/deterministic" not in flow.reach([control["training"]])
-                    expected = False if local == "default" else not local
-                    assert bool(flow.constants[control["training"]]) is expected
-                for optimize in (False, True):
-                    session = _session(proto, optimize)
-                    saved = {}
-                    for family, (x, reference) in matrix.items():
-                        for replay in range(2):
-                            for index, (flag, step) in enumerate(
-                                zip(_FLAGS, reference, strict=True)
-                            ):
-                                (actual,) = session.run(
-                                    None,
-                                    {"features": x, "deterministic": np.asarray(flag)},
-                                )
-                                assert actual.dtype == np.float32 and actual.shape == (
-                                    32,
-                                )
-                                if local is False:
-                                    assert np.logical_or(
-                                        actual == 0, actual == x * np.float32(2)
-                                    ).all()
-                                else:
-                                    _exact(actual, step.output[0])
-                                saved[f"{family}_replay{replay}_step{index}"] = actual
-                    np.savez(
-                        evidence / f"actual-{'all' if optimize else 'disabled'}.npz",
-                        **saved,
-                    )
+                _eqx_runtime("function", 0.5, evidence, local=local)
                 continue
             evidence = tmp_path / f"x64-{x64}"
             evidence.mkdir()
@@ -1634,7 +1632,7 @@ def test_original_captured_nnx_training_requires_state_lifting(scope: str) -> No
 def test_state_preparation_preserves_actual_callable_and_nonowner_captures() -> None:
     for x64 in (False, True):
         with _native_settings(x64):
-            for framework in ("nnx", "linen"):
+            for framework in ("nnx", "linen", "eqx"):
                 preparation = _prepare(framework, 0.5)
                 original = preparation.adapter.original.original
                 restored = preparation.adapter.target_from_words(
@@ -1869,3 +1867,124 @@ def test_native_uniform_multiply_schema_cannot_ignore_or_reinterpret_parameters(
             prove_native_uniform(changed)
         assert dict(multiply.params) == original
         assert prove_native_uniform(equation) is not None
+
+
+@pytest.mark.parametrize("x64", [False, True])
+@pytest.mark.parametrize("form", ["literal-probability", "weak-probability", "tensor"])
+def test_native_dropout_stop_gradient_reuses_mandatory_product_validation(
+    x64: bool, form: str
+) -> None:
+    with _native_settings(x64):
+        if form == "literal-probability":
+            graph = jax.make_jaxpr(lambda: jax.lax.stop_gradient(0.5))()
+        else:
+            dtype = np.float64 if x64 else np.float32
+            graph = jax.make_jaxpr(jax.lax.stop_gradient)(
+                jax.ShapeDtypeStruct(
+                    () if form == "weak-probability" else (32,),
+                    dtype,
+                    weak_type=form == "weak-probability",
+                )
+            )
+        body = diagnostics._body(graph)
+        (equation,) = body.eqns
+        assert equation.primitive is jax.lax.stop_gradient_p
+        product_validator = validate_source_jaxpr
+        calls = []
+        original_rules = diagnostics._RULES
+
+        def mandatory(scope: Any, opset: int) -> None:
+            assert scope.eqns == [equation]
+            assert scope.outvars is equation.outvars
+            assert scope.constvars == () and scope.effects == ()
+            product_validator(scope, opset)
+            calls.append((scope, opset))
+
+        with patch(f"{__name__}.validate_source_jaxpr", side_effect=mandatory):
+            NativeDropoutDiagnosticValidator()(graph, 23)
+        assert len(calls) == 1 and calls[0][1] == 23
+        assert diagnostics._RULES is original_rules
+        assert "stop_gradient" not in original_rules
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "parameter",
+        "empty-placement-parameter",
+        "input-arity",
+        "output-arity",
+        "dtype",
+        "shape",
+        "weakness",
+        "binding",
+        "effects",
+    ],
+)
+def test_native_dropout_stop_gradient_cannot_bypass_product_schema(fault: str) -> None:
+    from jax2onnx._compat.jax import Var
+
+    with _native_settings(False):
+        graph = jax.make_jaxpr(jax.lax.stop_gradient)(
+            jax.ShapeDtypeStruct((32,), np.float32)
+        )
+        (equation,) = diagnostics._body(graph).eqns
+        validator = NativeDropoutDiagnosticValidator()
+        assert validator._selected(equation, "native-stop-gradient-control", 23)
+        if fault == "parameter":
+            damaged = equation.replace(params={"unowned": None})
+        elif fault == "empty-placement-parameter":
+            damaged = equation.replace(params={"out_sharding": None})
+        elif fault == "input-arity":
+            damaged = equation.replace(invars=[])
+        elif fault == "output-arity":
+            damaged = equation.replace(outvars=[])
+        elif fault in {"dtype", "shape", "weakness"}:
+            updates = {
+                "dtype": {"dtype": np.dtype(np.float16)},
+                "shape": {"shape": (16, 2)},
+                "weakness": {"weak_type": True},
+            }[fault]
+            damaged = equation.replace(
+                outvars=[Var(equation.outvars[0].aval.update(**updates))]
+            )
+        elif fault == "binding":
+            damaged = equation.replace(outvars=[equation.invars[0]])
+        else:
+            damaged = equation.replace(effects=frozenset({"unowned-effect"}))
+        with pytest.raises(SourcePrecisionError):
+            validator._selected(damaged, "damaged-stop-gradient", 23)
+        assert validator._selected(equation, "native-stop-gradient-control", 23)
+
+
+def test_native_dropout_stop_gradient_rejects_a_name_only_impostor() -> None:
+    with _native_settings(False):
+        graph = jax.make_jaxpr(jax.lax.stop_gradient)(
+            jax.ShapeDtypeStruct((32,), np.float32)
+        )
+        body = diagnostics._body(graph)
+        (equation,) = body.eqns
+        impostor = SimpleNamespace(
+            primitive=SimpleNamespace(name="stop_gradient"),
+            invars=equation.invars,
+            outvars=equation.outvars,
+            params=equation.params,
+            effects=equation.effects,
+        )
+        validator = NativeDropoutDiagnosticValidator()
+        assert not validator._selected(impostor, "name-only-impostor", 23)
+        with pytest.raises(
+            SourcePrecisionError, match="no explicit diagnostic structural family"
+        ):
+            validator._walk(
+                SimpleNamespace(
+                    invars=body.invars,
+                    constvars=body.constvars,
+                    outvars=body.outvars,
+                    eqns=[impostor],
+                    effects=body.effects,
+                ),
+                23,
+                "name-only-impostor",
+                frozenset(),
+            )

@@ -1,6 +1,6 @@
 # Computation Precision Current State
 
-Public-behavior analysis baseline: 2026-10-17. Source snapshot:
+Public precision-policy analysis baseline: 2026-10-17. Source snapshot:
 [`fae17822e0114e6c00840b8f78adedb7ec36f74e`](https://github.com/enpasos/jax2onnx/commit/fae17822e0114e6c00840b8f78adedb7ec36f74e),
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
@@ -18,6 +18,57 @@ evidence; they are no longer a supported-floor release gate. This decision
 does not fix numerical/provider gaps or remove any existing model, fixed source
 or numerical requirement from the single-interface migration target.
 
+## Native Equinox Dropout and shared static uniform
+
+The current local checkpoint combines original-call Dropout/static uniform,
+literal branch-result/logical-key reporting, replay owner-lifetime and shared
+file-storage corrections. Public precision policy/options/defaults remain
+**LEGACY**. The serializer correction also applies to ordinary public file
+exports: Function tensor attributes stay inline while root initializers can
+remain external, retaining exact payloads across ONNX versions.
+
+The current storage-v3 source epoch has **13 Python paths / 1,108 held inputs**.
+The same five storage cases pass on direct minima and PRIMARY, zero failures/
+errors/skips. Seven direct quality checks pass, including 559-source-file
+typing/RNG inventory, pinned Black, Ruff and four policies. These are separate
+from normal commit hooks. The 26 affected owners pass **1,752 supported
+minimum cases** and all **1,813 SECONDARY and PRIMARY cases**, zero failures/
+errors/skips. The full PRIMARY suite records **12,600 PASS / 0 FAIL / 0 ERROR / 0 SKIP of 12,600 cases**, in 1451.264381 seconds. Phases are NOT_INSTRUMENTED.
+
+At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
+documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
+checks and commit had not yet run. Later closeout evidence is recorded separately.
+
+The exact minimum partition retains **61 target-capability cases** outside
+positive qualification: 59 newly observed target-opset/schema rejections plus
+two prior cases. The original 181-case ledger is unchanged. These are retained
+requirements, not passes or removed functionality. The preceding 1,810-case
+minimum run remains 1,750 PASS / 60 FAIL: 59 capability failures and one storage
+contract failure independently reproduced at c686. Both 1.2 MB FP64 payloads
+were already exact and the full loaded checker passed; Function-inline storage
+was the failed contract. The public serializer toy preserves this old minimum
+failure and shows exact candidate storage matching the modern behavior, without
+runtime or numerical qualification.
+
+Earlier five-case storage fixture v1/v2 runs each retain four PASS / one FAIL.
+Only the new LEGACY fixture failed before save, first on unsupported tuple
+output and then alias naming. Test-only fixes preserve payload/storage checks;
+production UI bytes remain unchanged across those fixture corrections. Earlier
+literal v2/v3 failures, the separate initial54 v4 pass/quality, lifetime six-case
+three-stack passes, and old 680-case modern passes/failed minimum retain their
+own epochs. Current raw MLP0/1 callbacks remain FAILED, criteria None and
+runtime/numerics UNVERIFIED; raw replay runs no ORT.
+
+The immutable c686 map has **87 ordinary terminals / one original incomplete /
+3,616 unstarted of 3,704**. Future wrapper/callable packets remain unapplied and
+natively unrun. Numeric certificates are accepted source-only with a hard R2
+hold; context PF1/PF2 implementation is conditionally accepted source-only,
+requiring fresh checkpoint/pin review and actual capture. No numerical gate is
+cleared. All existing functionality, fixed sources and full B–F remain required.
+See the [canonical evidence and gates](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform).
+
+## Retained preceding checkpoint evidence
+
 The preceding exact native platform-selector and SOURCE `eye` forwarding
 checkpoint is committed at **`b7eb923a`**, parent `3d9ba486`.
 Its PRIMARY full passes **11,685 unique cases**; the same **110 focused cases**
@@ -29,7 +80,8 @@ inputs** matched the full run and the worktree was clean. The earlier
 retains its failed branch-capture epochs.
 
 The preceding generalized-contraction/support-floor checkpoint is committed at
-**`7b70b22f`**. The current private checkpoint forwards Equinox Linear to its
+**`7b70b22f`**. The subsequent Equinox checkpoint is committed locally at
+**`c686304c`**. It forwards Equinox Linear to its
 captured original call with exact arguments and native errors, keeping the
 original model sources, options, parameter bytes, state and criteria. It extends
 the shared native contraction/transpose proof to one actual input-derived `B`
@@ -71,13 +123,18 @@ gate and unexecuted later samples. Subnormal bitwise comparisons remain FAILED
 under the original target settings. Passing negative-witness tests do not accept
 those failed target configurations. Raw callback failures and four source
 exclusions remain in the original Eqx/MLP observations; missing runtime/numerical
-criteria stay **UNVERIFIED**. No original criterion or public default changes.
+criteria stay **UNVERIFIED**. Those source exclusions describe the preceding
+epoch; the later Dropout progression above retains its own original callbacks
+and missing criteria. No original criterion or public default changes.
 
 The earlier quality-v3 epoch passes before the target evidence helper. The
 later quality-v6 marker failure is retained; its two-file comment-only repair
 preserves the complete module ASTs and all other source pins. Actual quality-v7
-passes all seven checks on that distinct 1,106-pin epoch. Strict docs, seven
-normal commit hooks and held-byte/commit checks remain required. Captured outer Function
+passes all seven checks on that distinct 1,106-pin epoch. The subsequent
+normal commit succeeds at `c686304c`, with all seven actual hooks, all 1,106
+qualified input bytes and all 32 changed committed blobs verified. The independent
+commit audit confirms a clean worktree at that checkpoint. These completed
+prior-checkpoint gates do not qualify the later Dropout addition. Captured outer Function
 native JIT retains its specific missing-MLIR evidence gap; original eager/
 warmed/fresh JIT and captured leaf checks remain independent. The full product
 map, complete models, general fixed sources and B–F gates remain open. Public
@@ -174,10 +231,14 @@ historical smoke on immutable `b7eb923a` completed two cells and exactly one new
 cell on resume, preserving all prior evidence. All three stop at the existing
 Equinox Linear SOURCE barrier. Native results and state are retained; no ONNX
 artifact or runtime/numerical acceptance is implied. Those exclusions belong
-to that earlier immutable source. The next full map must use the newly
-qualified and committed Equinox/shared-symbolic/output-axis checkpoint; its
-qualification is still pending. See the [historical smoke record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke)
-and the [current checkpoint](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes).
+to that earlier immutable source. A later full-denominator map actually started
+on immutable `c686304c` and is now under a controlled qualification pause:
+**70 ordinary terminal cells, one `user_interrupted` incomplete attempt and
+3,633 unstarted cells**. All retained attempts and the complete denominator
+remain. Resume the same epoch with incomplete retry; later implementation
+results cannot replace cells in that immutable map. Its scope is product-only,
+with runtime/numerics UNVERIFIED. See the [historical smoke record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke)
+and the [current map status](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform).
 
 A separate [BF16 elementwise diagnostic](poc/source_integration_findings.md#bf16-elementwise-feasibility-observations)
 now has actual PRIMARY CPU observations: direct BF16 models fail to load on

@@ -224,6 +224,8 @@ class RawReplayCapture:
             "exception": f"{type(exc).__module__}.{type(exc).__qualname__}",
             "detail": str(exc),
         }
+        if type(exc) is SourcePreparationError and "replay_diagnostic" in vars(exc):
+            self.records[role]["diagnostic"] = vars(exc)["replay_diagnostic"]
 
     def observe_facade_return(self, value: Any) -> None:
         # Successful ordinary return is observed before any normalization/read.
@@ -541,7 +543,116 @@ def _capture_actual_target_state(target: Any) -> Any:
     return _capture_target_state(target)
 
 
-def _function_owned_data(value: Any, child: Any, *, depth: int = 0) -> Any:
+def _diagnostic_class_symbol(value: type) -> dict[str, str | None]:
+    """Read original symbols for identity lookup; bound them before recording."""
+    descriptors = vars(type)
+    module = descriptors["__module__"].__get__(value)
+    qualname = descriptors["__qualname__"].__get__(value)
+    return {
+        "module": module if type(module) is str else None,
+        "qualname": qualname if type(qualname) is str else None,
+    }
+
+
+def _diagnostic_text(value: Any, *, limit: int = 96) -> Any:
+    """Bound native strings; retain exact length/digest for truncated labels."""
+    if type(value) is not str:
+        return None
+    if len(value) <= limit:
+        return value
+    digest = hashlib.sha256()
+    for index in range(0, len(value), 4096):
+        digest.update(value[index : index + 4096].encode("utf-8", "surrogatepass"))
+    return {
+        "truncated": True,
+        "characters": len(value),
+        "prefix": value[: limit - 16],
+        "suffix": value[-16:],
+        "sha256_utf8_surrogatepass": digest.hexdigest(),
+    }
+
+
+def _diagnostic_module_namespace(value: Any) -> dict[str, Any] | None:
+    """Inspect true native ancestry, never an instance's __class__ property."""
+    ancestry = vars(type)["__mro__"].__get__(type(value))
+    if any(base is types.ModuleType for base in ancestry[:64]):
+        return vars(types.ModuleType)["__dict__"].__get__(value)
+    return None
+
+
+def _class_state_diagnostic(
+    value: type, *, location: tuple[str, ...], function: Any
+) -> dict[str, Any]:
+    """Record at most 32 KiB of ASCII JSON for the existing class rejection.
+
+    Labels retain at most 96 characters; path labels retain 64. At most twelve
+    path segments survive (first four/last eight if truncated). Original symbols
+    alone determine binding identity; truncated labels never become lookup keys.
+    """
+    symbol = _diagnostic_class_symbol(value)
+    module_name, qualname = symbol["module"], symbol["qualname"]
+    module = sys.modules.get(module_name) if module_name is not None else None
+    if module_name is None or qualname is None:
+        binding = "symbol-unavailable"
+    elif "." in qualname:
+        binding = "not-top-level"
+    elif module is None:
+        binding = "module-not-loaded"
+    else:
+        namespace = _diagnostic_module_namespace(module)
+        binding = (
+            "module-dictionary-unavailable"
+            if namespace is None
+            else (
+                "missing"
+                if qualname not in namespace
+                else "exact" if namespace[qualname] is value else "different"
+            )
+        )
+    callable_state = None
+    if type(function) is types.FunctionType:
+        callable_state = {
+            "module": _diagnostic_text(function.__module__),
+            "qualname": _diagnostic_text(function.__qualname__),
+            "code_sha256": _diagnostic_text(
+                canonical_code_fingerprint(function.__code__)
+            ),
+        }
+    retained = location if len(location) <= 12 else location[:4] + location[-8:]
+    diagnostic = {
+        "kind": "unsupported-function-class-state",
+        "class": {name: _diagnostic_text(text) for name, text in symbol.items()},
+        "metaclass": {
+            name: _diagnostic_text(text)
+            for name, text in _diagnostic_class_symbol(type(value)).items()
+        },
+        "callable": callable_state,
+        "path": [_diagnostic_text(segment, limit=64) for segment in retained],
+        "defining_module_binding": binding,
+    }
+    if len(location) > 12:
+        diagnostic["path_truncation"] = {
+            "total_segments": len(location),
+            "retained_prefix": 4,
+            "retained_suffix": 8,
+        }
+    payload = json.dumps(diagnostic, ensure_ascii=True, separators=(",", ":"))
+    if len(payload.encode("ascii")) > 32768:
+        return {
+            "kind": "unsupported-function-class-state",
+            "unavailable": "diagnostic-payload-limit",
+        }
+    return diagnostic
+
+
+def _function_owned_data(
+    value: Any,
+    child: Any,
+    *,
+    depth: int = 0,
+    location: tuple[str, ...] = ("root",),
+    function: Any = None,
+) -> Any:
     native = _selected_native_state(value)
     if native is not None:
         return native
@@ -564,10 +675,21 @@ def _function_owned_data(value: Any, child: Any, *, depth: int = 0) -> Any:
         except (TypeError, ValueError):
             scalar_type = None
         if scalar_type is not value:
-            raise SourcePreparationError(
+            error = SourcePreparationError(
                 "Referenced function class/static state needs an exact adapter",
                 category="replay-lane-gap",
             )
+            try:
+                vars(error)["replay_diagnostic"] = _class_state_diagnostic(
+                    value, location=location, function=function
+                )
+            except Exception:
+                # Diagnostic enrichment must never replace the original gap.
+                vars(error)["replay_diagnostic"] = {
+                    "kind": "unsupported-function-class-state",
+                    "unavailable": "diagnostic-facts-unavailable",
+                }
+            raise error
     if (
         isinstance(value, types.BuiltinFunctionType)
         and getattr(value, "__self__", None) is not None
@@ -581,8 +703,21 @@ def _function_owned_data(value: Any, child: Any, *, depth: int = 0) -> Any:
         return {
             "mapping": sorted(
                 [
-                    [child(key), _function_owned_data(item, child, depth=depth + 1)]
-                    for key, item in value.items()
+                    [
+                        child(
+                            key,
+                            location=location + (f"mapping[{index}].key",),
+                            function=function,
+                        ),
+                        _function_owned_data(
+                            item,
+                            child,
+                            depth=depth + 1,
+                            location=location + (f"mapping[{index}].value",),
+                            function=function,
+                        ),
+                    ]
+                    for index, (key, item) in enumerate(value.items())
                 ],
                 key=lambda pair: json.dumps(pair[0], sort_keys=True),
             )
@@ -591,13 +726,22 @@ def _function_owned_data(value: Any, child: Any, *, depth: int = 0) -> Any:
         return {
             "container": type(value).__name__,
             "values": [
-                _function_owned_data(item, child, depth=depth + 1) for item in value
+                _function_owned_data(
+                    item,
+                    child,
+                    depth=depth + 1,
+                    location=location + (f"item[{index}]",),
+                    function=function,
+                )
+                for index, item in enumerate(value)
             ],
         }
-    return child(value)
+    return child(value, location=location, function=function)
 
 
-def _function_global_state(fn: Any, child: Any) -> dict[str, Any]:
+def _function_global_state(
+    fn: Any, child: Any, *, location: tuple[str, ...] = ("root",)
+) -> dict[str, Any]:
     """Bind referenced data; retain explicit boundaries for executable libraries.
 
     Direct model data and function attributes use the real state adapter. Library
@@ -624,7 +768,7 @@ def _function_global_state(fn: Any, child: Any) -> dict[str, Any]:
             if isinstance(constant, types.CodeType):
                 inspect_code(constant)
 
-    def dependency(value: Any) -> Any:
+    def dependency(value: Any, *, location: tuple[str, ...]) -> Any:
         native = _selected_native_state(value)
         if native is not None:
             return native
@@ -633,14 +777,14 @@ def _function_global_state(fn: Any, child: Any) -> dict[str, Any]:
             # Imported implementation is owned by the environment/source pins.
             # Model instances and owned methods cannot enter this branch.
             return binding
-        return _function_owned_data(value, child)
+        return _function_owned_data(value, child, location=location, function=fn)
 
     inspect_code(fn.__code__)
     result = {}
     for name, paths in sorted(accesses.items()):
         value = fn.__globals__[name]
         if not isinstance(value, types.ModuleType):
-            result[name] = dependency(value)
+            result[name] = dependency(value, location=location + ("global:" + name,))
             continue
         if not _library_namespace(value.__name__):
             raise SourcePreparationError(
@@ -672,12 +816,23 @@ def _function_global_state(fn: Any, child: Any) -> dict[str, Any]:
                         category="replay-lane-gap",
                     )
                 member = native_member
-            selected[".".join(path)] = dependency(member)
+            selected[".".join(path)] = dependency(
+                member,
+                location=location
+                + ("global:" + name,)
+                + tuple("attribute:" + attribute for attribute in path),
+            )
         result[name] = {"library_namespace": value.__name__, "attributes": selected}
     return result
 
 
-def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
+def _capture_target_state(
+    value: Any,
+    *,
+    depth: int = 0,
+    location: tuple[str, ...] = ("root",),
+    function: Any = None,
+) -> Any:
     """Snapshot the actual callable, with bounded Eqx/NNX state adapters.
 
     The snapshot never constructs another model or resets unknown mutable state.
@@ -688,8 +843,15 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
             "Target state nesting needs an exact adapter", category="replay-lane-gap"
         )
 
-    def child(item: Any) -> Any:
-        return _capture_target_state(item, depth=depth + 1)
+    def child(
+        item: Any,
+        *segments: str,
+        location: tuple[str, ...] = location,
+        function: Any = function,
+    ) -> Any:
+        return _capture_target_state(
+            item, depth=depth + 1, location=location + segments, function=function
+        )
 
     native = _selected_native_state(value)
     if native is not None:
@@ -704,21 +866,49 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
         }
     if isinstance(value, jax.tree_util.PyTreeDef):
         return {
-            "pytree_node": child(value.node_data()),
-            "children": [child(tree) for tree in value.children()],
+            "pytree_node": child(value.node_data(), "pytree-node"),
+            "children": [
+                child(tree, f"pytree-child[{index}]")
+                for index, tree in enumerate(value.children())
+            ],
         }
     if isinstance(value, types.MethodType):
-        return {"bound_target": child(value.__self__), "method": child(value.__func__)}
+        return {
+            "bound_target": child(value.__self__, "bound-target"),
+            "method": child(value.__func__, "method"),
+        }
     if isinstance(value, types.FunctionType):
         return {
             "callable": f"{value.__module__}.{value.__qualname__}",
             "code_sha256": canonical_code_fingerprint(value.__code__),
-            "defaults": _function_owned_data(value.__defaults__, child),
-            "kwdefaults": _function_owned_data(value.__kwdefaults__, child),
-            "attributes": _function_owned_data(value.__dict__, child),
-            "referenced_globals": _function_global_state(value, child),
+            "defaults": _function_owned_data(
+                value.__defaults__,
+                child,
+                location=location + ("defaults",),
+                function=value,
+            ),
+            "kwdefaults": _function_owned_data(
+                value.__kwdefaults__,
+                child,
+                location=location + ("kwdefaults",),
+                function=value,
+            ),
+            "attributes": _function_owned_data(
+                value.__dict__,
+                child,
+                location=location + ("attributes",),
+                function=value,
+            ),
+            "referenced_globals": _function_global_state(
+                value, child, location=location
+            ),
             "captures": {
-                name: _function_owned_data(cell.cell_contents, child)
+                name: _function_owned_data(
+                    cell.cell_contents,
+                    child,
+                    location=location + ("capture:" + name,),
+                    function=value,
+                )
                 for name, cell in zip(
                     value.__code__.co_freevars, value.__closure__ or (), strict=True
                 )
@@ -726,10 +916,15 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
         }
     if isinstance(value, functools.partial):
         return {
-            "partial": child(value.func),
-            "args": child(value.args),
-            "kwargs": child(value.keywords),
-            "attributes": _function_owned_data(vars(value), child),
+            "partial": child(value.func, "partial-function"),
+            "args": child(value.args, "partial-args"),
+            "kwargs": child(value.keywords, "partial-kwargs"),
+            "attributes": _function_owned_data(
+                vars(value),
+                child,
+                location=location + ("partial-attributes",),
+                function=function,
+            ),
         }
     if getattr(value, "__jax2onnx_factory__", False):
         raise SourcePreparationError(
@@ -744,16 +939,16 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
         graph, state = nnx.split(value)
         return {
             "target_type": f"{type(value).__module__}.{type(value).__qualname__}",
-            "graph": child(graph),
-            "state": child(state),
+            "graph": child(graph, "nnx-graph"),
+            "state": child(state, "nnx-state"),
         }
     if isinstance(value, nnx.Variable):
         raw = value.get_raw_value() if hasattr(value, "get_raw_value") else value.value
         metadata = value.get_metadata()
         return {
             "variable_type": f"{type(value).__module__}.{type(value).__qualname__}",
-            "value": child(raw),
-            "metadata": child(metadata),
+            "value": child(raw, "nnx-variable-value"),
+            "metadata": child(metadata, "nnx-variable-metadata"),
         }
     typename = f"{type(value).__module__}.{type(value).__qualname__}"
     if (
@@ -774,7 +969,8 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
         return {
             "state_type": typename,
             "fields": {
-                field.name: child(getattr(value, field.name)) for field in fields(value)
+                field.name: child(getattr(value, field.name), "field:" + field.name)
+                for field in fields(value)
             },
         }
     graph_fields = {
@@ -787,21 +983,29 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
         return {
             "state_type": typename,
             "fields": {
-                name: child(getattr(value, name))
+                name: child(getattr(value, name), "field:" + name)
                 for name in graph_fields[type(value).__name__]
             },
         }
     if isinstance(value, Mapping):
         return {
             "mapping": sorted(
-                [[child(key), child(item)] for key, item in value.items()],
+                [
+                    [
+                        child(key, f"mapping[{index}].key"),
+                        child(item, f"mapping[{index}].value"),
+                    ]
+                    for index, (key, item) in enumerate(value.items())
+                ],
                 key=lambda pair: json.dumps(pair[0], sort_keys=True),
             )
         }
     if isinstance(value, (list, tuple)):
         return {
             "container": type(value).__name__,
-            "values": [child(item) for item in value],
+            "values": [
+                child(item, f"item[{index}]") for index, item in enumerate(value)
+            ],
         }
     unresolved: list[str] = []
     result = canonical_contract(value, unresolved=unresolved)

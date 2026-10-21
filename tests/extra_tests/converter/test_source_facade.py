@@ -118,6 +118,16 @@ def _large_fp64_outer(x: jax.Array, *, payload: np.ndarray) -> tuple[Any, ...]:
     return _large_fp64_inner(x, payload=payload)
 
 
+@onnx_function
+def _legacy_large_fp64_inner(x: jax.Array, *, payload: np.ndarray) -> np.ndarray:
+    return payload
+
+
+@onnx_function
+def _legacy_large_fp64_outer(x: jax.Array, *, payload: np.ndarray) -> np.ndarray:
+    return _legacy_large_fp64_inner(x, payload=payload)
+
+
 def test_source_observes_the_real_trace_once_without_wrapping_the_callable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -463,6 +473,86 @@ def test_source_large_fp64_root_and_nested_captures_keep_exact_serialized_payloa
     _assert_large_capture_contract(proto)
     assert get_precision_report(proto) == report
     for tensor in _large_capture_tensors(proto):
+        assert tensor.data_location == onnx.TensorProto.DEFAULT
+        assert not tensor.external_data
+        _assert_exact_payload(onnx.numpy_helper.to_array(tensor), payload)
+
+
+def test_public_legacy_file_keeps_large_fp64_function_capture_inline(
+    _large_fp64_capture: tuple[Callable[..., Any], np.ndarray], tmp_path: Path
+) -> None:
+    _, payload = _large_fp64_capture
+
+    def model(x: jax.Array) -> tuple[Any, ...]:
+        return payload, x, _legacy_large_fp64_outer(x, payload=payload)
+
+    def tensors(proto: onnx.ModelProto) -> tuple[onnx.TensorProto, onnx.TensorProto]:
+        functions = {
+            (function.domain, function.name): function for function in proto.functions
+        }
+        assert len(functions) == 2
+        (root_call,) = [
+            node
+            for node in proto.graph.node
+            if (node.domain, node.op_type) in functions
+        ]
+        outer = functions[root_call.domain, root_call.op_type]
+        (inner_call,) = [
+            node for node in outer.node if (node.domain, node.op_type) in functions
+        ]
+        inner = functions[inner_call.domain, inner_call.op_type]
+        assert inner is not outer
+        assert len(inner.output) == len(outer.output) == 1
+        (constant,) = [node for node in inner.node if inner.output[0] in node.output]
+        assert constant.op_type == "Constant"
+        (attribute,) = [attr for attr in constant.attribute if attr.name == "value"]
+        assert attribute.type == onnx.AttributeProto.TENSOR
+        root = next(
+            value
+            for value in proto.graph.initializer
+            if value.name == proto.graph.output[0].name
+        )
+        for tensor in (root, attribute.t):
+            assert tensor.data_type == onnx.TensorProto.DOUBLE
+            assert list(tensor.dims) == [150_000]
+        return root, attribute.t
+
+    path = tmp_path / "legacy.onnx"
+    artifact = to_onnx(
+        model,
+        [jax.ShapeDtypeStruct((2,), np.float64)],
+        enable_double_precision=True,
+        return_mode="file",
+        output_path=path,
+        input_names=["direct"],
+        output_names=["root_weights", "direct", "nested_weights"],
+    )
+    assert Path(artifact) == path
+    unresolved = onnx.load_model(path, load_external_data=False)
+    root, nested = tensors(unresolved)
+    assert root.data_location == onnx.TensorProto.EXTERNAL
+    assert not root.raw_data
+    assert (
+        dict((entry.key, entry.value) for entry in root.external_data)["location"]
+        == path.name + ".data"
+    )
+    assert (tmp_path / (path.name + ".data")).stat().st_size > 0
+    assert nested.data_location == onnx.TensorProto.DEFAULT
+    assert not nested.external_data
+    _assert_exact_payload(onnx.numpy_helper.to_array(nested), payload)
+    assert [value.name for value in unresolved.graph.input] == ["direct"]
+    assert [value.name for value in unresolved.graph.output] == [
+        "root_weights",
+        "direct",
+        "nested_weights",
+    ]
+    assert all(
+        value.type.tensor_type.elem_type == onnx.TensorProto.DOUBLE
+        for value in (*unresolved.graph.input, *unresolved.graph.output)
+    )
+    loaded = onnx.load_model(path)
+    onnx.checker.check_model(loaded, full_check=True)
+    for tensor in tensors(loaded):
         assert tensor.data_location == onnx.TensorProto.DEFAULT
         assert not tensor.external_data
         _assert_exact_payload(onnx.numpy_helper.to_array(tensor), payload)

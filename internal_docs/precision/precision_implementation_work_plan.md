@@ -1,40 +1,49 @@
 # Source Precision Implementation Work Plan
 
-Status: updated 2026-10-21; **PRECEDING CHECKPOINT COMMITTED;
-CURRENT FINITE REGRESSION COVERAGE ACCOUNTED FOR ACROSS EXPLICIT EPOCHS;
-MINIMUM SUBSET AND SUPPLEMENT PASS; FINAL CHECKPOINT GATES REQUIRED**.
+Status: updated 2026-10-21; **CURRENT STORAGE-V3 SOURCE EPOCH: FOCUSED FIVE-CASE,
+SEVEN DIRECT QUALITY CHECKS, SUPPORTED MINIMUM 1,752 AND BOTH MODERN 1,813 PASS; FULL PRIMARY
+12,600 PASS; FULL B–F OPEN**. Documentation, normal hooks, staging and commit
+had not run at the qualification cut recorded below; later evidence is separate.
 
-Current private work preserves original Equinox calls, source/state/options,
-stored widths, aliases and raw criteria. Shared native contraction/transpose
-and output-axis binding handle one input-derived batch symbol. Mixed dots
-follow native FP64 or explicitly preferred FP32 work with local conversions;
-static-empty Add has a guarded shared representation. Public behavior stays
-LEGACY and the full fixed-source/existing-functionality B–F contract remains open.
+The current local checkpoint preserves original Dropout/static uniform, literal
+branch outputs, logical-key reports and replay owner lifetime. The shared file
+serializer also corrects ordinary public LEGACY exports: Function tensor
+attributes remain inline and root initializers may remain external across
+ONNX versions, preserving exact payloads. Public precision policy/options/
+defaults remain LEGACY; all existing functionality and fixed sources stay in
+scope. The [canonical record](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform)
+binds every source epoch, retained failure and remaining gate.
 
-The capability-scoped direct-minimum replay passes **2,908 cases**. SECONDARY
-coverage is explicitly **2,527 unchanged-owner passes plus 83 corrected-owner
-passes**, spanning the original 2,610 identities across two epochs. The original
-combined **2,609 PASS / one FAIL** run remains retained; this is not a unified
-green 35-selector run. PRIMARY coverage is **12,226 unchanged other-owner
-passes plus 190 corrected whole-owner passes** across two epochs; its original
-full run remains **FAILED: 12,410 PASS / six FAIL of 12,416**. The same 190
-identities pass on SECONDARY and at actual direct minima, supplementing the
-earlier affected partition and minimum subset. No unified green full or
-combined minimum run is claimed. The
-[canonical record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
-retains earlier failures, exact capability exclusions, diagnostic variants,
-negative-provider evidence and original raw outcomes. No numerical failure or
-missing raw criterion is converted into acceptance.
+Current storage-v3 sources have 13 Python paths/1,108 held inputs. The same five
+storage cases pass on MINIMUM and PRIMARY; seven direct quality checks pass,
+including 559-file typing/RNG inventory, pinned Black, Ruff and four policies.
+All 26 affected owners pass 1,752 supported minimum cases and all 1,813 cases on
+each modern stack. The 61 target-capability cases remain separate requirements;
+this is not full minimum acceptance. The full PRIMARY suite records **12,600 PASS / 0 FAIL / 0 ERROR / 0 SKIP of 12,600 cases**, in 1451.264381 seconds.
+At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
+documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
+checks and commit had not yet run. Later closeout evidence is recorded separately.
 
-Final-source quality-v7 passes all seven checks on its distinct header-comment
-epoch. Strict docs, seven normal hooks and held-byte/local-commit verification
-remain required. The earlier quality-v3 and failed quality-v6 receipts retain
-their own epochs. Then run all 1,852 rows / 3,704 callers through coordinator v2 on the
-clean frozen committed checkpoint. Keep the separately frozen callable-preparation
-packet unapplied until its own native qualification; it preserves explicit
-selected sites/helpers and ordinary independent native callables, but does not
-complete arbitrary fixed-source, state/RNG or scientific-FP64 work. The current
-checkpoint and full product map take priority over applying that future packet.
+Retain the earlier expanded minimum 1,750-PASS/60-FAIL receipt, its independent
+59-capability/one-storage classification and the unchanged-c686 storage failure.
+Original storage payloads were already exact. The new LEGACY fixtures' v1/v2
+each 4-PASS/one-FAIL occurred before save and were corrected only in tests;
+production UI stayed unchanged through those fixture revisions. Earlier literal
+v2/v3 failures, initial 54-case v4/quality passes, diagnostic 64-call artifacts,
+lifetime six-case three-stack passes and old 680-case modern/failed-minimum receipts retain
+their own source epochs and original criteria.
+
+The immutable c686 map now retains 87 ordinary terminals/one original incomplete/
+3,616 unstarted, all 1,852 rows/3,704 callers. It remains separate from current
+MAIN runtime/numerics. C686's commit and seven actual normal hooks are verified;
+normal hooks/commit for the storage-v3 snapshot had not run at its recorded
+qualification cut.
+
+Future wrapper/callable packets remain unapplied/natively unrun; numerical
+certificates retain the hard R2 hold. Context PF1/PF2 v2 is conditionally
+accepted source-only, with no actual capture or execution approval and a
+required fresh checkpoint/pin review. These future packets do not delay current
+qualification or reduce any full fixed-source, state/RNG or numerical goal.
 
 The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
 Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
@@ -66,13 +75,14 @@ with equivalent runtime behavior. Typing passes on **559 source files**;
 **17 RNG factories** are an inventory count. Pinned Black/Ruff and all four
 policies pass for the v3 source epoch. Phases are **NOT_INSTRUMENTED**. Its
 subsequent full-suite failure, the v4 failures and corrected v5 results are
-recorded below. Documentation and normal commit gates remain required.
+recorded below. Its then-pending documentation and normal commit gates were
+subsequently completed at `c686304c`; later packets require their own gates.
 
 The historical coordinator three-cell smoke/resume on immutable `b7eb923a`
 retains three Equinox Linear profile exclusions, original native state/results,
 and the full **1,852-row / 3,704-caller** denominator. It proves bounded execution
-and resume behavior, not a full map or numerical acceptance. Its next full run
-must use the newly qualified committed Eqx/shared-symbolic/output-axis checkpoint.
+and resume behavior, not a full map or numerical acceptance. The later full
+schedule on immutable `c686304c` has the separately paused status above.
 The [current checkpoint record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
 binds qualification, retained failures and remaining gates.
 
@@ -126,9 +136,10 @@ seconds**. It retains exactly the failed epoch's 465 identities and the same
 local replay of the CI selection at all fifteen direct runtime minima, not a
 hosted CI run or complete supported-functionality/B–F acceptance.
 
-Checkpoint acceptance requires final quality, strict docs, all seven normal
-hooks and qualified-byte verification. Full existing-functionality and B–F
-acceptance remain separate obligations.
+The `c686304c` checkpoint's normal hooks, local commit and qualified-byte
+verification are complete. The later applied packet still requires its own
+remaining qualification and final gates stated above. Full existing-
+functionality and B–F acceptance remain separate obligations.
 
 Complete supported-floor and full **B–F** acceptance remain open; public behavior stays **LEGACY**.
 
@@ -150,37 +161,31 @@ or numerical-policy waiver is authorized.
 
 The immediate gates are:
 
-1. Verify the recorded exact PRIMARY **12,226 + 190**, SECONDARY
-   **2,527 + 83 + 190**, and actual direct-minimum **2,908 + 190** coverage
-   partitions, original failed receipts, test-only source deltas and two-file
-   header-comment continuity proof. The original minimum capability ledger
-   remains explicit; no unified green full or combined-minimum run is claimed.
-   Final quality-v7 passes all seven checks on its own 1,106-pin epoch.
-   Strict documentation, all seven normal hooks and held-byte/commit
-   verification remain required checkpoint gates. Preserve every original
-   identity, native reference, recipe, callback and numerical criterion.
-   Earlier checkpoints retain their separate committed qualification and
-   failed histories.
-2. Execute the complete **1,852-row / 3,704-caller** product map on the newly
-   qualified and committed Eqx/shared-symbolic/output-axis checkpoint using the smoke-qualified external
-   coordinator. Preserve every identity, original option, source/reference and
-   failed epoch. Product observations leave runtime/numerics **UNVERIFIED**;
-   resource/infrastructure interruptions remain distinct from native failures.
-3. Continue shared repairs prioritized by actual barriers and affected models.
-   The applied Equinox forwarding/shared-symbolic/output-axis work and its
-   corrective mixed-dot controls are the current qualification packet. Close
-   the remaining actual whole-carrier native JIT obligation and broaden source,
-   state, scope and symbolic coverage using native evidence. The finite one-`B`
-   boundary is an intermediate step, not a permanent target restriction.
-   Repeat the map on newly pinned code after repairs;
-   do not merge unlike epochs into
-   a final coverage claim.
-4. Close remaining numerical criteria, original callbacks, optional models,
-   the **104 registrations without metadata**, handwritten/fixed-source
-   workflows and **complete supported-floor** qualification, with all
-   **50 optional rows** retained. These are separate obligations, not deductions from the raw-map denominator. Continue
-   full **B–F** acceptance before any public transition, with one coherent
-   `to_onnx` and no permanent public selector or per-operation legacy fallback.
+1. Preserve current five-case storage/seven quality and affected-owner passes on their
+   exact storage-v3 source epoch. Retain the 61 exact minimum capability cases
+   as requirements outside positive qualification; the original 181-case ledger is
+   unchanged. Keep all prior failures, original source/state/aliases/settings,
+   callbacks and numerical criteria. No diagnostic variant substitutes for
+   production or numerical qualification.
+2. The full PRIMARY gate records 12,600 PASS, zero failures/errors/skips.
+   At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00),
+   checkpoint closeout still required independent review of the coordinated six-
+   document postimages, strict docs/rendered-link checks, normal commit hooks,
+   qualified/staged bytes and local commit verification. Later closeout evidence
+   is recorded separately; direct quality passes do not replace actual hooks.
+3. Continue the full immutable c686 1,852-row/3,704-caller map with 87 ordinary
+   terminals, one original incomplete and 3,616 unstarted. Retain attempts and
+   explicit incomplete retry under the established procedure. New-code results
+   require a separate pinned epoch; product runtime/numerics stay UNVERIFIED.
+   Continue shared repairs from actual source/state/scope/JIT/symbolic barriers;
+   intermediate finite boundaries are not target capability restrictions.
+4. Keep future wrapper/callable/context and numerical packets separate until
+   their own source refresh, exact review and ROOT qualification. Close original
+   callbacks/criteria, all 50 optional rows, 104 metadata-free registrations,
+   general fixed-source preparation and complete supported-floor/scientific-
+   FP64/low-precision obligations before public precision transition. Preserve
+   one ordinary export contract over all existing functionality, without a
+   permanent selector, per-operation fallback or capability loss. LEGACY remains.
 
 ## Historical committed checkpoint context
 

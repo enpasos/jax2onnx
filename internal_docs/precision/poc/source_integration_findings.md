@@ -2,9 +2,10 @@
 
 ## Minimum-version result and current JAX upgrade
 
-Status, 2026-10-21: **PRECEDING CONTRACTION/FLOOR CHECKPOINT COMMITTED;
-CURRENT FINITE REGRESSION COVERAGE ACCOUNTED FOR ACROSS EXPLICIT EPOCHS;
-CAPABILITY-SCOPED MINIMUM AND SUPPLEMENT PASS; FINAL CHECKPOINT GATES REQUIRED**.
+Status, 2026-10-21: **CURRENT STORAGE-V3 SOURCE FOCUSED/QUALITY CHECKS PASS;
+SUPPORTED MINIMUM 1,752 AND BOTH MODERN 1,813 PASS; FULL PRIMARY 12,600 PASS;
+LEGACY PRECISION POLICY**. Documentation, normal hooks, staging and commit had
+not run at the qualification cut recorded below; later evidence is separate.
 
 The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
 Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
@@ -19,12 +20,390 @@ evidence; they are no longer a supported-floor release gate. This decision
 does not fix numerical/provider gaps or remove any existing model, fixed source
 or numerical requirement from the single-interface migration target.
 
-Public behavior stays **LEGACY**; full B–F acceptance remains open.
+Public precision policy stays **LEGACY**; full B–F acceptance remains open.
+
+### Native Equinox Dropout and shared static uniform
+
+#### Storage-v3 qualification snapshot
+
+The storage-v3 qualification snapshot has **13 Python paths / 1,108 source/config inputs**,
+bound by `source-function-storage-application-v3/source-inputs.json`. Public
+precision policy/options/defaults stay **LEGACY**. The shared serializer also
+corrects ordinary public `return_mode="file"` standard exports, retaining root
+external storage and inline Function tensor attributes across ONNX versions.
+Exact tensor payloads, source/options/state/aliases and original criteria remain
+binding. At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
+documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
+checks and commit had not yet run. Later closeout evidence is recorded separately.
+C686's seven actual hooks were completed for that earlier committed checkpoint.
+
+**Current source-bound results.** The same five storage cases pass on direct
+minima and PRIMARY in 8.879526 and 10.193245 seconds, zero failures/errors/skips.
+All seven direct quality checks pass on the 13 Python paths and 1,108 inputs,
+including 559-file typing/RNG inventory, pinned-hook Black, Ruff and four
+policies. These are direct checks, not normal commit hooks. Phases in the
+native receipts are **NOT_INSTRUMENTED**. Passing owner tests also include
+genuine rejection/diagnostic assertions; failed raw records are not relabeled.
+
+| Current source-bound execution | Actual result | Duration |
+| --- | --- | ---: |
+| Direct-minimum supported partition | 1,752 PASS; zero failures/errors/skips | 268.164035 seconds |
+| SECONDARY, all 26 owners | 1,813 PASS; zero failures/errors/skips | 286.059170 seconds |
+| PRIMARY, all 26 owners | 1,813 PASS; zero failures/errors/skips | 242.660132 seconds |
+| Full PRIMARY | 12,600 PASS; zero failures/errors/skips | 1451.264381 seconds |
+
+The current population is **1,813 = 1,752 supported minimum cases + 61 exact
+target-capability cases**. The 61 comprise 59 actual newly observed target
+rejections (58 ORT opset-26 cases above the minimum runtime's supported ceiling
+and one missing BitCast schema) plus two prior cases. Their exact identities/
+reasons remain in the reviewed capability partition; the original 181-case
+ledger is unchanged. They are not passes, waived requirements or removed
+functionality. All 1,813 identities run on each modern stack. The full PRIMARY suite records **12,600 PASS / 0 FAIL / 0 ERROR / 0 SKIP of 12,600 cases**, in 1451.264381 seconds.
+The seven-stage ROOT serial qualification is terminal PASS with all 1,108
+source inputs held. Exact XML identity reconciliation retains all 12,416 prior
+full-suite identities, removes none and adds 184 (16 Dropout-parameter, 100
+Equinox Dropout, one facade, 51 literal-cond and 16 raw-replay cases). All
+1,813 modern affected-owner identities occur in the full suite. These test
+results do not supply instrumented phase counts or full B–F acceptance.
+
+**Retained failures and storage scope.** The preceding expanded minimum run
+remains **1,750 PASS / 60 FAIL of 1,810**, zero errors/skips: 59 target-capability
+failures and one real Function storage-contract failure, independently reproduced
+as one FAIL at unchanged c686. Both original 1.2 MB FP64 payloads, including
+signed zeros/NaN bits, were already exact, and full loaded-model checker passed.
+The failure was required Function-inline storage, not lost tensor bits. The
+public ONNX toy retains this original minimum contract failure; the candidate
+matches the modern root-external/Function-inline storage with exact payloads.
+That toy uses no runtime sessions and has UNVERIFIED numerics.
+
+Storage fixture v1 and v2 each retain **four PASS / one FAIL of the same five**.
+Only the new LEGACY fixture failed before save: unsupported tuple-return Function,
+then input/output alias-name conflict. Test-only single-output module wrappers
+and consistent alias naming retain all payload/storage assertions. Production
+UI stays `bd79b657…` through those fixture revisions; v3 facade tests are
+`da71e691…`. Current five-case success does not rewrite those failures.
+
+The literal-helper v2 25-PASS/29-FAIL and v3 45-PASS/nine-FAIL runs remain failed;
+the later initial 54-case v4 pass and seven quality passes retain their own epoch.
+The independently accepted 64-call artifact diagnostic retains eight full
+checkers, 512 saved outputs and 384 before/after owners: original 32 calls have
+16 mismatched output occurrences; duplicate-Identity variants match all 256
+outputs across 32 calls under both settings, without owner mutation. It informed
+the SOURCE result-boundary repair and is distinct from production qualification.
+The lifetime repair's same six-case three-stack passes, earlier 680-case modern
+passes / minimum 675-PASS/five-FAIL and preliminary quality failures also remain.
+No source, flag, runtime setting, callback, criterion or baseline is rewritten.
+
+All four original MLP0/1 callbacks remain **FAILED**, criteria None and runtime/
+numerics **UNVERIFIED**; raw replay runs no ORT. MLP2's actual pre-native class
+barrier remains its recorded outcome until a new source-held replay establishes
+otherwise. Complete-model/low-precision/scientific-FP64 and fixed-source B–F
+acceptance remain open through one ordinary export contract, without permanent
+SOURCE/profile selectors, per-operation fallback or capability loss.
+
+The independent immutable `c686304c` map now has **87 ordinary terminal cells,
+one original index-70 incomplete attempt and 3,616 unstarted of 3,704**, retaining
+all 1,852 rows, attempts and frozen source pins. These product observations do
+not qualify current MAIN runtime/numerics, which remain UNVERIFIED.
+
+| Separate future work | Exact current limit |
+| --- | --- |
+| Wrapper v4 / callable preparation v4 | Conditional static wrapper acceptance only; three-owner packets remain unapplied/natively unrun. Counts 136/140 and 74 are AST estimates, not collection or success. |
+| Numeric certificates v2 | Source-only construction accepted, with 31 stdlib tests/80 independent endpoints; hard R2 numerical-execution hold remains. |
+| Context PF1/PF2 v2 | Both findings resolved and source-only implementation conditionally accepted after 44 stdlib/16 independent positive/7 prior-counterexample controls. No actual capture or execution approval; fresh completed source/HEAD/pins and independent delta review are required. R2 remains. |
+
+These packets do not delay current qualification. All existing functionality,
+fixed sources, original callbacks/criteria, optional rows and metadata-free
+anchors remain required. No static/source-only review establishes numerical
+acceptance or a public precision cutover.
+
+Evidence is local provenance under `/tmp/jax2onnx-restart-checkpoint-20261021/`;
+paths are not tracked dependencies.
+
+| Evidence | Receipt or independent record |
+| --- | --- |
+| Current source epoch and exact storage fixture revisions | `source-function-storage-application-v3/receipt.json` and `source-inputs.json`; `source-function-storage-focused-v{1,2,3}-minimum/receipt.json`; `source-function-storage-focused-v3-primary/receipt.json` |
+| Current direct quality / wider runs | `source-function-storage-quality-v3/receipt.json`; `source-function-storage-affected-v3-{minimum,secondary,primary}/receipt.json`; full PRIMARY: `source-function-storage-full-v3-primary/receipt.json`; `source-function-storage-serial-qualification-v3/receipt.json`; `source-function-storage-full-identity-reconciliation-v1.json` |
+| Failed expanded minimum and unchanged-c686 storage | `source-literal-cond-affected-v4-minimum/receipt.json`; `source-large-capture-c686-baseline-v1-minimum/receipt.json`; `astra-source-literal-cond-affected-v4-failure-audit-v1/audit.json` and `capability-partition.json` |
+| Public storage diagnostic, numerical/runtime phases unrun | `source-function-storage-toy-root-v1/receipt.json` |
+| Literal 54-case / artifact 64-call / lifetime six-case source epochs | `source-literal-cond-initial-v4-minimum/receipt.json`; `astra-minimum-cond-alias-probe-actual-v1/audit.json`; `mlp-runtime-feed-owner-retention-three-stack-v1.json` |
+| Immutable product map | `product-map-c686-threecells-v5/receipt.json` |
+| Future wrapper / certificate / context boundaries | `astra-native-wrapper-capture-v4-review-v1/review.json`; `astra-eqx-numeric-implementation-review-v2/review.json`; `astra-eqx-source-context-preflight-review-v2/review.json` |
+
+#### Retained earlier Dropout and diagnostic epochs
+
+The following text preserves the prior source epochs, their observations and
+their then-current pending gates. The current cut and separate future packets
+are stated above; historical pending statements do not override that cut.
+
+The current private addition is the exact six-path Dropout v3 packet on
+`c686304c6d9395be9e3df3dd3770c5a99ea1c2f5`. The packet manifest is
+`eqx-dropout-forwarding-draft-v3/manifest.json`; its patch SHA256 is
+`4dc39896cfcd29eed9339530b3d1c5219dd2c256ad3bb768c51362bcb1a884c6`.
+Paths and receipts in this section are under the external evidence root
+`/tmp/jax2onnx-restart-checkpoint-20261021/`. Public behavior stays **LEGACY**.
+
+**Production scope.** Under private SOURCE policy, Equinox Dropout calls its
+captured original `__call__` with the original positional/keyword arguments
+before any legacy key or flag normalization. Original results, errors/warnings,
+owner/key/input aliases and parameter storage remain observable. Its LEGACY
+body and the existing private carrier/lowerer retain their behavior. This does
+not replace the native source with an ONNX Dropout operation.
+
+Shared uniform admission replaces the artificial static `(32,)` singleton
+with general nonnegative static rank-one length. There is no special case for
+the original MLP width 20. The complete native 13-equation uniform and
+2-equation Bernoulli proofs, selected Threefry implementation and placement,
+key/value/configuration checks, FP32/FP64 restrictions, requested opset/schema
+checks and signed-INT64 count bound remain required. Existing rank-two/rank-three
+admission remains; symbolic rank-one and rank-four negatives remain rejected.
+The 31/33 identities are retained and now test genuine positives.
+
+**Finite native and target evidence.** The new owner preserves eager, warmed
+JIT and fresh JIT comparisons, original/activated typed traces and constants,
+exact call forms, missing/malformed-key errors, aliases, opposite cache-policy
+orders, native vmap/cond/loop capture and private-carrier/implementation/context/
+placement/opset/count negatives. Static lengths **0, 1, 3, 20, 31, 32 and 33**
+use the same admission rule. The independent scalar Python Threefry2x32-20
+oracle is calibrated on its zero vector. Full uniform checks compare every
+FP32/FP64 mantissa bit with exact dyadic expectations using one random consumer
+per key/run; this is separate evidence from the Dropout mask/scaling criterion.
+
+In the earlier exact v3 epoch, all three actual runs execute the same
+**100 unique new-owner identities**
+with **zero failures, errors or skips**, preserving all **1,107 source/configuration
+pins** within each run. Phases are **NOT_INSTRUMENTED**.
+
+| Actual execution | Framework / target | Result | Duration |
+| --- | --- | --- | ---: |
+| PRIMARY `eqx-dropout-v1-primary/receipt.json` | Python 3.12.9; JAX/JAXLIB 0.12.0, Flax 0.12.10; ONNX 1.23.2 / ORT 1.31.0 | 100 PASS | 78.439470516 seconds |
+| SECONDARY `eqx-dropout-v1-secondary/receipt.json` | Python 3.11.12; JAX/JAXLIB 0.10.2, Flax 0.12.8; ONNX 1.23.2 / ORT 1.31.0 | 100 PASS | 102.724135493 seconds |
+| Actual direct minima `eqx-dropout-v1-minimum/receipt.json` | Python 3.11.12; JAX/JAXLIB 0.10.2, Flax 0.12.8, Equinox 0.13.1; ONNX 1.20.1 / ORT 1.24.1 | 100 PASS | 84.395578746 seconds |
+
+This finite owner result is not a full-stack or all-direct-minimum
+existing-functionality claim. Actual minimum runtime capability remains distinct
+from checker/schema success; it grants no blanket ORT 1.24.1 opset-26 support.
+The native Eqx source and shared proof boundaries remain required at every
+requested configuration.
+
+The independent PRIMARY audit
+`astra-eqx-dropout-review-v1/primary-native-array-audit.json`, SHA256
+`c9449accf7caa3e20cd85128f443ea2cd706e6002fe86d8760b124acb6b7e47f`,
+accepts the bounded saved evidence. It verifies **72 target pairs / 144 reports**
+(45 training, 21 full-uniform and six inference cases), **540 report sample
+observations**, and **132 actual saved target executions**. The saved arrays
+come from an **additional explicit runtime session using the same settings**,
+separate from the validator invocation. All 132 match the independent
+oracle/native data and the validator output dtype/shape/payload hashes. The
+six inference cases have reports without saved actual target arrays. These
+counts neither describe 132 validator sessions nor establish universal
+validator-session persistence. This independent array audit is PRIMARY-only;
+the other two 100-case receipts retain their own actual test evidence.
+
+**Original models and diagnostic status.** The four unchanged MLP0/1 recipes
+(`raw-x64-off` and `raw-x64-on` for each ordinal) now pass artifact, schema and
+lowering checks. The original factories, full parameters, source/options,
+callbacks, skip flags and missing criteria remain. All four raw graph callbacks
+remain **FAILED**, `criteria=None`, and runtime/numerics **UNVERIFIED**. These
+raw recorder tests perform **no ORT execution**. In x64-on the model has strong
+FP32 input together with FP64 stored weights/output and mixed-width dot work;
+it is not an all-FP64-input model. The earlier diagnostic zero/scaling/finite
+properties remain recorded, with **UNVERIFIED** diagnostic precision reports;
+the new bitwise sample controls do not assign criteria to those diagnostics or
+to the original MLP recipes. MLP2 and DINO state/replay capture remain unfinished
+implementation/evidence work, not ONNX impossibility claims.
+
+**Corrected combined epoch.** After the first affected failure and preliminary
+quality failure below, ROOT applies exact test/support-only Dropout v4 and
+replay-diagnostic v2 packets. The independent accepted review is
+`astra-eqx-dropout-v4-and-diagnostic-v2-review/review.json`, SHA256
+`cbbb792966e42aa3cb237c2282c1a4e7264397584cd396deadcceef46ff902e9`.
+`eqx-dropout-v4-diagnostic-v2-integration-v1/applied.json` binds four exact
+postimages and all **1,103 other held pins**, **1,107 total**. Production remains
+the exact applied v3 implementation. The new 100-case owner's formatter changes
+preserve its complete AST and original case identities.
+
+The test diagnostic dispatch now recognizes the actual native
+`jax.lax.stop_gradient_p` and sends its actual equation to mandatory
+`validate_source_jaxpr`. Parameter, literal, dtype/shape/weakness, binding,
+arity, effect and placement checks remain. This is no blanket family rule or
+product-admission extension. Six positive and ten hostile controls now have
+actual collection/execution in the corrected combined selection.
+
+The actual ten-owner PRIMARY run,
+`eqx-dropout-affected-v2-primary/receipt.json`, passes **680 unique cases**, zero
+failures/errors/skips, in **314.130520676 seconds**, with source/Git state held.
+Its XML SHA256 is
+`136d0366cf872cdff56bcb66afe28c3db1c9556863e30f44e66deb84aca89bf8`.
+Every earlier 285 affected identity and all original 100 new-owner identities
+are present. The selection also includes the complete raw-replay and
+native-capture owners. This is a separate source-bound execution, not a rewrite
+of the earlier failed receipt. Passing an owner includes assertions preserving
+failed/unverified target records; it does not accept every target or model.
+The terminal SECONDARY receipt,
+`eqx-dropout-affected-v2-secondary/receipt.json`, passes the **same 680 unique
+identities**, zero failures/errors/skips, in **306.635090062 seconds**, with all
+1,107 pins held. Its XML SHA256 is
+`739612a3587abebc334b2410a8983e201936080ca37e3b87a596aab61c0a3cbd`.
+
+**Actual direct-minimum failure and bounded counterfactual.** The same ten-owner
+selection, `eqx-dropout-affected-v2-minimum/receipt.json`, records **675 PASS /
+five FAIL of 680 unique identities**, zero errors/skips, in **236.489109010
+seconds**, with all 1,107 pins held. Its XML SHA256 is
+`45dca43465b8a6605bd9dbe4980ab433762f3306186eff7a54d586d89b769e13`.
+The identities equal those of the two passing combined runs. Phases remain
+**NOT_INSTRUMENTED**. The five failed identities are:
+
+- `test_dropout_nested_default_and_literal_override_ignore_same_named_root_sample[False-nnx]`
+- `test_dropout_nested_default_and_literal_override_ignore_same_named_root_sample[False-linen]`
+- `test_dropout_nested_default_and_literal_override_ignore_same_named_root_sample[False-eqx]`
+- `test_original_mlp_cpu_state_feedback_and_reset_replay[False-float32-linen]`
+- `test_original_mlp_cpu_state_feedback_and_reset_replay[True-float32-linen]`
+
+The first three fail during ORT session initialization; the final two fail
+their unchanged exact sample assertions. The separate unchanged-`c686304c`
+counterfactual, `eqx-c686-minimum-counterfactual-v1-minimum/receipt.json`,
+requests the NNX/Linen nested cases and both Linen state-feedback cases. It
+records **four FAIL of four**, zero errors/skips, in **23.638209049 seconds**,
+with held sources and the same failure signatures. Its XML SHA256 is
+`4d8e580662b4e2c88e569b36d325b06cf34edd486bd5d79166a488f024240bf1`.
+The Eqx failed identity was not part of that old-source counterfactual; no
+old-source Eqx outcome is inferred. The separate causal probe is pending at
+this draft's cutoff. All five current failures remain open, without a waiver
+or inferred repair. These reproductions supply provenance for four failures,
+not a completed minimum gate. The earlier three-stack 100-case owner success
+retains its own v3 epoch and does not establish a unified green minimum run.
+
+**Bounded replay diagnostics and actual pre-native observations.** Applied
+Packet A v2 enriches the existing unsupported function class/static-state
+failure with descriptor-safe class/metaclass symbols, stable traversal path,
+actual loaded module binding and current-Python callable/code fingerprint.
+Full original names decide identity; shortened labels are never lookup keys.
+The serialized diagnostic is capped at **32,768 ASCII JSON bytes**. Diagnostic
+construction errors retain a constant unavailable marker and cannot replace
+the original rejection. There is no class admission, adapter, factory/source
+invocation, native computation or criteria change.
+
+Packet A v1 remains rejected/unapplied. Independent reproductions showed a
+foreign module-cache `__class__` property replacing the original error and a
+3,000,237-byte unbounded diagnostic. V2 resolves those exact counterexamples;
+only v2 received the accepted review and application above. The corrected
+680-case run includes the full diagnostic owner, actual capture fixtures and
+unchanged native-owner/scalar-alias/snapshot controls.
+
+ROOT separately observes unchanged registered `MlpExample` ordinal 2 in both
+original scenarios. The external
+`eqx-mlp2-diagnostic-probe-v1-primary/receipt.json` records **two passing
+diagnostic assertions**, zero failures/errors/skips, in **12.821239080 seconds**,
+with held sources. These are pre-native class-state observations, not successful
+model preparation or product acceptance. The exact observations are
+`eqx-mlp2-diagnostic-observation-v1-primary/raw-x64-{off,on}/observation.json`.
+Both identify actual class **`jax._src.traceback_util.UnfilteredStackTrace`**,
+metaclass `builtins.type`, **exact** loaded defining-module binding and path
+**`root/capture:mapped/global:UnfilteredStackTrace`**. The callable belongs to
+`jax2onnx.plugins.examples.eqx.mlp`, code SHA256
+`d4cad221e4275739e3652e4a7a671de914579d3b6340c2d5e46c7901f5589058`.
+
+Each observation preserves the unchanged recipe's one-instantiation preparation,
+original scenario/settings and **1,852-row / 3,704-cell** denominator, with all
+**3,703 other cells retained by identity** in that observation. The preparation
+still fails at instantiated-target-state; declared/concrete traces, eager,
+fresh JIT and product admission are not attempted, native outcomes are empty,
+and the raw callback is not executed. Artifact/schema/lowering, runtime and
+numerics remain **UNVERIFIED**, with `criteria=None`. Future adapter selection
+is planning only, not implemented or qualified. The optional original-MLP numerical packet remains
+design-only. Its reviewed design authorizes external implementation work,
+without an accepted numerical harness, provider-accuracy claim or native/target
+results.
+
+The separate external callable-preparation v4 refresh retains all three exact
+v3 postimages and their ASTs against the current 1,107-file source epoch.
+Its manifest is `callable-preparation-draft-v4/manifest.json`, SHA256
+`595f9c0d2794a7d42ffbde98046bb93063455da9b9cdaf929935774cf1cccb55`.
+Its **74 AST-estimated combinations** are not native collection/execution
+counts. The packet is unapplied and native qualification is **NOT RUN**; the
+concrete capture wrapper remains unimplemented. Existing NNX preparation and
+actual GPT source files remain unchanged. These remain full fixed-source
+implementation obligations. This source-capture gap is not an ONNX limitation.
+
+**Retained failures and remaining gates.** The first actual seven-owner affected
+PRIMARY run, `eqx-dropout-affected-v1-primary/receipt.json`, is **FAILED:
+278 PASS / seven FAIL of 285 unique cases**, zero errors/skips, in
+**181.941457284 seconds**, with source/Git state held. XML SHA256 is
+`5851997b0224eb06a735d29d27b79d0670e35a9c989a337bc40321e6639b42f9`.
+The seven failures are the existing Eqx positive-rate root/Function/If/Loop
+cases and named default/True/False override cases. Each encounters the original
+native `stop_gradient` inside its dynamic branch, outside the diagnostic
+structural validator's admitted family. This failed epoch remains unchanged;
+the corrected 680-case execution above belongs to its own later source epoch.
+
+The preliminary `eqx-dropout-quality-v1/receipt.json` retains typing PASS
+(57.825830175 seconds) followed by Black FAIL (1.907895301 seconds), with all
+1,107 pins held; later checks were not run. The accepted AST-identical
+formatter correction does not relabel that failed quality epoch as passing.
+
+The later `eqx-dropout-quality-v2/receipt.json` records **all seven checks
+PASS**: typing, actual-hook Black on eight changed Python paths, global Ruff,
+reflection, builder, path markers and variable annotations. All **1,107 source/
+configuration pins hold**. Strict docs/rendered links, normal commit hooks,
+qualified bytes and commit checks remain pending. The current full PRIMARY
+suite has **NOT RUN**. Quality results do not waive failed minimum checks.
+
+| Current addition gate | Actual status at this documentation cutoff |
+| --- | --- |
+| Original exact v3 / new 100-case owner | Same 100 IDs PASS on three stacks in the earlier v3 epoch |
+| Independent saved-array audit | Finite PRIMARY evidence accepted; 132 saved target executions in additional same-settings sessions |
+| Applied v4 test proof / diagnostic v2 | Exact static review accepted; four applied postimages, production v3 unchanged |
+| First affected seven-owner PRIMARY | FAILED: 278 PASS / seven FAIL of 285; retained |
+| Corrected combined ten-owner PRIMARY / SECONDARY | Same 680 IDs PASS per stack; zero failures/errors/skips |
+| Current direct-minimum ten-owner selection | FAILED: 675 PASS / five FAIL of the same 680 IDs; zero errors/skips |
+| Unchanged c686 four-case minimum counterfactual | Four FAIL of four; Eqx failed identity not included; no waiver or repair |
+| Minimum causal probe / repair / requalification | PENDING; all five current failures remain open |
+| Actual MLP2 pre-native class-state observations | Two diagnostic assertions PASS; native outcomes empty, product/numerics unaccepted |
+| Future callable preparation / capture wrapper / model numerics | External v4 exact v3; 74 AST estimates, native NOT RUN; wrapper unimplemented; numerics design-only |
+| Current complete PRIMARY | NOT RUN |
+| Preliminary quality | Typing PASS / Black FAIL; retained |
+| Current source quality v2 | All seven checks PASS; 1,107 pins held |
+| Strict docs / rendered links / normal hooks / qualified bytes / commit | PENDING |
+| Full immutable 3,704-cell map / original-model numerics / B–F | OPEN |
+
+Earlier six-path Dropout candidates v1 and v2 remain exact, rejected/unapplied and natively
+unexecuted. Their patch SHA256 values are
+`40f00fba888c8a3e7462f929f246198a738be652ab7e3ed21ad1bd3ea257d04d`
+and `da08f7581fc9269790416c1ba7a1b71b863b6dba5a731389a99d179877c1db4e`.
+V1 retained typed-key NumPy coercion, palindromic cache ordering and incomplete
+mask-only random evidence; v2 retained an invented LEGACY typed-key-alias
+smoke contract. Of those three six-path candidates, only v3 received static
+acceptance and native execution. Its later test/support corrections have their
+own accepted review and combined execution above. The separately rejected diagnostic Packet A v1 remains unapplied;
+the accepted diagnostic v2 and its bounded actual observations are recorded
+above without inheriting any v1 acceptance.
+
+**Immutable product map.** The full original **1,852-row / 3,704-caller** map
+actually started on detached immutable `c686304c`, separately from new-code
+qualification. `eqx-dropout-map-pause-v1/{before-signal,after-child-stop}.json`
+records the controlled pause for serial qualification: **70 ordinary terminal
+cells, one incomplete `user_interrupted` attempt and 3,633 unstarted cells**.
+The prior terminal hashes hold, the verified supervisor is gone and owned child
+groups are empty. The interrupted cell is `issue18_fori_loop`, ordinal 0,
+`raw-x64-off`, index 70. All original attempts and the complete denominator are
+retained. Resume that same epoch with incomplete retry; never splice new-code
+results into its cells. The map is product-only: its runtime/numerics remain
+UNVERIFIED. Pausing it neither drops unfinished cells nor completes the goal.
+
+The target still requires all existing functionality, fixed third-party
+sources, original numerical criteria and full B–F acceptance through one
+ordinary source-preserving export contract, without a permanent SOURCE/profile
+selector or capability loss. Optional models, metadata-free anchors, original
+callbacks, state/RNG/replay preparation and complete-model numerics remain
+obligations. The [preceding committed checkpoint](#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
+retains its own failed full run and explicit corrected partitions below.
 
 ### Equinox forwarding, shared symbolic contraction and output axes
 
 The preceding generalized-contraction/support-floor checkpoint is committed at
-`7b70b22f`. The next combined private epoch applies the separately frozen
+`7b70b22f`. The subsequent combined checkpoint is committed locally at
+`c686304c6d9395be9e3df3dd3770c5a99ea1c2f5`. Its combined private epoch applies the separately frozen
 Equinox original-call, shared native symbolic-contraction/transpose and exact
 output-axis sample/report packets. Equinox forwarding preserves the captured
 original `__call__`, arguments, callback behavior, native errors, stored model
@@ -311,11 +690,10 @@ typing on **559 source files** in **58.924235323 seconds**, pinned Black on
 **27 changed Python paths**, Ruff, reflection, builder, path markers and
 annotations. Receipt SHA256 is
 `116ced393e599d64d49cf2b866a29e3a3296fcbecc73a27997a6ccf0faf8007d`.
-This is separate from the seven normal commit hooks. Strict documentation,
-rendered-link checks, normal hooks and qualified-byte/local-commit verification
-remain required checkpoint gates. These five document updates occur after the
-held native and quality epochs; no unchanged-all-inputs claim extends across
-the documentation update.
+This quality result is separate from the seven actual normal commit hooks
+subsequently recorded below. The five-document update occurs after those held
+native and quality epochs; no unchanged-all-inputs claim extends across that
+documentation update.
 
 The subsequent complete PRIMARY run is **FAILED: 12,410 PASS / six FAIL of
 12,416 unique cases**, zero errors/skips, in **1,770.503410781 seconds**. All
@@ -395,7 +773,24 @@ full current-stack B–F or complete-product-map acceptance.
 | Earlier quality-v3 | Seven quality checks PASS on its pre-helper 1,104-pin epoch |
 | Quality-v6 | FAILED: five checks PASS, path markers FAIL, annotations not executed; exact two-file comment-only repair |
 | Quality-v7 | Seven checks PASS on its 1,106-pin header-comment epoch; 27 changed Python paths, typing on 559 source files |
-| Strict docs / rendered links / seven normal hooks / held bytes and local commit | Required checkpoint gates; no passing result claimed here |
+| Seven normal hooks / held bytes / local commit | Subsequently completed at `c686304c`; exact receipts below; no unified green full-run inferred |
+
+The subsequent actual normal commit succeeds at
+`c686304c6d9395be9e3df3dd3770c5a99ea1c2f5`, parent `7b70b22f`, in
+81.300028776 seconds, without skipped hooks or `--no-verify`.
+`eqx-final-integration-v8/commit-receipt.json`, SHA256
+`295362e22a7a5a274e09e97051d65ef244fd49c29f2cc21988f456769e818e59`,
+records all **1,106 qualified input bytes held**, **27 Python / five reviewed
+documentation paths**, all **32 changed committed blobs exact**, and a clean
+worktree. The independent
+`astra-correction-review-v1/checkpoint-c686304c-independent-commit-audit.json`
+verifies all seven actual hooks: Black, Ruff, reflection, mypy, file-path
+markers, IR-builder policy and module annotations. It separately accounts for
+existing `.python-version` CRLF-to-LF Git input normalization; all 942 Python
+inputs are exact. This closes that local finite checkpoint's normal-commit
+and byte-binding gates. It does not turn the retained failed 12,416-case full
+run into a unified green run or complete original-model numerics, the full
+3,704-cell product map, release or B–F acceptance.
 
 ROOT verified archives for both failed v1 and passing v2 installed-stack RAM
 trees, preserving their sources. The v2 archive-only receipts bind tar SHA256

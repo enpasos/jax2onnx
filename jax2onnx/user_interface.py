@@ -777,7 +777,7 @@ def _source_aval_properties(aval: Any) -> TensorProperties:
     return TensorProperties(
         None,
         normalized_shape_dimensions(aval.shape),
-        np.dtype(aval.dtype).name,
+        representation_for_aval(aval).logical_dtype.name,
         bool(aval.weak_type),
     )
 
@@ -1309,15 +1309,25 @@ def _to_onnx(
                 pass
             return dest
 
-        onnx.save_model(
-            model_proto,
-            dest,
-            save_as_external_data=True,
-            all_tensors_to_one_file=True,
-            location=data_location,
-            size_threshold=external_threshold,
-            convert_attribute=False,
-        )
+        # Function tensor attributes stay inline across supported ONNX versions.
+        # Some versions include them even when convert_attribute is False.
+        function_snapshots: list[tuple[onnx.FunctionProto, onnx.FunctionProto]] = []
+        for function in model_proto.functions:
+            snapshot = onnx.FunctionProto()
+            snapshot.CopyFrom(function)
+            function_snapshots.append((function, snapshot))
+        try:
+            onnx.convert_model_to_external_data(
+                model_proto,
+                all_tensors_to_one_file=True,
+                location=data_location,
+                size_threshold=external_threshold,
+                convert_attribute=False,
+            )
+        finally:
+            for function, snapshot in function_snapshots:
+                function.CopyFrom(snapshot)
+        onnx.save_model(model_proto, dest, save_as_external_data=False)
         # Only keep the .data sidecar if the export actually referenced external data.
         if not any(init.external_data for init in model_proto.graph.initializer):
             # No external payloads; remove an empty sidecar if one was produced.

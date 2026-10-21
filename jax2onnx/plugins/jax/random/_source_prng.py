@@ -338,8 +338,8 @@ def prove_native_uniform(eqn: Any) -> _Uniform | None:
         len(shape) in (2, 3)
         or len(shape) == 1
         and type(shape[0]) is int
-        and shape[0] == 32,
-        "uniform requires an audited rank-two/rank-three shape or static (32,)",
+        and shape[0] >= 0,
+        "uniform requires an audited rank-two/rank-three shape or a static rank-one shape",
     )
     scalar_shape = (1,) * len(shape)
     key, low, high = body.invars
