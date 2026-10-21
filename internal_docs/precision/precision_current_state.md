@@ -28,7 +28,63 @@ inputs** matched the full run and the worktree was clean. The earlier
 [platform record](poc/source_integration_findings.md#exact-platform-selector-and-native-eye-forwarding)
 retains its failed branch-capture epochs.
 
-The applied private generalized-contraction implementation uses a shared
+The preceding generalized-contraction/support-floor checkpoint is committed at
+**`7b70b22f`**. The current private checkpoint forwards Equinox Linear to its
+captured original call with exact arguments and native errors, keeping the
+original model sources, options, parameter bytes, state and criteria. It extends
+the shared native contraction/transpose proof to one actual input-derived `B`
+at admitted intermediate axes and binds that symbol at arbitrary admitted
+output axes in exact artifact/report/sample declarations. Inputs retain the
+positive leading-`B` contract; empty static output tails do not admit empty
+symbolic inputs or `B=0`.
+
+Mixed FP32/FP64 dots retain the actual native FP64 result or explicitly
+preferred FP32 work after frozen original native inference. A local consumer
+conversion occurs before the dot; original physical ports, stored values and
+returned aliases retain their declared widths. The reviewed FP64 precision gate
+is unchanged. Broader precision algorithms and dtype routes remain unfinished.
+
+Static-empty real/discrete Add validates existing admission, native results and
+both physical operands before emitting a fresh Identity or typed empty constant.
+Only the output variable is bound. Nonempty and LEGACY arithmetic, symbolic
+zero-tail owner gates and the dedicated complex branch retain their behavior.
+Empty packed-complex provider behavior remains unqualified.
+
+The actual direct-minimum subset passes **2,908 cases**, zero
+failures/errors/skips. Its exact capability ledger is distinct from full
+supported-functionality acceptance. SECONDARY affected coverage consists of
+**2,527 unchanged-owner passes plus 83 corrected-owner passes** in separate
+epochs; the original combined run remains **2,609 PASS / one FAIL of 2,610**.
+The original PRIMARY full remains **FAILED: 12,410 PASS / six FAIL of
+12,416**, zero errors/skips. Its coverage is accounted for by **12,226 unchanged
+other-owner passes plus 190 corrected whole-owner passes** across two epochs.
+Those same 190 identities pass on SECONDARY and at actual direct minima,
+supplementing the earlier SECONDARY partition and 2,908-case minimum subset.
+These are separate source-bound executions, with exact test-only deltas; no
+unified green full or combined minimum run is claimed. Earlier dual v2 passes,
+the failed minimum-v3 epoch, diagnostics and collection/import repair
+remain separate in the [checkpoint record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes).
+
+The shared test evidence helper preserves same-artifact DISABLED acceptance and
+specific default-ALL FP64 runtime-load failures, including the unchanged raising
+gate and unexecuted later samples. Subnormal bitwise comparisons remain FAILED
+under the original target settings. Passing negative-witness tests do not accept
+those failed target configurations. Raw callback failures and four source
+exclusions remain in the original Eqx/MLP observations; missing runtime/numerical
+criteria stay **UNVERIFIED**. No original criterion or public default changes.
+
+The earlier quality-v3 epoch passes before the target evidence helper. The
+later quality-v6 marker failure is retained; its two-file comment-only repair
+preserves the complete module ASTs and all other source pins. Actual quality-v7
+passes all seven checks on that distinct 1,106-pin epoch. Strict docs, seven
+normal commit hooks and held-byte/commit checks remain required. Captured outer Function
+native JIT retains its specific missing-MLIR evidence gap; original eager/
+warmed/fresh JIT and captured leaf checks remain independent. The full product
+map, complete models, general fixed sources and B–F gates remain open. Public
+behavior stays LEGACY; the future callable-preparation packet is separately
+frozen, unapplied and native-unqualified.
+
+The preceding private generalized-contraction implementation uses a shared
 validated shape plan: supplied contracting and batch-axis pairing is retained,
 free axes retain native order, and only the required consumers transpose or
 reshape values. Same-width FP32/FP64 and the existing explicit
@@ -112,14 +168,16 @@ acceptance remain separate obligations.
 
 Phases are **NOT_INSTRUMENTED**.
 
-An external coordinator now preserves the full **1,852-row / 3,704-caller**
+An external coordinator preserves the full **1,852-row / 3,704-caller**
 product plan in bounded fresh processes with resumable durable receipts. Its
-actual smoke on immutable `b7eb923a` completed two cells and exactly one new
+historical smoke on immutable `b7eb923a` completed two cells and exactly one new
 cell on resume, preserving all prior evidence. All three stop at the existing
 Equinox Linear SOURCE barrier. Native results and state are retained; no ONNX
-artifact or runtime/numerical acceptance is implied. Equinox forwarding is a
-separate follow-up, and the full product map must run on a fresh committed
-contraction epoch. See the [current record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke).
+artifact or runtime/numerical acceptance is implied. Those exclusions belong
+to that earlier immutable source. The next full map must use the newly
+qualified and committed Equinox/shared-symbolic/output-axis checkpoint; its
+qualification is still pending. See the [historical smoke record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke)
+and the [current checkpoint](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes).
 
 A separate [BF16 elementwise diagnostic](poc/source_integration_findings.md#bf16-elementwise-feasibility-observations)
 now has actual PRIMARY CPU observations: direct BF16 models fail to load on

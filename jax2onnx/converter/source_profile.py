@@ -62,7 +62,8 @@ from jax2onnx.converter.source_pooling import validate_native_window_sum
 from jax2onnx.converter.source_native_contract import validate_native_results
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
-    validate_source_shapes,
+    native_shape_contract,
+    validate_native_shapes,
 )
 from jax2onnx.plugins.jax.core._platform_index_contract import (
     is_mosaic_default_platforms,
@@ -227,6 +228,14 @@ class _Tensor:
     dtype: str
     shape: tuple[int | str, ...]
     symbol: tuple[str, object | None] | None = None
+    symbol_axis: int | None = None
+
+
+def _extended_symbolic_shape(value: _Tensor) -> bool:
+    """Layouts outside the established leading-B, positive-tail owners."""
+    return value.symbol is not None and (
+        value.symbol_axis != 0 or any(dim == 0 for dim in value.shape)
+    )
 
 
 def _tensor(var: Any, site: _Site) -> _Tensor:
@@ -271,7 +280,8 @@ def _tensor(var: Any, site: _Site) -> _Tensor:
         category="lowering-defect",
     )
     try:
-        normalized, symbol = source_shape_contract(shape)
+        contract = native_shape_contract(shape)
+        normalized, symbol = contract.shape, contract.symbol
     except ValueError as exc:
         site.fail(f"shape {shape} is outside the profile", str(exc))
     site.require(
@@ -284,7 +294,7 @@ def _tensor(var: Any, site: _Site) -> _Tensor:
         "symbolic complex values are outside this audited batch packet",
         "Boolean, integer, or floating symbolic tensors within the shared finite shape proof",
     )
-    return _Tensor(dtype, normalized, symbol)
+    return _Tensor(dtype, normalized, symbol, contract.symbol_axis)
 
 
 def _arity(eqn: Any, inputs: int, outputs: int, site: _Site) -> None:
@@ -505,31 +515,37 @@ def _is_direct_tensor_matrix_dot(
 
 @dataclass(frozen=True)
 class _DotContractionPlan:
-    """One static native axis plan; it does not prescribe reduction arithmetic."""
+    """Native axis order with only static free/contracting dimensions grouped."""
 
     lhs_permutation: tuple[int, ...]
     rhs_permutation: tuple[int, ...]
-    lhs_matrix_shape: tuple[int, ...]
-    rhs_matrix_shape: tuple[int, ...]
-    matrix_output_shape: tuple[int, ...]
-    output_shape: tuple[int, ...]
+    lhs_matrix_shape: tuple[int | str, ...]
+    rhs_matrix_shape: tuple[int | str, ...]
+    matrix_output_shape: tuple[int | str, ...]
+    output_shape: tuple[int | str, ...]
     contracting_size: int
     outer_product: bool
+    ungrouped_output_shape: tuple[int | str, ...]
+    output_permutation: tuple[int, ...]
+    symbolic_operand: tuple[int, int] | None = None
+
+
+class _DotSymbolicExclusion(ValueError):
+    """A native symbolic geometry still needs its own contraction proof."""
 
 
 def _dot_contraction_plan(
     lhs_shape: Sequence[object], rhs_shape: Sequence[object], dimensions: Any
 ) -> _DotContractionPlan:
-    """Pair axes in supplied order, then retain each operand's free-axis order."""
-    if not all(
-        isinstance(dim, (int, np.integer))
-        and not isinstance(dim, (bool, np.bool_))
-        and dim >= 0
-        for dim in (*lhs_shape, *rhs_shape)
-    ):
-        raise ValueError("generalized contraction requires static nonnegative extents")
-    lhs_dims: tuple[int, ...] = tuple(int(cast(int, dim)) for dim in lhs_shape)
-    rhs_dims: tuple[int, ...] = tuple(int(cast(int, dim)) for dim in rhs_shape)
+    """Pair supplied axes, retaining native scope and each operand's free order.
+
+    A free B becomes a private MatMul batch axis; the static operand broadcasts.
+    Only static dimensions are multiplied. The final permutation restores native
+    [supplied batch axes, lhs free axes, rhs free axes], without swapping operands.
+    """
+    contracts = (native_shape_contract(lhs_shape), native_shape_contract(rhs_shape))
+    validate_native_shapes((lhs_shape, rhs_shape))
+    lhs_dims, rhs_dims = (contract.shape for contract in contracts)
     if not (
         isinstance(dimensions, (tuple, list))
         and len(dimensions) == 2
@@ -554,6 +570,22 @@ def _dot_contraction_plan(
             raise ValueError("invalid or overlapping generalized contraction axes")
     if len(lc) != len(rc) or len(lb) != len(rb):
         raise ValueError("generalized contraction axis pair counts differ")
+    symbolic_operand = next(
+        (
+            (index, contract.symbol_axis)
+            for index, contract in enumerate(contracts)
+            if contract.symbol is not None
+        ),
+        None,
+    )
+    if any(
+        contract.symbol_axis in contracting
+        for contract, contracting in zip(contracts, (lc, rc), strict=True)
+        if contract.symbol is not None
+    ):
+        raise _DotSymbolicExclusion(
+            "contracting symbolic B remains an unfinished native contraction obligation"
+        )
     if any(
         lhs_dims[left] != rhs_dims[right]
         for left, right in (*zip(lc, rc, strict=True), *zip(lb, rb, strict=True))
@@ -561,12 +593,35 @@ def _dot_contraction_plan(
         raise ValueError("generalized contraction paired dimensions differ")
     lf = tuple(axis for axis in range(len(lhs_dims)) if axis not in lc + lb)
     rf = tuple(axis for axis in range(len(rhs_dims)) if axis not in rc + rb)
-    batch = tuple(int(lhs_dims[axis]) for axis in lb)
-    left = tuple(int(lhs_dims[axis]) for axis in lf)
-    right = tuple(int(rhs_dims[axis]) for axis in rf)
-    k = prod(int(lhs_dims[axis]) for axis in lc)
+    symbolic_sides = [
+        i for i, contract in enumerate(contracts) if contract.symbol is not None
+    ]
+    free_symbol: tuple[int, int] | None = None
+    if len(symbolic_sides) == 2:
+        la, ra = (contract.symbol_axis for contract in contracts)
+        if not any(a == la and b == ra for a, b in zip(lb, rb, strict=True)):
+            raise _DotSymbolicExclusion(
+                "two unpaired symbolic B occurrences remain an unfinished native contraction obligation"
+            )
+    elif symbolic_sides:
+        side = symbolic_sides[0]
+        axis = contracts[side].symbol_axis
+        if axis not in (lf, rf)[side]:
+            raise _DotSymbolicExclusion(
+                "symbolic B must be free or paired at one supplied batch position"
+            )
+        free_symbol = (side, axis)
+    lf_static = tuple(axis for axis in lf if free_symbol != (0, axis))
+    rf_static = tuple(axis for axis in rf if free_symbol != (1, axis))
+    batch = tuple(lhs_dims[axis] for axis in lb)
+    left = tuple(cast(int, lhs_dims[axis]) for axis in lf_static)
+    right = tuple(cast(int, rhs_dims[axis]) for axis in rf_static)
+    k = prod(cast(int, lhs_dims[axis]) for axis in lc)
     m, n = prod(left), prod(right)
-    if any(size > np.iinfo(np.int64).max for size in (*lhs_dims, *rhs_dims)):
+    if any(
+        isinstance(size, int) and size > np.iinfo(np.int64).max
+        for size in (*lhs_dims, *rhs_dims)
+    ):
         raise _DotDimensionLimit(
             "an individual contraction dimension exceeds ONNX INT64"
         )
@@ -575,15 +630,51 @@ def _dot_contraction_plan(
             "the current flattened contraction intermediate exceeds INT64; "
             "another lowering strategy remains unfinished"
         )
+    internal_batch = batch
+    lhs_batch, rhs_batch = batch, batch
+    lhs_axes, rhs_axes = lb, rb
+    batch_tokens = tuple((2, index) for index in range(len(lb)))
+    internal_tokens = batch_tokens
+    if free_symbol is not None:
+        side, axis = free_symbol
+        symbol = contracts[side].shape[axis]
+        internal_batch = (symbol, *batch)
+        lhs_batch = (symbol if side == 0 else 1, *batch)
+        rhs_batch = (symbol if side == 1 else 1, *batch)
+        lhs_axes = (axis, *lb) if side == 0 else lb
+        rhs_axes = (axis, *rb) if side == 1 else rb
+        internal_tokens = (free_symbol, *batch_tokens)
+    native_tokens = (
+        *batch_tokens,
+        *((0, axis) for axis in lf),
+        *((1, axis) for axis in rf),
+    )
+    internal_tokens = (
+        *internal_tokens,
+        *((0, axis) for axis in lf_static),
+        *((1, axis) for axis in rf_static),
+    )
+    output = (
+        *batch,
+        *(lhs_dims[axis] for axis in lf),
+        *(rhs_dims[axis] for axis in rf),
+    )
     return _DotContractionPlan(
-        tuple(int(axis) for axis in lb + lf + lc),
-        tuple(int(axis) for axis in rb + rc + rf),
-        (*batch, m, k),
-        (*batch, k, n),
-        (*batch, m, n),
-        (*batch, *left, *right),
+        tuple(int(axis) for axis in (*lhs_axes, *lf_static, *lc)),
+        tuple(int(axis) for axis in (*rhs_axes, *rc, *rf_static)),
+        (*lhs_batch, m, k),
+        (*rhs_batch, k, n),
+        (*internal_batch, m, n),
+        output,
         k,
         not lc,
+        (*internal_batch, *left, *right),
+        tuple(internal_tokens.index(token) for token in native_tokens),
+        (
+            None
+            if symbolic_operand is None
+            else (symbolic_operand[0], cast(int, symbolic_operand[1]))
+        ),
     )
 
 
@@ -671,6 +762,40 @@ def _validate_tensor_matrix_dot(
     _same_shape(result.shape, lhs.shape[:-1] + (rhs.shape[1],), site)
 
 
+def _is_mixed_fp64_dot_route(dtypes: tuple[str, ...], preferred: Any) -> bool:
+    """Recognize one locally promoted route; native inference remains required.
+
+    Both supported JAX CPU lowerers convert mixed non-algorithm operands to the
+    declared result dtype before dot_general. FP32 values embed exactly in FP64;
+    the shared lowerer preserves that conversion without changing original Vars.
+    Other preferred-result combinations and explicit algorithms need their own
+    contracts.
+    """
+    return dtypes in {
+        ("float32", "float64", "float64"),
+        ("float64", "float32", "float64"),
+    } and (preferred is None or np.dtype(preferred) == np.dtype(np.float64))
+
+
+def _is_mixed_fp32_dot_route(dtypes: tuple[str, ...], preferred: Any) -> bool:
+    """Recognize explicit mixed-width FP32 work without granting FP64 hints.
+
+    Native CPU lowering converts unequal floating operands to the actual result
+    dtype before computing. The frozen native evaluator still proves the result
+    and caller context; this predicate alone does not admit a native equation.
+    Same-width FP64 with preferred FP32 remains a separate unfinished route.
+    """
+    return (
+        dtypes
+        in {
+            ("float32", "float64", "float32"),
+            ("float64", "float32", "float32"),
+        }
+        and preferred is not None
+        and np.dtype(preferred) == np.dtype(np.float32)
+    )
+
+
 def _validate_dot(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
@@ -691,8 +816,27 @@ def _validate_dot(
     default = (jax.lax.Precision.DEFAULT, jax.lax.Precision.DEFAULT)
     precision = eqn.params.get("precision")
     preferred = eqn.params.get("preferred_element_type")
-    native_fp64 = all(value.dtype == "float64" for value in (*inputs, *outputs)) and (
-        preferred is None or np.dtype(preferred) == np.dtype(np.float64)
+    mixed_fp64 = _is_mixed_fp64_dot_route(
+        tuple(value.dtype for value in inputs) + ("float64",), preferred
+    )
+    mixed_fp32 = _is_mixed_fp32_dot_route(
+        tuple(value.dtype for value in inputs) + ("float32",), preferred
+    )
+    site.require(
+        not mixed_fp64 or outputs[0].dtype == "float64",
+        "mixed matrix result dtype differs from its native FP64 computation",
+        "the native FP64 result of mixed FP32/FP64 operands with absent or preferred FP64 output",
+        category="lowering-defect",
+    )
+    site.require(
+        not mixed_fp32 or outputs[0].dtype == "float32",
+        "mixed matrix result dtype differs from its native preferred FP32 computation",
+        "the native FP32 result of mixed FP32/FP64 operands with explicitly preferred FP32 output",
+        category="lowering-defect",
+    )
+    native_fp64 = mixed_fp64 or (
+        all(value.dtype == "float64" for value in (*inputs, *outputs))
+        and (preferred is None or np.dtype(preferred) == np.dtype(np.float64))
     )
     # Both supported JAX versions document Precision enums as FP32-only hints.
     # Explicit algorithms remain separate contracts even when named F64_F64_F64.
@@ -714,7 +858,7 @@ def _validate_dot(
             "ordinary matrix preferred result type is outside the profile",
             "absent or same-dtype preferred_element_type",
         )
-    else:
+    elif not (mixed_fp64 or mixed_fp32):
         site.require(
             tuple(value.dtype for value in (*inputs, *outputs))
             == ("float16", "float16", "float32")
@@ -723,24 +867,28 @@ def _validate_dot(
             "matrix operand/result types are outside the profile",
             "FP16 operands with an explicitly preferred FP32 result",
         )
-    if any(value.symbol is not None for value in (*inputs, *outputs)):
+    symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
+    if symbolic:
         site.require(
             inputs[0].dtype in {"float32", "float64"},
             "symbolic preferred-FP32 contraction requires a separate product proof",
-            "the existing same-width symbolic tensor/matrix or leading-batch route",
+            "same-width FP32/FP64 or native mixed FP32/FP64 symbolic contractions with a proved result dtype",
         )
-        if len(inputs[1].shape) == 2 and len(inputs[0].shape) in (2, 3, 4):
-            _validate_tensor_matrix_dot(eqn, inputs, outputs, site)
-        else:
-            _validate_leading_batch_dot(eqn, inputs, outputs, site)
-    elif inputs[0].dtype in {"float32", "float64"} and _is_direct_tensor_matrix_dot(
-        inputs[0].shape, inputs[1].shape, eqn.params["dimension_numbers"]
+    if (
+        not symbolic
+        and not (mixed_fp64 or mixed_fp32)
+        and inputs[0].dtype in {"float32", "float64"}
+        and _is_direct_tensor_matrix_dot(
+            inputs[0].shape, inputs[1].shape, eqn.params["dimension_numbers"]
+        )
     ):
         _validate_tensor_matrix_dot(eqn, inputs, outputs, site)
     else:
         try:
             plan = _dot_contraction_plan(
-                inputs[0].shape, inputs[1].shape, eqn.params["dimension_numbers"]
+                eqn.invars[0].aval.shape,
+                eqn.invars[1].aval.shape,
+                eqn.params["dimension_numbers"],
             )
         except _DotDimensionLimit as exc:
             site.fail(
@@ -748,16 +896,15 @@ def _validate_dot(
                 "individual tensor dimensions representable by ONNX INT64",
                 category="representation-limit",
             )
-        except _DotGroupingLimit as exc:
+        except (_DotGroupingLimit, _DotSymbolicExclusion) as exc:
             site.fail(
                 str(exc),
-                "representable grouped intermediates for the current lowering; alternate lowering remains unfinished",
-                category="profile-exclusion",
+                "representable grouped static intermediates and one free or paired native B; other symbolic contractions remain unfinished",
             )
         except ValueError as exc:
             site.fail(
                 str(exc),
-                "original distinct paired batch/contracting axes with matching nonnegative static extents",
+                "original distinct paired batch/contracting axes with matching nonnegative extents and native scope",
                 category="lowering-defect",
             )
         _same_shape(outputs[0].shape, plan.output_shape, site)
@@ -1102,6 +1249,12 @@ def _validate_tensor_layout(
         "the same atomic leading batch variable",
         category="lowering-defect",
     )
+    if name == "transpose" and any(
+        _extended_symbolic_shape(value) for value in (*inputs, *outputs)
+    ):
+        validate_native_results(
+            eqn, site, primitive=jax.lax.transpose_p, parameters={"permutation"}
+        )
 
 
 def _validate_pad_slice(
@@ -2035,6 +2188,13 @@ def _validate_equation(
         "the same atomic batch variable and scope as actual formals",
     )
     name = site.primitive
+    site.require(
+        not any(_extended_symbolic_shape(value) for value in (*inputs, *outputs))
+        or name in {"dot_general", "transpose", "jit"}
+        or bool(name and name.startswith("onnx_fn::")),
+        "nonleading or zero-tail symbolic layout has no audited owner",
+        "the shared contraction, exact transpose and native signature carriers; other owners retain leading B with positive tails",
+    )
     _validate_opset16_equation(inputs, outputs, site)
     validate_original_elementary_opset(inputs, outputs, site)
     symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
@@ -2541,7 +2701,7 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
     # retraced scope locally while preserving identity within that scope.
     formals = (*jaxpr.invars, *jaxpr.constvars)
     try:
-        validate_source_shapes([tuple(var.aval.shape) for var in formals])
+        validate_native_shapes([tuple(var.aval.shape) for var in formals])
     except ValueError as exc:
         site.fail("invalid symbolic scope metadata", str(exc))
     formal_symbols = {

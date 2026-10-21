@@ -894,6 +894,8 @@ _NATIVE_ABSTRACT_RULES = tuple(
         _native_lax.scatter_mul_p,
         _native_remat_p,
         _native_lax.dot_general_p,
+        _native_lax.transpose_p,
+        _native_lax.add_p,
     )
 )
 

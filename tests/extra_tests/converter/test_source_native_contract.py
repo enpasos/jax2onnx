@@ -39,7 +39,6 @@ from jax2onnx.converter.precision_policy import (
 )
 from jax2onnx.converter.source_profile import SourcePrecisionError, _Site
 
-
 _FAMILIES = ("scan", "while", "scatter", "scatter-add", "scatter-mul", "remat2")
 
 
@@ -253,9 +252,12 @@ def test_unowned_identity_or_parameters_fail_before_the_oracle(
     if kind == "same-name":
         eqn = _equation(eqn, primitive=Primitive(eqn.primitive.name))
     elif kind == "unselected-native":
-        eqn = jax.make_jaxpr(lambda value: value + np.float64(1))(
+        native = jax.make_jaxpr(lambda value: jax.lax.mul(value, np.float64(2)))(
             jax.ShapeDtypeStruct((4,), np.float64)
-        ).jaxpr.eqns[0]
+        ).jaxpr
+        assert len(native.eqns) == 1
+        eqn = native.eqns[0]
+        assert eqn.primitive is jax.lax.mul_p
         primitive, parameters = eqn.primitive, set(eqn.params)
     else:
         eqn = _equation(eqn, params={**eqn.params, "unknown-native-field": object()})
@@ -267,7 +269,7 @@ def test_unowned_identity_or_parameters_fail_before_the_oracle(
 
     if kind == "unselected-native":
         # The compatibility resolver, rather than the converter wrapper, owns
-        # the six-rule selection. A primitive's method must never be invoked.
+        # canonical native-rule selection. Never invoke a primitive's method.
         monkeypatch.setattr(primitive, "abstract_eval", forbidden)
     else:
         monkeypatch.setattr(contract, "infer_native_abstract_results", forbidden)

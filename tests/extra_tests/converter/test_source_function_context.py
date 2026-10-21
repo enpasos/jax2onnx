@@ -300,7 +300,7 @@ def test_scoped_matrix_precision_requirement_survives_source_function_retrace() 
     ]
     with pytest.raises(
         NotImplementedError,
-        match=r"SOURCE dot_general: precision .*native all-FP64 Precision enum pairs",
+        match=r"SOURCE dot_general: precision .*native FP64-compute Precision enum pairs",
     ):
         export_source_dtypes(model, specs)
     assert jax.config.jax_default_matmul_precision is None
@@ -353,7 +353,7 @@ def test_source_function_cache_distinguishes_scoped_matrix_requirements() -> Non
     # call despite the explicitly unsupported accumulation requirement.
     with pytest.raises(
         NotImplementedError,
-        match=r"SOURCE dot_general: precision .*native all-FP64 Precision enum pairs",
+        match=r"SOURCE dot_general: precision .*native FP64-compute Precision enum pairs",
     ):
         export_source_dtypes(model, specs)
     assert jax.config.jax_default_matmul_precision is None

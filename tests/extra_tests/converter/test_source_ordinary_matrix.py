@@ -59,8 +59,11 @@ _LONG_CRITERIA = {
 # Local audit: /tmp/jax2onnx-astra-jax012-subnormal-witness-audit-v1.json
 # JAX 0.8.1 and 0.10.2 / ORT 1.31.0: 48 additional FAILED reports total
 # (24 per stack: 8 matrix + 16 Min/Max), both CPU modes and raising gates.
+# 2026-10-21 ORT 1.24.1: unchanged four matrix artifacts retain bit2 and
+# raising gates in both modes (actual37-observation audit 6ced5aac6509fbce).
 # These failed witnesses do not establish numerical acceptance.
 _SUBNORMAL_TARGETS = {
+    ("0.10.2", "1.24.1"),
     ("0.11.2", "1.31.0"),
     ("0.10.2", "1.29.0"),
     ("0.12.0", "1.31.0"),
@@ -547,12 +550,12 @@ def test_declared_longer_reduction_criteria(dtype: Any, record_property: Any) ->
 @pytest.mark.parametrize("named", [False, True])
 @pytest.mark.parametrize("dtypes", [(np.float16, np.float32), (np.float32, np.float64)])
 def test_mixed_wrapper_preserves_native_trace_but_lowering_remains_pending(
-    named: bool, dtypes: Any
+    named: bool, dtypes: Any, tmp_path: Path
 ) -> None:
     with jax.enable_x64(True):
         values = (np.ones((3, 4), dtypes[0]), np.ones((4, 2), dtypes[1]))
         fn = _named if named else lambda a, b: jnp.matmul(a, b)
-        original, _, _ = _reference(fn, values)
+        original, eager, compiled = _reference(fn, values)
         observed = []
         validator = DiagnosticValidator()
 
@@ -560,16 +563,88 @@ def test_mixed_wrapper_preserves_native_trace_but_lowering_remains_pending(
             validator(graph, opset)
             observed.extend(_dots(graph))
 
-        with pytest.raises(
-            NotImplementedError, match="operand/result types .*private subset"
-        ):
-            user_interface._to_onnx(
+        if dtypes == (np.float32, np.float64):
+            # Retain the historical ID. This branch now requires ordinary
+            # audited admission; independent finite criteria live separately.
+            def fresh_activated(*args: Any) -> Any:
+                return fn(*args)
+
+            with (
+                precision_policy_scope(PrecisionPolicy.SOURCE),
+                _activate_plugin_worlds(),
+            ):
+                activated = jax.make_jaxpr(fresh_activated)(*map(_spec, values))
+            assert _dots(activated) and set(_dots(activated)) == set(_dots(original))
+            assert _signature(_body(activated).invars) == _signature(
+                _body(original).invars
+            )
+            assert _signature(_body(activated).outvars) == _signature(
+                _body(original).outvars
+            )
+            assert eager[0].dtype == compiled[0].dtype == np.dtype(np.float64)
+            (tmp_path / "mixed-wrapper-native-trace.json").write_text(
+                json.dumps(typed_trace_manifest(original), indent=2)
+            )
+            (tmp_path / "mixed-wrapper-activated-trace.json").write_text(
+                json.dumps(typed_trace_manifest(activated), indent=2)
+            )
+            model = user_interface._to_onnx(
                 fn,
                 list(map(_spec, values)),
                 precision_policy=PrecisionPolicy.SOURCE,
-                diagnostic_jaxpr_validator=inspect,
             )
-        assert observed and set(observed) == set(_dots(original))
+            (tmp_path / "mixed-wrapper-source.onnx").write_bytes(
+                model.SerializeToString()
+            )
+            onnx.checker.check_model(model, full_check=True)
+            report = get_precision_report(model)
+            assert report is not None
+            assert {check.category: check.status for check in report.checks} == {
+                "representation": CheckStatus.VALIDATED,
+                "lowering": CheckStatus.VALIDATED,
+                "runtime-execution": CheckStatus.UNVERIFIED,
+                "numerical-acceptance": CheckStatus.UNVERIFIED,
+            }
+            assert report.traced_outputs[0].dtype == "float64"
+            assert (
+                model.graph.output[0].type.tensor_type.elem_type
+                == onnx.TensorProto.DOUBLE
+            )
+            inferred = onnx.shape_inference.infer_shapes(model, strict_mode=True)
+            paths = []
+            for scope in (inferred.graph, *inferred.functions):
+                infos = list(scope.value_info)
+                if scope is inferred.graph:
+                    infos += [*scope.input, *scope.output]
+                types = {v.name: v.type.tensor_type.elem_type for v in infos}
+                casts = [node for node in scope.node if node.op_type == "Cast"]
+                matmuls = [node for node in scope.node if node.op_type == "MatMul"]
+                for cast in casts:
+                    assert types[cast.input[0]] == onnx.TensorProto.FLOAT
+                    assert types[cast.output[0]] == onnx.TensorProto.DOUBLE
+                    assert any(
+                        a.name == "to" and a.i == onnx.TensorProto.DOUBLE
+                        for a in cast.attribute
+                    )
+                    for matmul in matmuls:
+                        if cast.output[0] in matmul.input:
+                            assert all(
+                                types[name] == onnx.TensorProto.DOUBLE
+                                for name in (*matmul.input, *matmul.output)
+                            )
+                            paths.append((cast, matmul))
+            assert len(paths) == 1
+        else:
+            with pytest.raises(
+                NotImplementedError, match="operand/result types .*private subset"
+            ):
+                user_interface._to_onnx(
+                    fn,
+                    list(map(_spec, values)),
+                    precision_policy=PrecisionPolicy.SOURCE,
+                    diagnostic_jaxpr_validator=inspect,
+                )
+            assert observed and set(observed) == set(_dots(original))
         with jax.numpy_dtype_promotion("strict"):
             with pytest.raises(ValueError) as native_error:
                 jax.make_jaxpr(fn)(*map(_spec, values))

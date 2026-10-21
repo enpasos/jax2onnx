@@ -43,6 +43,59 @@ def normalized_shape_dimensions(shape: Sequence[object]) -> tuple[int | str, ...
     return tuple(result)
 
 
+@dataclass(frozen=True)
+class NativeShapeContract:
+    """One native atomic batch extent, preserving its actual scope and axis.
+
+    This internal decoder grants no primitive or public declaration admission.
+    Owners must separately prove every layout they accept.
+    """
+
+    shape: tuple[int | str, ...]
+    symbol: tuple[str, object] | None = None
+    symbol_axis: int | None = None
+
+
+def native_shape_contract(shape: Sequence[object]) -> NativeShapeContract:
+    """Decode native static extents or one actual atomic B at any rank-1–4 axis."""
+    normalized: list[int | str] = []
+    symbol: tuple[str, object] | None = None
+    symbol_axis: int | None = None
+    for axis, dim in enumerate(shape):
+        if isinstance(dim, (int, np.integer)) and not isinstance(dim, (bool, np.bool_)):
+            if dim < 0:
+                raise ValueError("requires nonnegative static extents")
+            normalized.append(int(dim))
+            continue
+        if symbol is not None or len(shape) not in (1, 2, 3, 4):
+            raise ValueError(
+                "requires at most one atomic native B in rank-one through rank-four tensors"
+            )
+        label, scope = atomic_symbolic_dimension(dim)
+        if scope is None:
+            raise ValueError("requires an actual native symbolic scope")
+        symbol, symbol_axis = (label, scope), axis
+        normalized.append(label)
+    return NativeShapeContract(tuple(normalized), symbol, symbol_axis)
+
+
+def validate_native_shapes(shapes: Sequence[Sequence[object]]) -> object | None:
+    """Keep actual native symbol identity across an internal scope boundary."""
+    selected: tuple[str, object] | None = None
+    for shape in shapes:
+        symbol = native_shape_contract(shape).symbol
+        if symbol is None:
+            continue
+        if selected is not None and (
+            symbol[0] != selected[0] or symbol[1] is not selected[1]
+        ):
+            raise ValueError(
+                "requires one shared atomic batch variable and native scope"
+            )
+        selected = symbol
+    return None if selected is None else selected[1]
+
+
 def source_shape_contract(
     shape: Sequence[object],
 ) -> tuple[tuple[int | str, ...], tuple[str, object | None] | None]:

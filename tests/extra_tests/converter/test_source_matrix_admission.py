@@ -27,8 +27,15 @@ from jax2onnx.converter.source_profile import (
     validate_source_jaxpr,
 )
 from jax2onnx.plugins.jax.lax.dot_general import DotGeneralPlugin
-from jax2onnx.precision import CheckStatus, get_precision_report
+from jax2onnx.precision import (
+    CheckStatus,
+    SampleCriteria,
+    SourceSample,
+    get_precision_report,
+    validate_source_samples,
+)
 from tests.extra_tests.converter import test_source_ordinary_matrix as d2a
+from tests.extra_tests.converter.source_target_evidence import require_target_pair
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
@@ -190,7 +197,7 @@ def test_audited_rank_dtype_and_preference_contract(
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("dimensions", d2a._LAYOUTS)
 def test_ordered_noncanonical_axes_need_only_value_preserving_transposes(
-    dtype: Any, dimensions: Any
+    dtype: Any, dimensions: Any, tmp_path: Path
 ) -> None:
     with jax.enable_x64(dtype is np.float64):
         values = d2a._layout_values(dimensions, dtype)
@@ -202,8 +209,23 @@ def test_ordered_noncanonical_axes_need_only_value_preserving_transposes(
         assert sum(n.op_type == "MatMul" for n in proto.graph.node) == 1
         assert sum(n.op_type == "Transpose" for n in proto.graph.node) in (1, 2)
         assert {n.op_type for n in proto.graph.node} <= {"MatMul", "Transpose"}
-        for optimization in ("disabled", "all"):
-            d2a._check_samples(proto, values, eager, optimize=optimization)
+        samples = [SourceSample(values, eager, SampleCriteria("bitwise"))]
+        disabled, enabled = [
+            validate_source_samples(proto, samples=samples, optimization=mode)
+            for mode in ("disabled", "all")
+        ]
+        assert all(
+            report.target is not None
+            and report.target.runtime_version == d2a.ort.__version__
+            for report in (disabled, enabled)
+        )
+        require_target_pair(
+            proto,
+            samples,
+            disabled,
+            enabled,
+            evidence_path=tmp_path / "target-boundary.json",
+        )
 
 
 @pytest.mark.parametrize("entry", ["lax", "jnp", "operator"])
@@ -564,7 +586,12 @@ def _native_geometry_companion(defect: str, directory: Path) -> None:
         ("bf16", "profile-exclusion", "equation 0"),
         ("integer", "profile-exclusion", "equation 0"),
         ("complex", "profile-exclusion", "equation 0"),
-        ("mixed", "profile-exclusion", "equation 0"),
+        pytest.param(
+            "mixed",
+            "lowering-defect",
+            "equation 0",
+            id="mixed-profile-exclusion-equation 0",
+        ),
         ("preferred-wide", "profile-exclusion", "equation 0"),
         ("unknown", "profile-exclusion", "equation 0"),
         ("out_dtype", "profile-exclusion", "equation 0"),

@@ -2,9 +2,9 @@
 
 ## Minimum-version result and current JAX upgrade
 
-Status, 2026-10-21: **AUTHORIZED FRAMEWORK FLOORS APPLIED; V5 AFFECTED
-CHECKS PASS ON BOTH SUPPORTED STACKS; BOTH FULL RUNS COMPLETE;
-ALL-DIRECT-MINIMUM LOCAL CI-OWNER REPLAY PASS**.
+Status, 2026-10-21: **PRECEDING CONTRACTION/FLOOR CHECKPOINT COMMITTED;
+CURRENT FINITE REGRESSION COVERAGE ACCOUNTED FOR ACROSS EXPLICIT EPOCHS;
+CAPABILITY-SCOPED MINIMUM AND SUPPLEMENT PASS; FINAL CHECKPOINT GATES REQUIRED**.
 
 The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
 Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
@@ -20,6 +20,408 @@ does not fix numerical/provider gaps or remove any existing model, fixed source
 or numerical requirement from the single-interface migration target.
 
 Public behavior stays **LEGACY**; full B–F acceptance remains open.
+
+### Equinox forwarding, shared symbolic contraction and output axes
+
+The preceding generalized-contraction/support-floor checkpoint is committed at
+`7b70b22f`. The next combined private epoch applies the separately frozen
+Equinox original-call, shared native symbolic-contraction/transpose and exact
+output-axis sample/report packets. Equinox forwarding preserves the captured
+original `__call__`, arguments, callback behavior, native errors, stored model
+parameters, aliases and state. Original five Linear rows and MLP rows 0/1 retain
+their source/options/criteria; this does not claim all original MLPs pass.
+
+One actual atomic `B`, derived from the unchanged positive leading-`B` input
+contract, can appear at admitted intermediate and output axes. For example,
+native weight-first `[64,128]` by `[B,128]` produces `[64,B]`, with an actual
+transpose when the source asks for `[B,64]`. General dot normalization restores
+the original ordered batch/free axes. Nonleading ports require exact physical
+dtype/shape, alias and native symbolic-scope proof. Outputs with zero static
+tails retain positive input `B` binding; this grants neither zero-tail symbolic
+inputs nor `B=0`, and does not admit unrelated operation owners.
+
+The corrective mixed dot route admits actual `(FP32,FP64)` and reversed
+operands with a native FP64 result and absent/FP64 preferred type. Both installed
+JAX CPU lowerings convert mixed nonalgorithm operands to that result dtype;
+the shared lowerer validates original physical ports before a local Cast of
+only the FP32 consumer value, then uses DOUBLE MatMul. Native precision enums
+retain their reviewed meaning; explicit algorithms remain excluded. Original
+input/storage/alias widths are unchanged. Scalar/outer/empty routes retain
+their own exact native semantics, including signed zero and the positive-zero
+sum identity. This adds no BF16/integer/complex arithmetic or
+same-FP32/preferred-FP64 admission.
+
+Both first combined installed-stack epochs remain **FAILED: 2,312 PASS /
+12 FAIL of 2,324 unique cases**, zero errors/skips. Their actual receipts,
+XML/logs and held sources remain in `eqx-symbolic-v1-{primary,secondary}/`.
+The corrective tests preserve their original identities and numerical criteria.
+They repair defining-module ownership for nested named calls and assert actual
+serialized root-to-outer-to-child Function edges. An actual captured outer
+body containing the registered child Function primitives still has no native
+CPU MLIR translation for those carriers. Only that exact fresh-JIT exception
+is recorded **NOT_ESTABLISHED**, tied to the actual definition and native trace.
+Outer-body eager, both leaf-body eager/JIT and ordinary original-call
+eager/warmed/fresh-JIT checks remain required before/after export without cache
+clearing. Both corrected runs retain eight actual whole-carrier
+**NOT_ESTABLISHED** receipts each. Passing observer tests do not turn those
+receipts into successful captured-carrier JIT execution. This gap remains an implementation/evidence obligation, not an ONNX
+or provider impossibility or a permanent target restriction.
+
+The retained v2 31-owner selections pass the same **2,358 unique identities**
+on both supported stacks, zero failures/errors/skips. PRIMARY completes in
+**226.85684135 seconds**; SECONDARY in **242.541162873 seconds**. Both hold
+the same **1,102 source/configuration files and Git state**. All original 2,324
+identities are present and pass, including all twelve previously failed IDs;
+only 34 cases from the new mixed-width owner are added. Phases are
+**NOT_INSTRUMENTED**, rather than inferred from pytest cases.
+
+PRIMARY is Python 3.12.9 / JAX and jaxlib 0.12.0 / Flax 0.12.10; SECONDARY is
+Python 3.11.12 / JAX and jaxlib 0.10.2 / Flax 0.12.8. Both installed targets use
+ONNX 1.23.2 / ORT 1.31.0. Their exact receipts are
+`eqx-symbolic-v2-{primary,secondary}/`; `dual-focused-audit.json` and the
+identity audit in `eqx-symbolic-integration-v2/` bind the unchanged old IDs and
+the 34 additions. PRIMARY XML SHA256 is
+`234371d22a41bdb95393fa157d0d7d97199884468cb2478f48bf962a4f337cf8`;
+log SHA256 is
+`752919ce9e46319152b9cf663065b932ce3deb0bcb5d6beb88dc54aefe309a71`.
+SECONDARY XML SHA256 is
+`4650955b6d190436952b1adbc57209587dfd1eab8b76cadd01c48f5a95d22f6e`;
+log SHA256 is
+`82088e17ed08632c849fa4c107748ab881634ab43325056bb9298755503968a0`.
+The independent actual PRIMARY audit is
+`astra-correction-review-v1/primary-v2-independent-audit.json`.
+
+The actual `eqx-symbolic-quality-v1/` run passes Black on sixteen Python paths
+and Ruff, but typing fails on a redundant `cast(int, axis)` among 559 checked
+source files. The retained failure is corrected by removing that one typing
+cast. `eqx-symbolic-typing-fix-v1/ast-runtime-identity-proof.json` verifies exact
+AST equality after only that removal and stdlib `typing.cast` object identity;
+the patch SHA256 is
+`ffc778f4d1559fd1074954374626c97a4f0b8b703d447975d4b21aa5a4fff8a4`.
+`source_profile.py` then has SHA256
+`6da3b910b0c6b09e0826214e1ab45a456691abdb5e064de0e4dff6bcf0c71aaa`.
+This is a distinct source epoch. The preceding dual v2 outcomes retain their
+own bytes. The actual `eqx-symbolic-quality-v2/` run then passes all seven
+quality checks: typing, pinned Black, Ruff and the four reflection/builder/
+marker/annotation policies. All 1,102 source files hold. This is separate from
+the seven normal commit hooks, which remain required checkpoint gates. Later functional packets create new source epochs; their final-source native and quality gates remain pending.
+
+The direct-minimum capability preflight uses ONNX 1.20.1, ORT 1.24.1 and
+Equinox 0.13.1. ONNX advertises schema maximum 25, yet the checker accepts the
+actual opset-23/25/26 controls. ORT session creation passes at 23/25 and fails
+at 26 with an explicit official maximum of 25. Checker success is therefore
+not runtime capability or numerical acceptance. The actual preflight is
+`eqx-symbolic-direct-minimum-opset-preflight-v1.json`.
+
+The post-cleanup 49-owner minimum request collects **2,837 unique identities**.
+The independently reviewed exact capability ledger excludes **145 positive
+ORT-dependent opset-26 identities**, leaving **2,692 executed cases**. All 34
+mixed-width cases, opset-23 counterparts, negative/metadata controls and the
+ReferenceEvaluator-only TensorScatter opset-26 control remain. The initial
+146-ID proposal incorrectly included that reference-only control and was
+corrected before execution. The exact ledger is
+`eqx-symbolic-direct-minimum-capability-ledger-v2.json`.
+
+That actual minimum epoch is **FAILED: 2,665 PASS / 27 FAIL**, zero errors/skips,
+in **308.906268658 seconds**, with all **1,102 source/configuration pins and Git
+state held**. All 34 mixed-width cases and the retained reference-only control
+pass. XML SHA256 is
+`719e2f35d578432c226f9456247776b29b43083cd22d0a8d73b6b5293ed848f3`;
+log SHA256 is
+`91bf0fb245429ca087a14586e50c2979ee11a945ec9246acb2dac2e74afde171`.
+`floor-v3-independent-failure-audit.json` preserves all exact IDs and traces:
+
+| Cases | Observed minimum failure | Required disposition |
+| ---: | --- | --- |
+| 4 | Original BF16/FP16 iota rows request Range27 forms absent from ONNX 1.20.1's installed schema | Retain original source, opset and callbacks; any later exact schema-capability ledger has a distinct scope from the ORT ledger. |
+| 2 | Mixed-role Function/cond artifacts require BitCast26, absent from that checker | Retain the checker failure separately from runtime session capability. |
+| 12 | Default ALL creates `com.microsoft.FusedMatMul` DOUBLE; this CPU kernel accepts FLOAT only | Preserve same-artifact DISABLED acceptance and default-ALL runtime-load failure with the unchanged raising gate. |
+| 4 | Subnormal controls meet an unrecorded runtime/framework pair before their strict mismatch assertions | Preserve the actual bit-2 target mismatch against native zero; adding the factual target observation cannot accept the numerical failure. |
+| 2 | Full optimization loses `add_out_0` for empty FP32 geometry9-direct | Diagnose the original graph and shared static-empty Add representation; no Eqx source rewrite. |
+| 3 | Original Eqx rows2/3/4 contain captured FP64 weights, FP32 input, x64OFF and native preferred/output FP32 | Preserve actual native semantics with a pre-dot local FP64-to-FP32 conversion and unchanged stored weights. |
+
+No source, requested opset, criterion or declared minimum is changed to conceal
+this failed epoch. It is not full 49-owner qualification and cannot be relabeled
+a pass after later repairs or provider-evidence assertions.
+
+ROOT then executes the frozen **40-observation empty-Add probe** on the two
+original saved models, retaining all eight artifact/feed/native-reference hashes.
+Both native references and all seven output ports stay exact. Original and
+consumer-only Identity variants fail basic/extended/all while disabled validates;
+first-Add Identity, both-Add Identities and typed-empty-initializer diagnostics
+validate in all four optimization modes. The independent audit verifies **196
+saved target arrays** against both native references. This supports a shared
+static-empty representation; diagnostic graph variants are not mislabeled as
+original-artifact acceptance or production qualification.
+
+The separate **37-observation minimum artifact probe** retains **14 validated /
+23 failed reports** across three representative FP64 and four subnormal
+artifacts. Independent decoding verifies **52 matching target arrays and 40
+retained bit-2 mismatch arrays**. For all three FP64 artifacts, default ALL fails
+load after MatmulTransposeFusion creates an unsupported DOUBLE FusedMatMul;
+DISABLED and the explicitly named optimizer-disable diagnostic validate. The
+standard serialized source graphs are unchanged. The explicit diagnostic
+configuration is not a new API, silent retry, source cast or default change.
+For all four subnormal artifacts, unset or explicit `0` for
+`session.set_denormal_as_zero` retains failed bitwise comparisons and raising
+gates in both modes; explicit diagnostic `1` yields native positive zero.
+Those diagnostic settings are carried in a sidecar because the unchanged raw
+CpuSampleTarget report does not encode the injected option overlay. Raw reports
+alone do not establish complete diagnostic target identity. The actual receipts
+and independent artifact/terminal audits retain every failure and option.
+
+The shared preferred-FP32 extension subsequently narrows only the FP64 dot
+consumer before computing, after original physical checks and frozen native
+inference. It adds no FP32 HIGH/HIGHEST or explicit algorithm admission; the
+old native-FP64 precision gate is AST-exact. A K=1 rational witness in both
+operand orders and both caller x64 contexts distinguishes pre-dot narrowing
+from FP64 product followed by final output cast. Other finite coordinate cases
+are observed samples, not a general no-rounding theorem.
+
+Its actual-minimum selection passes **60 cases**, zero failures/errors/skips,
+in **14.319799089 seconds**, on the **1,103-file epoch**: **46 new finite controls
+and 14 unchanged raw Eqx/MLP outcome tests**. The three formerly source-rejected
+Eqx recipe identities now meet their source product assertion. The raw outcomes
+remain **ten callback failures and four profile exclusions**; runtime and
+numerics are all **UNVERIFIED**. Their original absent criteria are not replaced
+by the new finite controls. XML SHA256 is
+`012f7235a100d9b048cb82671ff8e7fe1b5a5cd8df13521725b5e9582a16d80f`;
+`preferred-fp32-floor-independent-audit.json` binds the result. This is bounded
+minimum evidence, not a full affected or whole-model acceptance claim.
+
+The separate shared static-empty Add repair reuses existing owner admission,
+frozen original native Add inference, and exact physical checks on both operands
+and the fresh output. An exact-result-shaped operand feeds a fresh Identity;
+complementary singleton broadcasts use a typed ConstantOfShape. Only the output
+Var is bound; inputs/parameters/aliases are never renamed, retyped or rebound.
+The compatibility registry adds only the frozen native Add evaluator. Nonempty
+and LEGACY bodies stay unchanged; zero-tail symbolic Add still fails its
+existing owner gate, and dedicated complex Add retains its existing branch.
+Empty packed-complex provider behavior remains unqualified, not a target-state
+exclusion.
+
+The first new-owner minimum epoch fails **before any test body: one collection
+ERROR**, due to a nonexistent compatibility-module `jaxpr_as_fun` import. Its
+receipt/XML/log remain in `eqx-empty-add-v1-floor-minimum/`. An import-only patch
+uses the public `jax.extend.core` export verified in both installed JAX sources;
+all test bodies and nonimport AST stay exact. The corrected actual-minimum owner
+passes **all 38 cases**, zero failures/errors/skips, in **10.324057671 seconds**;
+XML SHA256 is
+`1a212b32f348f128b9c8c5543fe3e4fc3ebfe074ee6e5f47000f472664561f29`.
+The separate two unchanged original Eqx geometry identities also pass, in
+**15.040594230 seconds**. Their independent audit retains **40 finite geometry
+sample reports**, including geometry9 under both caller contexts and both
+optimization modes, all seven outputs exact without a session-config override.
+These are distinct source receipts; none retroactively passes the failed
+collection or minimum-v3 epochs.
+
+The later shared test-evidence helper retains both complete original reports
+for the same standard ONNX artifact and requested sample identities before
+asserting anything. DISABLED must pass its actual raising gate. ALL either
+passes its same gate or exactly reproduces the observed ORT 1.24.1/x86_64 CPU
+Transpose/DOUBLE-MatMul optimization failure, with artifact/schema checks still
+validated, load failure explicit and numerics UNVERIFIED. Its failure must still
+raise `SampleAcceptanceError`. Constructor failure records sample zero only;
+later requested ALL indices are recorded unexecuted and receive no acceptance.
+Unexpected versions, stages, settings, errors, identities or source provenance
+fail. No retry, injected optimizer option, dtype cast or production default
+changes. A future target that actually validates is accepted through its real
+raising gate rather than forced to reproduce a permanent error.
+
+The helper's 20 actual-minimum controls pass as tests, including measured
+native/coordinate/target baselines and hostile classifier cases. Synthetic
+classifier records are not extra measured provider outcomes. The four original
+FP64 owners use the same shared assertion; the existing strict subnormal branch
+adds only the factual JAX 0.10.2 / ORT 1.24.1 pair. Bit-2 comparisons remain FAILED
+and their raising gates remain required in both modes. These negative witnesses
+account for failures; they never establish numerical acceptance of those failed
+target settings. The 27-failure minimum epoch and both diagnostic probes remain
+unchanged historical evidence.
+
+The subsequent SECONDARY 35-selector run is **FAILED: 2,609 PASS / one FAIL of
+2,610 unique cases**, zero errors/skips, in **683.137202409 seconds**, holding
+all **1,106 source/configuration pins**. The sole failure is the old unselected-
+native-evaluator fixture still using Add after Add became explicitly selected.
+A separate test-only correction uses genuinely unselected Mul while retaining
+that test's identity and guards. The actual whole **83-case native-contract
+owner then passes**, zero failures/errors/skips, in **11.177090748 seconds**.
+Production, configuration, versions and worker settings match between epochs;
+only the reviewed test file changes. The accepted affected-coverage partition
+is **2,527 unchanged-other-owner passes plus 83 corrected-owner passes**,
+disjoint and complete over the original 2,610 IDs. It is explicitly two epochs,
+not a unified green 35-selector run. The independent
+`direct-minimum-ledger-v5-and-secondary-partition-independent-audit.json`
+binds this distinction. Original failed-run XML SHA256 is
+`a644006a5b4ae37ebc4df511fa8ee48b6a92f264b97f4a6324946b50c9bf7b0d`;
+replacement-owner XML SHA256 is
+`981209e6c708e6f1b2c71dff14925356e72b1571d9c55fdc65ab8d6b7e61850b`.
+
+The final-v5 direct-minimum collection contains **3,089 identities across 53
+selectors / 52 files**. The exact ledger has **181 exclusions**: the earlier
+145 positive ORT-opset26 cases, 30 newly selected existing complex ORT-opset26
+cases, and the six independently proved installed-schema failures. The
+ReferenceEvaluator-only opset26 control and all 21 non-schema failures from
+the earlier minimum epoch remain in execution, along with the 46 preferred-FP32,
+38 empty-Add and 20 target-helper controls. No source, requested opset, original
+criterion or runtime minimum changes to avoid those capability boundaries.
+
+That exact **2,908-case subset passes**, with **zero failures/errors/skips**,
+in **461.287419929 seconds**, holding all **1,106 source/configuration pins and
+Git state**. XML SHA256 is
+`5ad7b463d7603c346f79bb90fd8d4f2b412df6e1d3d0533f335cb4b8b58c468e`;
+log SHA256 is
+`b0f92853955bb0709c4fc194a2287c5d84e9429ca622aa46e9eab8fab514a25c`.
+This is a capability-scoped actual direct-minimum result, not full 53-selector
+or all-functionality acceptance. Passing negative target tests do not change
+the failed FP64 ALL or subnormal sample reports into successful samples.
+
+Independent final-minimum identity and raw-report audits bind the exact result.
+The report audit verifies **680 actual DISABLED/ALL report pairs**: 660 ordinary
+owner pairs and 20 helper-baseline pairs. **647 pairs validate in both modes**;
+**33 retain default-ALL runtime-load failures** (14 ordinary and 19 helper
+baselines). Every negative keeps numerics UNVERIFIED, actual providers empty
+after constructor failure and the unchanged raising gate. No optimizer/denormal
+overlay is applied. These are finite report counts, not distinct-model or
+universal coverage claims. The four original subnormal cases retain **eight
+FAILED bitwise reports**, native zero versus target bit-2, with original disabled
+inputs, references, outputs and criteria unchanged. Four matrix-admission
+negative owners retain digest/provenance reports without a separate saved
+`source.onnx`; there is no universal raw-artifact/array persistence claim.
+
+The earlier quality-v3 epoch passes typing, pinned Black/Ruff and four policies,
+holding **1,104 pins** before the target helper and later test-only correction.
+Typing takes **99.120626042 seconds** and Black checks nineteen changed Python
+paths. That earlier receipt does not qualify later test changes.
+
+The subsequent quality-v6 epoch is **FAILED**: typing on 559 source files,
+pinned Black on 27 changed Python paths, Ruff, reflection and builder checks
+pass, but the path-marker check fails on the two new target-evidence helper/test
+files. Annotations do not execute after that failure. Its receipt and marker
+log remain retained. A two-file comment-only patch, SHA256
+`4e3fccbb717e60a2a16e952fd44aaa7526dc6e4b10b672d9f5434f3399dd3698`,
+adds each required file-path header and blank line. All remaining bytes and
+both complete module ASTs are exact; production and the other 1,104 input pins
+remain unchanged. The new 1,106-pin comment epoch is distinct from the actual
+native execution epochs above. The independent marker audit also verifies
+compiled structure/constants excluding locations; no native repeat is claimed
+for the changed comment bytes.
+
+Actual quality-v7 then passes **all seven checks**, holding all **1,106 pins**:
+typing on **559 source files** in **58.924235323 seconds**, pinned Black on
+**27 changed Python paths**, Ruff, reflection, builder, path markers and
+annotations. Receipt SHA256 is
+`116ced393e599d64d49cf2b866a29e3a3296fcbecc73a27997a6ccf0faf8007d`.
+This is separate from the seven normal commit hooks. Strict documentation,
+rendered-link checks, normal hooks and qualified-byte/local-commit verification
+remain required checkpoint gates. These five document updates occur after the
+held native and quality epochs; no unchanged-all-inputs claim extends across
+the documentation update.
+
+The subsequent complete PRIMARY run is **FAILED: 12,410 PASS / six FAIL of
+12,416 unique cases**, zero errors/skips, in **1,770.503410781 seconds**. All
+**1,106 source/configuration pins and Git state hold** during that run. XML
+SHA256 is
+`d6aaa658b1802709cec4af85d3112cd97732596dc5c2fbe04eebaf9d48d75b95`;
+log SHA256 is
+`4155d4587ab3ee896b79bc49efe4c8f2a042b3b50a2e47d967b7af66c31d3c09`.
+The complete six-trace failure ledger has SHA256
+`909bba9b076f6c3dca6721fb4b051342923b0d6b457a6004d0d5d87d701a4bfd`.
+This original full run remains failed regardless of later corrective results.
+
+The six failures belong to four stale test-control owners. The mixed-width
+FP64-preparation negative now describes a natively valid mixed-FP64-compute
+route; its correction must test a genuinely contradictory FP32 output while
+retaining the original ID and guards. One NNX-reshape and two Function-context
+checks retain the former all-FP64-only diagnostic wording. Two Scan controls
+still demand the shape inside a diagnostic now emitted earlier by the owner
+preflight. The actual Scan detail is **"nonleading or zero-tail symbolic layout
+has no audited owner"**; its profile exclusion and explicit unadmitted shape
+remain unchanged. No production, reference, criterion or owner admission is
+changed to repair these controls.
+
+The original full XML contains **190 cases across those four owners**
+(92 FP64-preparation / 47 NNX-reshape / 35 Function-context / 16 Scan) and
+**12,226 other-owner cases, all PASS**. The reviewed four-test-file-only patch
+has SHA256
+`b644430a1efae91baf41701a7c6f13f5ce2e1ab825df35c55545fe36c37c2de7`;
+production, configuration, helper bodies, test identities, references and
+numerical criteria are unchanged. The final v6 source inventory contains
+**1,106 exact pins** and differs from the full-v5 snapshot only at those four
+test files.
+
+The corrected four whole owners pass the exact same **190 identities**, zero
+failures/errors/skips, in each of three actual executions:
+
+| Execution | Actual duration | XML SHA256 |
+| --- | --- | --- |
+| PRIMARY | 32.745338983 seconds | `929de17ae764a62829b0a6db1a941fd12cc7a9c7fb991b988f670df13e4b1b51` |
+| SECONDARY | 32.196797974 seconds | `5b1db7472ad87bb162da3c508124554b00a2af50bf8b3c06fb93e8f6e7b32677` |
+| Actual direct-minimum supplement | 28.607686241 seconds | `6cd1ccbc23f062b613f839e778b0c18631c742390c0f38f6dbc6907e0e5f8e22` |
+
+All 1,106 source/configuration pins and Git state hold within each execution.
+The exact PRIMARY coverage partition is **12,226 unchanged-other-owner passes
+from the original full run plus 190 corrected-owner passes**. The original
+12,410-PASS / six-FAIL full receipt remains failed. SECONDARY evidence is the
+earlier **2,527 unchanged-owner passes plus 83 corrected-native-contract-owner
+passes**, supplemented by the new **190 whole-owner passes**. All four new
+owners are absent from the earlier 35-selector SECONDARY and 53-selector
+minimum selections. The actual minimum is the earlier **2,908-case subset with
+181 exact capability exclusions**, plus this separate **190-case supplement**;
+its original source epoch and ledger are retained. These explicit partitions
+are not unified green full-suite, affected-suite or combined-minimum reruns.
+
+The original full terminal audit, ROOT exact partition receipt and independent
+three-lane identity/source/partition audit bind these distinctions. The audit
+also keeps the actual provider-negative sample reports separate from passing
+test executions. These finite checkpoint results do not establish whole-model,
+full current-stack B–F or complete-product-map acceptance.
+
+| Gate | Actual status |
+| --- | --- |
+| First combined PRIMARY / SECONDARY | Each FAILED: 2,312 PASS / 12 FAIL of 2,324; retained unchanged |
+| Retained pre-typing v2 31-owner PRIMARY / SECONDARY | Each 2,358 PASS; same IDs and 1,102 pins |
+| Post-typing minimum-v3 capability subset | FAILED: 2,665 PASS / 27 FAIL of 2,692; 145 declared capability exclusions |
+| Saved-artifact diagnostics | Actual 40 empty-Add and 37 broader observations; diagnostic completion only, failed reports retained |
+| Preferred-FP32 / corrected empty-Add minimum follow-ups | 60 PASS / 38 PASS, plus 2 unchanged original Eqx geometry cases PASS in separate receipts |
+| Empty-Add first new-owner epoch | One collection ERROR before test bodies; retained |
+| SECONDARY first 35-selector epoch | FAILED: 2,609 PASS / one FAIL of 2,610; retained |
+| SECONDARY affected coverage | 2,527 unchanged-owner PASS + 83 corrected-owner PASS across two explicit epochs |
+| Final-v5 capability-scoped direct-minimum | 2,908 PASS / zero failures/errors/skips; 181 exact capability exclusions; separate v6 supplement below |
+| PRIMARY full-v5 original | FAILED: 12,410 PASS / six FAIL of 12,416; all original evidence retained |
+| Corrected four whole owners | Same 190 identities PASS on PRIMARY, SECONDARY and actual direct minima; three separate receipts |
+| PRIMARY coverage partition | 12,226 unchanged other-owner PASS + 190 corrected-owner PASS across two epochs; original failed full retained |
+| SECONDARY affected partition plus supplement | 2,527 unchanged-owner PASS + 83 corrected-owner PASS + separate 190-case/four-owner supplement |
+| Direct-minimum subset plus supplement | 2,908 PASS with exact 181 exclusions + separate 190 PASS supplement; no unified rerun |
+| Earlier quality-v3 | Seven quality checks PASS on its pre-helper 1,104-pin epoch |
+| Quality-v6 | FAILED: five checks PASS, path markers FAIL, annotations not executed; exact two-file comment-only repair |
+| Quality-v7 | Seven checks PASS on its 1,106-pin header-comment epoch; 27 changed Python paths, typing on 559 source files |
+| Strict docs / rendered links / seven normal hooks / held bytes and local commit | Required checkpoint gates; no passing result claimed here |
+
+ROOT verified archives for both failed v1 and passing v2 installed-stack RAM
+trees, preserving their sources. The v2 archive-only receipts bind tar SHA256
+`4c8483334e9b0dba9308c8d0049927b00d01524b1958fd386f8d892c29d47d81`
+(PRIMARY) and
+`8b2573f639db68d14e96eb1093c1d5c24db4cce8b61258c56fabd217f2ff2fc0`
+(SECONDARY), under the owned Windows `ram-artifact-archives/` evidence root.
+These contain RAM/basetemp evidence only; generated cwd-relative `onnx/`
+outputs are outside that scope. At archival, protected-process visibility was
+incomplete; release requires a complete fresh visibility check. The RAM sources
+remain retained, and no release is claimed.
+
+New finite mixed-width coordinate samples predeclare bitwise dtype/shape/payload
+equality and retain original eager/fresh-JIT arrays, activated traces, serialized
+artifacts and actual runtime payloads under both CPU optimization modes. At
+the retained v2 epoch, the shared symbolic observer retains native arrays and
+sample reports but does not itself persist target output arrays. The new
+preferred-FP32 and static-empty Add witnesses also save actual target arrays.
+These sample controls do not assign criteria to original raw recipes or certify whole models. The
+complete 1,852-row/3,704-caller map, optional models, metadata-free anchors,
+original callbacks, full numerical requirements, general fixed-source/state/RNG
+preparation, scientific FP64 and all B–F existing-functionality gates remain
+open. Public behavior stays LEGACY; the standalone target remains one normal
+source-preserving export contract across the existing functionality and fixed
+third-party sources, without a permanent mode/profile selector or capability
+loss.
 
 ### Generalized native contractions and product-map smoke
 
@@ -276,17 +678,16 @@ raw criteria remain missing. Records live in
 `/mnt/c/Users/enpasos/AppData/Local/jax2onnx/precision-evidence/20261021/source-product-platform-smoke-v1/`.
 This is operational smoke qualification, not completion of the product map.
 
-After the contraction checkpoint, run a fresh full-map epoch on its immutable
-code, then use actual shared barriers to prioritize repairs. Exact Equinox Linear
-forwarding is a measured separate next step. Three externally reviewed packets
-remain **unapplied and natively unqualified**: `eqx-linear-source-draft-v2`,
-`shared-symbolic-contraction-draft-v3` and the incremental
-`symbolic-output-axis-boundary-draft-v2`. They prepare original-call forwarding,
-one actual atomic batch symbol at admitted intermediate axes, and exact
-input-derived symbolic output binding on arbitrary admitted axes. The latter
-builds on the shared packet; these finite stages neither establish runtime
-acceptance nor define a permanent target restriction. Original MLP models,
-parameters, options and criteria remain fixed. Complete
+The three independently frozen packets were prepared as
+`eqx-linear-source-draft-v2`, `shared-symbolic-contraction-draft-v3` and the
+incremental `symbolic-output-axis-boundary-draft-v2`. Their subsequent applied
+epoch, retained failures and corrective qualification belong to the separate
+[Equinox/shared-symbolic record](#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
+above. Run a fresh full-map epoch only on a newly qualified immutable snapshot;
+do not combine observations from unlike source epochs. These finite stages
+neither establish whole-model numerical acceptance nor define a permanent
+target restriction. Original MLP models, parameters, options and criteria
+remain fixed. Complete
 runtime/numerical criteria, original callbacks, optional models, metadata-free
 anchors, fixed-source workflows and supported-floor/B–F acceptance remain open.
 

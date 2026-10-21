@@ -38,10 +38,36 @@ is committed at **`b7eb923a`**. Its PRIMARY full passes
 stacks and at actual ONNX Runtime 1.24.1. Strict documentation, all seven normal
 hooks and qualified-byte verification pass.
 
-The applied private contraction work preserves ordered contracting/batch axes,
+The preceding generalized-contraction/support-floor checkpoint is committed at
+**`7b70b22f`**. Current private work preserves the original Equinox Linear call,
+shared native contraction/transpose layouts and exact output-axis sample/report
+binding for one input-derived batch size. Mixed FP32/FP64 dots follow native
+FP64 or explicitly preferred FP32 work through local consumer conversions;
+stored parameters, inputs and returned aliases keep their widths. A guarded
+shared representation also preserves static empty additions.
+
+Current regression coverage is accounted for across explicit run partitions.
+The original failed PRIMARY full and SECONDARY affected runs remain retained;
+corrected whole-owner reruns pass on both stacks and at actual direct minima.
+The capability-scoped minimum result and its supplement are separate receipts.
+Runtime failures remain separate from these test results: some FP64 artifacts validate with optimization disabled
+while default ALL fails load, and subnormal comparisons retain their exact
+failed bits. No default, source cast, fallback or numerical criterion changes.
+The [checkpoint record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
+binds exact receipts, capability exclusions, failed history and remaining
+quality/documentation/commit gates.
+
+Public behavior stays **LEGACY**. Complete models, fixed-source preparation,
+original numerical requirements and full B–F acceptance remain open. The target
+remains one ordinary source-preserving export contract across existing
+functionality and fixed third-party sources. The full product map belongs on a
+clean committed checkpoint; the separately frozen callable-preparation packet
+remains unapplied and native-unqualified.
+
+The preceding private contraction work preserves ordered contracting/batch axes,
 scalar and empty results, native result dtypes and exact calls through
-LinearGeneral/DenseGeneral and JAX/NNX/Linen einsum. The latest PRIMARY full run
-passes **12,061 unique cases** with zero failures/errors/skips. The SECONDARY
+LinearGeneral/DenseGeneral and JAX/NNX/Linen einsum. That preceding checkpoint
+records a PRIMARY full pass of **12,061 unique cases** with zero failures/errors/skips. The SECONDARY
 full run records **12,054 PASS / two SKIP of 12,056 unique cases**, zero
 failures/errors; its skips and five feature-conditional PRIMARY-only cases
 are explicitly accounted for. The unchanged sixteen-owner local CI replay at

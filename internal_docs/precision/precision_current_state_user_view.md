@@ -43,17 +43,41 @@ run, documentation checks and normal hooks.
 The supported framework baseline is **JAX and jaxlib 0.10.2 or newer and
 Flax 0.12.8 or newer**. **Python 3.11 remains supported.**
 
-Further private work preserves the precision chosen by the source for a wider
-range of tensor contractions with static shapes. This includes scalar and empty
-results, stored parameters captured by a model, and calls through named
+The preceding committed contraction checkpoint preserves the precision chosen
+by the source for a wider range of tensor contractions with static shapes. This
+includes scalar and empty results, stored parameters captured by a model, and calls through named
 functions. Broader regression checks on both supported framework stacks and
 the separate checks at the declared dependency minima have completed.
 
-Complete-model and numerical coverage remain unfinished. Original-model
-replays still expose an Equinox Linear conversion gap, and low-precision
-arithmetic needs further work. The public `to_onnx(...)` call, options and
-defaults remain unchanged. The
-[current technical record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke)
+The current private work addresses the recorded Equinox Linear conversion gap
+by preserving the original call. It carries an input-derived batch size through
+more tensor layouts and binds it to the correct output axis. For mixed FP32 and
+FP64 dot operands, the local computation follows JAX's native result choice,
+including an explicitly requested FP32 result. Stored parameters, inputs and
+returned aliases keep their original widths. A separate repair represents
+static empty additions without asking the runtime to optimize an empty Add.
+
+Focused finite checks have advanced, but checks at the declared dependency
+minima also expose schema and runtime differences. Some FP64 artifacts validate
+with optimization explicitly disabled while the unchanged default full
+optimization target fails to load them. Subnormal samples retain a numerical
+mismatch under the original runtime settings. These outcomes remain visible;
+passing diagnostic variants do not turn them into successful default behavior.
+The capability-scoped minimum checks now pass, and affected framework checks
+are accounted for across separate runs, including corrected whole-owner
+checks on both supported stacks and at the declared minima. The original
+failed runs remain recorded. Quality checks pass on the later header-comment
+epoch; strict documentation and normal commit checks remain required. The
+[checkpoint record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
+separates working finite samples, retained failures and remaining gates.
+
+Complete-model and numerical coverage remain unfinished, including general
+fixed-source preparation, original callbacks/criteria and low-precision
+arithmetic. A native JIT gap for a captured outer function body remains an
+explicit implementation/evidence obligation. It is not a general limit on the
+target format or a permanent restriction on model support. The public
+`to_onnx(...)` call, options and defaults remain unchanged. The
+[current technical record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
 describes the checked capabilities, retained failures and remaining work.
 
 Private checks now preserve same-width complex64 and complex128 addition,

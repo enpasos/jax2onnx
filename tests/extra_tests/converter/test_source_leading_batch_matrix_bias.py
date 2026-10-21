@@ -644,7 +644,7 @@ def test_symbolic_dot_scope_and_typed_metadata_fail_before_lowering(
         validate_source_jaxpr(graph, 23)
     assert caught.value.category == (
         "lowering-defect"
-        if defect in {"dtype", "weak", "bool-axis", "float-axis"}
+        if defect in {"dtype", "weak", "axes", "bool-axis", "float-axis"}
         else "profile-exclusion"
     )
 

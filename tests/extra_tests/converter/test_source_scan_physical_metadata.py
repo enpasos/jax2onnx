@@ -494,7 +494,9 @@ def test_scan_keeps_shared_symbolic_batch_as_an_explicit_unadmitted_contract(
     assert shape == (2, batch, 1, 4)
     with pytest.raises(ValueError):
         source_shape_contract(shape)
-    assert str(shape) in error.value.detail
+    assert error.value.detail == (
+        "nonleading or zero-tail symbolic layout has no audited owner"
+    )
 
 
 @pytest.mark.parametrize("defect", ["extent", "unknown", "dtype"])

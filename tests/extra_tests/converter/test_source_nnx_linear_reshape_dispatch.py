@@ -43,7 +43,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 
-
 _LINEAR = nnx.Linear.__call__
 _LINEAR_HAS_OUT_SHARDING = "out_sharding" in inspect.signature(_LINEAR).parameters
 _RESHAPE = jnp.reshape
@@ -444,7 +443,7 @@ def test_explicit_module_precision_is_traced_and_rejected_by_existing_lowerer(
     assert dot.params["precision"] == (jax.lax.Precision.HIGHEST,) * 2
     with pytest.raises(
         NotImplementedError,
-        match=r"SOURCE dot_general: precision .*native all-FP64 Precision enum pairs",
+        match=r"SOURCE dot_general: precision .*native FP64-compute Precision enum pairs",
     ):
         _export(call, value, named=True)
 

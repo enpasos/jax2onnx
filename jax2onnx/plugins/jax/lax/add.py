@@ -6,7 +6,13 @@ import onnx_ir as ir
 import jax
 import numpy as np
 from jax2onnx.converter.precision_policy import PrecisionPolicy
-from jax2onnx.converter.source_profile import _Site, _tensor, _validate_complex_add
+from jax2onnx.converter.source_profile import (
+    _Site,
+    _tensor,
+    _validate_complex_add,
+    _validate_equation,
+)
+from jax2onnx.converter.source_native_contract import validate_native_results
 from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import (
@@ -28,6 +34,7 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._precision_utils import promote_float32_operand
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -117,6 +124,12 @@ def lower_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
         _lower_source_complex_add(ctx, eqn)
         return
 
+    if (
+        ctx.precision_policy is PrecisionPolicy.SOURCE
+        and _lower_source_static_empty_add(ctx, eqn)
+    ):
+        return
+
     x_var, y_var = eqn.invars
     out_var = eqn.outvars[0]
 
@@ -201,6 +214,61 @@ def lower_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
     propagate_axis0_override(a_val, result)
     propagate_axis0_override(b_val, result)
     ctx.bind_value_for_var(out_var, result)
+
+
+def _lower_source_static_empty_add(ctx: LoweringContextProtocol, eqn: Any) -> bool:
+    """Preserve a proved static empty result without target empty-Add folding.
+
+    This representation changes no input binding, port, stored payload or native
+    equation. Symbolic zero tails remain under their existing owner gates.
+    """
+    if len(eqn.outvars) != 1:
+        return False
+    shape = eqn.outvars[0].aval.shape
+    if not (
+        all(
+            isinstance(dim, (int, np.integer)) and not isinstance(dim, (bool, np.bool_))
+            for dim in shape
+        )
+        and 0 in shape
+    ):
+        return False
+    site = _Site("static empty Add lowering", ctx.builder.opset, eqn.primitive.name)
+    # Reuse the existing owner admission before the exact original native rule;
+    # the frozen evaluator does not itself grant new dtype or shape support.
+    _validate_equation(eqn, site, set(), frozenset())
+    validate_native_results(eqn, site, primitive=jax.lax.add_p, parameters=set())
+    operands = [ctx.require_value_for_var(var) for var in eqn.invars]
+    for var, value in zip(eqn.invars, operands, strict=True):
+        if not representation_for_aval(var.aval).matches_ir_value(value):
+            raise ValueError(
+                "SOURCE empty Add physical operand dtype/shape differs from aval"
+            )
+    output_representation = representation_for_aval(eqn.outvars[0].aval)
+    selected = next(
+        (value for value in operands if output_representation.matches_ir_value(value)),
+        None,
+    )
+    output = ctx.allocate_value_for_var(eqn.outvars[0], name_hint="source_empty_add")
+    if not output_representation.matches_ir_value(output):
+        raise ValueError(
+            "SOURCE empty Add physical result dtype/shape differs from aval"
+        )
+    if selected is not None:
+        result = ctx.builder.op("Identity", [selected], output=output)
+    else:
+        # Complementary singleton broadcasts may have no input of the complete
+        # output shape. There are still no elements to compute or approximate.
+        extent = _const_i64(ctx, np.asarray(shape, dtype=np.int64), "empty_add_shape")
+        zero = ir.tensor(np.zeros((1,), dtype=eqn.outvars[0].aval.dtype))
+        result = ctx.builder.op(
+            "ConstantOfShape",
+            [extent],
+            {"value": ir.AttrTensor("value", zero)},
+            output=output,
+        )
+    ctx.bind_value_for_var(eqn.outvars[0], result)
+    return True
 
 
 @register_native_primitive(

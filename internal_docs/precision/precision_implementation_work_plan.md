@@ -1,8 +1,40 @@
 # Source Precision Implementation Work Plan
 
-Status: updated 2026-10-21; **AUTHORIZED FRAMEWORK FLOORS APPLIED;
-V5 AFFECTED CHECKS PASS ON BOTH SUPPORTED STACKS; BOTH FULL RUNS COMPLETE;
-ALL-DIRECT-MINIMUM LOCAL CI-OWNER REPLAY PASS**.
+Status: updated 2026-10-21; **PRECEDING CHECKPOINT COMMITTED;
+CURRENT FINITE REGRESSION COVERAGE ACCOUNTED FOR ACROSS EXPLICIT EPOCHS;
+MINIMUM SUBSET AND SUPPLEMENT PASS; FINAL CHECKPOINT GATES REQUIRED**.
+
+Current private work preserves original Equinox calls, source/state/options,
+stored widths, aliases and raw criteria. Shared native contraction/transpose
+and output-axis binding handle one input-derived batch symbol. Mixed dots
+follow native FP64 or explicitly preferred FP32 work with local conversions;
+static-empty Add has a guarded shared representation. Public behavior stays
+LEGACY and the full fixed-source/existing-functionality B–F contract remains open.
+
+The capability-scoped direct-minimum replay passes **2,908 cases**. SECONDARY
+coverage is explicitly **2,527 unchanged-owner passes plus 83 corrected-owner
+passes**, spanning the original 2,610 identities across two epochs. The original
+combined **2,609 PASS / one FAIL** run remains retained; this is not a unified
+green 35-selector run. PRIMARY coverage is **12,226 unchanged other-owner
+passes plus 190 corrected whole-owner passes** across two epochs; its original
+full run remains **FAILED: 12,410 PASS / six FAIL of 12,416**. The same 190
+identities pass on SECONDARY and at actual direct minima, supplementing the
+earlier affected partition and minimum subset. No unified green full or
+combined minimum run is claimed. The
+[canonical record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
+retains earlier failures, exact capability exclusions, diagnostic variants,
+negative-provider evidence and original raw outcomes. No numerical failure or
+missing raw criterion is converted into acceptance.
+
+Final-source quality-v7 passes all seven checks on its distinct header-comment
+epoch. Strict docs, seven normal hooks and held-byte/local-commit verification
+remain required. The earlier quality-v3 and failed quality-v6 receipts retain
+their own epochs. Then run all 1,852 rows / 3,704 callers through coordinator v2 on the
+clean frozen committed checkpoint. Keep the separately frozen callable-preparation
+packet unapplied until its own native qualification; it preserves explicit
+selected sites/helpers and ordinary independent native callables, but does not
+complete arbitrary fixed-source, state/RNG or scientific-FP64 work. The current
+checkpoint and full product map take priority over applying that future packet.
 
 The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
 Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
@@ -36,12 +68,13 @@ policies pass for the v3 source epoch. Phases are **NOT_INSTRUMENTED**. Its
 subsequent full-suite failure, the v4 failures and corrected v5 results are
 recorded below. Documentation and normal commit gates remain required.
 
-The coordinator's actual three-cell smoke/resume on immutable `b7eb923a`
+The historical coordinator three-cell smoke/resume on immutable `b7eb923a`
 retains three Equinox Linear profile exclusions, original native state/results,
 and the full **1,852-row / 3,704-caller** denominator. It proves bounded execution
-and resume behavior, not a full map or numerical acceptance. Its eventual full
-run must use a fresh committed contraction epoch. The [current record](poc/source_integration_findings.md#generalized-native-contractions-and-product-map-smoke)
-retains raw failures and the separate Equinox follow-up.
+and resume behavior, not a full map or numerical acceptance. Its next full run
+must use the newly qualified committed Eqx/shared-symbolic/output-axis checkpoint.
+The [current checkpoint record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
+binds qualification, retained failures and remaining gates.
 
 The subsequent complete PRIMARY v3 run is **FAILED: 11,992 PASS / 69 FAIL
 of 12,061 unique cases**, zero errors/skips, **691.290155 seconds**. All 11,685
@@ -117,28 +150,29 @@ or numerical-policy waiver is authorized.
 
 The immediate gates are:
 
-1. Complete final quality checks, strict documentation, all seven normal hooks
-   and exact-byte verification before the contraction/support-floor checkpoint.
-   Both full installed-stack runs are complete with their explicit conditional
-   cases and skips; the same 1,443 affected cases and the corrected 465-case
-   all-direct-minimum local CI-owner replay pass. Retained built-package metadata
-   and both lock checks pass. Preserve the three failed v2 epochs, the failed v3 full, both failed
-   v4 selections and typing failure. The preceding platform/eye and BF16
-   checkpoints are committed and independently verified.
-2. Execute the complete **1,852-row / 3,704-caller** product map on a fresh,
-   immutable contraction checkpoint using the smoke-qualified external
+1. Verify the recorded exact PRIMARY **12,226 + 190**, SECONDARY
+   **2,527 + 83 + 190**, and actual direct-minimum **2,908 + 190** coverage
+   partitions, original failed receipts, test-only source deltas and two-file
+   header-comment continuity proof. The original minimum capability ledger
+   remains explicit; no unified green full or combined-minimum run is claimed.
+   Final quality-v7 passes all seven checks on its own 1,106-pin epoch.
+   Strict documentation, all seven normal hooks and held-byte/commit
+   verification remain required checkpoint gates. Preserve every original
+   identity, native reference, recipe, callback and numerical criterion.
+   Earlier checkpoints retain their separate committed qualification and
+   failed histories.
+2. Execute the complete **1,852-row / 3,704-caller** product map on the newly
+   qualified and committed Eqx/shared-symbolic/output-axis checkpoint using the smoke-qualified external
    coordinator. Preserve every identity, original option, source/reference and
    failed epoch. Product observations leave runtime/numerics **UNVERIFIED**;
    resource/infrastructure interruptions remain distinct from native failures.
-3. Implement and qualify shared repairs prioritized by actual barriers and
-   affected models. Exact Equinox Linear SOURCE forwarding is already a
-   measured next step; its external preparation can proceed independently,
-   preserving the unchanged original MLP sources, state and criteria. Separate
-   reviewed external packets prepare shared native symbolic contraction and
-   transpose handling plus input-derived `B` on arbitrary output axes. They
-   remain unapplied and natively unqualified; their finite scope is an
-   intermediate step, not a final target restriction. Repeat the map on newly
-   pinned code after repairs;
+3. Continue shared repairs prioritized by actual barriers and affected models.
+   The applied Equinox forwarding/shared-symbolic/output-axis work and its
+   corrective mixed-dot controls are the current qualification packet. Close
+   the remaining actual whole-carrier native JIT obligation and broaden source,
+   state, scope and symbolic coverage using native evidence. The finite one-`B`
+   boundary is an intermediate step, not a permanent target restriction.
+   Repeat the map on newly pinned code after repairs;
    do not merge unlike epochs into
    a final coverage claim.
 4. Close remaining numerical criteria, original callbacks, optional models,

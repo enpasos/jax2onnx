@@ -53,6 +53,7 @@ from jax2onnx.precision import (
     validate_source_samples,
 )
 from tests.extra_tests.converter import source_precision_support as source
+from tests.extra_tests.converter.source_target_evidence import require_target_pair
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
@@ -274,12 +275,22 @@ def observe_contraction(
     (directory / "comparisons-before-guards.json").write_text(
         json.dumps(observations, indent=2)
     )
-    for report in reports:
-        if report.status is CheckStatus.FAILED and diagnostic:
-            with pytest.raises(SampleAcceptanceError):
+    if diagnostic:
+        for report in reports:
+            if report.status is CheckStatus.FAILED:
+                with pytest.raises(SampleAcceptanceError):
+                    report.require_sample_acceptance()
+            else:
                 report.require_sample_acceptance()
-        else:
-            report.require_sample_acceptance()
+    else:
+        for role, outputs in enumerate(native):
+            require_target_pair(
+                model,
+                [SourceSample(frozen, outputs, _BITWISE)],
+                reports[role],
+                reports[len(native) + role],
+                evidence_path=directory / f"target-boundary-{role}.json",
+            )
     if expected is not None:
         for outputs in native:
             assert len(outputs) == len(expected)

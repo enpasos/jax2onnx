@@ -665,14 +665,14 @@ def _source_batch_boundaries(
     report = get_precision_report(model)
     if report is None or report.profile != SOURCE_PRECISION_PROFILE:
         return None
-    properties = (
-        tuple(
-            item
-            for entry in report.inputs
-            for item in (entry.supplied, entry.normalized, entry.traced, entry.exported)
-        )
-        + report.traced_outputs
-        + report.exported_outputs
+    # Public inputs retain leading B and positive static tails. Native-owned
+    # outputs may retain that input-derived B on any axis, with static zeros.
+    properties = tuple(
+        (item, False)
+        for entry in report.inputs
+        for item in (entry.supplied, entry.normalized, entry.traced, entry.exported)
+    ) + tuple(
+        (item, True) for item in (*report.traced_outputs, *report.exported_outputs)
     )
     artifact_symbolic = any(
         dim.HasField("dim_param")
@@ -680,17 +680,17 @@ def _source_batch_boundaries(
         for dim in value.type.tensor_type.shape.dim
     )
     if not artifact_symbolic and not any(
-        isinstance(dim, str) for item in properties for dim in item.shape
+        isinstance(dim, str) for item, _ in properties for dim in item.shape
     ):
         return None
     symbol: str | None = None
-    for item in properties:
+    for item, output in properties:
         labels = [dim for dim in item.shape if isinstance(dim, str)]
         if labels:
             if (
                 len(item.shape) not in (1, 2, 3, 4)
                 or len(labels) != 1
-                or item.shape[0] != labels[0]
+                or (not output and item.shape[0] != labels[0])
                 or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", labels[0]) is None
                 or item.dtype
                 not in {
@@ -710,8 +710,11 @@ def _source_batch_boundaries(
                     "float64",
                 }
                 or any(
-                    not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0
-                    for dim in item.shape[1:]
+                    not isinstance(dim, int)
+                    or isinstance(dim, bool)
+                    or dim < (0 if output else 1)
+                    for dim in item.shape
+                    if not isinstance(dim, str)
                 )
                 or (symbol is not None and symbol != labels[0])
             ):

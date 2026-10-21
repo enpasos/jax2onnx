@@ -654,6 +654,10 @@ def test_fp64_enum_admission_keeps_semantic_shape_and_weakness_boundaries(
         params["precision"] = (getattr(jax.lax.Precision, defect[5:].upper()),) * 2
     elif defect == "mixed":
         inputs[0].aval = _forged_aval(inputs[0].aval, dtype=np.dtype(np.float32))
+        # Mixed FP32/FP64 with no preferred dtype computes FP64 natively;
+        # the forged FP32 result contradicts that admitted computation.
+        output.aval = _forged_aval(output.aval, dtype=np.dtype(np.float32))
+        params["preferred_element_type"] = None
     elif defect == "result":
         output.aval = _forged_aval(output.aval, dtype=np.dtype(np.float32))
     elif defect == "preferred":
@@ -682,6 +686,8 @@ def test_fp64_enum_admission_keeps_semantic_shape_and_weakness_boundaries(
         validate_source_jaxpr(graph, 23)
     assert caught.value.primitive == "dot_general"
     assert caught.value.phase == "profile-validation"
+    if defect == "mixed":
+        assert caught.value.category == "lowering-defect"
 
     def forbidden(*args: Any, **kwargs: Any) -> Any:
         pytest.fail("logical corruption must fail before reading or emitting IR")
