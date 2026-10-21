@@ -44,7 +44,16 @@ from tests.extra_tests.converter.source_precision_diagnostics import DiagnosticV
 _ORIGINALS = (jnp.minimum, jnp.maximum)
 # Measured 2026-10-21: 16 original x86_64 CPU reports remain FAILED.
 # Local audit: /tmp/jax2onnx-astra-jax012-subnormal-witness-audit-v1.json
-_TARGETS = {("0.11.2", "1.31.0"), ("0.10.2", "1.29.0"), ("0.12.0", "1.31.0")}
+# JAX 0.8.1 and 0.10.2 / ORT 1.31.0: 48 additional FAILED reports total
+# (24 per stack: 8 matrix + 16 Min/Max), both CPU modes and raising gates.
+# These failed witnesses do not establish numerical acceptance.
+_TARGETS = {
+    ("0.11.2", "1.31.0"),
+    ("0.10.2", "1.29.0"),
+    ("0.12.0", "1.31.0"),
+    ("0.10.2", "1.31.0"),
+    ("0.8.1", "1.31.0"),
+}
 
 
 def _globals() -> dict[str, Any]:

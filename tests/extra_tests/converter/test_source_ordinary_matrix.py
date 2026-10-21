@@ -57,7 +57,16 @@ _LONG_CRITERIA = {
 # smallest-subnormal fixture below. Other samples/targets must pass as usual.
 # Measured 2026-10-21: 8 original x86_64 CPU reports remain FAILED.
 # Local audit: /tmp/jax2onnx-astra-jax012-subnormal-witness-audit-v1.json
-_SUBNORMAL_TARGETS = {("0.11.2", "1.31.0"), ("0.10.2", "1.29.0"), ("0.12.0", "1.31.0")}
+# JAX 0.8.1 and 0.10.2 / ORT 1.31.0: 48 additional FAILED reports total
+# (24 per stack: 8 matrix + 16 Min/Max), both CPU modes and raising gates.
+# These failed witnesses do not establish numerical acceptance.
+_SUBNORMAL_TARGETS = {
+    ("0.11.2", "1.31.0"),
+    ("0.10.2", "1.29.0"),
+    ("0.12.0", "1.31.0"),
+    ("0.10.2", "1.31.0"),
+    ("0.8.1", "1.31.0"),
+}
 # Measured ArrayEvidence payload hashes of shape [1,1], output bits 2; this
 # pins the observed deviation without requiring a future backend to retain it.
 _SUBNORMAL_OUTPUTS = {

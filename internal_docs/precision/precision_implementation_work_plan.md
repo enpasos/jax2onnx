@@ -1,25 +1,39 @@
 # Source Precision Implementation Work Plan
 
-Status: updated 2026-10-21; **PRIMARY FULL AND THREE-STACK AFFECTED CHECKS
-PASS; MINIMUM FULL STILL UNQUALIFIED**.
+Status: updated 2026-10-21; **CURRENT PRIMARY FULL PASS;
+DECLARED MINIMUM FULL STILL UNQUALIFIED**.
 
-The fresh PRIMARY full passes **11,622 unique cases**. The same **234
-NNX/benchmark cases pass on all three installed stacks**, and a separate MINIMUM
-core selection passes **1,652 cases**. Each result has zero failures, errors or
-skips; phase counts are **NOT_INSTRUMENTED**. Current quality checks and the
-strict documentation build pass. The seven normal commit hooks are required
-for this local progress checkpoint.
+The current PRIMARY full passes **11,627 unique cases**, with zero failures,
+errors or skips and held source/Git state. Phase counts are **NOT_INSTRUMENTED**.
+The strict documentation build and **218 relative links across nine docs pass**.
+The seven normal hooks are a **required gate for this local checkpoint's
+commit**.
 
-The earlier minimum full remains **FAILED**; other minimum failure groups still
-require actual qualification. A fresh Python 3.11 SECONDARY full remains a
-follow-up. The [canonical findings](poc/source_integration_findings.md#restart-recovery-and-native-fixture-qualification)
-record these scopes, the locked-runtime repair and native fixture differences,
-and the retained failures and evidence lost during the restart.
+The earlier checkpoint **`2b4882b1`** is committed across **22 qualified paths**,
+with all seven normal hooks and its strict documentation build passing. Its
+historical PRIMARY full passed **11,622 unique cases**; the same **234 NNX/benchmark cases pass on all
+three installed stacks**, and the separate MINIMUM core selection passes
+**1,652 cases**. These results have zero failures, errors or skips; phase counts
+are **NOT_INSTRUMENTED**.
 
-Floors remain **Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**. Public behavior
-stays **LEGACY**. Existing-functionality and fixed-source work, full B–F
-acceptance, numerical failures and the public transition remain open. This
-records local progress toward the complete migration.
+Two subsequent unchanged MINIMUM selections fail: **243 PASS / 42 FAIL** across
+285 cases, and **1,372 PASS / 29 FAIL** across 1,401 cases, each with zero errors
+or skips and held sources. They are separate selections, not a combined or full
+minimum result. After sequence, diagnostic-fixture and Conv corrections, the
+same **412 cases across five complete test modules pass on all three stacks**, with zero
+failures, errors or skips and held sources. This includes the whole 125-case
+sequence module; its earlier **115-PASS / 10-FAIL** fixture epoch remains failed
+history. Current typing and six style/policy checks pass. A local checkpoint
+commit requires the seven normal hooks; locked SECONDARY full-suite
+qualification remains a separate follow-up.
+
+The [canonical findings](poc/source_integration_findings.md#fresh-minimum-baselines-and-sequence-fixture-repair)
+record the remaining native numerical, API and metadata differences. Diagnostic
+success supplies no SOURCE admission or numerical acceptance. The complete
+minimum suite, a fresh locked SECONDARY full and full **B–F** acceptance remain
+open; public behavior stays **LEGACY**. Current floors remain **Python >=3.11 /
+JAX >=0.8.1 / Flax >=0.12.1**. Any support-floor change awaits the user's
+explicit decision and has not been applied.
 
 ## Current binding minimum-version obligation
 
@@ -38,13 +52,15 @@ no public selector, legacy fallback or numerical-policy waiver is authorized.
 
 The immediate gates are:
 
-1. Finish the current **local WIP checkpoint** with the completed PRIMARY full
-   and quality results, then the seven normal commit hooks and strict
-   documentation build. Record its finite scope and retained failures explicitly.
-2. Measure and repair the remaining array-creation, normalization and other
-   minimum-stack families against their original native sources and controls,
-   then qualify the **complete minimum suite**. This remains binding before
-   generalized contractions.
+1. The seven normal hooks are required for a local checkpoint commit. Retain
+   the completed PRIMARY full, strict docs, relative-link checks,
+   412-case three-stack selection and current typing/style/policy results.
+   Preserve the reviewed subnormal and native statistics findings. The earlier
+   `2b4882b1` checkpoint and its commit gates remain complete.
+2. Resolve remaining array-creation admission, normalization, operator/API,
+   metadata and numerical obligations on the declared minimum, then qualify the
+   **complete minimum suite**. This remains binding before generalized
+   contractions; focused passes do not close it.
 3. Complete the **SECONDARY full-suite follow-up** on its locked environment
    and continue existing-functionality, fixed-source and full **B–F** acceptance
    before any public transition. Public behavior remains **LEGACY**.

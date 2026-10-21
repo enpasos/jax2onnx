@@ -2,11 +2,15 @@
 
 ## Minimum-version result and current JAX upgrade
 
-Status, 2026-10-21: **PRIMARY FULL AND THREE-STACK AFFECTED CHECKS PASS;
-DECLARED MINIMUM FULL REMAINS UNQUALIFIED**. This is a local progress snapshot.
-Public behavior remains **LEGACY**; all-supported-stack qualification, full
-B–F migration and the public transition remain open. Declared floors remain
-**Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**.
+Status, 2026-10-21: **CURRENT PRIMARY FULL 11,627 PASS;
+DECLARED MINIMUM FULL REMAINS UNQUALIFIED**. The earlier committed `2b4882b1`
+checkpoint retains its historical **11,622-case** PRIMARY pass. New minimum
+selections retain their actual failed epochs; the corrected five-owner
+selection passes **412 cases on each of the three stacks**. These are finite
+local results.
+Public behavior remains **LEGACY**; full B–F acceptance and the public transition
+remain open. Floors remain **Python >=3.11 / JAX >=0.8.1 / Flax >=0.12.1**;
+a proposed change awaits the user's explicit decision and has not been applied.
 
 ### Restart recovery and native fixture qualification
 
@@ -43,9 +47,9 @@ Dependency and lock checks pass; JAX/JAXLIB **0.10.2**, Flax **0.12.8** and
 NumPy **2.4.6** are unchanged. Fresh SECONDARY execution after
 that synchronization now passes the same **234-case** NNX/benchmark selection,
 including all seven benchmark tests, with zero failures, errors or skips. The
-current production converter and repository script contents are unchanged from
-the durable failed SECONDARY full; the subsequent source corrections are test
-fixtures. A fresh SECONDARY full remains a follow-up, so this focused success
+production converter and repository script contents at checkpoint `2b4882b1`
+were unchanged from the durable failed SECONDARY full; those corrections were test
+fixtures. The later Conv forwarding correction is recorded separately below. A fresh SECONDARY full remains a follow-up, so this focused success
 does not relabel the failed full or establish qualification across all stacks.
 The diagnostic and same-artifact replay are in `decoder-diagnostic-v2/`, and
 the fresh affected receipt, XML and log are in `nnx-focused-v2-secondary/`.
@@ -84,8 +88,9 @@ and after the API correction. Phase counts are **NOT_INSTRUMENTED**. The same
 **234 NNX/benchmark cases pass on all three installed stacks**, each with zero
 failures, errors or skips.
 
-The fresh ordinary JAX/JAXLIB **0.12.0** PRIMARY full now passes **11,622 unique
-cases**, with **zero failures, errors or skips**, source and Git state held
+At the earlier committed `2b4882b1` checkpoint, the ordinary JAX/JAXLIB
+**0.12.0** PRIMARY full passed **11,622 unique cases**, with **zero failures,
+errors or skips**, source and Git state held
 (ROOT `40730` / `3263ba`, exit0). The durable runner records **797.65 seconds**.
 Phase counts are **NOT_INSTRUMENTED**; no phase totals are inferred. Its receipt,
 XML and log are retained in `primary/` under the durable restart directory.
@@ -95,21 +100,110 @@ native-conditioned identities. The focused PRIMARY and minimum-core identities
 are included and passing. No identity comparison is claimed against the lost
 older PRIMARY raw collection.
 
-Current quality passes typing across **557 source files**, four policy checks,
-Ruff on **20 touched Python files**, and their formatting checks. One earlier
-pinned-Black formatter-only correction has a separately verified unchanged
-syntax tree. The **strict documentation build passes**. The **seven normal
-commit hooks are required for the local WIP checkpoint**. A fresh SECONDARY
-full remains a follow-up; the declared MINIMUM
-full remains unqualified. The complete precision migration, full B–F acceptance
-and public transition remain open.
+Checkpoint **`2b4882b1`** is committed with exactly **22 qualified paths**,
+verified committed contents and a clean worktree at commit verification. All
+**seven normal commit hooks pass**, as does the **strict documentation build**.
+Its quality checks pass typing across **557 source files**, four policy checks,
+Ruff and formatting on **20 touched Python files**. One pinned-Black formatting
+correction has a separately verified unchanged syntax tree. These completed
+commit gates qualify that finite checkpoint; subsequent changes retain
+their own validation and commit obligations. The complete minimum suite, a fresh
+locked SECONDARY full, full B–F acceptance and the public transition remain open.
 
-The historical minimum full below remains **FAILED and unaccepted**. Earlier
-focused corrections do not close the other historical normalization, Equinox
-interop, operator/API, matrix/array-creation or fixed-numerical failure groups.
-Their current status needs actual qualification rather than subtracting repaired
-case counts from the old full. Public LEGACY behavior and full B–F obligations
-remain unchanged.
+The historical minimum full below remains **FAILED and unaccepted**. The fresh
+focused failures recorded next identify current obligations; repaired-case
+counts are not subtracted from an earlier full to invent a remaining count.
+Public LEGACY behavior and the declared support floors remain unchanged.
+
+### Fresh minimum baselines and sequence fixture repair
+
+After the committed checkpoint, the unchanged three-owner minimum selection
+completes **285 unique cases: 243 PASS / 42 FAIL / zero ERROR or SKIP**. The
+failures comprise 16 sequence, 17 constant-normalization and nine interop cases;
+both former TypePromotionError-lookup failures now pass. A separate unchanged
+16-owner selection completes **1,401 unique cases: 1,372 PASS / 29 FAIL / zero
+ERROR or SKIP**. Sources and Git state are held in both runs; phase counts are
+**NOT_INSTRUMENTED**. These are separate selections, not a full-minimum result
+or a summed acceptance denominator. Durable receipts, XML and logs are in
+`remaining-native-baseline-minimum/` and
+`other-retained-failures-baseline-minimum/` under the restart directory.
+
+The paired normalization diagnostic invokes eight exact original recipes on
+MINIMUM and PRIMARY, retaining their original inputs, parameters, options,
+graph checks and assertions. All eight serialized models and feeds are
+byte-identical across stacks. Their target outputs are also byte-identical
+under original-default, ALL and DISABLED optimization. Native model state,
+inputs, eager-before/after bytes and caller settings remain held. Five constant
+recipes have nonzero native eager/JIT results on minimum and zero on primary;
+the unchanged target is exact zero on both. The three interop recipes have
+different eager and JIT results on both stacks and retain the minimum numerical
+failures under their original bounds. Changing the native reference to JIT,
+substituting an algorithm or widening a tolerance is not acceptance. The paired
+captures are in `normalization-diagnostic/{minimum-v1,primary-v1}/`. The subsequent
+three-recipe statistics capture completes on both stacks: native grouped inputs
+and squares are bit-identical to target, the first observed differences on
+MINIMUM are in mean or second moment, and the copied models retain their original
+final bytes;
+its original minimum failures remain failed, with no causal, impossibility or
+acceptance claim.
+
+The sequence fixture correction retains the exact original omitted/explicit
+arange calls and contexts. On the old native constant-only route, checks bind
+closed constants and their output order to pinned payload bytes and actual
+serialized output producers. The seven malformed-form controls now expose
+native iota/mul independently of incidental arange constant folding, validate
+the clean form and preserve every original corruption/rejection. The first
+fixture run remains **FAILED: 115 PASS / 10 FAIL**, with zero errors or skips;
+it stopped at an incorrect diagnostic-callback count. After that fixture
+correction, the whole module passes the same **125 unique cases on MINIMUM,
+SECONDARY and PRIMARY**, each with zero failures, errors or skips and held
+sources; phases are **NOT_INSTRUMENTED**. These are focused test results, not a
+new full-suite qualification. The old BF16 runtime-execution failure and its
+raising diagnostic remain retained; SOURCE admission and numerical acceptance
+remain **UNVERIFIED**. Earlier failed sequence epochs are not relabelled.
+
+The exact subnormal replays on MINIMUM and the locked SECONDARY produce
+**48 actual FAILED numerical reports** and **48 raising acceptance-guard checks**,
+with zero diagnostic errors. They retain the original bitwise criteria and failed
+status; passing diagnostics supply no numerical acceptance.
+
+The LEGACY Conv shim now replays the original caller's exact arguments at its
+three existing fallback sites, including the original input before any batch
+flattening. Omitted `out_sharding` stays omitted; explicit None, keyword or
+positional hints and native errors retain their original behavior. SOURCE
+continues to call the native implementation directly. Five new controls cover
+the three fallback routes and native result bytes/error parity under both
+policies. Legacy `inputs=` remains an independent binding gap, while SOURCE
+`x=` retains native rejection; the full call-form obligation remains separate.
+
+The combined sequence, ordinary-matrix, matrix-admission, signed-Min/Max and
+Conv-geometry selection now passes the same **412 unique cases on each of
+MINIMUM, SECONDARY and PRIMARY**, with zero failures, errors or skips and held
+sources. It retains 407 previous identities and adds exactly five reviewed Conv
+controls. All 25 failed baseline identities belonging to these five owners now
+pass; this is a scoped identity comparison, not a whole-minimum remaining count.
+Phase counts are **NOT_INSTRUMENTED**. Current typing passes **557 source files**;
+Ruff and formatting pass on the **five changed Python paths**; all **four policy
+checks pass**. The 17 RNG factories are an inventory count, not an executed-test
+count.
+
+The current ordinary PRIMARY full passes **11,627 unique cases**, with **zero
+failures, errors or skips**, source and Git state held, in **694.655 seconds**
+(ROOT `44606` / `6b6c4d`, exit0). Phase counts are **NOT_INSTRUMENTED**. Its
+receipt, raw XML and log are retained in `sequence-conv-full-v1-primary/` under
+the durable restart directory. The strict documentation build passes (ROOT
+`37473` / `4dc6de`, exit0, **8.08 seconds**), and **218 relative links across
+nine docs pass**. The seven normal hooks are a **required gate for this local
+checkpoint's commit**. Locked SECONDARY full-suite qualification remains a
+separate follow-up.
+
+Other retained minimum obligations include metadata and native-scope schemas,
+platform-index lowering, attention numerics and native APIs unavailable in the
+oldest packages. Each needs its own source-preserving qualification. No floor
+change is authorized while the user's decision is pending: **Python >=3.11 /
+JAX >=0.8.1 / Flax >=0.12.1** remains binding. The complete minimum suite, locked
+SECONDARY full and existing-functionality/fixed-source B–F acceptance remain
+open; public behavior remains **LEGACY**.
 
 ### Earlier wave-2 and declared-minimum baseline
 
@@ -200,10 +294,10 @@ No public selector, legacy fallback or numerical-policy waiver is authorized.
 The original **1,852-row / 3,704-caller** SOURCE baseline remains unchanged;
 the polynomial adapter adds no accepted row. Modern PRIMARY full and affected
 SECONDARY qualification and their independent actual reviews are complete at
-that wave-2 source epoch. Normal hooks and strict documentation checks are required before
-committing a **local WIP progress snapshot**. That snapshot does not
-qualify the failed minimum or complete the existing-functionality, fixed-source,
-full B–F or public-transition targets.
+that wave-2 source epoch. The then-pending local checkpoint hooks and strict
+documentation gates are resolved by `2b4882b1`, as recorded above. That finite
+checkpoint does not qualify the failed minimum or complete the existing-functionality,
+fixed-source, full B–F or public-transition targets.
 
 ### Subsequent minimum-stack repairs
 

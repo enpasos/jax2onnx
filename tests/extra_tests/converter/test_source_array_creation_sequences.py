@@ -28,6 +28,7 @@ from jax2onnx._compat.jax import (
     Literal,
     ShapedArray,
     TypePromotionError,
+    native_mul_parameter_names,
     scan_arity,
 )
 from jax2onnx.converter.precision_policy import (
@@ -275,7 +276,7 @@ class _SequenceAudit:
             "concatenate": (None, {"dimension"}),
             "add": (2, set()),
             "sub": (2, set()),
-            "mul": (2, {"out_dtype"}),
+            "mul": (2, native_mul_parameter_names()),
             "div": (2, set()),
             "floor": (1, set()),
             "lt": (2, set()),
@@ -288,6 +289,8 @@ class _SequenceAudit:
         arity, allowed = rules[name]
         assert arity is None or len(eqn.invars) == arity
         assert len(eqn.outvars) == 1 and set(params) <= allowed
+        if name == "mul":
+            assert set(params) == native_mul_parameter_names()
         assert all(
             _placement(params[key])
             for key in {"sharding", "out_sharding"} & params.keys()
@@ -472,6 +475,53 @@ def _accepted(
         assert report.status is CheckStatus.VALIDATED
 
 
+def _assert_native_arange_constant_outputs(
+    closed: Any,
+    proto: onnx.ModelProto,
+    audit: _SequenceAudit,
+    references: list[np.ndarray],
+    *,
+    dtype: Any,
+) -> None:
+    """Pin the measured constant-only native recipes and their output bindings."""
+    dtype = np.dtype(dtype)
+    bits = {
+        "float16": (0x6800, 0x6801, 0x6802, 0x6803, 0x6804, 0x6805),
+        "bfloat16": (0x4380, 0x4381, 0x4382, 0x4383, 0x4384, 0x4385),
+    }[dtype.name]
+    payload = np.asarray(bits, dtype=np.uint16).tobytes()
+    count = len(references)
+    assert count in (1, 2) and len(closed.consts) == count
+    assert audit.roots
+    for body in (_body(closed), *audit.roots):
+        assert not body.effects and not body.invars and not body.eqns
+        assert len(body.constvars) == len(body.outvars) == count
+        assert all(
+            output is constant
+            for output, constant in zip(body.outvars, body.constvars, strict=True)
+        )
+        assert _signature(body.constvars) == ((dtype.name, (6,), False),) * count
+        assert _signature(body.outvars) == _signature(body.constvars)
+    for value in (*closed.consts, *references):
+        array = np.asarray(value)
+        assert array.dtype == dtype and array.shape == (6,)
+        assert array.tobytes() == payload
+    assert not proto.functions and not proto.graph.input and not proto.graph.node
+    assert not proto.graph.sparse_initializer
+    assert len(proto.graph.initializer) == len(proto.graph.output) == count
+    assert len({value.name for value in proto.graph.initializer}) == count
+    for tensor, output in zip(proto.graph.initializer, proto.graph.output, strict=True):
+        assert tensor.name == output.name
+        assert tensor.data_type == onnx.helper.np_dtype_to_tensor_dtype(dtype)
+        assert tuple(tensor.dims) == (6,)
+        assert not tensor.external_data
+        assert tensor.data_location == onnx.TensorProto.DEFAULT
+        assert tensor.raw_data == np.asarray(bits, dtype="<u2").tobytes()
+        array = onnx.numpy_helper.to_array(tensor)
+        assert array.dtype == dtype and array.shape == (6,)
+        assert array.tobytes() == payload
+
+
 @pytest.mark.parametrize("x64", [False, True])
 @pytest.mark.parametrize(
     "kind",
@@ -551,13 +601,19 @@ def test_arange_omitted_step_has_its_own_low_precision_algorithm(
                 start, start + 6, 1, dtype=dtype
             )
 
+        closed = jax.make_jaxpr(target)()
         proto, audit, references = _export(target)
-        assert references[0].tobytes() != references[1].tobytes()
-        iotas = [eqn for eqn in audit.roots[0].eqns if eqn.primitive.name == "iota"]
-        assert [eqn.outvars[0].aval.dtype for eqn in iotas] == [
-            np.dtype(dtype),
-            np.dtype(np.float32),
-        ]
+        if not _body(closed).eqns:
+            _assert_native_arange_constant_outputs(
+                closed, proto, audit, references, dtype=dtype
+            )
+        else:
+            assert references[0].tobytes() != references[1].tobytes()
+            iotas = [eqn for eqn in audit.roots[0].eqns if eqn.primitive.name == "iota"]
+            assert [eqn.outvars[0].aval.dtype for eqn in iotas] == [
+                np.dtype(dtype),
+                np.dtype(np.float32),
+            ]
         if dtype is np.float16:
             _accepted(proto, (), references, both=True)
 
@@ -836,7 +892,13 @@ def test_bfloat16_arange_target_failures_are_not_numerical_acceptance(
             else jnp.arange(257, 263, dtype=jnp.bfloat16)
         )
 
-    proto, _, references = _export(target)
+    closed = jax.make_jaxpr(target)()
+    proto, audit, references = _export(target)
+    constant_form = not _body(closed).eqns
+    if constant_form:
+        _assert_native_arange_constant_outputs(
+            closed, proto, audit, references, dtype=jnp.bfloat16
+        )
     for optimization in ("disabled", "all"):
         report = _samples(proto, (), references, optimization)
         if report.status is CheckStatus.VALIDATED:
@@ -849,14 +911,16 @@ def test_bfloat16_arange_target_failures_are_not_numerical_acceptance(
             for check in report.samples[0].checks
             if check.status is CheckStatus.FAILED
         ]
-        expected_category = "runtime-execution" if explicit else "runtime-load"
+        expected_category = (
+            "runtime-execution" if explicit or constant_form else "runtime-load"
+        )
         assert any(check.category == expected_category for check in failures)
         assert any(
             check.category == "numerical-acceptance"
             and check.status is CheckStatus.UNVERIFIED
             for check in report.samples[0].checks
         )
-        if explicit:
+        if explicit or constant_form:
             assert any(
                 "No corresponding Numpy type" in check.detail for check in failures
             )
@@ -987,11 +1051,19 @@ def test_native_sequence_binding_does_not_widen_product_admission(
 )
 def test_native_sequence_validator_rejects_malformed_forms(corruption: str) -> None:
     def target() -> Any:
-        return jnp.arange(1, 5, 1, dtype=np.float16)
+        values = jax.lax.iota(np.float32, 4)
+        values = jax.lax.mul(np.float32(1), values)
+        values = jax.lax.add(np.float32(1), values)
+        return jax.lax.convert_element_type(values, np.float16)
 
-    _, audit, _ = _export(target)
+    _, audit, references = _export(target)
+    assert len(references) == 1
+    assert references[0].dtype == np.float16 and references[0].shape == (4,)
+    assert references[0].tobytes() == np.asarray([1, 2, 3, 4], np.float16).tobytes()
     primitive = "mul" if corruption == "out_dtype" else "iota"
-    eqn = copy(next(eqn for eqn in audit.equations if eqn.primitive.name == primitive))
+    clean = next(eqn for eqn in audit.equations if eqn.primitive.name == primitive)
+    _SequenceAudit._leaf(clean)
+    eqn = copy(clean)
     eqn.params = dict(eqn.params)
     if corruption == "out_dtype":
         eqn.params["out_dtype"] = np.dtype(np.float64)
