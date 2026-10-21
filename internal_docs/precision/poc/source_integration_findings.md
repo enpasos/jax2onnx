@@ -2,10 +2,10 @@
 
 ## Minimum-version result and current JAX upgrade
 
-Status, 2026-10-21: **CURRENT STORAGE-V3 SOURCE FOCUSED/QUALITY CHECKS PASS;
-SUPPORTED MINIMUM 1,752 AND BOTH MODERN 1,813 PASS; FULL PRIMARY 12,600 PASS;
-LEGACY PRECISION POLICY**. Documentation, normal hooks, staging and commit had
-not run at the qualification cut recorded below; later evidence is separate.
+Status, 2026-10-22: **NATIVE WRAPPER PRETYPING FOCUSED 441/437/437 PASS;
+CURRENT PRODUCTION TYPING/RNG, SECONDARY/DIRECTMIN 919 EACH AND FULL PRIMARY 12,762 PASS;
+DOCUMENTATION, NORMAL HOOKS AND CURRENT COMMIT PENDING; LEGACY PRECISION POLICY**.
+The preceding storage-v3 source epoch and its completed gates are retained below.
 
 The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
 Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
@@ -22,9 +22,110 @@ or numerical requirement from the single-interface migration target.
 
 Public precision policy stays **LEGACY**; full B–F acceptance remains open.
 
+### Native transformed-callable capture
+
+The current local replay boundary captures the original native `vmap_f` and
+`reraise_with_filtered_traceback` functions by exact nested-code and defining-
+globals identities. It retains the actual wrapper/source closures, owners and
+aliases without invoking the source or rebuilding a transformation during
+capture. Finite implementation dependencies, class/default metadata, actual
+function builtin mappings and true builtin fallback absence/resolution remain
+owned; this does not grant general callable or carrier admission.
+
+Both supported JAX layouts resolve `vmap_f`'s direct `zip` through the imported
+native `safe_zip`. Capture requires the same exact object at `api.zip`,
+`api.util.safe_zip` and `api.util.jaxlib_utils.safe_zip`, retaining and rechecking
+all defining module edges. Removing the global or substituting builtin `zip`
+is a state change; it cannot silently become a true builtin fallback.
+
+Native vmap can materialize an unset axis local as the already effective axis
+environment. Selected replay operations therefore install that same effective
+axis as a managed local, require the managed runtime state to remain unchanged,
+then restore the exact original caller local and effective state in `finally`.
+The original native setter is retained across the call. Native returns/errors,
+exported artifacts/schema outcomes and raw callback statuses are recorded before
+cleanup; unexpected context drift remains a separate unverified replay gap even
+if caller restoration succeeds. Source weights, globals and closures are not
+reset or excluded from state checks.
+
+**Historical focused runtime evidence before the typing-only correction:**
+**441 PRIMARY / 437 SECONDARY / 437 MINIMUM cases PASS**, zero failures/errors/
+skips, across the wrapper, canonical native capture and raw-replay owners.
+These tests include positive, rejection and diagnostic outcomes; phase counts
+are NOT_INSTRUMENTED. Failed earlier builtin-layout, descriptor-restoration,
+axis-local and interned no-op fixture epochs remain retained. The subsequent
+annotations/casts-only compat correction preserves normalized runtime AST;
+actual production mypy passes all **559 files**, followed by the actual inventory
+of **17 RNG factories**. Inventory is not RNG or model numerical acceptance.
+The same typed sources pass both 15-owner affected selections: **919 SECONDARY
+and 919 DIRECTMIN cases**, zero failures/errors/skips, with source/Git state held.
+The current full PRIMARY suite passes **12,762 unique cases**, zero failures/
+errors/skips, in **1458.641726 seconds**, with source/Git state held. Exact identity
+reconciliation retains all 12,600 preceding full-suite cases and adds only 162
+wrapper-owner cases; neither prior IDs nor affected-selection IDs are removed.
+SECONDARY and DIRECTMIN have the same 919 identities, all present in full PRIMARY.
+All 1,109 source pins hold and the owned native process group is empty. Phases
+remain **NOT_INSTRUMENTED**. Strict docs/rendered links, all seven actual normal
+commit hooks and qualified/staged-byte/current-commit verification remain
+**PENDING**. These passing regression results do not establish full B–F or model
+numerical acceptance.
+
+**Original MLP2 result.** Under both original caller x64 states on PRIMARY,
+SECONDARY and MINIMUM, the unchanged ordinal-2 `MlpExample` target is captured;
+eager/fresh-JIT and both typed traces return, and source reference, export,
+schema, artifact and lowering-audit checks validate. Its original structural
+callbacks remain **FAILED**, `criteria=None` and `skip_numeric_validation=True`
+are unchanged, and runtime/numerics remain **UNVERIFIED**. Raw replay runs no
+ORT. Passing regression assertions preserve that failed callback outcome.
+
+Original metadata differs per row: MLP0 and MLP2 explicitly set
+`skip_numeric_validation=True`; MLP1 omits that flag and retains its default
+false. All three raw rows keep `criteria=None`; artifact-only replay executes
+no ORT and leaves runtime/numerics **UNVERIFIED**. Those raw fields do not replace
+separately reviewed numerical criteria or certificates.
+
+**Separate source-only context evidence.** The accepted v4 capture covers four
+original unbatched MLP0/1 training/inference caller cells at the earlier
+`b945a957` source snapshot. Each cell has one traced source call and no concrete,
+compiled or ORT outputs. That acceptance binds original files, state and context
+to that exact epoch; later wrapper changes require refreshed correspondence.
+It does not authorize a current numerical harness or clear the separate R2
+numerical-execution hold. Original callbacks/criteria remain unchanged.
+
+The independent immutable c686 map now retains **98 ordinary terminal cells /
+one original incomplete / 3,605 unstarted of 3,704**, covering all 1,852 rows.
+This remains earlier-source product coverage, not current runtime/numerical or
+full-map acceptance. Public precision policy/options/defaults remain **LEGACY**;
+all existing functionality, fixed sources and full B–F remain required through
+one ordinary export contract.
+
+Local evidence below is provenance, not a tracked dependency:
+
+| Scope | Actual record |
+| --- | --- |
+| Historical pretyping focused runtime | `native-wrapper-axis-context-v3-three-stack/receipt.json` |
+| Current typing-only source and actual typing/RNG | `native-wrapper-typing-application-v1/receipt.json` and `source-inputs.json`; `native-wrapper-typing-qualified-v1/receipt.json` |
+| Current typed-source affected selections and full PRIMARY | `native-wrapper-final-v1-secondary/receipt.json`; `native-wrapper-final-v1-minimum/receipt.json`; `native-wrapper-final-v1-primary/receipt.json`; aggregate `native-wrapper-final-v1-controller/receipt.json` and `identity-reconciliation.json` |
+| Original MLP2 source/export and retained failed callbacks | `native-wrapper-original-mlp2-observations-v1/summary.json` and its six original scenario records |
+| Earlier four-cell source-only context, no numerical execution | `source-context-v4-root-execution-v1/receipt.json`; `astra-eqx-actual-source-context-review-v4/review.json` |
+| Earlier-source map continuation | `product-map-c686-eightcells-v1/receipt.json` |
+
 ### Native Equinox Dropout and shared static uniform
 
+#### Storage-v3 local closeout
+
+After the qualification cut retained below, storage-v3 completed strict MkDocs,
+rendered-link checks and all seven actual normal commit hooks. The exact qualified
+paths were committed locally as `dde196609d4eb96f5827343406af160a2d3393da`, preserving
+all 13 Python postimages, 1,108 source/config inputs and the four protected docs.
+The closeout is local only, with no push. These completed gates belong to that
+storage-v3 checkpoint; current wrapper sources require their own gates above.
+
 #### Storage-v3 qualification snapshot
+
+This preceding source snapshot retains its own outcomes and then-pending gates.
+The later wrapper and source-only context results above supersede its future-
+wrapper wording; none of its results automatically transfer to changed sources.
 
 The storage-v3 qualification snapshot has **13 Python paths / 1,108 source/config inputs**,
 bound by `source-function-storage-application-v3/source-inputs.json`. Public
@@ -122,6 +223,7 @@ paths are not tracked dependencies.
 
 | Evidence | Receipt or independent record |
 | --- | --- |
+| Later storage-v3 local closeout at `dde196609d` | `source-storage-checkpoint-closeout-v1/receipt.json`; exact staged paths in `qualified-staged-paths.json`; seven actual hooks in `normal-commit.log` |
 | Current source epoch and exact storage fixture revisions | `source-function-storage-application-v3/receipt.json` and `source-inputs.json`; `source-function-storage-focused-v{1,2,3}-minimum/receipt.json`; `source-function-storage-focused-v3-primary/receipt.json` |
 | Current direct quality / wider runs | `source-function-storage-quality-v3/receipt.json`; `source-function-storage-affected-v3-{minimum,secondary,primary}/receipt.json`; full PRIMARY: `source-function-storage-full-v3-primary/receipt.json`; `source-function-storage-serial-qualification-v3/receipt.json`; `source-function-storage-full-identity-reconciliation-v1.json` |
 | Failed expanded minimum and unchanged-c686 storage | `source-literal-cond-affected-v4-minimum/receipt.json`; `source-large-capture-c686-baseline-v1-minimum/receipt.json`; `astra-source-literal-cond-affected-v4-failure-audit-v1/audit.json` and `capability-partition.json` |

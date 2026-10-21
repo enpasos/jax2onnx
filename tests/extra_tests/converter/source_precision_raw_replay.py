@@ -9,6 +9,7 @@ The old finite corpus replay continues to use its original preparation path.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields, is_dataclass
 import dis
 import functools
@@ -33,6 +34,11 @@ from jax2onnx._compat.jax import (
     selected_prng_key_words,
     selected_native_capture,
     selected_native_capture_member,
+    native_transformed_function_role,
+    native_transformed_closure_state,
+    selected_native_transformed_function,
+    NativeTransformedExecutionError,
+    native_transformed_execution_context,
 )
 from jax2onnx.converter.source_representation import representation_for_aval
 from scripts.source_precision_inventory import canonical_contract
@@ -51,6 +57,41 @@ from tests.extra_tests.converter.source_precision_support import (
     source_configuration,
     value_evidence,
 )
+
+
+class _ReplayReferenceWitness:
+    """Retain only edges already read by the existing source-state traversal."""
+
+    def __init__(self) -> None:
+        self.edges: list[tuple[tuple[str, ...], object]] = []
+        self.selected: dict[tuple[str, ...], str] = {}
+        self.native_references: list[object] = []
+
+    def take(self, path: tuple[str, ...], value: object) -> None:
+        self.edges.append((path, value))
+
+    def document(self) -> Any:
+        return {
+            "selected_roles": [
+                [list(path), role] for path, role in self.selected.items()
+            ],
+            "original_edges": [[list(path), id(value)] for path, value in self.edges],
+        }
+
+    def require_same(self, observed: _ReplayReferenceWitness) -> None:
+        if self.selected != observed.selected or len(self.edges) != len(observed.edges):
+            raise SourcePreparationError(
+                "Actual selected native wrapper or original source edges changed",
+                category="replay-lane-gap",
+            )
+        for (path, original), (current_path, current) in zip(
+            self.edges, observed.edges, strict=True
+        ):
+            if path != current_path or original is not current:
+                raise SourcePreparationError(
+                    "Actual selected native wrapper source identity/alias changed",
+                    category="replay-lane-gap",
+                )
 
 
 class RawReplayCapture:
@@ -78,6 +119,7 @@ class RawReplayCapture:
         self.gaps: list[dict[str, str]] = []
         self.target: Any = None
         self.target_state: Any = None
+        self.target_witness: _ReplayReferenceWitness | None = None
         self.preparation_complete = False
         self.records["native_outcomes"] = {}
         self.records["replay_readiness"] = {"status": "unverified", "gaps": self.gaps}
@@ -97,20 +139,49 @@ class RawReplayCapture:
         self.records["replay_readiness"] = {"status": status.value, "gaps": self.gaps}
         return status
 
-    def invoke(self, role: str, call: Any) -> Any:
-        # Retain the actual object/exception before any evidence adapter runs.
+    def _record_context_gap(self, role: str, error: Exception) -> None:
+        key = role + "-native-context"
         try:
-            result = call()
-        except Exception as exc:
-            self.native_errors[role] = exc
-            self.records["native_outcomes"][role] = {
-                "status": "raised",
-                "exception": f"{type(exc).__module__}.{type(exc).__qualname__}",
-                "detail": str(exc),
+            self.gap(key, error)
+        finally:
+            # A failed evidence reporter cannot turn context drift into readiness.
+            if not any(gap["role"] == key for gap in self.gaps):
+                self.gaps.append({"role": key, "detail": str(error)})
+            self.records["replay_readiness"] = {
+                "status": "unverified",
+                "gaps": self.gaps,
             }
-            return None
-        self.native_values[role] = result
-        self.records["native_outcomes"][role] = {"status": "returned"}
+
+    def execution_context(self, role: str) -> AbstractContextManager[None]:
+        if (
+            self.target_witness is None
+            or "vmap_f" not in self.target_witness.selected.values()
+        ):
+            return nullcontext()
+        return native_transformed_execution_context(
+            on_error=lambda error: self._record_context_gap(role, error)
+        )
+
+    def invoke(self, role: str, call: Any) -> Any:
+        # Retain the actual object/exception before boundary cleanup or evidence.
+        result = None
+        try:
+            with self.execution_context(role):
+                try:
+                    result = call()
+                except Exception as exc:
+                    self.native_errors[role] = exc
+                    self.records["native_outcomes"][role] = {
+                        "status": "raised",
+                        "exception": f"{type(exc).__module__}.{type(exc).__qualname__}",
+                        "detail": str(exc),
+                    }
+                else:
+                    self.native_values[role] = result
+                    self.records["native_outcomes"][role] = {"status": "returned"}
+        except NativeTransformedExecutionError:
+            # Entry failed before the source call; the boundary recorded a gap.
+            pass
         return result
 
     def save_arrays(self, role: str, values: Any) -> tuple[np.ndarray, ...] | None:
@@ -129,7 +200,10 @@ class RawReplayCapture:
     def bind_target(self, target: Any) -> None:
         self.target = target
         try:
-            self.target_state = _capture_actual_target_state(target)
+            witness = _ReplayReferenceWitness()
+            self.target_state = _capture_actual_target_state(target, witness=witness)
+            if witness.selected:
+                self.target_witness = witness
         except Exception as exc:
             self.gap("instantiated-target-state", exc)
             raise SourcePreparationError(
@@ -137,6 +211,10 @@ class RawReplayCapture:
                 category="replay-lane-gap",
             ) from exc
         self.save_document("instantiated-target-state", self.target_state)
+        if self.target_witness is not None:
+            self.save_document(
+                "instantiated-target-references", self.target_witness.document()
+            )
         if (
             self.records.get("instantiated-target-state", {}).get("status")
             != "captured"
@@ -147,7 +225,13 @@ class RawReplayCapture:
 
     def check_target(self, role: str) -> bool:
         try:
-            observed = _capture_actual_target_state(self.target)
+            witness = (
+                _ReplayReferenceWitness() if self.target_witness is not None else None
+            )
+            observed = _capture_actual_target_state(self.target, witness=witness)
+            if self.target_witness is not None:
+                assert witness is not None
+                self.target_witness.require_same(witness)
             if observed != self.target_state:
                 self.save_document(role + "-changed-state", observed)
                 raise SourcePreparationError(
@@ -530,7 +614,9 @@ def _jax_scalar_dtype_binding(value: Any) -> dict[str, str] | None:
     return None
 
 
-def _capture_actual_target_state(target: Any) -> Any:
+def _capture_actual_target_state(
+    target: Any, *, witness: _ReplayReferenceWitness | None = None
+) -> Any:
     """Require an actual callable adapter; recursive type tokens are metadata."""
     if isinstance(target, type):
         binding = _jax_scalar_dtype_binding(target)
@@ -540,7 +626,7 @@ def _capture_actual_target_state(target: Any) -> Any:
             "An actual class callable needs an instantiated-target adapter",
             category="replay-lane-gap",
         )
-    return _capture_target_state(target)
+    return _capture_target_state(target, witness=witness)
 
 
 def _diagnostic_class_symbol(value: type) -> dict[str, str | None]:
@@ -652,7 +738,10 @@ def _function_owned_data(
     depth: int = 0,
     location: tuple[str, ...] = ("root",),
     function: Any = None,
+    witness: _ReplayReferenceWitness | None = None,
 ) -> Any:
+    if witness is not None:
+        witness.take(location, value)
     native = _selected_native_state(value)
     if native is not None:
         return native
@@ -715,6 +804,7 @@ def _function_owned_data(
                             depth=depth + 1,
                             location=location + (f"mapping[{index}].value",),
                             function=function,
+                            witness=witness,
                         ),
                     ]
                     for index, (key, item) in enumerate(value.items())
@@ -732,6 +822,7 @@ def _function_owned_data(
                     depth=depth + 1,
                     location=location + (f"item[{index}]",),
                     function=function,
+                    witness=witness,
                 )
                 for index, item in enumerate(value)
             ],
@@ -740,7 +831,12 @@ def _function_owned_data(
 
 
 def _function_global_state(
-    fn: Any, child: Any, *, location: tuple[str, ...] = ("root",)
+    fn: Any,
+    child: Any,
+    *,
+    location: tuple[str, ...] = ("root",),
+    native_implementation: Any = None,
+    witness: _ReplayReferenceWitness | None = None,
 ) -> dict[str, Any]:
     """Bind referenced data; retain explicit boundaries for executable libraries.
 
@@ -748,6 +844,8 @@ def _function_global_state(
     namespace attributes are resolved only along bytecode-visible access chains;
     arbitrary module escape or custom class/static dependencies remain gaps.
     """
+    if native_implementation is not None:
+        return {"selected_native_implementation": native_implementation}
     accesses: dict[str, set[tuple[str, ...]]] = {}
 
     def inspect_code(code: Any) -> None:
@@ -768,7 +866,11 @@ def _function_global_state(
             if isinstance(constant, types.CodeType):
                 inspect_code(constant)
 
-    def dependency(value: Any, *, location: tuple[str, ...]) -> Any:
+    def dependency(
+        value: Any, *, location: tuple[str, ...], retain: bool = True
+    ) -> Any:
+        if witness is not None and retain:
+            witness.take(location, value)
         native = _selected_native_state(value)
         if native is not None:
             return native
@@ -777,12 +879,20 @@ def _function_global_state(
             # Imported implementation is owned by the environment/source pins.
             # Model instances and owned methods cannot enter this branch.
             return binding
-        return _function_owned_data(value, child, location=location, function=fn)
+        return _function_owned_data(
+            value,
+            child,
+            location=location,
+            function=fn,
+            witness=witness if retain else None,
+        )
 
     inspect_code(fn.__code__)
     result = {}
     for name, paths in sorted(accesses.items()):
         value = fn.__globals__[name]
+        if witness is not None:
+            witness.take(location + ("global:" + name,), value)
         if not isinstance(value, types.ModuleType):
             result[name] = dependency(value, location=location + ("global:" + name,))
             continue
@@ -799,9 +909,17 @@ def _function_global_state(
                     category="replay-lane-gap",
                 )
             member = value
-            for attribute in path:
+            retained_member = True
+            for index, attribute in enumerate(path):
                 if isinstance(member, types.ModuleType) and attribute in vars(member):
                     member = vars(member)[attribute]
+                    if witness is not None:
+                        witness.take(
+                            location
+                            + ("global:" + name,)
+                            + tuple("attribute:" + item for item in path[: index + 1]),
+                            member,
+                        )
                     continue
                 try:
                     native_member = selected_native_capture_member(member, attribute)
@@ -815,12 +933,23 @@ def _function_global_state(
                         f"Referenced attribute path needs an exact state adapter: {name}.{'.'.join(path)}",
                         category="replay-lane-gap",
                     )
+                if witness is not None and type(native_member) is types.MethodType:
+                    witness.take(
+                        location + ("global:" + name, "native-owner:" + attribute),
+                        native_member.__self__,
+                    )
+                    witness.take(
+                        location + ("global:" + name, "native-method:" + attribute),
+                        native_member.__func__,
+                    )
+                    retained_member = False
                 member = native_member
             selected[".".join(path)] = dependency(
                 member,
                 location=location
                 + ("global:" + name,)
                 + tuple("attribute:" + attribute for attribute in path),
+                retain=retained_member,
             )
         result[name] = {"library_namespace": value.__name__, "attributes": selected}
     return result
@@ -832,6 +961,7 @@ def _capture_target_state(
     depth: int = 0,
     location: tuple[str, ...] = ("root",),
     function: Any = None,
+    witness: _ReplayReferenceWitness | None = None,
 ) -> Any:
     """Snapshot the actual callable, with bounded Eqx/NNX state adapters.
 
@@ -842,15 +972,22 @@ def _capture_target_state(
         raise SourcePreparationError(
             "Target state nesting needs an exact adapter", category="replay-lane-gap"
         )
+    if witness is not None:
+        witness.take(location, value)
 
     def child(
         item: Any,
         *segments: str,
         location: tuple[str, ...] = location,
         function: Any = function,
+        retain: bool = True,
     ) -> Any:
         return _capture_target_state(
-            item, depth=depth + 1, location=location + segments, function=function
+            item,
+            depth=depth + 1,
+            location=location + segments,
+            function=function,
+            witness=witness if retain else None,
         )
 
     native = _selected_native_state(value)
@@ -866,9 +1003,9 @@ def _capture_target_state(
         }
     if isinstance(value, jax.tree_util.PyTreeDef):
         return {
-            "pytree_node": child(value.node_data(), "pytree-node"),
+            "pytree_node": child(value.node_data(), "pytree-node", retain=False),
             "children": [
-                child(tree, f"pytree-child[{index}]")
+                child(tree, f"pytree-child[{index}]", retain=False)
                 for index, tree in enumerate(value.children())
             ],
         }
@@ -878,7 +1015,52 @@ def _capture_target_state(
             "method": child(value.__func__, "method"),
         }
     if isinstance(value, types.FunctionType):
-        return {
+        try:
+            role = native_transformed_function_role(value)
+            selected = selected_native_transformed_function(value)
+        except (TypeError, ValueError) as exc:
+            raise SourcePreparationError(
+                "Selected native transformed-function capture needs an exact adapter: "
+                + str(exc),
+                category="replay-lane-gap",
+            ) from exc
+        if witness is not None:
+            for name, item in (
+                ("code", value.__code__),
+                ("globals", value.__globals__),
+                ("closure", value.__closure__),
+            ):
+                witness.take(location + (name,), item)
+            for name, cell in zip(
+                value.__code__.co_freevars, value.__closure__ or (), strict=True
+            ):
+                witness.take(location + ("cell:" + name,), cell)
+                witness.take(location + ("cell-content:" + name,), cell.cell_contents)
+            if role is not None:
+                witness.selected[location] = role
+                assert selected is not None
+                witness.native_references.extend(selected.retained)
+
+        def capture_cell(name: str, cell: Any) -> Any:
+            try:
+                contextual = native_transformed_closure_state(
+                    value, name, cell.cell_contents
+                )
+            except (TypeError, ValueError) as exc:
+                raise SourcePreparationError(
+                    str(exc), category="replay-lane-gap"
+                ) from exc
+            if contextual is not None:
+                return contextual
+            return _function_owned_data(
+                cell.cell_contents,
+                child,
+                location=location + ("capture:" + name,),
+                function=value,
+                witness=witness,
+            )
+
+        result = {
             "callable": f"{value.__module__}.{value.__qualname__}",
             "code_sha256": canonical_code_fingerprint(value.__code__),
             "defaults": _function_owned_data(
@@ -886,34 +1068,50 @@ def _capture_target_state(
                 child,
                 location=location + ("defaults",),
                 function=value,
+                witness=witness,
             ),
             "kwdefaults": _function_owned_data(
                 value.__kwdefaults__,
                 child,
                 location=location + ("kwdefaults",),
                 function=value,
+                witness=witness,
             ),
             "attributes": _function_owned_data(
                 value.__dict__,
                 child,
                 location=location + ("attributes",),
                 function=value,
+                witness=witness,
             ),
             "referenced_globals": _function_global_state(
-                value, child, location=location
+                value,
+                child,
+                location=location,
+                native_implementation=(
+                    selected.document if selected is not None else None
+                ),
+                witness=witness,
             ),
             "captures": {
-                name: _function_owned_data(
-                    cell.cell_contents,
-                    child,
-                    location=location + ("capture:" + name,),
-                    function=value,
-                )
+                name: capture_cell(name, cell)
                 for name, cell in zip(
                     value.__code__.co_freevars, value.__closure__ or (), strict=True
                 )
             },
         }
+        if selected is not None:
+            result["metadata"] = {
+                name: child(item, "metadata:" + name)
+                for name, item in (
+                    ("name", value.__name__),
+                    ("module", value.__module__),
+                    ("qualname", value.__qualname__),
+                    ("doc", value.__doc__),
+                    ("annotations", value.__annotations__),
+                )
+            }
+        return result
     if isinstance(value, functools.partial):
         return {
             "partial": child(value.func, "partial-function"),
@@ -924,6 +1122,7 @@ def _capture_target_state(
                 child,
                 location=location + ("partial-attributes",),
                 function=function,
+                witness=witness,
             ),
         }
     if getattr(value, "__jax2onnx_factory__", False):
@@ -939,8 +1138,8 @@ def _capture_target_state(
         graph, state = nnx.split(value)
         return {
             "target_type": f"{type(value).__module__}.{type(value).__qualname__}",
-            "graph": child(graph, "nnx-graph"),
-            "state": child(state, "nnx-state"),
+            "graph": child(graph, "nnx-graph", retain=False),
+            "state": child(state, "nnx-state", retain=False),
         }
     if isinstance(value, nnx.Variable):
         raw = value.get_raw_value() if hasattr(value, "get_raw_value") else value.value
@@ -948,7 +1147,7 @@ def _capture_target_state(
         return {
             "variable_type": f"{type(value).__module__}.{type(value).__qualname__}",
             "value": child(raw, "nnx-variable-value"),
-            "metadata": child(metadata, "nnx-variable-metadata"),
+            "metadata": child(metadata, "nnx-variable-metadata", retain=False),
         }
     typename = f"{type(value).__module__}.{type(value).__qualname__}"
     if (
@@ -1452,30 +1651,39 @@ def run_raw_source_case(
         )
     else:
         try:
-            with source_configuration(prepared.scenario):
-                settings = SourceSettings.observe()
-                product_attempted = True
-                model = _export_prepared(
-                    prepared,
-                    artifact_observer=capture.artifact,
-                    facade_return_observer=capture.observe_facade_return,
-                    output_directory=capture.directory,
-                )
-            schema = CheckStatus.VALIDATED
-        except Exception as exc:
-            error = exc
-            if (
-                capture.records["facade_return"]["status"] == "returned"
-                and getattr(exc, "category", None) == "replay-lane-gap"
-            ):
-                capture.gap("facade-return-normalization", exc)
-            else:
-                capture.failure("source-export", exc)
-                capture.records["source_error"] = structured_source_error(exc)
-            if isinstance(
-                exc, (onnx.checker.ValidationError, onnx.shape_inference.InferenceError)
-            ):
-                schema = CheckStatus.FAILED
+            with capture.execution_context("product-export"):
+                try:
+                    with source_configuration(prepared.scenario):
+                        settings = SourceSettings.observe()
+                        product_attempted = True
+                        model = _export_prepared(
+                            prepared,
+                            artifact_observer=capture.artifact,
+                            facade_return_observer=capture.observe_facade_return,
+                            output_directory=capture.directory,
+                        )
+                    schema = CheckStatus.VALIDATED
+                except Exception as exc:
+                    error = exc
+                    if (
+                        capture.records["facade_return"]["status"] == "returned"
+                        and getattr(exc, "category", None) == "replay-lane-gap"
+                    ):
+                        capture.gap("facade-return-normalization", exc)
+                    else:
+                        capture.failure("source-export", exc)
+                        capture.records["source_error"] = structured_source_error(exc)
+                    if isinstance(
+                        exc,
+                        (
+                            onnx.checker.ValidationError,
+                            onnx.shape_inference.InferenceError,
+                        ),
+                    ):
+                        schema = CheckStatus.FAILED
+        except NativeTransformedExecutionError:
+            # The actual export result/error was recorded before boundary cleanup.
+            pass
         finally:
             # A changed target does not erase a real returned artifact/checker
             # outcome. The native model is never reset or reconstructed here.
@@ -1536,14 +1744,21 @@ def run_raw_source_case(
         stage = "raw-callback"
         callback = prepared.metadata.get("post_check_onnx_graph")
         callback_status = "absent" if callback is None else "error"
+        callback_attempted = False
         try:
-            if callback is not None:
-                callback_status = "passed" if callback(model) else "failed"
-            if callback_status == "failed":
-                raise AssertionError("Raw metadata structural callback failed")
-        except Exception as exc:
-            error = exc
-            capture.failure("raw-callback", exc)
+            with capture.execution_context("raw-callback"):
+                callback_attempted = True
+                try:
+                    if callback is not None:
+                        callback_status = "passed" if callback(model) else "failed"
+                    if callback_status == "failed":
+                        raise AssertionError("Raw metadata structural callback failed")
+                except Exception as exc:
+                    error = exc
+                    capture.failure("raw-callback", exc)
+        except NativeTransformedExecutionError:
+            if not callback_attempted:
+                callback_status = "not-executed"
     if model is not None:
         capture.check_target("after-raw-callback")
     capture.records["raw_callback"] = {

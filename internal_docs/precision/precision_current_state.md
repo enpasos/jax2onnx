@@ -18,7 +18,39 @@ evidence; they are no longer a supported-floor release gate. This decision
 does not fix numerical/provider gaps or remove any existing model, fixed source
 or numerical requirement from the single-interface migration target.
 
+## Native transformed-callable capture
+
+The local replay boundary now captures the original native `vmap_f` and
+traceback wrappers, their defining globals, source closures and aliases. It owns
+the actual imported `safe_zip` identity and restores the caller's exact native
+axis local/effective state, including unset locals, around selected operations.
+Actual native returns, exceptions, exports and callback results remain separate
+from context-restoration gaps.
+
+The pretyping focused source epoch passes **441 PRIMARY / 437 SECONDARY /
+437 MINIMUM cases**, zero failures/errors/skips. The later annotations/casts-only
+compat correction passes actual typing on **559 production files** and completes
+the **17-factory RNG inventory**. On those typed sources, both 15-owner selections
+pass **919 SECONDARY / 919 DIRECTMIN cases**, zero failures/errors/skips.
+The current full PRIMARY suite passes **12,762 unique cases**, zero failures/
+errors/skips, in **1458.641726 seconds**. All 12,600 prior identities are retained,
+with 162 wrapper additions; both 919-case selections are included in that full
+suite. All 1,109 source pins hold. Documentation, all seven normal hooks and
+qualified-byte/current-commit verification remain **PENDING**.
+
+Original MLP2 now captures and validates native source/export/schema/audit under
+both caller x64 states on all three stacks. Original structural callbacks stay
+**FAILED**, `criteria=None` and `skip_numeric_validation=True` are unchanged,
+and runtime/numerics remain **UNVERIFIED**. Raw replay runs no ORT. The accepted
+four-cell MLP0/1 source-only context capture is bound to earlier `b945a957` bytes;
+it releases no numerical-execution hold for the current source. Public precision
+policy/options/defaults remain **LEGACY**, and full B–F remains open. The
+[canonical wrapper record](poc/source_integration_findings.md#native-transformed-callable-capture)
+binds the evidence and remaining gates.
+
 ## Native Equinox Dropout and shared static uniform
+
+The following storage-v3 qualification belongs to the preceding source epoch.
 
 The current local checkpoint combines original-call Dropout/static uniform,
 literal branch-result/logical-key reporting, replay owner-lifetime and shared
@@ -38,6 +70,8 @@ errors/skips. The full PRIMARY suite records **12,600 PASS / 0 FAIL / 0 ERROR / 
 At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
 documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
 checks and commit had not yet run. Later closeout evidence is recorded separately.
+The [completed storage-v3 closeout](poc/source_integration_findings.md#storage-v3-local-closeout) records local commit
+`dde196609d` and its completed documentation, seven normal hooks and held-byte gates.
 
 The exact minimum partition retains **61 target-capability cases** outside
 positive qualification: 59 newly observed target-opset/schema rejections plus
@@ -59,12 +93,12 @@ three-stack passes, and old 680-case modern passes/failed minimum retain their
 own epochs. Current raw MLP0/1 callbacks remain FAILED, criteria None and
 runtime/numerics UNVERIFIED; raw replay runs no ORT.
 
-The immutable c686 map has **87 ordinary terminals / one original incomplete /
-3,616 unstarted of 3,704**. Future wrapper/callable packets remain unapplied and
-natively unrun. Numeric certificates are accepted source-only with a hard R2
-hold; context PF1/PF2 implementation is conditionally accepted source-only,
-requiring fresh checkpoint/pin review and actual capture. No numerical gate is
-cleared. All existing functionality, fixed sources and full B–F remain required.
+At that storage-v3 cut, the immutable c686 map retained **87 ordinary terminals /
+one original incomplete / 3,616 unstarted of 3,704**. Wrapper/callable/context
+packets were then future work; the later wrapper and source-only context results
+are recorded above. Numerical certificates retain the separate R2 execution
+hold. No numerical gate is cleared. All existing functionality, fixed sources
+and full B–F remain required.
 See the [canonical evidence and gates](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform).
 
 ## Retained preceding checkpoint evidence

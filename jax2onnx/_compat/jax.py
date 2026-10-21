@@ -11,10 +11,13 @@ import re
 import functools
 import hashlib
 import inspect
+import dis
 import json
 import sys
 import struct
 import types
+import builtins
+import dataclasses as _native_dataclasses
 from enum import Enum
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Callable, cast
@@ -29,6 +32,10 @@ from jax._src.numpy import ufuncs as _native_ufuncs
 from jax._src.lax import lax as _native_lax_impl
 from jax._src.lax import windowed_reductions as _native_windowed
 from jax._src import pjit as _native_pjit
+from jax._src import api as _native_api
+from jax._src import traceback_util as _native_traceback
+from jax._src import linear_util as _native_linear_util
+from jax._src.interpreters import batching as _native_batching
 from jax._src import named_sharding as _native_named_sharding
 from jax import tree_util as _native_tree_util
 from jax._src import core as _native_core
@@ -422,6 +429,14 @@ def canonical_code_fingerprint(code: types.CodeType) -> str:
     ).hexdigest()
 
 
+def _native_module_dictionary(value: object) -> dict[str, Any] | None:
+    """Read only a true module's builtin namespace, never instance __class__."""
+    mro = vars(type)["__mro__"].__get__(type(value))
+    if not any(base is types.ModuleType for base in mro):
+        return None
+    return cast(dict[str, Any], vars(types.ModuleType)["__dict__"].__get__(value))
+
+
 class _NativeCaptureGraph:
     """Snapshot the bounded native owners and their Python executable state.
 
@@ -435,16 +450,23 @@ class _NativeCaptureGraph:
     def __init__(self) -> None:
         self.nodes: dict[str, Any] = {}
         self.bindings: list[tuple[types.ModuleType, str, object]] = []
+        # Keep every identity in native evidence alive, including annotation
+        # leaves and executable/code/globals edges outside the node graph.
+        self.retained: dict[int, object] = {}
+
+    def retain(self, value: object) -> None:
+        self.retained[id(value)] = value
 
     def _record_bindings(self, value: Any) -> None:
         module_name = value.__module__
         if type(module_name) is not str:
             raise ValueError("native implementation module requires an actual string")
         module = sys.modules.get(module_name)
-        if isinstance(module, types.ModuleType):
-            for name, item in vars(module).copy().items():
+        namespace = _native_module_dictionary(module)
+        if namespace is not None:
+            for name, item in namespace.copy().items():
                 if item is value:
-                    self.bindings.append((module, name, value))
+                    self.bindings.append((cast(types.ModuleType, module), name, value))
 
     @staticmethod
     def _schema(mapping: Any, expected: frozenset[str]) -> bool:
@@ -462,13 +484,22 @@ class _NativeCaptureGraph:
         # Python annotations are metadata, not executable callbacks. Keep exact
         # leaf identities and the entire annotation container without traversing
         # arbitrary typing descriptors or class/static state.
+        self.retain(value)
         kind = type(value)
         if kind is dict:
             if not all(type(key) is str for key in value):
                 raise ValueError("native annotation keys require actual strings")
-            return {key: self._annotation(item) for key, item in value.items()}
+            return {
+                "container_identity": id(value),
+                "container_type": "dict",
+                "items": {key: self._annotation(item) for key, item in value.items()},
+            }
         if kind is tuple or kind is list:
-            return [self._annotation(item) for item in value]
+            return {
+                "container_identity": id(value),
+                "container_type": "tuple" if kind is tuple else "list",
+                "items": [self._annotation(item) for item in value],
+            }
         if (
             value is None
             or kind is str
@@ -486,7 +517,11 @@ class _NativeCaptureGraph:
             raise ValueError("native callable type metadata changed")
         return module + "." + name
 
+    def _function_defaults(self, function: types.FunctionType, keyword: bool) -> Any:
+        return self.take(function.__kwdefaults__ if keyword else function.__defaults__)
+
     def take(self, value: Any) -> Any:
+        self.retain(value)
         if value is None:
             return None
         if type(value) is bool:
@@ -529,14 +564,28 @@ class _NativeCaptureGraph:
                 items, key=lambda pair: json.dumps(pair[0], sort_keys=True)
             )
         elif type(value) is types.FunctionType:
+            for edge in (
+                value.__code__,
+                value.__globals__,
+                value.__builtins__,
+                value.__closure__,
+            ):
+                self.retain(edge)
+            for cell in value.__closure__ or ():
+                self.retain(cell)
             node.update(
+                code_identity=id(value.__code__),
+                globals_identity=id(value.__globals__),
+                builtins_identity=id(value.__builtins__),
+                closure_identity=id(value.__closure__),
+                cell_identities=[id(cell) for cell in value.__closure__ or ()],
                 code_sha256=canonical_code_fingerprint(value.__code__),
                 name=self.take(value.__name__),
                 qualname=self.take(value.__qualname__),
                 module=self.take(value.__module__),
                 doc=self.take(value.__doc__),
-                defaults=self.take(value.__defaults__),
-                kwdefaults=self.take(value.__kwdefaults__),
+                defaults=self._function_defaults(value, False),
+                kwdefaults=self._function_defaults(value, True),
                 attributes=self.take(vars(value)),
                 annotations=self._annotation(value.__annotations__),
                 closure=[
@@ -676,8 +725,10 @@ class _NativeCaptureGraph:
         return {"ref": key}
 
 
-def _initial_native_capture() -> tuple[dict[int, Any], dict[int, Any], dict[int, str]]:
-    states, bindings, gaps = {}, {}, {}
+def _initial_native_capture() -> (
+    tuple[dict[int, Any], dict[int, Any], dict[int, str], dict[int, tuple[object, ...]]]
+):
+    states, bindings, gaps, retained = {}, {}, {}, {}
     for owner, _ in _NATIVE_CAPTURE_OWNERS:
         graph = _NativeCaptureGraph()
         try:
@@ -692,12 +743,16 @@ def _initial_native_capture() -> tuple[dict[int, Any], dict[int, Any], dict[int,
             continue
         states[id(owner)] = {"roots": roots, "nodes": graph.nodes}
         bindings[id(owner)] = tuple(graph.bindings)
-    return states, bindings, gaps
+        retained[id(owner)] = tuple(graph.retained.values())
+    return states, bindings, gaps, retained
 
 
-_NATIVE_CAPTURE_BASELINE, _NATIVE_CAPTURE_BINDINGS, _NATIVE_CAPTURE_GAPS = (
-    _initial_native_capture()
-)
+(
+    _NATIVE_CAPTURE_BASELINE,
+    _NATIVE_CAPTURE_BINDINGS,
+    _NATIVE_CAPTURE_GAPS,
+    _NATIVE_CAPTURE_RETAINED,
+) = _initial_native_capture()
 
 
 def selected_native_capture(value: object) -> dict[str, Any] | None:
@@ -2082,6 +2137,1826 @@ def _resolve_definitely_equal_shape() -> Callable[[Any, Any], bool]:
 
 
 definitely_equal_shape: Callable[[Any, Any], bool] = _resolve_definitely_equal_shape()
+
+
+# Raw replay's two transformed-function roles are pinned from the loaded native
+# factories. This boundary does not construct transformations or execute source.
+_NATIVE_WRAPPER_FREEVARS = {
+    "reraise_with_filtered_traceback": ("fun",),
+    "vmap_f": (
+        "axis_name",
+        "axis_size",
+        "fun",
+        "in_axes",
+        "out_axes",
+        "spmd_axis_name",
+        "sum_match",
+    ),
+}
+_NATIVE_WRAPPER_TRACE_HELPERS = (
+    "_filtering_mode",
+    "_is_under_reraiser",
+    "_is_reraiser_frame",
+    "_add_tracebackhide_to_hidden_frames",
+    "filter_traceback",
+    "_add_call_stack_frames",
+    "format_exception_only",
+    "include_frame",
+    "include_filename",
+    "_path_starts_with",
+    "_ignore_known_hidden_frame",
+    "_running_under_ipython",
+    "_ipython_supports_tracebackhide",
+)
+_NATIVE_WRAPPER_VMAP_PATHS = (
+    "zip",
+    "util.safe_zip",
+    "util.jaxlib_utils.safe_zip",
+    "_mapped_axis_size",
+    "_mapped_axis_spec",
+    "_check_ema_unmapped_args",
+    "debug_info",
+    "flatten_axes",
+    "keystr",
+    "tree_flatten",
+    "tree_flatten_with_path",
+    "tree_leaves",
+    "tree_unflatten",
+    "generate_key_paths",
+    "lu.wrap_init",
+    "api_util.check_no_transformed_refs_args",
+    "api_util.check_no_aliased_ref_args",
+    "core.typeof",
+    "core.get_axis_env",
+    "core.no_axis_name",
+    "core.dedup_referents",
+    "get_abstract_mesh",
+    "sharding_impls.flatten_spec",
+    "collections.Counter",
+    "inspect.signature",
+    "batching.flatten_fun_for_vmap",
+    "batching.batch",
+    "batching.is_vmappable",
+)
+_NATIVE_WRAPPER_TRACE_STDLIB_PATHS = (
+    "os.path.abspath",
+    "os.path.commonpath",
+    "os.path.samefile",
+    "traceback.walk_tb",
+    "traceback.walk_stack",
+    "traceback.extract_stack",
+    "traceback.format_exception_only",
+    "traceback.FrameSummary",
+    "types.TracebackType",
+)
+
+
+def _native_wrapper_slot(module: types.ModuleType, path: str) -> tuple[Any, ...]:
+    """Retain each explicit module edge; custom descriptors are never followed."""
+    value: Any = module
+    edges = []
+    for name in path.split("."):
+        namespace = _native_module_dictionary(value)
+        if namespace is None or type(namespace.get("__name__")) is not str:
+            raise ValueError("native transformed module path needs an exact adapter")
+        if sys.modules.get(namespace["__name__"]) is not value:
+            raise ValueError("native transformed defining module binding changed")
+        if name not in namespace:
+            raise ValueError("native transformed module slot is missing: " + path)
+        edges.append((value, namespace, name, namespace[name]))
+        value = namespace[name]
+    return tuple(edges)
+
+
+def _native_nested_wrapper_code(owner: Any, name: str) -> types.CodeType:
+    if type(owner) is not types.FunctionType:
+        raise ValueError("native transformed factory requires its original function")
+    codes = [
+        item
+        for item in owner.__code__.co_consts
+        if type(item) is types.CodeType and item.co_name == name
+    ]
+    if len(codes) != 1 or codes[0].co_freevars != _NATIVE_WRAPPER_FREEVARS[name]:
+        raise ValueError("native transformed nested-code schema needs an exact adapter")
+    return codes[0]
+
+
+def _native_wrapper_access_schema(code: types.CodeType) -> frozenset[str]:
+    paths = set()
+    instructions = list(dis.get_instructions(code))
+    for index, instruction in enumerate(instructions):
+        if instruction.opname not in {"LOAD_GLOBAL", "LOAD_NAME"}:
+            continue
+        path = [instruction.argval]
+        for following in instructions[index + 1 :]:
+            if following.opname not in {"LOAD_ATTR", "LOAD_METHOD"}:
+                break
+            path.append(following.argval)
+        paths.add(".".join(path))
+    for constant in code.co_consts:
+        if type(constant) is types.CodeType:
+            paths.update(_native_wrapper_access_schema(constant))
+    return frozenset(paths)
+
+
+_NATIVE_WRAPPER_ACCESS_SCHEMAS = {
+    "reraise_with_filtered_traceback": frozenset(
+        (
+            "Exception",
+            "TypeError",
+            "UnfilteredStackTrace",
+            "ValueError",
+            "_add_call_stack_frames",
+            "_add_tracebackhide_to_hidden_frames",
+            "_filtering_mode",
+            "_is_under_reraiser",
+            "_jax_message_append",
+            "_simplified_tb_msg",
+            "filter_traceback",
+            "format_exception_only",
+        )
+    ),
+    "vmap_f": frozenset(
+        (
+            "ValueError",
+            "_check_ema_unmapped_args",
+            "_mapped_axis_size",
+            "_mapped_axis_spec",
+            "any",
+            "api_util.check_no_aliased_ref_args",
+            "api_util.check_no_transformed_refs_args",
+            "batching.AxisData",
+            "batching.SpecMatchError",
+            "batching.batch",
+            "batching.flatten_fun_for_vmap",
+            "batching.is_vmappable",
+            "batching.infer",
+            "config.mutable_array_checks.value",
+            "config.remove_size_one_mesh_axis_from_type.value",
+            "core.typeof",
+            "debug_info",
+            "flatten_axes",
+            "get_abstract_mesh",
+            "isinstance",
+            "keystr",
+            "len",
+            "list",
+            "lu.wrap_init",
+            "tree_flatten",
+            "tree_flatten_with_path",
+            "tree_leaves",
+            "tree_unflatten",
+            "tuple",
+            "zip",
+        )
+    ),
+}
+_NATIVE_WRAPPER_VMAP_LEGACY_ACCESS_SCHEMA = _NATIVE_WRAPPER_ACCESS_SCHEMAS["vmap_f"] - {
+    "list"
+}
+
+
+def _initial_native_wrapper_roles() -> (
+    tuple[dict[str, tuple[types.CodeType, dict[str, Any]]], tuple[Any, ...]]
+):
+    boundary = _native_wrapper_slot(_native_traceback, "api_boundary")[-1][-1]
+    reraise_code = _native_nested_wrapper_code(
+        boundary, "reraise_with_filtered_traceback"
+    )
+    public = _native_wrapper_slot(_native_api, "vmap")[-1][-1]
+    if not (
+        type(public) is types.FunctionType
+        and public.__code__ is reraise_code
+        and public.__globals__ is _native_module_dictionary(_native_traceback)
+        and public.__closure__ is not None
+        and len(public.__closure__) == 1
+    ):
+        raise ValueError("native vmap factory wrapper chain needs an exact adapter")
+    owner = public.__closure__[0].cell_contents
+    if type(
+        owner
+    ) is not types.FunctionType or owner.__globals__ is not _native_module_dictionary(
+        _native_api
+    ):
+        raise ValueError("native vmap factory globals need an exact adapter")
+    vmap_code = _native_nested_wrapper_code(owner, "vmap_f")
+    for name, code in (
+        ("reraise_with_filtered_traceback", reraise_code),
+        ("vmap_f", vmap_code),
+    ):
+        schemas: tuple[frozenset[str], ...] = (_NATIVE_WRAPPER_ACCESS_SCHEMAS[name],)
+        if name == "vmap_f":
+            # The newer native argument-error message also reads list(kwargs).
+            schemas += (_NATIVE_WRAPPER_VMAP_LEGACY_ACCESS_SCHEMA,)
+        if _native_wrapper_access_schema(code) not in schemas:
+            raise ValueError(
+                "native transformed direct-access schema needs an exact adapter: "
+                + name
+            )
+    owners = tuple(
+        (
+            function,
+            function.__code__,
+            function.__globals__,
+            function.__closure__,
+            tuple(cell.cell_contents for cell in function.__closure__ or ()),
+        )
+        for function in (boundary, public, owner)
+    )
+    return (
+        {
+            "reraise_with_filtered_traceback": (reraise_code, boundary.__globals__),
+            "vmap_f": (vmap_code, owner.__globals__),
+        },
+        owners,
+    )
+
+
+try:
+    _NATIVE_WRAPPER_ROLES, _NATIVE_WRAPPER_FACTORIES = _initial_native_wrapper_roles()
+except (TypeError, ValueError) as _wrapper_error:
+    _NATIVE_WRAPPER_ROLES, _NATIVE_WRAPPER_FACTORIES = {}, ()
+    _NATIVE_WRAPPER_LAYOUT_GAP: str | None = str(_wrapper_error)
+else:
+    _NATIVE_WRAPPER_LAYOUT_GAP = None
+
+# Only direct fallback loads in the two audited native code bodies are owned.
+_NATIVE_WRAPPER_BUILTIN_NAMES = {
+    "reraise_with_filtered_traceback": ("Exception", "TypeError", "ValueError"),
+    "vmap_f": ("ValueError", "any", "isinstance", "len", "list", "tuple"),
+}
+
+
+def _initial_native_wrapper_lookups() -> tuple[dict[str, Any], tuple[object, ...]]:
+    if not _NATIVE_WRAPPER_ROLES:
+        raise ValueError("native transformed builtin lookup owners are unavailable")
+    factories = tuple(owner[0] for owner in _NATIVE_WRAPPER_FACTORIES)
+    factory_builtins = tuple(function.__builtins__ for function in factories)
+    if any(type(mapping) is not dict for mapping in factory_builtins):
+        raise ValueError(
+            "native transformed actual builtin mapping needs an exact adapter"
+        )
+    roles = {}
+    for role, owner_index in (("reraise_with_filtered_traceback", 0), ("vmap_f", 2)):
+        code, namespace = _NATIVE_WRAPPER_ROLES[role]
+        mapping = factory_builtins[owner_index]
+        schema = _native_wrapper_access_schema(code)
+        if role == "vmap_f":
+            # Both supported stacks resolve this direct load through the native
+            # imported safe_zip, not the function's actual builtin mapping.
+            native_zip = _native_wrapper_slot(
+                _native_api, "util.jaxlib_utils.safe_zip"
+            )[-1][-1]
+            if (
+                type(native_zip) is not types.BuiltinFunctionType
+                or namespace.get("zip") is not native_zip
+                or _native_wrapper_slot(_native_api, "util.safe_zip")[-1][-1]
+                is not native_zip
+            ):
+                raise ValueError("native transformed imported safe_zip layout changed")
+        names = tuple(
+            name for name in _NATIVE_WRAPPER_BUILTIN_NAMES[role] if name in schema
+        )
+        entries = []
+        for name in names:
+            if name in namespace or name not in mapping:
+                raise ValueError(
+                    "native transformed direct builtin fallback layout changed"
+                )
+            entries.append((name, mapping[name]))
+        roles[role] = {
+            "builtins": mapping,
+            "globals": namespace,
+            "entries": tuple(entries),
+        }
+    if factory_builtins[1] is not roles["reraise_with_filtered_traceback"]["builtins"]:
+        raise ValueError("native transformed original wrapper builtin mapping changed")
+    return roles, factory_builtins
+
+
+try:
+    _NATIVE_WRAPPER_LOOKUP_ROLES, _NATIVE_WRAPPER_FACTORY_BUILTINS = (
+        _initial_native_wrapper_lookups()
+    )
+except (KeyError, TypeError, ValueError) as _wrapper_lookup_error:
+    _NATIVE_WRAPPER_LOOKUP_ROLES, _NATIVE_WRAPPER_FACTORY_BUILTINS = {}, ()
+    _NATIVE_WRAPPER_LOOKUP_GAP: str | None = str(_wrapper_lookup_error)
+else:
+    _NATIVE_WRAPPER_LOOKUP_GAP = None
+
+
+def _native_wrapper_builtin_state(role: str, graph: _NativeCaptureGraph) -> Any:
+    if _NATIVE_WRAPPER_LOOKUP_GAP is not None:
+        raise ValueError(_NATIVE_WRAPPER_LOOKUP_GAP)
+    entry = _NATIVE_WRAPPER_LOOKUP_ROLES[role]
+    namespace, mapping = entry["globals"], entry["builtins"]
+    graph.retain(namespace)
+    graph.retain(mapping)
+    states = {}
+    for name, original in entry["entries"]:
+        if name in namespace:
+            raise ValueError("native transformed direct builtin global shadow: " + name)
+        if name not in mapping or mapping[name] is not original:
+            raise ValueError(
+                "native transformed direct builtin binding changed: " + name
+            )
+        graph.retain(original)
+        states[name] = {
+            "global_present": False,
+            "builtin_present": True,
+            "resolution": "actual_function_builtins",
+            "resolved_identity": id(original),
+        }
+    return {
+        "globals_identity": id(namespace),
+        "builtins_identity": id(mapping),
+        "direct_fallbacks": states,
+    }
+
+
+_NATIVE_WRAPPER_SENTINEL = vars(_native_core).get("no_axis_name")
+_NATIVE_WRAPPER_EXCLUSIONS = vars(_native_traceback).get("_exclude_paths")
+_NATIVE_WRAPPER_REGISTRY = vars(_native_batching).get("vmappables")
+_NATIVE_WRAPPER_CLASS_ROLES = {
+    "reraise_with_filtered_traceback": ((_native_traceback, "UnfilteredStackTrace"),),
+    "vmap_f": (
+        (_native_batching, "AxisData"),
+        (_native_batching, "SpecMatchError"),
+        (_native_batching, "Infer"),
+        (_native_linear_util, "Store"),
+        (_native_linear_util, "EqualStore"),
+    ),
+}
+_NATIVE_WRAPPER_CLASSES = {
+    (role, name): vars(module).get(name)
+    for role, entries in _NATIVE_WRAPPER_CLASS_ROLES.items()
+    for module, name in entries
+}
+_NATIVE_WRAPPER_CONFIGS = {
+    name: vars(_native_config).get(name)
+    for name in (
+        "traceback_filtering",
+        "mutable_array_checks",
+        "remove_size_one_mesh_axis_from_type",
+    )
+}
+_NATIVE_WRAPPER_INFER_TYPE = vars(_native_batching).get("Infer")
+_NATIVE_WRAPPER_INFER_DICT = (
+    vars(type)["__dict__"].__get__(_NATIVE_WRAPPER_INFER_TYPE).get("__dict__")
+    if type(_NATIVE_WRAPPER_INFER_TYPE) is type
+    else None
+)
+
+
+def _native_wrapper_dictionary_descriptor(cls: type) -> tuple[type, Any]:
+    for base in vars(type)["__mro__"].__get__(cls):
+        descriptor = vars(type)["__dict__"].__get__(base).get("__dict__")
+        if descriptor is not None:
+            if type(descriptor) is not types.GetSetDescriptorType:
+                raise ValueError(
+                    "native transformed context dictionary needs a builtin descriptor"
+                )
+            return base, descriptor
+    raise ValueError(
+        "native transformed context dictionary layout needs an exact adapter"
+    )
+
+
+def _initial_native_wrapper_context_roles() -> dict[str, Any]:
+    axis_type = vars(_native_core).get("AxisEnv")
+    mesh_type = vars(_native_mesh).get("AbstractMesh")
+    eqn_type = vars(_native_core).get("JaxprEqnContext")
+    if any(type(cls) is not type for cls in (axis_type, mesh_type, eqn_type)):
+        raise ValueError(
+            "native transformed context class layout needs an exact adapter"
+        )
+    axis_slots = tuple(
+        (name, vars(axis_type).get(name))
+        for name in ("axis_sizes", "spmd_axis_names", "explicit_mesh_axis_names")
+    )
+    if any(
+        type(descriptor) is not types.MemberDescriptorType
+        for _, descriptor in axis_slots
+    ):
+        raise ValueError(
+            "native transformed axis slots need original member descriptors"
+        )
+    top_axis = vars(_native_core).get("top_axis_env")
+    if type(top_axis) is not axis_type:
+        raise ValueError("native transformed original axis environment layout changed")
+    mapping_type = type(axis_slots[0][1].__get__(top_axis, axis_type))
+    context_configs = _native_context_configurations()
+    axis_config = vars(_native_core).get("axis_env_state")
+    owners = (
+        *_NATIVE_WRAPPER_CONFIGS.values(),
+        axis_config,
+        *(entry[1] for entry in context_configs),
+    )
+    if any(owner is None for owner in owners):
+        raise ValueError("native transformed configuration owner is missing")
+    return {
+        "axis_type": axis_type,
+        "mesh_type": mesh_type,
+        "eqn_type": eqn_type,
+        "axis_slots": axis_slots,
+        "axis_mapping_type": mapping_type,
+        "axis_mapping_dict": _native_wrapper_dictionary_descriptor(mapping_type),
+        "mesh_dict": _native_wrapper_dictionary_descriptor(mesh_type),
+        "context_configs": context_configs,
+        "axis_config": axis_config,
+        "empty_mesh": vars(_native_mesh).get("empty_abstract_mesh"),
+        "configuration_types": tuple(
+            (owner, type(owner), vars(type)["__mro__"].__get__(type(owner)))
+            for owner in owners
+        ),
+        "configuration_class_members": tuple(
+            (cls, tuple(vars(type)["__dict__"].__get__(cls).items()))
+            for owner in owners
+            for cls in vars(type)["__mro__"].__get__(type(owner))
+        ),
+    }
+
+
+try:
+    _NATIVE_WRAPPER_CONTEXT_ROLES = _initial_native_wrapper_context_roles()
+except (AttributeError, KeyError, TypeError, ValueError) as _wrapper_context_error:
+    _NATIVE_WRAPPER_CONTEXT_ROLES = {}
+    _NATIVE_WRAPPER_CONTEXT_GAP: str | None = str(_wrapper_context_error)
+else:
+    _NATIVE_WRAPPER_CONTEXT_GAP = None
+
+
+def _native_wrapper_class_state(
+    graph: _NativeCaptureGraph, role: str, name: str
+) -> Any:
+    if role == "vmap_f" and name == "AxisData":
+        if _NATIVE_AXISDATA_GAP is not None:
+            raise ValueError(_NATIVE_AXISDATA_GAP)
+        codec = _AxisDataCaptureGraph()
+        document = codec.state()
+        graph.retained.update(codec.retained)
+        graph.bindings.extend(codec.bindings)
+        return document
+    cls = _NATIVE_WRAPPER_CLASSES[role, name]
+    if type(cls) is not type:
+        raise ValueError(
+            "native transformed class metaclass needs an exact adapter: " + name
+        )
+    namespace = vars(type)["__dict__"].__get__(cls)
+    if not all(type(key) is str for key in namespace):
+        raise ValueError("native transformed class member schema changed: " + name)
+    for item in (
+        cls,
+        vars(type)["__bases__"].__get__(cls),
+        vars(type)["__mro__"].__get__(cls),
+    ):
+        graph.retain(item)
+    symbols = {}
+    for field_name in ("__name__", "__qualname__"):
+        symbol = vars(type)[field_name].__get__(cls)
+        if type(symbol) is not str:
+            raise ValueError(
+                "native transformed class symbol requires an actual string"
+            )
+        graph.retain(symbol)
+        symbols[field_name] = symbol
+    try:
+        members = {key: graph.take(value) for key, value in sorted(namespace.items())}
+    except (TypeError, ValueError) as exc:
+        # In particular, AxisData's generated dataclass metadata is not granted
+        # a new general class/annotation policy by this implementation boundary.
+        raise ValueError(
+            "native transformed class own-member layout needs an exact adapter: " + name
+        ) from exc
+    return {
+        "identity": id(cls),
+        "metaclass": id(type(cls)),
+        "bases": [id(base) for base in vars(type)["__bases__"].__get__(cls)],
+        "mro": [id(base) for base in vars(type)["__mro__"].__get__(cls)],
+        "symbols": symbols,
+        "members": members,
+    }
+
+
+_NATIVE_AXISDATA_FIELD_SLOTS = (
+    "name",
+    "type",
+    "default",
+    "default_factory",
+    "repr",
+    "hash",
+    "init",
+    "compare",
+    "metadata",
+    "kw_only",
+    "_field_type",
+)
+_NATIVE_AXISDATA_PARAMS_SLOTS = ("init", "repr", "eq", "order", "unsafe_hash", "frozen")
+_NATIVE_AXISDATA_EXPORTED_MEMBERS = frozenset(
+    (
+        "__module__",
+        "__annotations__",
+        "explicit_mesh_axis",
+        "__repr__",
+        "__str__",
+        "__doc__",
+        "__dataclass_params__",
+        "__dataclass_fields__",
+        "__init__",
+        "__eq__",
+        "__setattr__",
+        "__delattr__",
+        "__hash__",
+        "__match_args__",
+        "__slots__",
+        "_ema",
+        "name",
+        "size",
+        "spmd_name",
+        "__getstate__",
+        "__setstate__",
+    )
+)
+_NATIVE_AXISDATA_PRESLOTS_MEMBERS = frozenset(
+    (
+        "__module__",
+        "__annotations__",
+        "explicit_mesh_axis",
+        "__repr__",
+        "__str__",
+        "__dict__",
+        "__weakref__",
+        "__doc__",
+        "__dataclass_params__",
+        "__dataclass_fields__",
+        "__init__",
+        "__eq__",
+        "__setattr__",
+        "__delattr__",
+        "__hash__",
+        "__match_args__",
+    )
+)
+
+
+def _initial_native_axisdata_roles() -> dict[str, Any]:
+    exported = _NATIVE_WRAPPER_CLASSES["vmap_f", "AxisData"]
+    if type(exported) is not type:
+        raise ValueError("native AxisData requires builtin type metaclass")
+    namespace = vars(type)["__dict__"].__get__(exported)
+    closures = []
+    for name in ("__setattr__", "__delattr__"):
+        function = namespace[name]
+        if type(
+            function
+        ) is not types.FunctionType or function.__code__.co_freevars != (
+            "FrozenInstanceError",
+            "cls",
+        ):
+            raise ValueError(
+                "native AxisData generated frozen closure needs an exact adapter"
+            )
+        closures.append(
+            tuple(cell.cell_contents for cell in function.__closure__ or ())
+        )
+    frozen, old = closures[0]
+    if not (
+        len(closures[1]) == 2
+        and closures[1][0] is frozen
+        and closures[1][1] is old
+        and old is not exported
+        and type(old) is type
+        and frozen is vars(_native_dataclasses)["FrozenInstanceError"]
+    ):
+        raise ValueError("native AxisData exported/pre-slots closure aliases changed")
+    old_namespace = vars(type)["__dict__"].__get__(old)
+    if not (
+        _NativeCaptureGraph._schema(namespace, _NATIVE_AXISDATA_EXPORTED_MEMBERS)
+        and _NativeCaptureGraph._schema(
+            old_namespace, _NATIVE_AXISDATA_PRESLOTS_MEMBERS
+        )
+    ):
+        raise ValueError("native AxisData class namespace needs an exact adapter")
+    fields = namespace["__dataclass_fields__"]
+    params = namespace["__dataclass_params__"]
+    names = ("name", "size", "spmd_name", "_ema")
+    if not (
+        type(fields) is dict
+        and all(type(key) is str for key in fields)
+        and tuple(fields) == names
+        and old_namespace["__dataclass_fields__"] is fields
+        and old_namespace["__dataclass_params__"] is params
+    ):
+        raise ValueError("native AxisData shared metadata layout changed")
+    field_type = vars(_native_dataclasses)["Field"]
+    params_type = vars(_native_dataclasses)["_DataclassParams"]
+    carriers = {}
+    for name, cls, allowed in (
+        ("Field", field_type, (_NATIVE_AXISDATA_FIELD_SLOTS,)),
+        (
+            "_DataclassParams",
+            params_type,
+            (
+                _NATIVE_AXISDATA_PARAMS_SLOTS,
+                (
+                    *_NATIVE_AXISDATA_PARAMS_SLOTS,
+                    "match_args",
+                    "kw_only",
+                    "slots",
+                    "weakref_slot",
+                ),
+            ),
+        ),
+    ):
+        if type(cls) is not type:
+            raise ValueError("native AxisData storage carrier metaclass changed")
+        members = vars(type)["__dict__"].__get__(cls)
+        slots = members.get("__slots__")
+        if (
+            type(slots) is not tuple
+            or any(type(slot) is not str for slot in slots)
+            or slots not in allowed
+        ):
+            raise ValueError(
+                "native AxisData storage slot schema needs an exact adapter"
+            )
+        descriptors = tuple(members.get(slot) for slot in slots)
+        if any(
+            type(descriptor) is not types.MemberDescriptorType
+            for descriptor in descriptors
+        ):
+            raise ValueError(
+                "native AxisData storage requires original native slot descriptors"
+            )
+        carriers[name] = (cls, slots, descriptors, vars(type)["__bases__"].__get__(cls))
+    if type(params) is not params_type or any(
+        type(field) is not field_type for field in fields.values()
+    ):
+        raise ValueError("native AxisData storage object identity/type layout changed")
+    field_descriptors = dict(
+        zip(carriers["Field"][1], carriers["Field"][2], strict=True)
+    )
+    metadata = tuple(
+        field_descriptors["metadata"].__get__(field, field_type)
+        for field in fields.values()
+    )
+    if any(
+        type(value) is not types.MappingProxyType or len(value) != 0
+        for value in metadata
+    ):
+        raise ValueError(
+            "native AxisData field metadata needs its original empty mappingproxy"
+        )
+    markers = {name: vars(_native_dataclasses)[name] for name in ("MISSING", "_FIELD")}
+    marker_descriptors = {}
+    for name, value in markers.items():
+        cls = type(value)
+        descriptor = vars(cls).get("__dict__")
+        if type(cls) is not type or type(descriptor) is not types.GetSetDescriptorType:
+            raise ValueError(
+                "native AxisData marker instance dictionary needs an exact adapter"
+            )
+        marker_descriptors[name] = (cls, descriptor)
+    helpers = {
+        name: vars(_native_dataclasses)[name]
+        for name in ("_dataclass_getstate", "_dataclass_setstate", "fields", "_FIELDS")
+    }
+    if (
+        namespace["__getstate__"] is not helpers["_dataclass_getstate"]
+        or namespace["__setstate__"] is not helpers["_dataclass_setstate"]
+    ):
+        raise ValueError("native AxisData state helper bindings changed")
+    return {
+        "classes": {
+            "exported": exported,
+            "pre-slots": old,
+            "FrozenInstanceError": frozen,
+        },
+        "fields": fields,
+        "field_names": names,
+        "field_objects": tuple(fields.values()),
+        "params": params,
+        "carriers": carriers,
+        "metadata": metadata,
+        "markers": markers,
+        "marker_descriptors": marker_descriptors,
+        "helpers": helpers,
+    }
+
+
+try:
+    _NATIVE_AXISDATA = _initial_native_axisdata_roles()
+except (KeyError, TypeError, ValueError) as _axisdata_error:
+    _NATIVE_AXISDATA = {}
+    _NATIVE_AXISDATA_GAP: str | None = str(_axisdata_error)
+else:
+    _NATIVE_AXISDATA_GAP = None
+
+
+class _AxisDataCaptureGraph(_NativeCaptureGraph):
+    """Only the audited native AxisData metadata roles extend this envelope."""
+
+    def take(self, value: Any) -> Any:
+        self.retain(value)
+        for role, cls in _NATIVE_AXISDATA["classes"].items():
+            if value is cls:
+                return {"native_axisdata_class_role": role, "identity": id(value)}
+        if value is _NATIVE_AXISDATA["fields"]:
+            names = _NATIVE_AXISDATA["field_names"]
+            if (
+                type(value) is not dict
+                or any(type(key) is not str for key in value)
+                or tuple(value) != names
+            ):
+                raise ValueError("native AxisData field mapping schema changed")
+            if any(
+                value[name] is not original
+                for name, original in zip(
+                    names, _NATIVE_AXISDATA["field_objects"], strict=True
+                )
+            ):
+                raise ValueError(
+                    "native AxisData field mapping replaced an original Field"
+                )
+            return {
+                "identity": id(value),
+                "fields": [[name, self.take(value[name])] for name in names],
+            }
+        if any(value is field for field in _NATIVE_AXISDATA["field_objects"]):
+            return self._storage("Field", value)
+        if value is _NATIVE_AXISDATA["params"]:
+            return self._storage("_DataclassParams", value)
+        for role, marker in _NATIVE_AXISDATA["markers"].items():
+            if value is marker:
+                cls, descriptor = _NATIVE_AXISDATA["marker_descriptors"][role]
+                if (
+                    type(value) is not cls
+                    or vars(cls).get("__dict__") is not descriptor
+                ):
+                    raise ValueError("native AxisData marker storage changed")
+                namespace = descriptor.__get__(value, cls)
+                if type(namespace) is not dict or any(
+                    type(key) is not str for key in namespace
+                ):
+                    raise ValueError(
+                        "native AxisData marker fields require an exact dictionary"
+                    )
+                if set(namespace) != (set() if role == "MISSING" else {"name"}):
+                    raise ValueError("native AxisData marker field schema changed")
+                if role == "_FIELD" and (
+                    type(namespace["name"]) is not str or namespace["name"] != "_FIELD"
+                ):
+                    raise ValueError("native AxisData field marker value changed")
+                self.retain(cls)
+                self.retain(descriptor)
+                return {
+                    "native_axisdata_marker": role,
+                    "identity": id(value),
+                    "class": self._class_document(cls),
+                    "fields": super().take(namespace),
+                }
+        if any(value is metadata for metadata in _NATIVE_AXISDATA["metadata"]):
+            if type(value) is not types.MappingProxyType or len(value):
+                raise ValueError("native AxisData metadata must stay empty")
+            return {"native_axisdata_empty_metadata": id(value), "items": []}
+        return super().take(value)
+
+    def _storage(self, name: str, value: Any) -> Any:
+        cls, slots, descriptors, bases = _NATIVE_AXISDATA["carriers"][name]
+        if (
+            type(value) is not cls
+            or vars(_native_dataclasses).get(name) is not cls
+            or type(cls) is not type
+        ):
+            raise ValueError("native AxisData storage carrier binding changed")
+        namespace = vars(type)["__dict__"].__get__(cls)
+        if (
+            namespace.get("__slots__") is not slots
+            or vars(type)["__bases__"].__get__(cls) is not bases
+        ):
+            raise ValueError("native AxisData storage layout changed")
+        fields = {}
+        for slot, descriptor in zip(slots, descriptors, strict=True):
+            if namespace.get(slot) is not descriptor:
+                raise ValueError("native AxisData original slot descriptor changed")
+            self.retain(descriptor)
+            item = descriptor.__get__(value, cls)
+            if name == "_DataclassParams" and type(item) is not bool:
+                raise ValueError("native AxisData params require actual Boolean flags")
+            if name == "_DataclassParams":
+                expected = slot in {
+                    "init",
+                    "repr",
+                    "eq",
+                    "frozen",
+                    "match_args",
+                    "slots",
+                }
+                if item is not expected:
+                    raise ValueError("native AxisData original params flag changed")
+            else:
+                index = next(
+                    index
+                    for index, original in enumerate(_NATIVE_AXISDATA["field_objects"])
+                    if value is original
+                )
+                expected_field_name = _NATIVE_AXISDATA["field_names"][index]
+                if slot in {"name", "type"}:
+                    expected_text = (
+                        expected_field_name
+                        if slot == "name"
+                        else ("tuple[Any, ...] | None" if index == 3 else "Any")
+                    )
+                    if type(item) is not str or item != expected_text:
+                        raise ValueError("native AxisData Field name/type changed")
+                elif (
+                    slot in {"default", "default_factory"}
+                    and item is not _NATIVE_AXISDATA["markers"]["MISSING"]
+                ):
+                    raise ValueError(
+                        "native AxisData Field default needs an exact adapter"
+                    )
+                elif slot in {"repr", "init", "compare"} and item is not True:
+                    raise ValueError("native AxisData Field Boolean flag changed")
+                elif slot == "hash" and item is not None:
+                    raise ValueError("native AxisData Field hash state changed")
+                elif slot == "kw_only" and item is not False:
+                    raise ValueError("native AxisData Field keyword flag changed")
+                elif (
+                    slot == "metadata"
+                    and item is not _NATIVE_AXISDATA["metadata"][index]
+                ):
+                    raise ValueError(
+                        "native AxisData original metadata identity changed"
+                    )
+                elif (
+                    slot == "_field_type"
+                    and item is not _NATIVE_AXISDATA["markers"]["_FIELD"]
+                ):
+                    raise ValueError("native AxisData Field marker changed")
+            fields[slot] = self.take(item)
+        for item in (cls, slots, bases):
+            self.retain(item)
+        return {
+            "identity": id(value),
+            "carrier": id(cls),
+            "slots": fields,
+            "slot_descriptors": [id(descriptor) for descriptor in descriptors],
+            "metaclass": id(type(cls)),
+            "bases": [id(base) for base in bases],
+        }
+
+    def _class_document(self, cls: type) -> Any:
+        if type(cls) is not type:
+            raise ValueError("native AxisData role class metaclass changed")
+        namespace = vars(type)["__dict__"].__get__(cls)
+        if not all(type(key) is str for key in namespace):
+            raise ValueError("native AxisData class member keys changed")
+        bases, mro = vars(type)["__bases__"].__get__(cls), vars(type)[
+            "__mro__"
+        ].__get__(cls)
+        for value in (cls, bases, mro):
+            self.retain(value)
+        symbols = {}
+        for name in ("__name__", "__qualname__"):
+            value = vars(type)[name].__get__(cls)
+            if type(value) is not str:
+                raise ValueError(
+                    "native AxisData class metadata requires actual strings"
+                )
+            self.retain(value)
+            symbols[name] = value
+        return {
+            "identity": id(cls),
+            "metaclass": id(type(cls)),
+            "symbols": symbols,
+            "bases": [id(base) for base in bases],
+            "mro": [id(base) for base in mro],
+            "members": {
+                name: self.take(value) for name, value in sorted(namespace.items())
+            },
+        }
+
+    def state(self) -> Any:
+        for name in (
+            "Field",
+            "_DataclassParams",
+            "FrozenInstanceError",
+            "MISSING",
+            "_FIELD",
+            "fields",
+            "_FIELDS",
+        ):
+            _native_wrapper_slot(_native_dataclasses, name)
+        for name, original in _NATIVE_AXISDATA["helpers"].items():
+            if vars(_native_dataclasses).get(name) is not original:
+                raise ValueError(
+                    "native AxisData state helper defining binding changed"
+                )
+        for name, original in _NATIVE_AXISDATA["markers"].items():
+            if vars(_native_dataclasses).get(name) is not original:
+                raise ValueError("native AxisData marker defining binding changed")
+        classes = _NATIVE_AXISDATA["classes"]
+        if (
+            vars(_native_batching).get("AxisData") is not classes["exported"]
+            or vars(_native_dataclasses).get("FrozenInstanceError")
+            is not classes["FrozenInstanceError"]
+        ):
+            raise ValueError("native AxisData class defining binding changed")
+        documents = {role: self._class_document(cls) for role, cls in classes.items()}
+        helpers = {
+            name: self.take(value)
+            for name, value in _NATIVE_AXISDATA["helpers"].items()
+        }
+        return {"classes": documents, "state_helpers": helpers, "nodes": self.nodes}
+
+
+# These two original default roles are an edge-only implementation dependency.
+# They never participate in the ordinary native/source graph admission policy.
+def _initial_native_helper_default_roles() -> dict[str, Any]:
+    roles: dict[str, Any] = {}
+    for name, role, module, function_path, keyword, class_name, instance_name in (
+        (
+            "debug_info",
+            "vmap_f",
+            _native_api,
+            "api_util.debug_info",
+            True,
+            "InitialResultPaths",
+            "initial_result_paths",
+        ),
+        (
+            "format_exception_only",
+            "reraise_with_filtered_traceback",
+            _native_traceback,
+            "traceback.format_exception_only",
+            False,
+            "_Sentinel",
+            "_sentinel",
+        ),
+    ):
+        function_edges = _native_wrapper_slot(module, function_path)
+        function = function_edges[-1][-1]
+        defining_module = function_edges[-1][0]
+        if type(
+            function
+        ) is not types.FunctionType or function.__globals__ is not _native_module_dictionary(
+            defining_module
+        ):
+            raise ValueError("native helper default needs original function/globals")
+        container = function.__kwdefaults__ if keyword else function.__defaults__
+        if keyword:
+            if type(container) is not dict or not _NativeCaptureGraph._schema(
+                container,
+                frozenset(
+                    (
+                        "result_paths_thunk",
+                        "static_argnums",
+                        "static_argnames",
+                        "sourceinfo",
+                        "signature",
+                    )
+                ),
+            ):
+                raise ValueError("native debug_info keyword-default schema changed")
+            instance = container["result_paths_thunk"]
+            paths: tuple[str, ...] = (
+                "debug_info",
+                "api_util.debug_info",
+                "core.InitialResultPaths",
+                "core.initial_result_paths",
+                "lu.InitialResultPaths",
+                "lu.initial_result_paths",
+            )
+            if (
+                cast(dict[str, Any], _native_module_dictionary(module)).get("core")
+                is not _native_core
+                or cast(dict[str, Any], _native_module_dictionary(module)).get("lu")
+                is not _native_linear_util
+            ):
+                raise ValueError(
+                    "native helper original core/linear-util module aliases changed"
+                )
+            owner_module = _native_linear_util
+        else:
+            if type(container) is not tuple or len(container) != 1:
+                raise ValueError(
+                    "native stdlib helper positional-default schema changed"
+                )
+            instance = container[0]
+            paths = (
+                "format_exception_only",
+                "traceback.format_exception_only",
+                "traceback._Sentinel",
+                "traceback._sentinel",
+            )
+            owner_module = defining_module
+        edges = tuple(
+            edge for path in paths for edge in _native_wrapper_slot(module, path)
+        )
+        cls = type(instance)
+        if (
+            type(cls) is not type
+            or cast(dict[str, Any], _native_module_dictionary(owner_module)).get(
+                class_name
+            )
+            is not cls
+            or cast(dict[str, Any], _native_module_dictionary(owner_module)).get(
+                instance_name
+            )
+            is not instance
+        ):
+            raise ValueError("native helper original class/instance aliases changed")
+        for _, _, slot, item in edges:
+            if slot == class_name and item is not cls:
+                raise ValueError("native helper class alias split")
+            if slot == instance_name and item is not instance:
+                raise ValueError("native helper singleton alias split")
+            if slot in ("debug_info", "format_exception_only") and item is not function:
+                # The JAX formatter is distinct from the stdlib formatter.
+                if not (
+                    not keyword
+                    and slot == "format_exception_only"
+                    and item
+                    is cast(
+                        dict[str, Any], _native_module_dictionary(_native_traceback)
+                    ).get(slot)
+                ):
+                    raise ValueError("native helper function alias split")
+        namespace = vars(type)["__dict__"].__get__(cls)
+        expected = frozenset(("__module__", "__dict__", "__weakref__", "__doc__"))
+        if not keyword:
+            expected |= {"__repr__"}
+        bases, mro = (
+            vars(type)[field].__get__(cls) for field in ("__bases__", "__mro__")
+        )
+        symbols = tuple(
+            (field, vars(type)[field].__get__(cls))
+            for field in ("__name__", "__qualname__")
+        )
+        if (
+            any(type(value) is not str for _, value in symbols)
+            or not _NativeCaptureGraph._schema(namespace, expected)
+            or len(bases) != 1
+            or bases[0] is not object
+            or len(mro) != 2
+            or mro[0] is not cls
+            or mro[1] is not object
+            or any(value != class_name for _, value in symbols)
+            or type(namespace["__module__"]) is not str
+            or namespace["__module__"]
+            != cast(dict[str, Any], _native_module_dictionary(owner_module))["__name__"]
+            or namespace["__doc__"] is not None
+        ):
+            raise ValueError("native helper class schema needs an exact adapter")
+        for descriptor_name in ("__dict__", "__weakref__"):
+            descriptor = namespace[descriptor_name]
+            if (
+                type(descriptor) is not types.GetSetDescriptorType
+                or descriptor.__objclass__ is not cls
+                or descriptor.__name__ != descriptor_name
+            ):
+                raise ValueError("native helper needs original own builtin descriptors")
+        dictionary = namespace["__dict__"].__get__(instance, cls)
+        if type(dictionary) is not dict or dictionary:
+            raise ValueError("native helper singleton requires an empty dictionary")
+        if not keyword:
+            representation = namespace["__repr__"]
+            if (
+                type(representation) is not types.FunctionType
+                or representation.__globals__ is not function.__globals__
+                or _native_wrapper_access_schema(representation.__code__)
+            ):
+                raise ValueError(
+                    "native helper repr needs its exact global-free envelope"
+                )
+        parent = cast(dict[str, Any], _native_module_dictionary(module)).get(
+            "debug_info" if keyword else "format_exception_only"
+        )
+        if type(parent) is not types.FunctionType or (
+            not keyword and parent.__globals__ is not _native_module_dictionary(module)
+        ):
+            raise ValueError(
+                "native helper selected parent requires original function/globals"
+            )
+        roles[name] = {
+            "role": role,
+            "function": function,
+            "code": function.__code__,
+            "globals": function.__globals__,
+            "container": container,
+            "keyword": keyword,
+            "instance": instance,
+            "class": cls,
+            "dictionary": dictionary,
+            "members": tuple(namespace.items()),
+            "bases": bases,
+            "mro": mro,
+            "symbols": symbols,
+            "edges": edges,
+            "module_names": tuple(
+                (owner, namespace, namespace["__name__"])
+                for owner, namespace, _, _ in edges
+            ),
+            "parent": parent,
+            "parent_code": parent.__code__,
+            "parent_globals": parent.__globals__,
+        }
+    return roles
+
+
+try:
+    _NATIVE_HELPER_DEFAULT_ROLES = _initial_native_helper_default_roles()
+except (AttributeError, KeyError, TypeError, ValueError) as _helper_default_error:
+    _NATIVE_HELPER_DEFAULT_ROLES = {}
+    _NATIVE_HELPER_DEFAULT_GAP: str | None = str(_helper_default_error)
+else:
+    _NATIVE_HELPER_DEFAULT_GAP = None
+
+
+class _NativeHelperDefaultCaptureGraph(_NativeCaptureGraph):
+    """Route two exact selected helper-default edges through the existing graph."""
+
+    def __init__(self, role: str) -> None:
+        super().__init__()
+        self.role = role
+        self._active_helper: str | None = None
+
+    def _helper_entry(self, name: str) -> dict[str, Any]:
+        if _NATIVE_HELPER_DEFAULT_GAP is not None:
+            raise ValueError(_NATIVE_HELPER_DEFAULT_GAP)
+        entry: dict[str, Any] = _NATIVE_HELPER_DEFAULT_ROLES[name]
+        namespace: dict[str, Any]
+        original_name: str
+        if self.role != entry["role"]:
+            raise ValueError("native helper default used outside its selected role")
+        function, parent = entry["function"], entry["parent"]
+        for value, code, namespace in (
+            (function, entry["code"], entry["globals"]),
+            (parent, entry["parent_code"], entry["parent_globals"]),
+        ):
+            if value.__code__ is not code or value.__globals__ is not namespace:
+                raise ValueError("native helper original code/globals changed")
+            for item in (value, code, namespace):
+                self.retain(item)
+        container = (
+            function.__kwdefaults__ if entry["keyword"] else function.__defaults__
+        )
+        if container is not entry["container"]:
+            raise ValueError("native helper original default container changed")
+        for owner, namespace, original_name in entry["module_names"]:
+            if (
+                _native_module_dictionary(owner) is not namespace
+                or namespace.get("__name__") is not original_name
+                or sys.modules.get(original_name) is not owner
+            ):
+                raise ValueError(
+                    "native helper original defining module binding changed"
+                )
+            self.retain(original_name)
+        for owner, namespace, slot, original in entry["edges"]:
+            if (
+                _native_module_dictionary(owner) is not namespace
+                or namespace.get(slot) is not original
+            ):
+                raise ValueError("native helper original module/default alias changed")
+            for item in (owner, namespace, original):
+                self.retain(item)
+            self.bindings.append((owner, slot, original))
+        return entry
+
+    def take_selected_helper(self, function: Any, name: str) -> Any:
+        entry = self._helper_entry(name)
+        if function is not entry["function"]:
+            raise ValueError("native helper selected function identity changed")
+        previous = self._active_helper
+        self._active_helper = name
+        try:
+            return self.take(function)
+        finally:
+            self._active_helper = previous
+
+    def _function_defaults(self, function: types.FunctionType, keyword: bool) -> Any:
+        name = self._active_helper
+        if name is None:
+            return super()._function_defaults(function, keyword)
+        entry = self._helper_entry(name)
+        if function is not entry["function"] or keyword is not entry["keyword"]:
+            return super()._function_defaults(function, keyword)
+        container, instance = entry["container"], entry["instance"]
+        if keyword:
+            if (
+                not self._schema(
+                    container,
+                    frozenset(
+                        (
+                            "result_paths_thunk",
+                            "static_argnums",
+                            "static_argnames",
+                            "sourceinfo",
+                            "signature",
+                        )
+                    ),
+                )
+                or container["result_paths_thunk"] is not instance
+            ):
+                raise ValueError("native helper exact keyword-default edge changed")
+        elif len(container) != 1 or container[0] is not instance:
+            raise ValueError("native helper exact positional-default edge changed")
+        # Only these original containers get a single contextual leaf; every
+        # other key/value delegates to the existing native envelope walker.
+        self.retain(container)
+        key = str(id(container))
+        if key in self.nodes:
+            raise ValueError(
+                "native helper default container occurred outside its exact edge"
+            )
+        node: dict[str, Any] = {"type": self.typename(container)}
+        self.nodes[key] = node
+        if keyword:
+            node["items"] = sorted(
+                [
+                    [
+                        self.take(k),
+                        (
+                            self._helper_instance(entry)
+                            if k == "result_paths_thunk"
+                            else self.take(v)
+                        ),
+                    ]
+                    for k, v in container.items()
+                ],
+                key=lambda pair: json.dumps(pair[0], sort_keys=True),
+            )
+        else:
+            node["values"] = [self._helper_instance(entry)]
+        return {"ref": key}
+
+    def _helper_instance(self, entry: dict[str, Any]) -> Any:
+        cls, instance = entry["class"], entry["instance"]
+        if type(instance) is not cls or type(cls) is not type:
+            raise ValueError("native helper original singleton class changed")
+        namespace = vars(type)["__dict__"].__get__(cls)
+        if not self._schema(namespace, frozenset(name for name, _ in entry["members"])):
+            raise ValueError("native helper complete class member schema changed")
+        for name, original in entry["members"]:
+            if namespace[name] is not original:
+                raise ValueError("native helper original class member changed")
+        bases, mro = (
+            vars(type)[field].__get__(cls) for field in ("__bases__", "__mro__")
+        )
+        if (
+            len(bases) != 1
+            or bases[0] is not object
+            or len(mro) != 2
+            or mro[0] is not cls
+            or mro[1] is not object
+        ):
+            raise ValueError("native helper class bases/MRO changed")
+        symbols = {}
+        for name, original in entry["symbols"]:
+            current = vars(type)[name].__get__(cls)
+            if type(current) is not str or current is not original:
+                raise ValueError("native helper class name/qualname changed")
+            self.retain(current)
+            symbols[name] = {"identity": id(current), "value": current}
+        descriptor = namespace["__dict__"]
+        if (
+            type(descriptor) is not types.GetSetDescriptorType
+            or descriptor.__objclass__ is not cls
+        ):
+            raise ValueError("native helper original dictionary descriptor changed")
+        dictionary = descriptor.__get__(instance, cls)
+        if (
+            dictionary is not entry["dictionary"]
+            or type(dictionary) is not dict
+            or dictionary
+        ):
+            raise ValueError("native helper original empty instance dictionary changed")
+        for item in (instance, cls, type(cls), bases, mro, descriptor, dictionary):
+            self.retain(item)
+        members = {name: self.take(item) for name, item in sorted(namespace.items())}
+        return {
+            "helper_default_instance_identity": id(instance),
+            "class_identity": id(cls),
+            "metaclass_identity": id(type(cls)),
+            "bases": [id(value) for value in bases],
+            "mro": [id(value) for value in mro],
+            "symbols": symbols,
+            "members": members,
+            "dictionary": self.take(dictionary),
+        }
+
+
+def _native_wrapper_implementation(
+    role: str,
+) -> tuple[dict[str, Any], tuple[object, ...], tuple[Any, ...]]:
+    graph = _NativeHelperDefaultCaptureGraph(role)
+    builtin_state = _native_wrapper_builtin_state(role, graph)
+    edges: list[Any] = []
+    classes = {}
+    for module, name in _NATIVE_WRAPPER_CLASS_ROLES[role]:
+        selected = _native_wrapper_slot(module, name)
+        if selected[-1][-1] is not _NATIVE_WRAPPER_CLASSES[role, name]:
+            raise ValueError("native transformed class binding changed: " + name)
+        edges.extend(selected)
+        classes[name] = _native_wrapper_class_state(graph, role, name)
+    roots: dict[str, Any] = {}
+    module = (
+        _native_traceback if role == "reraise_with_filtered_traceback" else _native_api
+    )
+    paths: tuple[str, ...] = (
+        _NATIVE_WRAPPER_TRACE_HELPERS
+        if role == "reraise_with_filtered_traceback"
+        else _NATIVE_WRAPPER_VMAP_PATHS
+    )
+    for path in paths:
+        selected = _native_wrapper_slot(module, path)
+        edges.extend(selected)
+        function = selected[-1][-1]
+        if path == "core.no_axis_name":
+            if function is not _NATIVE_WRAPPER_SENTINEL:
+                raise ValueError("native vmap no-axis defining binding changed")
+            roots[path] = {"contextual_no_axis_name_identity": id(function)}
+        else:
+            roots[path] = (
+                {"imported_stdlib_class_identity": id(function)}
+                if path == "collections.Counter"
+                else (
+                    graph.take_selected_helper(function, "debug_info")
+                    if role == "vmap_f" and path == "debug_info"
+                    else graph.take(function)
+                )
+            )
+        graph.retain(function)
+        if type(function) is types.FunctionType:
+            graph.retain(function.__globals__)
+            roots[path + ":globals"] = id(function.__globals__)
+    if role == "reraise_with_filtered_traceback":
+        for path in _NATIVE_WRAPPER_TRACE_STDLIB_PATHS:
+            selected = _native_wrapper_slot(module, path)
+            edges.extend(selected)
+            # The native stdlib executable boundary owns these explicit slots.
+            # Runtime class permissions are not inferred from them.
+            imported = selected[-1][-1]
+            roots[path] = (
+                (
+                    graph.take_selected_helper(imported, "format_exception_only")
+                    if path == "traceback.format_exception_only"
+                    else graph.take(imported)
+                )
+                if type(imported) is types.FunctionType
+                else {"imported_executable_identity": id(imported)}
+            )
+            graph.retain(selected[-1][-1])
+        for path in ("_jax_message_append", "_simplified_tb_msg", "__file__"):
+            selected = _native_wrapper_slot(module, path)
+            edges.extend(selected)
+            if type(selected[-1][-1]) is not str:
+                raise ValueError(
+                    "native traceback message/filename requires actual strings"
+                )
+            roots[path] = graph.take(selected[-1][-1])
+    else:
+        partial = vars(_native_batching)["flatten_fun_for_vmap"]
+        if not (
+            type(partial) is functools.partial
+            and type(partial.func) is types.FunctionType
+            and len(partial.args) == 1
+            and type(partial.args[0]) is types.FunctionType
+        ):
+            raise ValueError(
+                "native vmap flatten partial needs its exact constructed graph"
+            )
+        for owner, paths in (
+            (partial.args[0], ("tree_flatten", "tree_unflatten", "is_vmappable")),
+            (partial.func, ("Store", "EqualStore")),
+        ):
+            namespace = owner.__globals__
+            graph.retain(namespace)
+            for path in paths:
+                expected_module = (
+                    _native_batching
+                    if owner is partial.args[0]
+                    else _native_linear_util
+                )
+                selected = _native_wrapper_slot(expected_module, path)
+                if (
+                    namespace is not _native_module_dictionary(expected_module)
+                    or namespace.get(path) is not selected[-1][-1]
+                ):
+                    raise ValueError("native flatten partial defining globals changed")
+                edges.extend(selected)
+        selected = _native_wrapper_slot(_native_batching, "infer")
+        edges.extend(selected)
+        infer = selected[-1][-1]
+        if (
+            type(infer) is not _NATIVE_WRAPPER_INFER_TYPE
+            or type(_NATIVE_WRAPPER_INFER_DICT) is not types.GetSetDescriptorType
+        ):
+            raise ValueError("native vmap infer sentinel type changed")
+        if vars(_NATIVE_WRAPPER_INFER_TYPE).get(
+            "__dict__"
+        ) is not _NATIVE_WRAPPER_INFER_DICT or _NATIVE_WRAPPER_INFER_DICT.__get__(
+            infer, _NATIVE_WRAPPER_INFER_TYPE
+        ):
+            raise ValueError("native vmap infer sentinel layout changed")
+        graph.retain(infer)
+        roots["infer"] = {"identity": id(infer), "type_identity": id(type(infer))}
+    for owner, namespace, _, value in edges:
+        for item in (owner, namespace, value):
+            graph.retain(item)
+    return (
+        {
+            "roots": roots,
+            "classes": classes,
+            "nodes": graph.nodes,
+            "direct_builtin_lookups": builtin_state,
+        },
+        tuple(graph.retained.values()),
+        tuple(edges) + tuple(graph.bindings),
+    )
+
+
+_NATIVE_WRAPPER_IMPLEMENTATIONS: dict[str, Any] = {}
+_NATIVE_WRAPPER_IMPLEMENTATION_GAPS: dict[str, str] = {}
+for _wrapper_role in _NATIVE_WRAPPER_ROLES:
+    try:
+        _NATIVE_WRAPPER_IMPLEMENTATIONS[_wrapper_role] = _native_wrapper_implementation(
+            _wrapper_role
+        )
+    except (TypeError, ValueError) as _wrapper_error:
+        _NATIVE_WRAPPER_IMPLEMENTATION_GAPS[_wrapper_role] = str(_wrapper_error)
+
+
+@dataclass(frozen=True)
+class NativeTransformedSnapshot:
+    document: dict[str, Any]
+    retained: tuple[object, ...]
+
+
+def native_transformed_function_role(value: object) -> str | None:
+    """Select only live native nested-code and defining-globals identities."""
+    if type(value) is not types.FunctionType:
+        return None
+    for role, (code, namespace) in _NATIVE_WRAPPER_ROLES.items():
+        if value.__code__ is code and value.__globals__ is namespace:
+            if _NATIVE_WRAPPER_LOOKUP_GAP is not None:
+                raise ValueError(_NATIVE_WRAPPER_LOOKUP_GAP)
+            if value.__builtins__ is not _NATIVE_WRAPPER_LOOKUP_ROLES[role]["builtins"]:
+                raise ValueError("native transformed actual builtin mapping changed")
+            if value.__code__.co_freevars != _NATIVE_WRAPPER_FREEVARS[role]:
+                raise ValueError("native transformed closure schema changed")
+            return role
+    return None
+
+
+def native_transformed_closure_state(
+    function: object, name: str, value: object
+) -> dict[str, Any] | None:
+    """The native no-axis sentinel is permitted only at this selected edge."""
+    if native_transformed_function_role(function) != "vmap_f" or name != "axis_name":
+        return None
+    if vars(_native_core).get("no_axis_name") is not _NATIVE_WRAPPER_SENTINEL:
+        raise ValueError("native vmap no-axis defining binding changed")
+    if value is _NATIVE_WRAPPER_SENTINEL:
+        return {"native_role": "vmap_f.axis_name:no_axis_name", "identity": id(value)}
+    return None
+
+
+def _native_wrapper_dynamic_state(role: str, graph: _NativeCaptureGraph) -> Any:
+    if _NATIVE_WRAPPER_CONTEXT_GAP is not None:
+        raise ValueError(_NATIVE_WRAPPER_CONTEXT_GAP)
+    context = _NATIVE_WRAPPER_CONTEXT_ROLES
+    for owner, cls, mro in context["configuration_types"]:
+        if type(owner) is not cls or vars(type)["__mro__"].__get__(cls) is not mro:
+            raise ValueError("native transformed configuration owner type changed")
+    for cls, original in context["configuration_class_members"]:
+        namespace = vars(type)["__dict__"].__get__(cls)
+        if len(namespace) != len(original) or any(
+            namespace.get(name) is not value for name, value in original
+        ):
+            raise ValueError("native transformed configuration class accessors changed")
+    config_names = (
+        ("traceback_filtering",)
+        if role == "reraise_with_filtered_traceback"
+        else ("mutable_array_checks", "remove_size_one_mesh_axis_from_type")
+    )
+    states: dict[str, Any] = {}
+    for name in config_names:
+        owner = vars(_native_config).get(name)
+        if owner is not _NATIVE_WRAPPER_CONFIGS[name]:
+            raise ValueError("native transformed configuration owner changed: " + name)
+        local, effective = owner.get_local(), owner.value
+        kind = str if name == "traceback_filtering" else bool
+        if type(effective) is not kind or (
+            local is not _native_xla_metadata.config_ext.unset
+            and type(local) is not kind
+        ):
+            raise ValueError(
+                "native transformed configuration value layout changed: " + name
+            )
+        graph.retain(owner)
+        graph.retain(local)
+        graph.retain(effective)
+        states[name] = {
+            "owner": id(owner),
+            "local": (
+                {"unset": True}
+                if local is _native_xla_metadata.config_ext.unset
+                else graph.take(local)
+            ),
+            "effective": graph.take(effective),
+        }
+    if role == "reraise_with_filtered_traceback":
+        paths = vars(_native_traceback).get("_exclude_paths")
+        if (
+            paths is not _NATIVE_WRAPPER_EXCLUSIONS
+            or type(paths) is not list
+            or any(type(path) is not str for path in paths)
+        ):
+            raise ValueError("native traceback exclusion list binding/layout changed")
+        states["exclude_paths"] = {"identity": id(paths), "contents": graph.take(paths)}
+        for owner_name, namespace in (
+            ("globals", vars(_native_traceback)),
+            ("builtins", vars(builtins)),
+        ):
+            present = "get_ipython" in namespace
+            value = namespace.get("get_ipython")
+            graph.retain(value)
+            states["get_ipython:" + owner_name] = {
+                "present": present,
+                "identity": id(value) if present else None,
+            }
+        return states
+    registry = vars(_native_batching).get("vmappables")
+    if registry is not _NATIVE_WRAPPER_REGISTRY or type(registry) is not dict:
+        raise ValueError("native vmappables registry binding changed")
+    graph.retain(registry)
+    entries = []
+    for key, pair in registry.items():
+        if type(pair) is not tuple or len(pair) != 2:
+            raise ValueError("native vmappables entry layout needs an exact adapter")
+        for value in (key, pair, *pair):
+            graph.retain(value)
+        entries.append([id(key), id(pair), [id(value) for value in pair]])
+    states["vmappables"] = {"identity": id(registry), "entries": sorted(entries)}
+    if (
+        vars(_native_core).get("JaxprEqnContext") is not context["eqn_type"]
+        or vars(_native_mesh).get("AbstractMesh") is not context["mesh_type"]
+    ):
+        raise ValueError("native transformed context type binding changed")
+    current_configurations = _native_context_configurations()
+    if len(current_configurations) != len(context["context_configs"]) or any(
+        name != original_name or owner is not original_owner
+        for (name, owner), (original_name, original_owner) in zip(
+            current_configurations, context["context_configs"], strict=True
+        )
+    ):
+        raise ValueError("native transformed context configuration owner changed")
+    before = native_context_snapshot()
+    graph.retain(before.context)
+    states["equation_context"] = {
+        "identity": id(before.context),
+        "fields": (
+            None if before.context is None else _native_context_fields(before.context)
+        ),
+    }
+    states["context_configurations"] = []
+    for name, owner, local, effective, local_fields, effective_fields in before.states:
+        for value in (owner, local, effective):
+            graph.retain(value)
+        states["context_configurations"].append(
+            [name, id(owner), id(local), id(effective), local_fields, effective_fields]
+        )
+    if vars(_native_core).get("axis_env_state") is not context["axis_config"]:
+        raise ValueError(
+            "native transformed axis environment configuration binding changed"
+        )
+    axis_local, axis = context["axis_config"].get_local(), context["axis_config"].value
+    for value in (context["axis_config"], axis_local, axis):
+        graph.retain(value)
+    states["axis_configuration"] = {
+        "owner": id(context["axis_config"]),
+        "local": id(axis_local),
+        "effective": id(axis),
+    }
+    if (
+        vars(_native_core).get("AxisEnv") is not context["axis_type"]
+        or type(axis) is not context["axis_type"]
+    ):
+        raise ValueError("native axis environment needs its exact native type")
+    graph.retain(axis)
+    axis_fields = {}
+    for name, descriptor in context["axis_slots"]:
+        if (
+            type(descriptor) is not types.MemberDescriptorType
+            or vars(context["axis_type"]).get(name) is not descriptor
+        ):
+            raise ValueError("native axis environment slot schema changed")
+        value = descriptor.__get__(axis, type(axis))
+        graph.retain(value)
+        if name == "axis_sizes":
+            mapping_base, mapping_descriptor = context["axis_mapping_dict"]
+            if (
+                type(value) is not context["axis_mapping_type"]
+                or vars(mapping_base).get("__dict__") is not mapping_descriptor
+            ):
+                raise ValueError("native axis size mapping type/descriptor changed")
+            namespace = mapping_descriptor.__get__(value, context["axis_mapping_type"])
+            if (
+                type(namespace) is not dict
+                or any(type(key) is not str for key in namespace)
+                or set(namespace) != {"_d"}
+                or type(namespace["_d"]) is not dict
+            ):
+                raise ValueError("native axis size mapping needs an exact adapter")
+            graph.retain(namespace)
+            axis_fields[name] = graph.take(namespace["_d"])
+        else:
+            axis_fields[name] = graph.take(value)
+    states["axis_environment"] = {"identity": id(axis), "fields": axis_fields}
+    mesh = next(
+        effective for name, _, _, effective, _, _ in before.states if name == "mesh"
+    )
+    if mesh is None:
+        if vars(_native_mesh).get("empty_abstract_mesh") is not context["empty_mesh"]:
+            raise ValueError("native transformed empty mesh defining binding changed")
+        mesh = context["empty_mesh"]
+    mesh_base, mesh_descriptor = context["mesh_dict"]
+    if (
+        type(mesh) is not context["mesh_type"]
+        or vars(mesh_base).get("__dict__") is not mesh_descriptor
+    ):
+        raise ValueError("native transformed abstract mesh type/descriptor changed")
+    mesh_fields = mesh_descriptor.__get__(mesh, context["mesh_type"])
+    required = ("axis_sizes", "axis_names", "axis_types", "size", "abstract_device")
+    if (
+        type(mesh_fields) is not dict
+        or any(type(key) is not str for key in mesh_fields)
+        or any(name not in mesh_fields for name in required)
+    ):
+        raise ValueError(
+            "native transformed abstract mesh field layout needs an exact adapter"
+        )
+    if (
+        any(
+            type(mesh_fields[name]) is not tuple or mesh_fields[name]
+            for name in required[:3]
+        )
+        or type(mesh_fields["size"]) is not int
+        or mesh_fields["size"] != 0
+        or mesh_fields["abstract_device"] is not None
+    ):
+        raise ValueError(
+            "native transformed nonempty/device mesh needs an exact adapter"
+        )
+    for value in (mesh, mesh_fields, *(mesh_fields[name] for name in required)):
+        graph.retain(value)
+    states["abstract_mesh"] = {
+        "identity": id(mesh),
+        "fields": {name: graph.take(mesh_fields[name]) for name in required},
+    }
+    return states
+
+
+class NativeTransformedExecutionError(RuntimeError):
+    """Replay execution could not preserve its exact native caller context."""
+
+
+@contextmanager
+def native_transformed_execution_context(
+    *, on_error: Callable[[NativeTransformedExecutionError], None] | None = None
+) -> Iterator[None]:
+    """Manage native axis-local materialization without losing caller state."""
+
+    def snapshot() -> tuple[dict[str, Any], _NativeCaptureGraph]:
+        graph = _NativeCaptureGraph()
+        state = _native_wrapper_dynamic_state("vmap_f", graph)
+        return {"runtime_state": state, "nodes": graph.nodes}, graph
+
+    def report(detail: str) -> NativeTransformedExecutionError:
+        error = NativeTransformedExecutionError(detail)
+        if on_error is not None:
+            try:
+                on_error(error)
+            except Exception as exc:
+                raise error from exc
+        return error
+
+    try:
+        caller, _caller_graph = snapshot()
+        owner = _NATIVE_WRAPPER_CONTEXT_ROLES["axis_config"]
+        # Retain the already validated native methods across the source call.
+        # Cleanup never follows a method replacement introduced by the source.
+        read_local, set_local = owner.get_local, owner.set_local
+        local, effective = read_local(), owner.value
+    except Exception as exc:
+        raise report(
+            "native transformed execution context entry failed: " + str(exc)
+        ) from exc
+    try:
+        set_local(effective)
+        managed, _managed_graph = snapshot()
+    except Exception as exc:
+        detail = "native transformed execution context installation failed: " + str(exc)
+        try:
+            set_local(local)
+            restored, _restored_graph = snapshot()
+            if read_local() is not local or restored != caller:
+                detail += "; exact caller state was not restored"
+        except Exception as restore_error:
+            detail += "; caller restoration failed: " + str(restore_error)
+        raise report(detail) from exc
+    try:
+        yield
+    finally:
+        problems = []
+        try:
+            observed, _observed_graph = snapshot()
+            if observed != managed:
+                problems.append("managed native state changed during execution")
+        except Exception as exc:
+            problems.append("managed native state could not be checked: " + str(exc))
+        try:
+            set_local(local)
+            restored, _restored_graph = snapshot()
+            if read_local() is not local or restored != caller:
+                problems.append(
+                    "exact native caller local/effective state was not restored"
+                )
+        except Exception as exc:
+            problems.append("native caller context restoration failed: " + str(exc))
+        if problems:
+            error = report("; ".join(problems))
+            if on_error is None:
+                raise error
+
+
+def selected_native_transformed_function(
+    value: object,
+) -> NativeTransformedSnapshot | None:
+    """Capture finite implementation globals while raw traversal owns user edges."""
+    role = native_transformed_function_role(value)
+    if role is None:
+        return None
+    if _NATIVE_WRAPPER_LAYOUT_GAP is not None:
+        raise ValueError(_NATIVE_WRAPPER_LAYOUT_GAP)
+    for (owner, code, namespace, closure, contents), actual_builtins in zip(
+        _NATIVE_WRAPPER_FACTORIES, _NATIVE_WRAPPER_FACTORY_BUILTINS, strict=True
+    ):
+        if (
+            owner.__code__ is not code
+            or owner.__globals__ is not namespace
+            or owner.__builtins__ is not actual_builtins
+            or owner.__closure__ is not closure
+        ):
+            raise ValueError("native transformed original factory envelope changed")
+        if any(
+            cell.cell_contents is not original
+            for cell, original in zip(closure or (), contents, strict=True)
+        ):
+            raise ValueError("native transformed original factory closure changed")
+    if (
+        vars(_native_traceback).get("api_boundary")
+        is not _NATIVE_WRAPPER_FACTORIES[0][0]
+        or vars(_native_api).get("vmap") is not _NATIVE_WRAPPER_FACTORIES[1][0]
+    ):
+        raise ValueError("native transformed factory binding changed")
+    if role in _NATIVE_WRAPPER_IMPLEMENTATION_GAPS:
+        raise ValueError(_NATIVE_WRAPPER_IMPLEMENTATION_GAPS[role])
+    baseline, retained, bindings = _NATIVE_WRAPPER_IMPLEMENTATIONS[role]
+    for binding in bindings:
+        if len(binding) == 4:
+            owner, namespace, name, original = binding
+            if (
+                _native_module_dictionary(owner) is not namespace
+                or cast(dict[str, Any], namespace).get(name) is not original
+            ):
+                raise ValueError("native transformed implementation slot changed")
+        else:
+            owner, name, original = binding
+            namespace = _native_module_dictionary(owner)
+            if namespace is None or namespace.get(name) is not original:
+                raise ValueError("native transformed executable binding changed")
+    observed, current_references, _ = _native_wrapper_implementation(role)
+    if observed != baseline:
+        raise ValueError(
+            "native transformed implementation executable/class state changed"
+        )
+    graph = _NativeCaptureGraph()
+    dynamic = _native_wrapper_dynamic_state(role, graph)
+    return NativeTransformedSnapshot(
+        {
+            "role": role,
+            "code_identity": id(cast(types.FunctionType, value).__code__),
+            "globals_identity": id(cast(types.FunctionType, value).__globals__),
+            "implementation": observed,
+            "runtime_state": dynamic,
+            "runtime_nodes": graph.nodes,
+        },
+        (*retained, *current_references, *graph.retained.values()),
+    )
 
 
 __all__ = [

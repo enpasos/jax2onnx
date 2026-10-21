@@ -1,11 +1,37 @@
 # Source Precision Implementation Work Plan
 
-Status: updated 2026-10-21; **CURRENT STORAGE-V3 SOURCE EPOCH: FOCUSED FIVE-CASE,
-SEVEN DIRECT QUALITY CHECKS, SUPPORTED MINIMUM 1,752 AND BOTH MODERN 1,813 PASS; FULL PRIMARY
-12,600 PASS; FULL B–F OPEN**. Documentation, normal hooks, staging and commit
-had not run at the qualification cut recorded below; later evidence is separate.
+Status: updated 2026-10-22; **NATIVE WRAPPER PRETYPING FOCUSED 441/437/437 PASS;
+CURRENT PRODUCTION TYPING/RNG, SECONDARY/DIRECTMIN 919 EACH AND FULL PRIMARY 12,762 PASS;
+DOCUMENTATION, NORMAL HOOKS AND CURRENT COMMIT PENDING; FULL B–F OPEN**.
 
-The current local checkpoint preserves original Dropout/static uniform, literal
+## Native transformed-callable checkpoint
+
+The local replay boundary retains original native vmap/traceback functions,
+canonical imported safe_zip bindings and source-state aliases. Each selected
+operation restores exact caller axis local/effective state, including unset,
+while preserving actual return/error/export/callback outcomes and separate
+context gaps. Historical pretyping focused runs pass 441 PRIMARY and 437 each
+on SECONDARY/MINIMUM; the later typing-only source passes actual 559-file mypy
+and completes the 17-factory RNG inventory. Both typed-source 15-owner affected
+selections pass 919 cases each on SECONDARY and DIRECTMIN, zero failures/errors/
+skips. The current full PRIMARY suite passes 12,762 unique cases, zero failures/
+errors/skips, retaining all 12,600 prior IDs and adding 162 wrapper cases. Both
+919-case selections occur in full PRIMARY and all 1,109 source pins hold.
+Current documentation, normal-hook and commit gates remain pending. The
+[canonical wrapper record](poc/source_integration_findings.md#native-transformed-callable-capture)
+keeps those source epochs separate.
+
+Original MLP2 source/export checks now validate under both caller x64 states
+on all three stacks; original callbacks remain FAILED, criteria None and
+numeric skipping true, with runtime/numerics UNVERIFIED. The accepted four-cell
+MLP0/1 source-only context capture is bound to earlier b945a957 bytes. It does
+not authorize current numerical execution; fresh source/context correspondence
+and separate numerical-harness qualification remain required under R2.
+Public precision policy/options/defaults remain LEGACY.
+
+## Retained storage-v3 qualification
+
+The preceding storage-v3 checkpoint preserves original Dropout/static uniform, literal
 branch outputs, logical-key reports and replay owner lifetime. The shared file
 serializer also corrects ordinary public LEGACY exports: Function tensor
 attributes remain inline and root initializers may remain external across
@@ -23,6 +49,8 @@ this is not full minimum acceptance. The full PRIMARY suite records **12,600 PAS
 At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
 documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
 checks and commit had not yet run. Later closeout evidence is recorded separately.
+The [completed storage-v3 closeout](poc/source_integration_findings.md#storage-v3-local-closeout) records local commit
+`dde196609d` and its completed documentation, seven normal hooks and held-byte gates.
 
 Retain the earlier expanded minimum 1,750-PASS/60-FAIL receipt, its independent
 59-capability/one-storage classification and the unchanged-c686 storage failure.
@@ -33,17 +61,12 @@ v2/v3 failures, initial 54-case v4/quality passes, diagnostic 64-call artifacts,
 lifetime six-case three-stack passes and old 680-case modern/failed-minimum receipts retain
 their own source epochs and original criteria.
 
-The immutable c686 map now retains 87 ordinary terminals/one original incomplete/
-3,616 unstarted, all 1,852 rows/3,704 callers. It remains separate from current
-MAIN runtime/numerics. C686's commit and seven actual normal hooks are verified;
-normal hooks/commit for the storage-v3 snapshot had not run at its recorded
-qualification cut.
-
-Future wrapper/callable packets remain unapplied/natively unrun; numerical
-certificates retain the hard R2 hold. Context PF1/PF2 v2 is conditionally
-accepted source-only, with no actual capture or execution approval and a
-required fresh checkpoint/pin review. These future packets do not delay current
-qualification or reduce any full fixed-source, state/RNG or numerical goal.
+At that storage-v3 cut, the immutable c686 map retained 87 ordinary terminals/
+one original incomplete/3,616 unstarted, all 1,852 rows/3,704 callers. C686's
+commit and seven actual normal hooks are verified; the storage-v3 normal-hook
+and commit gates were then pending. Its then-future wrapper/context work has
+the separate later results above. Numerical certificates retain the hard R2
+hold and reduce no fixed-source, state/RNG or numerical obligation.
 
 The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
 Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
@@ -161,31 +184,34 @@ or numerical-policy waiver is authorized.
 
 The immediate gates are:
 
-1. Preserve current five-case storage/seven quality and affected-owner passes on their
-   exact storage-v3 source epoch. Retain the 61 exact minimum capability cases
-   as requirements outside positive qualification; the original 181-case ledger is
-   unchanged. Keep all prior failures, original source/state/aliases/settings,
-   callbacks and numerical criteria. No diagnostic variant substitutes for
-   production or numerical qualification.
-2. The full PRIMARY gate records 12,600 PASS, zero failures/errors/skips.
-   At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00),
-   checkpoint closeout still required independent review of the coordinated six-
-   document postimages, strict docs/rendered-link checks, normal commit hooks,
-   qualified/staged bytes and local commit verification. Later closeout evidence
-   is recorded separately; direct quality passes do not replace actual hooks.
-3. Continue the full immutable c686 1,852-row/3,704-caller map with 87 ordinary
-   terminals, one original incomplete and 3,616 unstarted. Retain attempts and
-   explicit incomplete retry under the established procedure. New-code results
-   require a separate pinned epoch; product runtime/numerics stay UNVERIFIED.
-   Continue shared repairs from actual source/state/scope/JIT/symbolic barriers;
-   intermediate finite boundaries are not target capability restrictions.
-4. Keep future wrapper/callable/context and numerical packets separate until
-   their own source refresh, exact review and ROOT qualification. Close original
-   callbacks/criteria, all 50 optional rows, 104 metadata-free registrations,
-   general fixed-source preparation and complete supported-floor/scientific-
-   FP64/low-precision obligations before public precision transition. Preserve
-   one ordinary export contract over all existing functionality, without a
-   permanent selector, per-operation fallback or capability loss. LEGACY remains.
+1. Preserve the original wrapper/source objects, state/RNG, safe_zip aliases and
+   exact caller context. Keep the 441/437/437 pretyping focused passes historical;
+   the current typing-only source has its own 559-file mypy/17-factory inventory
+   pass. Preserve the final typed-source 15-owner SECONDARY/DIRECTMIN 919 each
+   and full PRIMARY 12,762 passes, including all 12,600 prior IDs and 162 wrapper
+   additions, retaining every failed epoch and exact test identity. These
+   regression passes do not complete full B–F or model numerical acceptance.
+2. Complete current strict docs/rendered-link checks, all seven actual normal
+   commit hooks, independent review and qualified/staged-byte/local-commit
+   verification. Earlier storage-v3 direct quality/full passes and prior hooks
+   do not substitute for the current checkpoint's gates.
+3. Continue the immutable c686 1,852-row/3,704-caller map from 98 ordinary
+   terminals, one original incomplete and 3,605 unstarted. Preserve all attempts
+   and the explicit incomplete retry procedure. These old-source product
+   observations do not qualify current MAIN runtime/numerics.
+4. Keep the original failed MLP0/1/2 callbacks and raw `criteria=None`.
+   Preserve per-row metadata: MLP0/2 explicitly set `skip_numeric_validation=True`;
+   MLP1 omits the flag, retaining its default false. Artifact-only raw replay
+   executes no ORT and leaves runtime/numerics UNVERIFIED for all three rows.
+   The accepted four-cell source-only v4 epoch binds earlier b945a957 sources only. Before numerical execution, refresh correspondence to current
+   wrapper sources and independently qualify the exact numerical harness under
+   the retained R2 hold. Source-only acceptance is not a current execution grant.
+5. Complete original callbacks/criteria, all 50 optional rows, 104 metadata-free
+   registrations, general fixed-source preparation and supported-floor,
+   scientific-FP64 and low-precision obligations before the full B–F/public
+   transition. Preserve one ordinary export contract over all existing
+   functionality, without a permanent selector, per-operation fallback or
+   capability loss. LEGACY remains.
 
 ## Historical committed checkpoint context
 

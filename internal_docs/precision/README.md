@@ -47,7 +47,22 @@ There is no unified green full-run claim. The
 [preceding record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
 retains its failed epochs and provider-negative samples.
 
-The current local checkpoint preserves original Equinox Dropout calls and
+The latest local wrapper checkpoint captures the original native `vmap` and
+traceback callables, retains their source/state aliases and restores exact caller
+axis context around replay operations. Its pretyping focused runs pass **441
+PRIMARY / 437 SECONDARY / 437 MINIMUM cases**, zero failures/errors/skips.
+The subsequent annotations/casts-only correction passes actual production typing
+on **559 files** and the inventory of **17 RNG factories**. The final typed-source
+15-owner selections each pass **919 cases on SECONDARY and DIRECTMIN**, zero
+failures/errors/skips. The current full PRIMARY suite passes **12,762 unique
+cases**, zero failures/errors/skips, retaining all 12,600 previous identities and
+adding 162 wrapper cases. Documentation, normal hooks and current commit gates
+remain pending. Original MLP2 source/export checks now validate; its raw callbacks remain **FAILED**,
+`criteria=None` and numerical skipping remain unchanged, and runtime/numerics
+remain **UNVERIFIED**. The [native-wrapper record](poc/source_integration_findings.md#native-transformed-callable-capture)
+separates these gates from the earlier source-only context capture and full B–F.
+
+The preceding storage-v3 checkpoint preserves original Equinox Dropout calls and
 shared static rank-one uniform contracts. Literal branch-result, logical-key
 report and seed/feed lifetime repairs retain original source, state, aliases,
 runtime settings and criteria. The same current five storage cases pass at
@@ -60,21 +75,24 @@ stay inline across supported ONNX versions. Exact payloads are preserved;
 this is a storage-contract correction, without new numerical acceptance.
 The public precision policy, options and defaults remain unchanged.
 
-The current 26-owner runs pass **1,752 supported minimum cases** and all
+The storage-v3 26-owner runs pass **1,752 supported minimum cases** and all
 **1,813 cases on SECONDARY and PRIMARY**, zero failures/errors/skips. The
 **61 separately identified minimum target-capability cases** remain outside
 positive qualification and remain requirements. The failed 1,810-case minimum
 run, earlier literal/helper and storage-fixture failures, and older 680/lifetime
 source epochs remain retained. The full PRIMARY suite records **12,600 PASS / 0 FAIL / 0 ERROR / 0 SKIP of 12,600 cases**, in 1451.264381 seconds. At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
 documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
-checks and commit had not yet run. Later closeout evidence is recorded separately. The [canonical current record](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform)
+checks and commit had not yet run. Later closeout evidence is recorded separately.
+The [completed storage-v3 closeout](poc/source_integration_findings.md#storage-v3-local-closeout) records local commit
+`dde196609d` and its completed documentation, seven normal hooks and held-byte gates. The [canonical current record](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform)
 binds the exact partitions, receipts and limitations.
 
-The independent immutable `c686304c` map now retains **87 ordinary terminal
-cells, one original incomplete attempt and 3,616 unstarted**, all **1,852 rows /
-3,704 callers**. It does not qualify current MAIN runtime or numerics. Future
-wrapper/callable/context packets remain unapplied, and numerical certificates
-retain their hard context hold. Public precision policy stays **LEGACY**;
+The independent immutable `c686304c` map now retains **98 ordinary terminal
+cells, one original incomplete attempt and 3,605 unstarted**, all **1,852 rows /
+3,704 callers**. It does not qualify current MAIN runtime or numerics. Separate
+callable preparation and numerical work remain open. The accepted four-cell
+source-only context capture belongs to the earlier `b945a957` snapshot; it does
+not authorize current numerical execution. Public precision policy stays **LEGACY**;
 all fixed sources, existing functionality and full B–F acceptance remain open,
 through one ordinary export contract without permanent selectors or capability
 loss.

@@ -1,8 +1,20 @@
 # Precision Contract Experiments
 
-Current precision and shared file-storage work is recorded in
+The latest [native transformed-callable checkpoint](source_integration_findings.md#native-transformed-callable-capture)
+retains original `vmap`/traceback state and exact caller axis context. Pretyping
+focused checks pass **441 PRIMARY / 437 SECONDARY / 437 MINIMUM cases**;
+actual production typing on **559 files** and the **17-factory RNG inventory**
+subsequently pass. Final typed-source affected selections pass **919 cases each
+on SECONDARY and DIRECTMIN**, zero failures/errors/skips. The current full
+PRIMARY suite passes **12,762 unique cases**, retaining all 12,600 prior IDs and
+adding 162 wrapper cases, with zero failures/errors/skips. Documentation, normal
+hooks and current commit gates remain pending. Original MLP2 source/export
+validates, while its raw callbacks remain FAILED, criteria remain None and
+runtime/numerics UNVERIFIED.
+
+Preceding precision and shared file-storage work is recorded in
 [Native Equinox Dropout and shared static uniform](source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform).
-The current source epoch has 13 Python paths and 1,108 held inputs. The same
+That storage-v3 source epoch has 13 Python paths and 1,108 held inputs. The same
 five storage cases pass on MINIMUM and PRIMARY; seven direct quality checks
 pass. All 26 affected owners pass with **1,752 supported minimum cases** and
 **1,813 cases on each modern stack**, zero failures/errors/skips. The 61 exact
@@ -13,6 +25,8 @@ acceptance is claimed.
 At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
 documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
 checks and commit had not yet run. Later closeout evidence is recorded separately.
+The [completed storage-v3 closeout](source_integration_findings.md#storage-v3-local-closeout) records local commit
+`dde196609d` and its completed documentation, seven normal hooks and held-byte gates.
 
 The shared serializer corrects ordinary public file exports as well as private
 precision work, preserving root-external/Function-inline storage and exact
@@ -21,11 +35,12 @@ LEGACY. Earlier minimum/storage/literal-helper failures, diagnostic artifact
 variants and focused source epochs remain separate; raw callbacks/criteria and
 UNVERIFIED runtime/numerics are retained.
 
-The immutable c686 map retains **87 ordinary terminals / one original incomplete /
-3,616 unstarted of 3,704**. Future wrapper/callable/context packets remain
-unapplied. Context source-only implementation is conditionally accepted;
-actual capture and numeric-certificate R2 release remain pending. All fixed
-sources, existing functionality and full B–F acceptance remain required.
+The immutable c686 map retains **98 ordinary terminals / one original incomplete /
+3,605 unstarted of 3,704**. It remains earlier-source product coverage, not current
+runtime/numerical qualification. The accepted four-cell source-only context
+capture is bound to earlier `b945a957` bytes and does not authorize current
+numerical execution; the separate R2 hold remains. All fixed sources, existing
+functionality and full B–F acceptance remain required.
 
 Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
 finite native/CPU qualification for static shapes at opsets 23/26. It retains
@@ -78,6 +93,7 @@ scopes and earlier experiments with their original evidence.
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
+| Original native transformed callables | Can replay retain original `vmap`/traceback dependencies and exact caller context? | [Wrapper findings](source_integration_findings.md#native-transformed-callable-capture): finite pretyping three-stack focused passes; actual typing/RNG, typed-source SECONDARY/DIRECTMIN 919 each and full PRIMARY 12,762 pass; current docs/hooks/commit pending. Original MLP2 callbacks remain FAILED and runtime/numerics UNVERIFIED. |
 | Native Equinox Dropout and shared static uniform | Do original random/state, branch-result and tensor-storage contracts survive the same sources and settings? | [Current findings](source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform): current same5 storage and quality7 pass; affected owners pass supported minimum1752 and both modern1813. Exact61 minimum capability cases remain requirements; full PRIMARY has 12,600 cases with 0 failures, 0 errors and 0 skips; docs/hooks/stage/commit were unrun at the recorded qualification cut. Earlier failures remain retained. |
 | Complex Add and ordering kernels | Which declared complex widths preserve finite samples, and where do bare ordering kernels fail? | [Latest findings](source_integration_findings.md#complex-add-and-partial-ordering-checkpoint). The [standalone ordering probe](ordering_kernel_probe.py) preserves its predeclared inputs, exact criteria and FAILED results; it performs no SOURCE export or original-row replay. |
 | CNN, native pooling, scientific FP64 and raw replay | Do unchanged originals retain exact source structure and separately declared numerical criteria? | [Current findings](source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint): reviewed implementation; corrected scientific 141 cases / 423 phases pass per stack. The failed PRIMARY diagnostic1798 and its 49 raw-lane / 46 CNN controls are retained. Corrected dual37 and full PRIMARY pass; all seven normal code hooks pass and the exact 28-path checkpoint is committed at `118ddd8b`. Raw callbacks/criteria=None and native-bitwise subnormal FAILED evidence remain separate. |
