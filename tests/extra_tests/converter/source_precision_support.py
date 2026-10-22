@@ -27,6 +27,7 @@ import onnx
 import onnx_ir as ir
 
 from jax2onnx import user_interface
+from jax2onnx._source_capability import exception_detail
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import (
@@ -50,6 +51,9 @@ from jax2onnx.precision import (
 )
 
 if TYPE_CHECKING:
+    from tests.extra_tests.converter.source_integer_structure import (
+        Int32IndexCounterpart,
+    )
     from tests.extra_tests.converter.source_precision_corpus_oracles import (
         CorpusStructureEvidence,
         DotCounterpart,
@@ -1133,6 +1137,7 @@ def run_source_case(
         | LinearCounterpart
         | GatherCounterpart
         | NormalizationCounterpart
+        | Int32IndexCounterpart
         | None
     ) = None,
 ) -> SourceCaseResult:
@@ -1347,14 +1352,19 @@ def run_source_case(
                 NormalizationCounterpart,
             )
 
+            from tests.extra_tests.converter.source_integer_structure import (
+                Int32IndexCounterpart,
+            )
+
             if type(_corpus_counterpart) not in (
                 DotCounterpart,
                 LinearCounterpart,
                 GatherCounterpart,
                 NormalizationCounterpart,
+                Int32IndexCounterpart,
             ):
                 raise SourcePreparationError(
-                    "Corpus structure requires an actual reviewed DotCounterpart, LinearCounterpart, GatherCounterpart or NormalizationCounterpart"
+                    "Corpus structure requires an actual reviewed semantic-family counterpart"
                 )
             if type(_corpus_counterpart) is GatherCounterpart and (
                 diagnostic_jaxpr_validator is None or optimization is not None
@@ -1409,7 +1419,7 @@ def run_source_case(
         return SourceCaseResult(
             "source-export",
             "implementation-gap",
-            PrecisionCheck("source-audit", CheckStatus.FAILED, str(exc)),
+            PrecisionCheck("source-audit", CheckStatus.FAILED, exception_detail(exc)),
             prepared,
             export_settings=export_settings,
             schema=schema_status,

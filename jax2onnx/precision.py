@@ -22,12 +22,31 @@ from pathlib import Path
 import platform
 import re
 import sys
-from typing import Any, Literal, TypeAlias, cast
+from tempfile import TemporaryDirectory
+from typing import Any, Literal, NoReturn, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
 import onnx
 import onnx_ir as ir
+
+
+from jax2onnx._source_capability import (
+    check_source_schema,
+    exception_detail,
+    runtime_load_detail,
+)
+from jax2onnx.converter.source_deployment import (
+    DEPLOYMENT_METADATA_KEY,
+    DeploymentTarget,
+    DeploymentRequirements,
+    RuntimeTargetObservation,
+    deployment_requirements_from_json,
+    require_runtime_target,
+    _deployment_graph_scope,
+    _deployment_function_scope,
+    _deployment_child_scope,
+)
 
 
 PRECISION_METADATA_KEY = "jax2onnx.precision"
@@ -113,6 +132,7 @@ class PrecisionReport:
     profile: str = SOURCE_PRECISION_PROFILE
     caller_numpy_dtype_promotion: str | None = None
     caller_numpy_rank_promotion: str | None = None
+    deployment_requirements: DeploymentRequirements | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != PRECISION_SCHEMA_VERSION:
@@ -133,6 +153,18 @@ class PrecisionReport:
             or self.caller_numpy_rank_promotion not in ("allow", "warn", "raise")
         ):
             raise PrecisionReportError("Invalid caller NumPy rank promotion setting")
+        if (
+            self.deployment_requirements is not None
+            and type(self.deployment_requirements) is not DeploymentRequirements
+        ):
+            raise PrecisionReportError("Invalid deployment requirements record")
+        if self.deployment_requirements is not None and any(
+            site.matrix_output is None
+            or site.matrix_tag is None
+            or site.matrix_scope is None
+            for site in self.deployment_requirements.matrix_precision
+        ):
+            raise PrecisionReportError("Unbound matrix deployment requirement")
         for name in (
             "inputs",
             "traced_outputs",
@@ -153,7 +185,10 @@ class PrecisionReport:
 
 def precision_report_to_json(report: PrecisionReport) -> str:
     """Serialize the versioned export record without adding sample evidence."""
-    return json.dumps(asdict(report), sort_keys=True, separators=(",", ":"))
+    data = asdict(report)
+    if report.deployment_requirements is None:
+        data.pop("deployment_requirements")
+    return json.dumps(data, sort_keys=True, separators=(",", ":"))
 
 
 def attach_precision_report(
@@ -275,6 +310,11 @@ def _report_from_json(payload: str) -> PrecisionReport:
             profile=data["profile"],
             caller_numpy_dtype_promotion=data.get("caller_numpy_dtype_promotion"),
             caller_numpy_rank_promotion=data.get("caller_numpy_rank_promotion"),
+            deployment_requirements=deployment_requirements_from_json(
+                None
+                if data.get("deployment_requirements") is None
+                else json.dumps(data["deployment_requirements"])
+            ),
         )
     except PrecisionReportError:
         raise
@@ -360,6 +400,7 @@ class CpuSampleTarget:
     inter_op_threads: int = 1
     execution_mode: str = "ORT_SEQUENTIAL"
     session_config: tuple[tuple[str, str], ...] = ()
+    deployment_observation: RuntimeTargetObservation | None = None
 
 
 @dataclass(frozen=True)
@@ -688,8 +729,7 @@ def _source_batch_boundaries(
         labels = [dim for dim in item.shape if isinstance(dim, str)]
         if labels:
             if (
-                len(item.shape) not in (1, 2, 3, 4)
-                or len(labels) != 1
+                len(labels) != 1
                 or (not output and item.shape[0] != labels[0])
                 or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", labels[0]) is None
                 or item.dtype
@@ -872,6 +912,614 @@ def _check_bound_sample_tensor(
             )
 
 
+def _artifact_deployment_requirements(
+    model: onnx.ModelProto,
+) -> DeploymentRequirements | None:
+    properties = {item.key: item.value for item in model.metadata_props}
+    declared = deployment_requirements_from_json(
+        properties.get(DEPLOYMENT_METADATA_KEY)
+    )
+    report = get_precision_report(model)
+    recorded = None if report is None else report.deployment_requirements
+    if declared != recorded:
+        raise PrecisionReportError(
+            "Artifact deployment declaration differs from its precision report"
+        )
+    return declared
+
+
+def _configure_deployment_session(
+    options: Any, requirements: DeploymentRequirements, optimized_path: Path
+) -> None:
+    """Configure declared settings explicitly; these are not runtime evidence."""
+    options.intra_op_num_threads = 1
+    options.inter_op_num_threads = 1
+    for name, value in requirements.target.session_config:
+        options.add_session_config_entry(name, value)
+    options.optimized_model_filepath = str(optimized_path)
+
+
+def _deployment_graph_boundary(
+    original: onnx.ModelProto,
+    optimized: onnx.ModelProto,
+    requirements: DeploymentRequirements,
+) -> str:
+    """Bind actual qualified producers and each runtime Cast's dataflow edges."""
+    import onnx.inliner
+
+    def unfinished(detail: str) -> NoReturn:
+        raise RuntimeError("Deployment optimizer support remains unfinished: " + detail)
+
+    source: dict[str, tuple[str, onnx.NodeProto]] = {}
+
+    def raw(body: Any, scope: str) -> None:
+        for node in body.node:
+            if (
+                re.fullmatch(r"jax2onnx_src_[0-9]{6}", node.name) is None
+                or node.name in source
+            ):
+                unfinished("missing or ambiguous original source-node tags")
+            source[node.name] = (scope, node)
+            for attribute in node.attribute:
+                if attribute.type == onnx.AttributeProto.GRAPH:
+                    raw(
+                        attribute.g,
+                        _deployment_child_scope(scope, node.name, attribute.name, 0),
+                    )
+                elif attribute.type == onnx.AttributeProto.GRAPHS:
+                    for index, child in enumerate(attribute.graphs):
+                        raw(
+                            child,
+                            _deployment_child_scope(
+                                scope, node.name, attribute.name, index
+                            ),
+                        )
+
+    raw(original.graph, _deployment_graph_scope(original.graph.name))
+    for function in original.functions:
+        raw(
+            function,
+            _deployment_function_scope(
+                function.domain, function.name, function.overload
+            ),
+        )
+    for site in requirements.matrix_precision:
+        owner = source.get(site.matrix_tag or "")
+        if owner is None or owner[0] != site.matrix_scope:
+            unfinished("qualified matrix has no exact original scope/tag binding")
+        node = owner[1]
+        if (
+            node.op_type != "MatMul"
+            or node.domain not in ("", "ai.onnx")
+            or site.matrix_output not in node.output
+        ):
+            unfinished("qualified source producer is not MatMul")
+        # Layout-only descendants may carry the logical equation result.
+        if site.output not in node.output:
+            scoped = {
+                name: item
+                for scope, item in source.values()
+                if scope == owner[0]
+                for name in item.output
+            }
+            name = site.output
+            seen = set()
+            while name not in node.output:
+                if name in seen:
+                    unfinished("cyclic source result provenance")
+                seen.add(name)
+                item = scoped.get(name)
+                if item is None or item.op_type not in {
+                    "Identity",
+                    "Transpose",
+                    "Reshape",
+                }:
+                    unfinished(
+                        "qualified result is not a layout-only matrix descendant"
+                    )
+                name = item.input[0]
+
+    def role(node: onnx.NodeProto) -> str:
+        candidates: list[str] = []
+        for tag in re.findall(r"jax2onnx_src_[0-9]{6}", node.name):
+            if tag not in source:
+                continue
+            original_node = source[tag][1]
+            if (
+                (original_node.op_type, original_node.domain)
+                == (node.op_type, node.domain)
+                or original_node.op_type == "MatMul"
+                and original_node.domain in ("", "ai.onnx")
+                and node.op_type == "FusedMatMul"
+                and node.domain == "com.microsoft"
+            ):
+                candidates.append(tag)
+        if len(set(candidates)) != 1:
+            unfinished("optimizer source-role correspondence is missing or ambiguous")
+        return candidates[0]
+
+    def tensor_key(tensor: onnx.TensorProto) -> str:
+        array = onnx.numpy_helper.to_array(tensor)
+        header = repr((array.dtype.str, tuple(array.shape))).encode()
+        return hashlib.sha256(header + array.tobytes(order="C")).hexdigest()
+
+    def direct_constant_tensor(node: onnx.NodeProto) -> onnx.TensorProto | None:
+        if (
+            node.op_type != "Constant"
+            or node.domain not in ("", "ai.onnx")
+            or node.overload
+            or node.input
+            or len(node.output) != 1
+            or not node.output[0]
+            or len(node.attribute) != 1
+        ):
+            return None
+        attribute = node.attribute[0]
+        if (
+            attribute.name != "value"
+            or attribute.type != onnx.AttributeProto.TENSOR
+            or attribute.ref_attr_name
+        ):
+            return None
+        return attribute.t
+
+    def constant_origin(node: onnx.NodeProto) -> tuple[Any, ...]:
+        current = direct_constant_tensor(node)
+        if current is None:
+            unfinished("static Constant definition has an unproved schema")
+        tag = role(node)
+        definition_scope, definition = source[tag]
+        declared = direct_constant_tensor(definition)
+        if declared is None:
+            unfinished("static Constant source definition has an unproved schema")
+        key = (current.data_type, tuple(current.dims), tensor_key(current))
+        if key != (declared.data_type, tuple(declared.dims), tensor_key(declared)):
+            unfinished("static Constant differs from exact original typed storage")
+        return ("source-constant", definition_scope, tag, 0, *key)
+
+    original_flat = onnx.inliner.inline_local_functions(original)
+    original_constants = {
+        tensor_key(tensor) for tensor in original_flat.graph.initializer
+    }
+
+    def contract(model: onnx.ModelProto) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+        flat = onnx.shape_inference.infer_shapes(
+            onnx.inliner.inline_local_functions(model), strict_mode=True
+        )
+        matrices: list[tuple[Any, ...]] = []
+        casts: list[tuple[Any, ...]] = []
+
+        def graph(
+            body: onnx.GraphProto,
+            inherited_anchors: Mapping[str, tuple[Any, ...]],
+            scope: tuple[str, ...],
+            inherited_types: Mapping[str, int],
+            inherited_shapes: Mapping[str, tuple[Any, ...]],
+            inherited_constants: Mapping[str, onnx.NodeProto],
+        ) -> None:
+            types = dict(inherited_types)
+            types.update(
+                (value.name, value.type.tensor_type.elem_type)
+                for value in (*body.input, *body.output, *body.value_info)
+                if value.type.HasField("tensor_type")
+            )
+            types.update((value.name, value.data_type) for value in body.initializer)
+            shapes = dict(inherited_shapes)
+            shapes.update(
+                (
+                    value.name,
+                    tuple(
+                        dim.dim_value if dim.HasField("dim_value") else dim.dim_param
+                        for dim in value.type.tensor_type.shape.dim
+                    ),
+                )
+                for value in (*body.input, *body.output, *body.value_info)
+                if value.type.HasField("tensor_type")
+                and value.type.tensor_type.HasField("shape")
+            )
+            producers = {
+                name: (node, index)
+                for node in body.node
+                for index, name in enumerate(node.output)
+            }
+            local_definitions = (
+                {value.name for value in body.input}
+                | {value.name for value in body.initializer}
+                | set(producers)
+            )
+            # Only direct definitions cross scopes. Local definitions shadow
+            # inherited candidates; output/value_info declarations do not.
+            static_constants = {
+                name: definition
+                for name, definition in inherited_constants.items()
+                if name not in local_definitions
+            }
+            static_constants.update(
+                (name, node)
+                for name, (node, _) in producers.items()
+                if direct_constant_tensor(node) is not None
+            )
+            consumers: dict[str, list[tuple[onnx.NodeProto, int]]] = {}
+            for node in body.node:
+                for index, name in enumerate(node.input):
+                    consumers.setdefault(name, []).append((node, index))
+            constant_keys = {
+                tensor.name: tensor_key(tensor) for tensor in body.initializer
+            }
+            anchors_cache: dict[str, tuple[Any, ...]] = dict(inherited_anchors)
+            for index, value in enumerate(body.input):
+                anchors_cache[value.name] = (
+                    ("input", scope, index, value.name if not scope else ""),
+                )
+            for name, key in constant_keys.items():
+                # New wholly constant optimizer subgraphs confer no dynamic provenance.
+                anchors_cache[name] = (
+                    (("initializer", key),) if key in original_constants else ()
+                )
+
+            def anchors(
+                name: str, active: frozenset[str] = frozenset()
+            ) -> tuple[Any, ...]:
+                if name in anchors_cache:
+                    return anchors_cache[name]
+                if name in active:
+                    unfinished("cyclic optimized value provenance")
+                item = producers.get(name)
+                if item is None:
+                    unfinished("unbound optimized value provenance")
+                node, _ = item
+
+                def free_names(nested: onnx.GraphProto) -> set[str]:
+                    local = (
+                        {value.name for value in nested.input}
+                        | {value.name for value in nested.initializer}
+                        | {output for inner in nested.node for output in inner.output}
+                    )
+                    used = {
+                        argument
+                        for inner in nested.node
+                        for argument in inner.input
+                        if argument
+                    }
+                    for inner in nested.node:
+                        for attribute in inner.attribute:
+                            if attribute.type == onnx.AttributeProto.GRAPH:
+                                used.update(free_names(attribute.g))
+                            elif attribute.type == onnx.AttributeProto.GRAPHS:
+                                for child in attribute.graphs:
+                                    used.update(free_names(child))
+                    return used - local
+
+                arguments = set(argument for argument in node.input if argument)
+                for attribute in node.attribute:
+                    if attribute.type == onnx.AttributeProto.GRAPH:
+                        arguments.update(free_names(attribute.g))
+                    elif attribute.type == onnx.AttributeProto.GRAPHS:
+                        for child in attribute.graphs:
+                            arguments.update(free_names(child))
+                result = tuple(
+                    sorted(
+                        set(
+                            anchor
+                            for argument in arguments
+                            for anchor in anchors(argument, active | {name})
+                        )
+                    )
+                )
+                anchors_cache[name] = result
+                return result
+
+            def origin(name: str) -> tuple[Any, ...]:
+                item = producers.get(name)
+                while item is not None and item[0].op_type in {
+                    "Identity",
+                    "Transpose",
+                    "Reshape",
+                }:
+                    name = item[0].input[0]
+                    item = producers.get(name)
+                if name in static_constants:
+                    # Resolve raw role/storage lazily, only for an inspected
+                    # origin; unused optimizer shape Constants stay unrelated.
+                    return constant_origin(static_constants[name])
+                if item is None:
+                    return ("boundary", anchors(name))
+                node, index = item
+                return ("producer", role(node), index, anchors(name))
+
+            def consumer_edges(
+                name: str, active: frozenset[str] = frozenset()
+            ) -> tuple[Any, ...]:
+                if name in active:
+                    unfinished("cyclic optimized consumer provenance")
+                edges: list[tuple[Any, ...]] = []
+                for node, index in consumers.get(name, ()):
+                    if node.op_type in {"Identity", "Transpose", "Reshape"}:
+                        edges.extend(consumer_edges(node.output[0], active | {name}))
+                    else:
+                        edges.append(
+                            (
+                                "consumer",
+                                role(node),
+                                index,
+                                tuple(anchors(output) for output in node.output),
+                            )
+                        )
+                edges.extend(
+                    ("output", scope, index)
+                    for index, value in enumerate(body.output)
+                    if value.name == name
+                )
+                return tuple(sorted(edges))
+
+            def layout(name: str, transpose: bool = False) -> tuple[Any, ...]:
+                dimensions = shapes.get(name)
+                item = producers.get(name)
+                steps: list[tuple[Any, ...]] = []
+                while item is not None and item[0].op_type in {
+                    "Identity",
+                    "Transpose",
+                    "Reshape",
+                }:
+                    node, _ = item
+                    if node.op_type == "Transpose":
+                        attributes = {
+                            item.name: onnx.helper.get_attribute_value(item)
+                            for item in node.attribute
+                        }
+                        shape = shapes.get(node.input[0])
+                        if shape is None:
+                            unfinished("transpose has unknown rank")
+                        steps.append(
+                            (
+                                "transpose",
+                                tuple(
+                                    attributes.get(
+                                        "perm", tuple(reversed(range(len(shape))))
+                                    )
+                                ),
+                            )
+                        )
+                    elif node.op_type == "Reshape":
+                        steps.append(("reshape", shapes.get(name)))
+                    name = node.input[0]
+                    item = producers.get(name)
+                if transpose:
+                    if dimensions is None or len(dimensions) < 2:
+                        unfinished("FusedMatMul transpose has unknown rank")
+                    permutation = tuple(range(len(dimensions) - 2)) + (
+                        len(dimensions) - 1,
+                        len(dimensions) - 2,
+                    )
+                    steps.insert(0, ("transpose", permutation))
+                return (origin(name), tuple(reversed(steps)))
+
+            for node in body.node:
+                if node.op_type == "Gemm":
+                    unfinished(
+                        "Gemm bias/scale boundary needs separate actual inspection"
+                    )
+                if node.domain == "com.microsoft" and node.op_type != "FusedMatMul":
+                    unfinished("unreviewed fused operator " + node.op_type)
+                if node.op_type in {"MatMul", "FusedMatMul"}:
+                    tag = role(node)
+                    qualified = any(
+                        site.matrix_tag == tag for site in requirements.matrix_precision
+                    )
+                    if qualified and any(
+                        types.get(name) != onnx.TensorProto.FLOAT
+                        for name in (*node.input, *node.output)
+                    ):
+                        unfinished(
+                            "qualified matrix kernel types differ from full FP32"
+                        )
+                    attributes = {
+                        item.name: onnx.helper.get_attribute_value(item)
+                        for item in node.attribute
+                    }
+                    if node.op_type == "FusedMatMul":
+                        if (
+                            set(attributes)
+                            - {
+                                "alpha",
+                                "transA",
+                                "transB",
+                                "transBatchA",
+                                "transBatchB",
+                            }
+                            or attributes.get("alpha", 1.0) != 1.0
+                            or attributes.get("transBatchA", 0) != 0
+                            or attributes.get("transBatchB", 0) != 0
+                            or any(
+                                attributes.get(name, 0) not in (0, 1)
+                                for name in ("transA", "transB")
+                            )
+                        ):
+                            unfinished(
+                                "FusedMatMul correspondence exceeds last-axis transpose with alpha1"
+                            )
+                    matrices.append(
+                        (
+                            scope,
+                            tag,
+                            layout(node.input[0], bool(attributes.get("transA", 0))),
+                            layout(node.input[1], bool(attributes.get("transB", 0))),
+                            tuple(consumer_edges(output) for output in node.output),
+                        )
+                    )
+                if node.op_type == "Cast" and anchors(node.output[0]):
+                    if (
+                        types.get(node.input[0]) is None
+                        or types.get(node.output[0]) is None
+                    ):
+                        unfinished("runtime Cast boundary has unknown types")
+                    casts.append(
+                        (
+                            scope,
+                            role(node),
+                            types[node.input[0]],
+                            types[node.output[0]],
+                            origin(node.input[0]),
+                            consumer_edges(node.output[0]),
+                        )
+                    )
+                for attribute in node.attribute:
+                    if attribute.type in (
+                        onnx.AttributeProto.GRAPH,
+                        onnx.AttributeProto.GRAPHS,
+                    ):
+                        children = (
+                            (attribute.g,)
+                            if attribute.type == onnx.AttributeProto.GRAPH
+                            else attribute.graphs
+                        )
+                        for index, nested in enumerate(children):
+                            nested_scope = scope + (
+                                role(node),
+                                attribute.name,
+                                str(index),
+                            )
+                            captured = {
+                                name: anchors(name)
+                                for name in (*producers, *anchors_cache)
+                            }
+                            graph(
+                                nested,
+                                captured,
+                                nested_scope,
+                                types,
+                                shapes,
+                                static_constants,
+                            )
+
+        graph(flat.graph, {}, (), {}, {}, {})
+        if len(set(matrices)) != len(matrices) or len(set(casts)) != len(casts):
+            unfinished("repeated source role has ambiguous value/edge provenance")
+        return tuple(sorted(matrices)), tuple(sorted(casts))
+
+    from jax2onnx._deployment_fusion_bridge import (
+        contains_fusions,
+        prove_deployment_fusions,
+    )
+    from jax2onnx._deployment_fusions import FusionUnfinished
+
+    before = contract(original)
+    if not contains_fusions(optimized) and before == contract(optimized):
+        return "matmul-transpose-and-original-casts-v1"
+    roles = {
+        tag: (node.op_type, node.domain, scope) for tag, (scope, node) in source.items()
+    }
+    try:
+        inspected, fusion_kinds = prove_deployment_fusions(original, optimized, roles)
+    except FusionUnfinished as exc:
+        unfinished(str(exc))
+    after = contract(inspected)
+    if before != after:
+        unfinished(
+            "a qualified matrix or original runtime Cast changed its bound dataflow path"
+        )
+    return (
+        "matmul-gemm-quickgelu-and-original-casts-v2"
+        if fusion_kinds
+        else "matmul-transpose-and-original-casts-v1"
+    )
+
+
+def _observe_deployment_session(
+    model: onnx.ModelProto,
+    session: Any,
+    ort: Any,
+    optimized_path: Path,
+) -> RuntimeTargetObservation:
+    """Observe loaded runtime, relevant hardware, session and optimized artifact."""
+    from importlib.metadata import version
+
+    required = _artifact_deployment_requirements(model)
+    if required is None:
+        raise ValueError("Artifact has no deployment declaration")
+    distribution_version = version("onnxruntime")
+    if platform.system() != "Linux":
+        raise ValueError("Actual deployment system is outside the reviewed envelope")
+    blocks = []
+    for block in Path("/proc/cpuinfo").read_text().split("\n\n"):
+        entries = dict(
+            (name.strip(), value.strip())
+            for line in block.splitlines()
+            if ":" in line
+            for name, value in (line.split(":", 1),)
+        )
+        if "processor" in entries:
+            blocks.append(entries)
+    if not blocks or any(
+        not {"vendor_id", "model name", "flags"} <= set(block) for block in blocks
+    ):
+        raise ValueError("Actual CPU identity or ISA is unknown")
+    identities = {(block["vendor_id"], block["model name"]) for block in blocks}
+    if len(identities) != 1:
+        raise ValueError("Actual CPU identity is not uniform")
+    vendor, cpu_model = identities.pop()
+    flags = [set(block["flags"].split()) for block in blocks]
+    relevant = set.intersection(*flags) & {"sse2", "avx", "avx2", "fma"}
+    relevant.update(
+        flag
+        for values in flags
+        for flag in values
+        if flag.startswith(("avx512", "amx")) or "bf16" in flag
+    )
+    libraries = tuple(
+        sorted(
+            (path.name, hashlib.sha256(path.read_bytes()).hexdigest())
+            for path in (Path(ort.__file__).parent / "capi").glob("*.so*")
+            if path.is_file()
+        )
+    )
+    options = session.get_session_options()
+    provider_options = tuple(
+        (name, tuple(sorted((str(key), str(value)) for key, value in values.items())))
+        for name, values in sorted(session.get_provider_options().items())
+    )
+    target = DeploymentTarget(
+        runtime="onnxruntime",
+        runtime_version=ort.__version__,
+        runtime_build=ort.get_build_info(),
+        system=platform.system(),
+        architecture=platform.machine(),
+        cpu_vendor=vendor,
+        cpu_model=cpu_model,
+        cpu_features=tuple(sorted(relevant)),
+        libraries=libraries,
+        providers=tuple(session.get_providers()),
+        provider_options=provider_options,
+        session_config=tuple(
+            (name, options.get_session_config_entry(name))
+            for name, _ in required.target.session_config
+        ),
+    )
+    # The optimized artifact is retained before its boundary is evaluated.
+    optimized_digest = None
+    boundary = None
+    boundary_error = None
+    try:
+        optimized_bytes = optimized_path.read_bytes()
+        optimized_digest = hashlib.sha256(optimized_bytes).hexdigest()
+        optimized = onnx.load_model(optimized_path)
+        boundary = _deployment_graph_boundary(model, optimized, required)
+    except Exception as exc:
+        boundary_error = f"{type(exc).__name__}: {exc}"
+    actual = RuntimeTargetObservation(
+        target=target,
+        optimization=options.graph_optimization_level.name,
+        execution_mode=options.execution_mode.name,
+        intra_op_threads=options.intra_op_num_threads,
+        inter_op_threads=options.inter_op_num_threads,
+        distribution_version=distribution_version,
+        optimized_graph_sha256=optimized_digest,
+        boundary_contract=boundary,
+        boundary_error=boundary_error,
+    )
+    return actual
+
+
 def validate_source_samples(
     model_or_path: ModelArtifact,
     *,
@@ -911,9 +1559,11 @@ def validate_source_samples(
     )
     try:
         model = onnx.load_model_from_string(blob)
-        onnx.checker.check_model(model, full_check=True)
+        check_source_schema(blob)
     except Exception as exc:
-        checks.append(PrecisionCheck("onnx-schema", CheckStatus.FAILED, str(exc)))
+        checks.append(
+            PrecisionCheck("onnx-schema", CheckStatus.FAILED, exception_detail(exc))
+        )
         return result()
     checks.append(
         PrecisionCheck(
@@ -921,6 +1571,7 @@ def validate_source_samples(
         )
     )
     try:
+        deployment_requirements = _artifact_deployment_requirements(model)
         batch_boundaries = _source_batch_boundaries(model)
         static_inputs = (
             _source_static_input_boundaries(model) if batch_boundaries is None else None
@@ -1074,11 +1725,13 @@ def validate_source_samples(
             )
             continue
         if session is None:
+            loaded_runtime = None
             try:
                 # Optional runtime loading follows the SOURCE input/reference
                 # gate, so invalid-only samples construct no execution session.
                 import onnxruntime as ort
 
+                loaded_runtime = ort
                 level = (
                     ort.GraphOptimizationLevel.ORT_DISABLE_ALL
                     if optimization == "disabled"
@@ -1092,9 +1745,35 @@ def validate_source_samples(
                 target = CpuSampleTarget(
                     ort.__version__, level.name, platform.machine(), ()
                 )
-                session = ort.InferenceSession(
-                    blob, options, providers=["CPUExecutionProvider"]
+                deployment_directory = (
+                    TemporaryDirectory(prefix="jax2onnx-deployment-")
+                    if deployment_requirements is not None
+                    else None
                 )
+                observation = None
+                try:
+                    optimized_path = None
+                    if (
+                        deployment_directory is not None
+                        and deployment_requirements is not None
+                    ):
+                        optimized_path = (
+                            Path(deployment_directory.name) / "optimized.onnx"
+                        )
+                        _configure_deployment_session(
+                            options, deployment_requirements, optimized_path
+                        )
+                    session = ort.InferenceSession(
+                        blob, options, providers=["CPUExecutionProvider"]
+                    )
+                    session.disable_fallback()
+                    if optimized_path is not None:
+                        observation = _observe_deployment_session(
+                            model, session, ort, optimized_path
+                        )
+                finally:
+                    if deployment_directory is not None:
+                        deployment_directory.cleanup()
                 session.disable_fallback()
                 providers = tuple(session.get_providers())
                 provider_options = tuple(
@@ -1116,15 +1795,30 @@ def validate_source_samples(
                     platform.machine(),
                     providers,
                     provider_options,
+                    session_config=(
+                        ()
+                        if deployment_requirements is None
+                        else deployment_requirements.target.session_config
+                    ),
+                    deployment_observation=observation,
                 )
+                if deployment_requirements is not None:
+                    assert observation is not None
+                    require_runtime_target(deployment_requirements, observation)
                 if providers != ("CPUExecutionProvider",):
                     raise RuntimeError(
                         f"Expected only CPUExecutionProvider, received {providers}"
                     )
             except Exception as exc:
+                detail = runtime_load_detail(
+                    exc,
+                    blob,
+                    loaded_runtime,
+                    providers_requested=("CPUExecutionProvider",),
+                )
                 sample_checks.extend(
                     (
-                        PrecisionCheck("runtime-load", CheckStatus.FAILED, str(exc)),
+                        PrecisionCheck("runtime-load", CheckStatus.FAILED, detail),
                         PrecisionCheck(
                             "numerical-acceptance",
                             CheckStatus.UNVERIFIED,
@@ -1143,7 +1837,7 @@ def validate_source_samples(
                     )
                 )
                 checks.append(
-                    PrecisionCheck("runtime-load", CheckStatus.FAILED, str(exc))
+                    PrecisionCheck("runtime-load", CheckStatus.FAILED, detail)
                 )
                 return result()
         try:

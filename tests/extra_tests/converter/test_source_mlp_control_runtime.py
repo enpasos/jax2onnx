@@ -379,7 +379,9 @@ def test_native_rank_one_uniform_is_limited_to_original_static_dropout_extent(
         )
         carrier = next(eqn for eqn in graph.eqns if eqn.primitive.name == "jit")
         # Retain the historical node IDs; 31/33 now use the same static proof.
-        if len(shape) == 1 and type(shape[0]) is int and shape[0] >= 0:
+        if (len(shape) == 1 and type(shape[0]) is int and shape[0] >= 0) or len(
+            shape
+        ) in (2, 3, 4):
             proof = prove_native_uniform(carrier)
             assert proof is not None and proof.shape == shape
             assert proof.dtype == np.dtype(dtype)
@@ -391,7 +393,7 @@ def test_native_rank_one_uniform_is_limited_to_original_static_dropout_extent(
 
 
 @pytest.mark.parametrize("symbolic", [False, True])
-@pytest.mark.parametrize("rank", [1, 2, 3, 4])
+@pytest.mark.parametrize("rank", [1, 2, 3, 4, 5])
 def test_native_random_bits_keeps_its_own_symbolic_rank_limit(
     symbolic: bool, rank: int
 ) -> None:
@@ -407,8 +409,8 @@ def test_native_random_bits_keeps_its_own_symbolic_rank_limit(
         jax.ShapeDtypeStruct((2,), np.uint32),
     )
     bits = next(eqn for eqn in graph.eqns if eqn.primitive.name == "random_bits")
-    if symbolic and rank not in (2, 3):
-        with pytest.raises(NativePRNGExclusion, match="rank-two/rank-three"):
+    if symbolic and rank not in (2, 3, 4):
+        with pytest.raises(NativePRNGExclusion, match="rank-two/rank-three/rank-four"):
             validate_selected_random_equation(bits)
         with pytest.raises(SourcePrecisionError) as caught:
             validate_source_jaxpr(graph, 23)
@@ -420,7 +422,7 @@ def test_native_random_bits_keeps_its_own_symbolic_rank_limit(
             validate_source_jaxpr(graph, opset)
 
 
-@pytest.mark.parametrize("rank", [1, 2, 3, 4])
+@pytest.mark.parametrize("rank", [1, 2, 3, 4, 5])
 def test_native_bernoulli_retains_symbolic_rank_two_and_three(rank: int) -> None:
     batch = jax_export.symbolic_shape("B")[0]
 
@@ -436,7 +438,7 @@ def test_native_bernoulli_retains_symbolic_rank_two_and_three(rank: int) -> None
         jax.ShapeDtypeStruct((2,), np.uint32),
         jax.ShapeDtypeStruct((), np.float32),
     )
-    if rank in (2, 3):
+    if rank in (2, 3, 4):
         for opset in (23, 26):
             validate_source_jaxpr(graph, opset)
     else:

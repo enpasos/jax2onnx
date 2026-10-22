@@ -104,7 +104,7 @@ def _recurse(body: Any, site: _Site, ancestors: frozenset[int], role: str) -> No
     from jax2onnx.converter.source_profile import SourcePrecisionError, _validate_scope
 
     try:
-        _validate_scope(body, site.opset, ancestors)
+        _validate_scope(body, site.opset, ancestors, site.deployment_target)
     except SourcePrecisionError as exc:
         raise exc.with_context(f"{site.location}/{role}") from exc
 

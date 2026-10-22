@@ -10,6 +10,10 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
@@ -24,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     _DynamicParamWrapper,
     register_native_primitive,
 )
-
 
 DimLike = Union[int, str]
 
@@ -726,7 +729,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., Any]:
             cls._ORIG_CALL = orig
 
-            def patched(
+            def legacy(
                 q: Any,
                 k: Any,
                 v: Any,
@@ -753,6 +756,15 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     has_bias=has_bias,
                     **safe_kwargs,
                 )
+
+            def patched(*args: Any, **kwargs: Any) -> Any:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    if orig is None:
+                        raise RuntimeError(
+                            "Original nnx.dot_product_attention not captured"
+                        )
+                    return orig(*args, **kwargs)
+                return legacy(*args, **kwargs)
 
             return patched
 

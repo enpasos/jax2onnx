@@ -330,6 +330,14 @@ def test_profile_excludes_other_bitcast_pairs(source: Any, target: Any) -> None:
     assert captured.value.category == "profile-exclusion"
 
 
+def _nested_proto_nodes(graph: Any) -> Iterator[Any]:
+    for node in graph.node:
+        yield node
+        for attribute in node.attribute:
+            if attribute.type == onnx.AttributeProto.GRAPH:
+                yield from _nested_proto_nodes(attribute.g)
+
+
 @pytest.mark.parametrize("function_contains_cond", [False, True])
 def test_profile_admits_nested_function_and_cond_with_mixed_result_roles(
     function_contains_cond: bool,
@@ -361,7 +369,91 @@ def test_profile_admits_nested_function_and_cond_with_mixed_result_roles(
         ir.DataType.UINT32,
     ]
     assert exported.functions
-    onnx.checker.check_model(ir.to_proto(exported), full_check=True)
+    proto = ir.to_proto(exported)
+    assert any(
+        node.op_type == "BitCast"
+        for owner in (proto.graph, *proto.functions)
+        for node in _nested_proto_nodes(owner)
+    )
+    # The minimum ONNX wheel predates the actual schema. Preserve the exact
+    # opset-26 lowering and assert that precise checker failure on that wheel.
+    try:
+        schema = onnx.defs.get_schema("BitCast", 26, "")
+    except onnx.defs.SchemaError:
+        with pytest.raises(onnx.checker.ValidationError) as caught:
+            onnx.checker.check_model(proto, full_check=True)
+        assert str(caught.value) == (
+            "No Op registered for BitCast with domain_version of 26"
+        )
+    else:
+        assert schema.since_version == 26
+        onnx.checker.check_model(proto, full_check=True)
+
+
+@onnx_function
+def _portable_mixed_results(x: jax.Array, words: jax.Array) -> tuple[jax.Array, ...]:
+    return x.astype(jnp.float16), x > np.float32(0), words
+
+
+@onnx_function
+def _portable_function_with_cond(
+    x: jax.Array, words: jax.Array
+) -> tuple[jax.Array, ...]:
+    return jax.lax.cond(
+        x > np.float32(0),
+        lambda values: _portable_mixed_results(*values),
+        lambda values: _portable_mixed_results(-values[0], values[1]),
+        (x, words),
+    )
+
+
+@pytest.mark.parametrize("function_contains_cond", [False, True])
+def test_opset23_nested_function_cond_carries_explicit_uint32_mixed_result(
+    function_contains_cond: bool,
+) -> None:
+    def model(x: jax.Array, words: jax.Array) -> tuple[jax.Array, ...]:
+        if function_contains_cond:
+            return _portable_function_with_cond(x, words)
+        return jax.lax.cond(
+            x > np.float32(0),
+            lambda values: _portable_mixed_results(*values),
+            lambda values: _portable_mixed_results(-values[0], values[1]),
+            (x, words),
+        )
+
+    exported = conversion_api._convert_to_ir(
+        fn=model,
+        inputs=[_spec(), _spec(dtype=np.uint32)],
+        input_params=None,
+        model_name="profile_portable_nested_mixed_scopes",
+        opset=23,
+        enable_double_precision=False,
+        record_primitive_calls_file=None,
+        precision_policy=PrecisionPolicy.SOURCE,
+        jaxpr_validator=validate_source_jaxpr,
+    )
+    assert [value.dtype for value in exported.graph.inputs] == [
+        ir.DataType.FLOAT,
+        ir.DataType.UINT32,
+    ]
+    assert [value.dtype for value in exported.graph.outputs] == [
+        ir.DataType.FLOAT16,
+        ir.DataType.BOOL,
+        ir.DataType.UINT32,
+    ]
+    assert exported.functions
+    assert any(
+        value.dtype == ir.DataType.UINT32
+        for function in exported.functions.values()
+        for value in function.graph.inputs
+    )
+    proto = ir.to_proto(exported)
+    assert not any(
+        node.op_type == "BitCast"
+        for owner in (proto.graph, *proto.functions)
+        for node in _nested_proto_nodes(owner)
+    )
+    onnx.checker.check_model(proto, full_check=True)
 
 
 def test_profile_reports_nested_cond_location_and_validates_actual_function_body() -> (
@@ -567,7 +659,7 @@ def test_profile_rejects_symbolic_shapes_and_unsupported_opsets() -> None:
         "neg", [jax.ShapeDtypeStruct(("B", 2, 3, 4, 5), np.float32)], [_spec((2,))]
     )
     with pytest.raises(
-        SourcePrecisionError, match="rank-one through rank-four"
+        SourcePrecisionError, match="native JAX symbolic variable"
     ) as captured:
         validate_source_jaxpr(graph, 23)
     assert captured.value.location == "input 0"

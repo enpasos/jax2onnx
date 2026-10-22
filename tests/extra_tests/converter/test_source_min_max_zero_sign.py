@@ -51,6 +51,7 @@ _TARGETS = {
     ("0.11.2", "1.31.0"),
     ("0.10.2", "1.29.0"),
     ("0.12.0", "1.31.0"),
+    ("0.12.0.1", "1.31.0"),
     ("0.10.2", "1.31.0"),
     ("0.8.1", "1.31.0"),
 }
@@ -186,31 +187,67 @@ def _accept(
 def _structure(model: Any, operation: str) -> None:
     proto = _proto(model)
     nodes = list(proto.graph.node)
-    assert len(nodes) == (15 if operation == "Min" else 12)
+    assert len(nodes) == 18
     assert sum(n.op_type == operation for n in nodes) == 1
     assert sum(n.op_type == "GatherElements" for n in nodes) == 1
-    assert not any(n.op_type == "Where" for n in nodes)
+    assert not any(n.op_type in {"Where", "Add", "Neg"} for n in nodes)
     casts = [n for n in nodes if n.op_type == "Cast"]
-    assert (
-        len(casts) == 1
-        and next(a.i for a in casts[0].attribute if a.name == "to")
-        == onnx.TensorProto.INT64
+    assert len(casts) == 2 and all(
+        len(node.attribute) == 1
+        and node.attribute[0].name == "to"
+        and node.attribute[0].i == onnx.TensorProto.INT64
+        for node in casts
     )
     assert sorted(n.op_type for n in nodes).count("Unsqueeze") == 3
-    assert len(proto.graph.initializer) == 2
-    zero = next(
-        v for v in proto.graph.initializer if v.data_type != onnx.TensorProto.INT64
+    assert len(proto.graph.initializer) == 3
+    constants = {
+        value.name: onnx.numpy_helper.to_array(value)
+        for value in proto.graph.initializer
+    }
+    zero = next(value for value in constants.values() if value.shape == ())
+    axes = next(value for value in constants.values() if value.dtype == np.int64)
+    table_name, table = next(
+        (name, value) for name, value in constants.items() if value.shape == (2,)
     )
-    axes = next(
-        v for v in proto.graph.initializer if v.data_type == onnx.TensorProto.INT64
-    )
+    assert not _bits(zero).any() and table.dtype == zero.dtype
+    assert _bits(table).tolist() == [0, 1 << (8 * table.dtype.itemsize - 1)]
+    np.testing.assert_array_equal(axes, np.array([0], np.int64), strict=True)
+    producers = {name: node for node in nodes for name in node.output}
+    base = next(node for node in nodes if node.op_type == operation)
+    gather = next(node for node in nodes if node.op_type == "Gather")
     assert (
-        onnx.numpy_helper.to_array(zero).shape == ()
-        and not _bits(onnx.numpy_helper.to_array(zero)).any()
+        len(gather.input) == 2
+        and gather.input[0] == table_name
+        and len(gather.attribute) == 1
+        and gather.attribute[0].name == "axis"
+        and gather.attribute[0].i == 0
     )
-    np.testing.assert_array_equal(
-        onnx.numpy_helper.to_array(axes), np.array([0], np.int64), strict=True
+    index = producers[gather.input[1]]
+    assert index in casts and len(index.input) == 1
+    sign = producers[index.input[0]]
+    assert sign.op_type == ("Or" if operation == "Min" else "And")
+    assert len(sign.input) == 2 and not sign.attribute
+    operands = []
+    for name in sign.input:
+        less = producers[name]
+        assert less.op_type == "Less" and len(less.input) == 2 and not less.attribute
+        assert constants[less.input[1]] is zero
+        reciprocal = producers[less.input[0]]
+        assert (
+            reciprocal.op_type == "Reciprocal"
+            and len(reciprocal.input) == 1
+            and not reciprocal.attribute
+        )
+        operands.append(reciprocal.input[0])
+    assert tuple(operands) == tuple(base.input)
+    assert len([node for node in nodes if node.op_type == "Reciprocal"]) == 2
+    correction = next(
+        node
+        for node in nodes
+        if node.op_type == "Unsqueeze" and node.input[0] == gather.output[0]
     )
+    choices = next(node for node in nodes if node.op_type == "Concat")
+    assert choices.input[1] == correction.output[0]
 
 
 def _run(
@@ -284,6 +321,42 @@ def test_scalar_empty_broadcast_no_tie_and_repeated_operand(operation: str) -> N
     for values in (scalar, empty, broadcast, ordinary, (repeated, repeated)):
         model, eager, compiled = _export(_function(operation), values)
         _accept(model, values, (eager, compiled))
+
+
+@pytest.mark.parametrize("operation", ["Min", "Max"])
+def test_optimizer_preserves_literal_and_captured_zero_signs(operation: str) -> None:
+    captured = np.array(-0.0, np.float32)
+    captured_before = captured.tobytes()
+    function = _ORIGINALS[operation == "Max"]
+
+    def model(x: Any) -> Any:
+        negative = -x
+        return (
+            function(negative, 0.0),
+            function(0.0, negative),
+            function(negative, captured),
+            function(captured, negative),
+            x,
+            negative,
+            captured,
+        )
+
+    values = (np.array([-0.0, 0.0, -2.0, 3.0], np.float32),)
+    before = values[0].tobytes()
+    artifact, eager, fresh = _export(model, values)
+    compiled = jax.jit(model)
+    first = tuple(np.asarray(value) for value in jax.tree.leaves(compiled(*values)))
+    warm = tuple(np.asarray(value) for value in jax.tree.leaves(compiled(*values)))
+    for reference in (first, warm):
+        assert len(reference) == len(fresh)
+        assert all(
+            actual.dtype == expected.dtype
+            and actual.shape == expected.shape
+            and actual.tobytes() == expected.tobytes()
+            for actual, expected in zip(reference, fresh, strict=True)
+        )
+    _accept(artifact, values, (eager, warm))
+    assert values[0].tobytes() == before and captured.tobytes() == captured_before
 
 
 def _grid(dtype: Any) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray]:
@@ -591,6 +664,7 @@ def test_named_function_child_composition_owns_constants_and_fresh_results(
         *RecursiveGraphIterator(function.graph),
     ]
     local_zero_constants = []
+    local_zero_tables = []
     for node in nodes:
         assert node.graph is not None and all(
             v.graph is node.graph for v in node.outputs
@@ -598,8 +672,17 @@ def test_named_function_child_composition_owns_constants_and_fresh_results(
         if node.op_type == "Constant":
             value = const_value_to_numpy(node.outputs[0])
             if value is not None and value.dtype == np.float64:
-                assert value.shape == () and not _bits(value).any()
-                local_zero_constants.append(node.outputs[0])
+                if value.shape == ():
+                    assert not _bits(value).any()
+                    local_zero_constants.append(node.outputs[0])
+                else:
+                    assert value.shape == (2,) and _bits(value).tolist() == [0, 1 << 63]
+                    local_zero_tables.append(node.outputs[0])
+    assert local_zero_tables and len({v.graph for v in local_zero_tables}) == 2
+    assert all(
+        v.graph is not function.graph and v.graph is not model_ir.graph
+        for v in local_zero_tables
+    )
     assert len({id(v) for v in local_zero_constants}) == len(local_zero_constants)
     assert len({v.graph for v in local_zero_constants}) == 2
     assert all(
@@ -612,7 +695,7 @@ def test_named_function_child_composition_owns_constants_and_fresh_results(
         _accept(model_ir, values, references)
 
 
-@pytest.mark.parametrize("route", ["legacy", "integer", "opset26", "bf16"])
+@pytest.mark.parametrize("route", ["legacy", "integer", "bf16"])
 def test_unselected_routes_keep_their_existing_direct_operators(route: str) -> None:
     dtype = (
         np.int32
@@ -633,9 +716,7 @@ def test_unselected_routes_keep_their_existing_direct_operators(route: str) -> N
         )
         eager, compiled = _references(model, values)
     else:
-        artifact, eager, compiled = _export(
-            model, values, opset=26 if route == "opset26" else 23
-        )
+        artifact, eager, compiled = _export(model, values)
     proto = _proto(artifact)
     assert [n.op_type for n in proto.graph.node] == ["Min", "Max"]
     if route in ("legacy", "integer"):

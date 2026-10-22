@@ -1,11 +1,490 @@
 # Private source-policy integration
 
-## Minimum-version result and current JAX upgrade
+## Current checkpoint
 
-Status, 2026-10-22: **NATIVE WRAPPER PRETYPING FOCUSED 441/437/437 PASS;
-CURRENT PRODUCTION TYPING/RNG, SECONDARY/DIRECTMIN 919 EACH AND FULL PRIMARY 12,762 PASS;
-DOCUMENTATION, NORMAL HOOKS AND CURRENT COMMIT PENDING; LEGACY PRECISION POLICY**.
-The preceding storage-v3 source epoch and its completed gates are retained below.
+Snapshot: 2026-10-22. The last completed local checkpoint remains
+**`fe2145902d9231f21b9c867bf04d7fd2a9d0dddd`**: full PRIMARY **12,762 unique
+cases**, SECONDARY and DIRECTMIN affected selections **919 cases each**,
+production typing **559 files**, RNG **17 factories**, strict docs/rendered links,
+all seven normal hooks and local commit with a clean worktree. Those gates
+qualify that checkpoint alone. The later b90 full current-suite result is
+**FAILED**, as recorded below. Unfinished LOCAL WIP preservation is distinct
+from an accepted/green checkpoint and does not change that failure outcome.
+
+The current code source at this draft cut is **`9134fcb6c2c574379205362055a5741b165b08400b45579097ceee513c21fd98`**
+(**1,156 source/configuration pins**). It adds the independently approved
+one-owner typing-only correction to b90: two local annotations and one local
+key rename, with the complete prior engine AST recovered after those changes
+are reversed. Fresh actual 9134 typing/RNG passes: **572 checked source files
+and 17 RNG checks PASS** in **56.567 s**, source held. No full suite has been rerun at 9134; the actual failed full suite and
+focused positive evidence below remain bound to **b90**.
+
+At b90, the independently reviewed two-owner
+integer-CSE live-branch restoration is applied. Its actual PRIMARY joint gate
+records **331 PASS** in **188.562 s**, with zero failures/errors/skips and
+source/Git held. Owner 197, including all 44 new cases, bridge 7, bindings 7, final
+Constant 8, deployment 58, the full unchanged **Transformer 52** and permanent
+MAIN repeated-Function/If 2 all pass. Both former explicit26 Transformer failure
+IDs now pass under the same model recipes and criteria. Phase counts are
+NOT_INSTRUMENTED. This closes the stated joint selection and Transformer owner
+gate on PRIMARY; it does not complete all model, precision or migration work.
+
+The same ordinary PRIMARY full suite completed **FAILED** at b90 in
+**6,710.401 s**, exit 1, with source/HEAD/status held and all 1,156 source pins
+exact: **13,851 unique cases = 13,735 PASS/116 FAIL/0 ERROR/0 SKIP**. The 116
+failures span 23 owners; their exact identities and retained first traceback
+locations are recorded once in the canonical terminal section below. Causes
+remain **unclassified pending diagnosis/repair**; no generic waiver or
+reclassification is applied. The 331 focused pass remains valid in its scope
+and does not turn this failed full suite green.
+
+All retained 56 selector dispositions are terminal and PASS: **54 actual model/state runs
+plus 2 guard controls**, not 56 model runs. They comprise 44 original22
+state cases, 10 native-binding model cases and 2 singleton criterion/guard tests.
+The unchanged Transformer 52 and permanent MAIN If 2 selections also PASS in the
+full suite. No case is dropped and no historical 19 passes are inherited. These
+bounded positive gates do not accept the other 116 failures, complete every
+numerical contract or finish B–F. The actual b90 typing gate **FAILED** with four
+mypy errors in one engine file (572 checked source files); **RNG NOT RUN** after
+the failed first command. The exact failure and subsequently applied minimal correction are
+recorded below. The applied 9134 correction now passes fresh typing/RNG. Current
+SECONDARY and DIRECTMIN selections each pass 279 cases; strict docs, all seven hooks and staged review
+are required WIP-commit gates, with actual outcomes recorded in the commit body.
+
+**Explicitly unfinished LOCAL WIP preservation** records reviewed unfinished
+work; it is distinct from an accepted/green checkpoint, shipping or completion. It
+may record unresolved real full-suite failures without repairing every failure
+first. The failed terminal outcome is recorded and the relevant current typing/RNG
+and paired selections pass. Strict docs/rendered links, all seven normal hooks
+and final staged-byte review remain required commit gates. The applied
+typing-only correction has its own actual source-bound qualification. Four
+fixture candidates and one expectation candidate remain external/unapplied and
+are outside this WIP source cut. The normal commit body records actual relevant
+checks, strict docs, seven-hook and staged-review outcomes for the preservation
+commit; it does not assert green full-suite acceptance. An accepted checkpoint
+and full B–F completion still require their complete actual gates.
+
+Earlier e6 287=285 PASS/2 FAIL, source51 275=273 PASS/2 FAIL, a8
+255=253 PASS/2 FAIL and other receipts retain their exact sources and failure
+boundaries below. They do not qualify the new production bytes. The dd1
+permanent repeated-Function/If owner adds only its path-marker header; its
+body/AST remain the externally qualified **287414f7** version. The user’s
+Poetry update is retained: modern JAX/JAXLIB **0.12.0.1** and ONNX IR **1.1.0**.
+The separate uv lock is unchanged and the declared ONNX IR minimum
+**>=1.0.0 is retained**. PRIMARY’s updated packages form a distinct environment
+epoch. **Earlier source/stack numerical and full-suite results do not qualify
+that updated environment.**
+
+Shared work preserves original callable
+and owner preparation, actual NNX method/state binding, native numeric carriers,
+rank-four PRNG and additional rank/axis/Tile/Split/Concat layouts. The positive
+symbolic-cast continuation preserves actual cast rounding and named Function
+boundaries. Native TopK adds FP16, full UINT64 and the actual unstable option
+to the previously tested integer/FP32/FP64 contracts; typed empty results retain
+or remove the actual batch symbol as specified. BF16 uses the same signed
+16-bit word adapter and original typed values at explicit26. Its portable
+NaN-word CPU semantics and strict compiled-native equivalence have separate
+results: a passing portable test never accepts a failed native comparison.
+Requested targets and original model recipes remain unchanged.
+
+The audited NaN-free and empty BF16 cases match all three native reference
+modes and both CPU settings. Portable original-word TopK also passes the NaN
+fixtures; their strict native comparisons remain **FAILED** on both JAX stacks.
+PRIMARY has value-word differences; SECONDARY also has index differences.
+
+The private HIGHEST route still requires its declared CPU runtime/build/options
+and actual optimized graph correspondence. Exact lexical ownership, repeated
+call bindings, standard shape data propagation and direct Constant-definition
+origins now pass the unchanged repeated-Function/If regression on PRIMARY,
+SECONDARY and DIRECTMIN, with both CPU profiles and all three native references.
+These results qualify that recipe and the directed owner selection only.
+
+The applied b90 proof covers the exact live integer-expression branches and
+their downstream Gather-index and floating-Where-mask endpoint partitions.
+Only proved current-target dependency closures are cloned and proved endpoint
+ports redirected. Actual original Cast bytes and artifacts, Gather/floating
+Where data bindings, the protected bridge, mathematical rules, numerical
+criteria and final precision tuple equality remain unchanged. This is a
+bounded live-branch restoration, not blanket CSE acceptance or a relaxed final
+comparison. The new 44-case controls and the unchanged Transformer 52 owner pass
+in the actual 331-case PRIMARY gate.
+
+The earlier e6 final delta remains retained: all 17 matrix tuples matched,
+Cast totals 24/32 were exact, and only two INT64-to-INT32 direct-consumer sets
+differed 12-to-3 each. Its repeated negative-index Less/Add/Where metadata was
+diagnostic and did not itself prove downstream redirects. The subsequent
+independently reviewed live-branch proof and actual b90 owner results resolve
+those two selected Transformer failures prospectively. The old e6 failed run
+remains 285 PASS/2 FAIL in its own epoch.
+
+Correction to ROOT’s earlier diagnostic interpretation: inference calls were
+misnumbered because `precision.contract(original)` performs the first inference
+before the bridge’s four initial calls. Bridge pre-original validation is
+call 2, pre-optimized validation call 3, source-inline inference call 4, and
+**INITIAL TARGET inline inference is call 5**. The earlier ROOT statement that
+the initial inferred target had zero symbols was **wrong**. Raw original and
+raw optimized models have no explicit symbols, but call 5 creates six inferred
+symbols. The retained a8 transition observer finds all six already protected at
+the **first refresh callback**, with an empty active fresh-symbol ledger; the
+selected symbol has 29 original/30 prepared occurrences. No callback admits an
+active fresh generation. This corrects the attribution, not any sealed receipt
+or historical test result. The earlier observer’s selected refinement to 3 did
+not establish the returned value of every former occurrence.
+At a8 the actual private type-merge conflict remained F32[generated symbol,4]
+versus F32[3,4]; that failure retains its own source-bound receipts.
+
+That initial-provenance bootstrap is now independently approved and applied at
+source51. The corrected a8 diagnosis and all sealed receipts remain historical
+evidence. The source51 Gemm failure and then-planned all-FMM selection remain historical;
+e6 applied that selection and reached the later final comparison; b90’s bounded
+live-branch proof now passes that owner gate. These steps
+do not relax original symbols, whole-consistent bindings, actual occurrences
+or other proof gates. No symbol-prefix rule, source-type seed, metadata clearing
+or Cast/default relaxation is accepted.
+
+Each row below retains its own source epoch and scope. Counts overlap and **must
+not be added into coverage, a full-suite total or all-model acceptance**.
+
+| Gate and source scope | Actual result | Qualification and remaining work |
+| --- | --- | --- |
+| Committed wrapper checkpoint, fe214590 | PRIMARY 12,762; SECONDARY 919; DIRECTMIN 919; typing 559/RNG 17; strict docs, seven hooks and local commit complete | Historical completed source only. |
+| Prior green three-stack directed owner gate, c5 source | PRIMARY **158 PASS** in 101.640 s; SECONDARY **158 PASS** in 40.113 s; DIRECTMIN **158 PASS** in 32.701 s; zero failures/errors/skips and source/Git held on all three | Same selection: final Constant origins 8, engine 83, lexical bindings 7, deployment 58 and unchanged external repeated-Function/If 2. Both external CPU modes preserve all three native bitwise references. Phase counts are NOT_INSTRUMENTED. These are scoped results, not current full-suite/all-model acceptance. |
+| Prior production typing/RNG, c5 source | **572 production files and 17 RNG factories PASS**, source/Git held, in71.369 s | This earlier receipt does not qualify the later 014 production refresh. Its later f82 typing/RNG qualification is recorded separately. |
+| Prior production typing/RNG, f82 source | **572 production files and 17 RNG factories PASS**, source/Git held, in **73.220 s** | Fresh actual f82 qualification after the generic refresh and test-only fixture correction; it does not qualify the later a8 production changes. The log digest matches the earlier c5 log, but this is a separate source-bound run/receipt. Current full suite, all 56 selectors, final docs/hooks and new checkpoint remain pending. |
+| Prior production typing/RNG, a8 source | **572 production files and 17 RNG factories PASS** in **56.291 s**, source/Git held | A fresh actual a8 run/receipt qualifies these production bytes. Its log digest matches earlier c5/f82 logs; their source-bound receipts remain separate. The later source51 bootstrap has its own fresh typing/RNG receipt below. Full suite, all 56 selectors, final docs/hooks and new checkpoint remain pending. |
+| Prior production typing/RNG, source51 | **572 production files and 17 RNG factories PASS** in **66.079 s**, source/Git held | Fresh actual source51 qualification after the applied initial-provenance bootstrap. Earlier a8/f82/c5 receipts keep their own sources even though their log digests match. The later applied e6 selection has its own fresh typing/RNG receipt below; full suite/final gates remain open. |
+| Actual current typing attempt, b90 source | **FAIL**: four mypy errors in `_deployment_fusions.py` at 2452,2971,2973,2986; 572 source files checked; **RNG NOT RUN**; source held, **96.369 s** | Errors are tuple-assignment type, reused key type/unreachable branch, and missing local nodes annotation. The exact minimal annotation/local-name correction is now independently approved and applied at 9134; fresh 9134 typing/RNG now PASS in 56.567 s. This failed b90 attempt and RNG-not-run stay recorded. |
+| Prior production typing/RNG, e6 source | **572 production files and 17 RNG factories PASS** in **56.147 s**, source/Git held | Fresh actual e6 qualification after applied unit-FMM selection. Same-digest earlier logs retain their distinct source/time receipts. The later b90 four-error typing attempt and applied 9134 fresh typing/RNG pass are recorded separately below. Complete model/full-suite and migration gates remain open. |
+| Generic refresh actual gate, 014 PRIMARY source | **232 PASS / 3 FAIL** of 235 unique cases in **63.313 s**, zero errors/skips and source/Git held | Engine 101=100 PASS/1 new fixture field-presence FAIL; the other 17 new engine cases pass. Bridge 7, bindings 7, Constant 8, deployment 58 and permanent MAIN If 2 all PASS. Transformer 52=50 PASS/2 FAIL at the private type merge of a generated inferred dimension against known 3 in both26 orders. Phase counts are NOT_INSTRUMENTED. The later fixture correction does not relabel this failed gate. |
+| Retained six-owner directed gate after test-only fixture packaging, f82 source | **183 PASS on each stack**: PRIMARY **34.320 s**, SECONDARY **26.671 s**, DIRECTMIN **24.450 s**; zero failures/errors/skips and source/Git held on all three | Engine 101, bridge 7, bindings 7, Constant 8, deployment 58 and permanent MAIN If 2 all pass. Phase counts are NOT_INSTRUMENTED. The only later change makes empty domain/overload fields explicit in fixture construction; full Cast byte assertions, production and numerical criteria stay exact. Transformer 52 is outside this selection and retains its 50 PASS/2 FAIL result at 014. Current-production typing/full-suite gates remain separate. |
+| Prior fresh-symbol joint gate, a8 PRIMARY source | **253 PASS / 2 FAIL** of 255 unique cases in **71.234 s**, zero errors/skips and source/Git held | Engine 121, including all 20 new cases, bridge 7, bindings 7, Constant 8, deployment 58 and permanent MAIN If 2 all PASS. Transformer 52 remains 50 PASS/2 FAIL in both explicit26 orders. Phase counts are NOT_INSTRUMENTED. In this a8 epoch the refresh-only tracker did not address the initial-symbol barrier. The later source51 bootstrap has its own changed failure boundary below. |
+| Prior six-owner fresh-symbol gates, a8 SECONDARY and DIRECTMIN sources | **203 PASS each**: SECONDARY **20.742 s**, DIRECTMIN **17.837 s**; zero failures/errors/skips and source/Git held | Same six passing owners as the current PRIMARY gate, excluding Transformer 52. Positive IR1.0 evidence remains scoped to this selection; the IR floor is retained. |
+| Prior initial-provenance joint gate, source51 PRIMARY | **273 PASS / 2 FAIL** of 275 unique cases in **90.392 s**, zero errors/skips and source/Git held | Owner 141, including 20 new initial-provenance cases, bridge 7, bindings 7, Constant 8, deployment 58 and permanent MAIN If 2 all PASS. Transformer 52 remains 50 PASS/2 FAIL; the initial-dimension barrier is overcome and both explicit26 cases now fail at later Gemm correspondence. Phase counts are NOT_INSTRUMENTED. Current paired 223 and typing 572/RNG17 pass separately below; prior a8 paired 203 retains its own epoch. |
+| Prior six-owner initial-provenance gates, source51 SECONDARY and DIRECTMIN | **223 PASS each**: SECONDARY **24.701 s**, DIRECTMIN **39.205 s**; zero failures/errors/skips and source/Git held | Owner 141, bridge 7, bindings 7, Constant 8, deployment 58 and permanent MAIN If 2 pass. Transformer 52 is outside these selections and retains its current PRIMARY 50 PASS/2 FAIL result. Positive IR1.0 evidence remains scoped; the floor stays >=1.0.0. |
+| Prior unit-FMM joint gate, e6 PRIMARY | **285 PASS / 2 FAIL** of 287 unique cases in **56.169 s**, zero errors/skips and source/Git held | Owner 153 including 12 new cases, bridge 7, bindings 7, Constant 8, deployment 58 and permanent MAIN If 2 all PASS. Transformer 52 remains 50 PASS/2 FAIL at final bound dataflow; previous unit-FMM/Gemm barriers pass. All17 matrix tuples match; only two INT64-to-INT32 Cast consumer sets differ 12-to-3. Phase counts are NOT_INSTRUMENTED. At e6 exact CSE/downstream redirect proof remained pending. Its later bounded b90 resolution and actual 331 PASS are separate; this old failed run is not relabeled. |
+| Prior six-owner unit-FMM gates, e6 SECONDARY and DIRECTMIN | **235 PASS each**: SECONDARY **16.862 s**, DIRECTMIN **15.595 s**; zero failures/errors/skips and source/Git held | Same six passing owners as current PRIMARY, excluding Transformer 52. Positive IR1.0 evidence remains scoped; prior source51 paired 223 and a8 paired 203 keep their own epochs. |
+| Current live-branch joint gate, b90 PRIMARY | **331 PASS** in **188.562 s**, zero failures/errors/skips and source/Git held | Owner 197 including 44 new cases, bridge 7, bindings 7, Constant 8, deployment 58, full Transformer 52 and permanent MAIN If 2 all PASS. The former two Transformer 26 failure IDs pass under unchanged recipes/criteria. Phase counts are NOT_INSTRUMENTED. This scoped owner gate does not complete the full suite, all models, B–F or public cutover. |
+| Current ordinary PRIMARY full suite, b90 source | **13,735 PASS/116 FAIL/0 ERROR/0 SKIP** of 13,851 unique cases; **FAILED**, exit 1, in **6,710.401 s**; source/HEAD/status held and source pins exact | All 54 actual model/state runs and both singleton guards PASS:56 selected checks. Transformer 52 and MAIN If 2 also PASS. The 116 failures/23 owners remain unclassified and unwaived; exact IDs are recorded once below. Focused331 PASS is separate. No duplicate broad full or56-selector rerun is required merely to preserve reviewed LOCAL WIP; accepted checkpoint/full migration require their complete gates. |
+| Applied typing-only correction, current 9134 code | One reviewed engine owner applied; **572 source files and 17 RNG checks PASS** in **56.567 s**, source held | Two local annotations and one local key rename recover the full old engine AST. No full-suite rerun is implied: b90 full failure and focused passes keep their original source scopes. Fresh SECONDARY and DIRECTMIN each pass 279 cases below; strict docs/hooks/staged review are required preservation-commit gates. |
+| LOCAL WIP preservation boundary | **Explicitly unfinished; not accepted/green checkpoint** | Relevant actual checks, terminal failure accounting, all seven normal hooks and final staged-byte review are required. Unresolved full-suite failures can remain honestly recorded; green/accepted checkpoint and full migration gates stay separate. Four fixture candidates and one expectation candidate remain external/unapplied; public preparation namespace/cutover remain held. |
+| Fresh current 9134 six-owner gates, SECONDARY IR1.0 and DIRECTMIN | **279 PASS each**: SECONDARY **17.963 s**, DIRECTMIN **15.867 s**; zero failures/errors/skips and source/Git held | Engine 197, bridge 7, bindings 7, Constant 8, deployment 58 and permanent MAIN If 2 pass on both stacks. DIRECTMIN retains all 15 direct dependency floors. Transformer 52 and the ordinary full suite were not rerun at 9134; their b90 receipts remain separate. |
+| Retained paired BF16/alias/deployment selection, 78ed source | **200 PASS**, zero failures/errors/skips in **34.70 s**: complete TopK **99**, Function aliases **9**, deployment fusions **34** and deployment targets **58** | Actual direct BF16 GatherElements and both CPU profiles pass their portable source-word checks. The two NaN portable test IDs are separate from strict native-equivalence acceptance; actual per-role/profile outcomes are retained below. The same SECONDARY200 selection also passes in27.81s at78ed, with source/Git held on both stacks. The later a893 typing/RNG result remains in its own epoch; prior e6 typing is listed above. Complete-model qualification remains pending. Phase counts were not instrumented. |
+| Retained BF16 exact-equivalence rollups, 78ed source | Both stacks: audited NaN-free/empty **22 validated observations per native role**, zero changed value/index words. NaN portable observations **12 PRIMARY / 8 SECONDARY PASS**; strict eager/fresh/warmed comparisons each retain **12 PRIMARY / 8 SECONDARY FAILED** | PRIMARY retains **1,386 changed value words / zero changed index words**; SECONDARY retains **924 changed value words / 756 changed index words**. The counts differ because PRIMARY also tests the actual available is_stable=False route. Portable original-word success never accepts native-equivalence FAILED; no general BF16 bitwise-native claim. These are comparison observations, not a coverage total. |
+| Existing DIRECTMIN diagnostic selection, 78ed source | The same **200 PASS**, zero failures/errors/skips, in27.97s with source/Git held | ONNX1.20.1 lacks BitCast26: positive26 cases retain the required actual representation-unavailable counterpart. This is **not positive BF16/ORT26 parity at the old floor**. Applicable empty23, integer23 and Function-alias paths pass; actual positive26 evidence belongs to PRIMARY/SECONDARY above. |
+| Paired FP16/UINT64/unstable widths, 6a source | PRIMARY complete79 TopK plus four sensitive matrix cases **83 PASS**; SECONDARY six-owner selection **395 PASS**, including all79 TopK | Genuine named/JIT/If scopes pass. Initial combined453 failure runs remain historical; no arithmetic combination relabels them as453 PASS. |
+| Empty-result discovery and shared Function alias correction | cf2b PRIMARY **90 PASS / 1 FAIL** of91; the failure is duplicate Function outputs after no-op INT32 Cast removal. Later12d PRIMARY alias9 and unchanged TopK91 pass within **242 PASS / 2 FAIL** of244 | Final same-graph typed Identity aliases preserve output slots after optimization. The two12d failures are original Transformer shape-metadata obligations below; old91 is not relabeled by composition. |
+| Shared owner/state and transport gates, prior pinned sources | Owner/state PRIMARY 391 and SECONDARY 391 PASS; transport PRIMARY/SECONDARY/DIRECTMIN 216 each PASS; b46 DIRECTMIN affected 506 PASS | Retained focused evidence; no current full qualification. |
+| Integer transport, original d430/e795 source epochs | PRIMARY 376 PASS; SECONDARY 521 PASS; DIRECTMIN **514 PASS / 7 FAIL** of 521 | Four actual FP16/BF16 Range27 schema failures and three actual explicit26 ORT load-ceiling failures remain historical FAILED results. No version-based skip, target downgrade or support-floor change. |
+| Positive symbolic cast and existing owners, 67cb source | PRIMARY **571 PASS**, zero failures/errors/skips | Original typed-boundary, nonleading-layout and tensor/index owners included; separate original-model acceptance below. |
+| Original owner 7, new x64-on acceptance at ae1 source | **1 PASS**: unchanged six-layer VisionTransformer, B=2/5 and TFFT state/RNG sequence, three native references, one artifact, both CPU profiles and **32 target runs** | Closes this actual new cell only. The earlier six-cell observation remains 5 PASS / 1 FAIL. |
+| Original nested owners 7/8/9, 279 source | Terminal XML records **5 PASS / 1 FAIL**; 7-off has 32 runs, 8-off/on 16 each and 9-off/on 32 each; each passing cell has one artifact and both CPU profiles | Original driver receipt is absent and process exit code **UNOBSERVED**. The 7-on cast-layout failure is retained alongside its later separate pass. |
+| Native TopK, c97 PRIMARY and dcf SECONDARY | All **55 new cases PASS on both stacks**; the PRIMARY typed-builder 12 and legacy TopK 4 also pass | These55 cover their then-admitted widths with native/artifact/CPU evidence. Later width/empty/BF16 gates are separate; broader shapes/options and complete original models remain required. |
+| Explicit26 Min/Max/clamp, dcf PRIMARY and SECONDARY | All **56 new and 28 old cases PASS on both stacks**; SECONDARY TopK+Min/Max selection **139 PASS** | Earlier 15 fixture failures remain recorded; no relaxed numerical comparisons. |
+| Activation/Min/Max combined gate, dcf PRIMARY | **257 PASS / 4 FAIL** of 261; all 56 new and 28 old Min/Max cases pass | The four activation routes pass disabled optimization and fail ALL with exactly ten signed-zero word differences each and no other differences. The later shared selection repair is applied; current directed deployment results qualify their stated scopes only. This historical failure and criterion remain intact. |
+| Original Eqx owner 18 and default-anchor controls | PRIMARY **22 PASS** at 666 source; SECONDARY **22 PASS** at dcf source: 20 directed controls plus both original caller-x64 cells per stack | Each original cell retains one artifact, both CPU profiles and **16 target runs**, including exact directed masks. Earlier opaque-default failures remain retained. |
+| Original Linen 19 and SpectralNorm 20, retained PRIMARY gate | Both x64 cells for each pass; Linen has **32 runs per cell**, SpectralNorm **8 per cell**, with one artifact and both CPU profiles | The original six-case gate is still **4 PASS / 2 FAIL** because Eqx18 failed before native/artifact evidence in that epoch. The later Eqx gate is separate. |
+| Full original GPT owner 0, 6825 PRIMARY and dcf SECONDARY sources | Both raw-x64 cells **PASS on each stack**; each cell retains one artifact, both CPU profiles, **8 target runs** and **24 comparisons** to three native roles under frozen criterion **67cd821a** | The actual raw callback executes and still returns **False**; raw criteria=None and stored UNVERIFIED fields are unchanged. Exact native-unused proof covers five Function formals across 15 calls/14 definitions with no root exemption. These are prior-environment results, not updated ONNX IR 1.1 qualification. |
+| Repeated same Function containing If, c5 external regression and dd1 MAIN packaging | Both CPU-profile cases **PASS on PRIMARY, SECONDARY and DIRECTMIN**, including all three native bitwise reference comparisons under the unchanged original criteria | The permanent MAIN owner adds only the path marker: marked post **c44ff518**, exact semantic body/AST **287414f7**. Historical a893 **2 FAIL during export**, before any returned model or CPU session, and later scope/Gemm/final-origin failures remain retained. This closes the actual reproducer; general model/state/scope obligations and the fresh suite remain open. |
+| Original/prepared 52-case Transformer owner, current b90 PRIMARY gate | **52 PASS**, including both former explicit26 failure IDs, within the actual 331-case joint gate | Exact live-branch restoration proves Gather-index and floating-Where-mask partitions and actual downstream redirects. Original Cast bytes/artifacts, frozen **d2ecaed3**, source recipes, mathematical helpers and final precision equality remain unchanged. Prior e6/51/a8/014 failures remain their own epochs. This closes the current owner gate only; full-suite/model inventory and complete migration obligations remain open. |
+| Original vision Transformer 14, retained b46 PRIMARY source | x64-off cell PASS: one full artifact, both CPU profiles and **32 target runs** | Other caller/stack cells are separate. Internal masks remain UNVERIFIED where the unchanged return contract exposes no mask tape. |
+| Prior updated-environment typing/RNG, 84e source | **569 production files and 17 RNG factories PASS**, source/Git held | Fresh qualification with JAX/JAXLIB0.12.0.1 and ONNX IR1.1.0. The prior dcf568/RNG17 pass and initial c6 import-untyped failure remain separate history; full suite, final precision docs/seven hooks and new commit remain open. |
+| Later typing/RNG, d500 source | **571 production files and 17 RNG factories PASS**, source/Git held | Includes the applied zero/width/fusion typing correction. 78ed typing later fails on one redundant cast; RNG is not run. This earlier pass does not qualify later bytes. |
+| Retained typing attempt, 78ed source | **FAIL**: one redundant typing.cast at source_top_k.py95 in571 production files; **RNG NOT RUN** | The later typing-only identity/import removal is applied; fresh actual a893 typing/RNG passes below. The78ed failed attempt and RNG-not-run remain retained. |
+| Prior production typing/RNG, a893 source | **571 production files and 17 RNG factories PASS**, source/Git held, in55.33s | The only continuation from78ed removes standard typing.cast identity and its unused import. Prior runtime receipts retain their78ed scope; no numerical rerun is required solely for that typing cleanup. Full current suite, docs, final hooks and new commit remain open. |
+| Updated PRIMARY core and capability controls, c6ea source | **387 PASS** with JAX/JAXLIB **0.12.0.1** and ONNX IR **1.1.0**, zero failures/errors/skips | IR builder/Function, optimizer, facade, capability/evidence and IR-only policies pass in this focused selection. This is fresh updated-environment evidence, not a full suite or all-model result. Matched DIRECTMIN core+original521 gate records **907 PASS / 1 FAIL** of 908; the remaining failure is the unchanged facade BitCast26 case with no installed ONNX schema, not an observed ONNX IR API failure. The later exact test-only correction passes its two-owner157-case selection on PRIMARY and DIRECTMIN at84e. That closes the specific counterpart prospectively; the old908 result stays907 PASS / 1 FAIL. |
+| General installed schema/runtime diagnostics | Reviewed production helper applied at5d; PRIMARY387 and SECONDARY diagnostic47+tensor/index296 **343 PASS** atc6ea; later PRIMARY and DIRECTMIN facade/diagnostic selections **157 PASS each** at84e | The seven original DIRECTMIN IDs reach precise actual failed-capability counterparts; schema/load remain FAILED and numerics UNVERIFIED. The facade uses one unchanged actual attempt: capable exports retain all original report assertions; the old ONNX stack records its exact missing BitCast26 schema without fabricating a returned artifact/report. No historical result is relabeled. |
+| Updated dependency documentation, c99 source | Actual strict MkDocs **PASS** in **11.038 s**, source/Git held, for the 22 Oct dependency page with updated packages | The earlier c6ea10.15 s pass remains its own epoch. Both builds qualify their applied dependency page and prior documentation only; this eight-document current-status refresh and final checkpoint gates remain separate. |
+| Remaining-width TopK native observations, separate actual epochs | SECONDARY v1: **240 cells / 720 numerical calls**, all return, zero numerical-call exceptions, but **240 trace-metadata failures**. Updated PRIMARY v2: **480 cells / 1,440 numerical calls**, all return, zero numerical-call exceptions, but **480 trace-metadata failures** | Both native context classes declare an uninitialized configs slot; these trace snapshots failed independently of completed numerical calls. A later trace-only supplement has separate successful observations below. BF16 word/index mismatches and PRIMARY v1's zero-call version rejection remain retained; numerical-return counts alone never qualify SOURCE export/runtime or trace metadata. |
+| BF16 retained-return diagnostic | Actual post-observation analysis finds NaN-word canonicalization with sign preserved; finite, zero, subnormal and infinity words are unchanged | C(source[actual index]) explains returned words on both stacks. Canonicalizing before sort explains the older stack's index differences; original-before-sort explains the updated primary's both stability modes. These are explanatory hypotheses over retained data, not a changed fixture/comparator or accepted lowering. Later actual shape-only HLO observations are recorded separately below; no native mismatch or comparator is changed. |
+| Actual trace-only supplement, 84e source | PRIMARY **480** and SECONDARY **240 successful trace snapshots**; each54 preparations include nine UINT64 raw-x64-false cases; **zero numerical TopK calls** | The separate45 admitted preparation-parity checks pass per stack. Original480/240 trace failures remain historical. This supplies typed trace metadata, not numeric/export/runtime acceptance. |
+| Actual shape-only BF16 HLO, 84e source | PRIMARY **8** and SECONDARY **4 successful compilations**, **zero executions**; original exit2/incomplete-extraction status retained | PRIMARY sorts one packed s32 key; SECONDARY sorts F32+iota with comparator conversion through BF16/s16 words. ROOT classifies228 extraction gaps across24 required artifacts as debug tables or exact empty sdy.mesh, with no unclassified lines. Opaque backend semantics remain unclaimed; compiler evidence is separate from numerical/export acceptance. |
+| Updated IR return modes | All **four tests PASS on PRIMARY IR1.1** and all **four PASS on DIRECTMIN IR1.0** | Same return-mode scope, separate actual receipts. The declared IR minimum **>=1.0.0 is retained**; these four IDs do not establish a complete minimum-stack suite. |
+| Initial updated-source typing attempt, c6ea | **FAIL** on one untyped import in the new capability helper; RNG was not run after the failed typing command | A scoped typing-only correction was applied. The later fresh84e569/RNG17 PASS is separate; this failed attempt and the earlier dcf568/RNG17 pass are retained. |
+
+### Actual terminal full-suite failures at b90
+
+The **116 failed identities in 23 owners** below come from the exact terminal
+safe v2 summary (SHA256 `64fb92be4388b7901ca8ca585f21ff9c8e94bb2d60a052ad3e725d3b79d514cd`).
+It corrects only the rendering of eight LEGACY class selectors to the actual
+`module.py::Class::test` identities. All 116 IDs match the actual failed progress
+set. The v1 owner/test pairs, statuses and trace hashes were correct and remain
+preserved; its malformed class paths are not used as the canonical IDs.
+It retains each failure’s trace hash and first traceback path/line without
+arrays or model payloads. Owner grouping is accounting, not cause classification.
+Every listed cause remains **unclassified; diagnosis/repair required**. The
+completed full run remains FAILED; none is waived by the 54+2 selected passes,
+the 331 focused gate or the LOCAL WIP preservation decision.
+
+| Failed owner | Failed identities |
+| --- | ---: |
+| `tests.extra_tests.converter.test_source_where_dispatch` | 1 |
+| `tests.extra_tests.converter.test_source_elementary_reductions` | 1 |
+| `tests.extra_tests.converter.test_source_loop_admission` | 7 |
+| `tests.extra_tests.converter.test_source_square_variance` | 2 |
+| `tests.extra_tests.converter.test_source_initializers` | 8 |
+| `tests.extra_tests.converter.test_source_array_creation_promotion` | 1 |
+| `tests.extra_tests.converter.test_source_native_conv` | 4 |
+| `tests.extra_tests.converter.test_source_jnp_binary_dispatch` | 2 |
+| `tests.extra_tests.converter.test_source_precision_corpus_replay` | 21 |
+| `tests.extra_tests.converter.test_source_finalization` | 12 |
+| `tests.extra_tests.converter.test_source_profile` | 2 |
+| `tests.extra_tests.converter.test_source_precision_corpus_numerics` | 6 |
+| `tests.extra_tests.converter.test_source_native_cnn_nonzero` | 8 |
+| `tests.extra_tests.converter.test_source_native_cnn_pool` | 2 |
+| `tests.extra_tests.converter.test_source_leading_batch_corpus` | 11 |
+| `tests.extra_tests.converter.test_source_fixed_parameter_models` | 5 |
+| `tests.extra_tests.converter.test_source_scan_physical_metadata` | 10 |
+| `tests.extra_tests.converter.test_source_captured_precision` | 5 |
+| `tests.primitives.test_eqx.Test_weight_norm` | 3 |
+| `tests.primitives.test_eqx.Test_conv` | 2 |
+| `tests.primitives.test_eqx.Test_gru_cell` | 1 |
+| `tests.primitives.test_eqx.Test_lstm_cell` | 1 |
+| `tests.primitives.test_eqx.Test_spectral_norm` | 1 |
+
+<details>
+<summary>All 116 exact failed selector identities</summary>
+
+```text
+tests/extra_tests/converter/test_source_where_dispatch.py::test_boolean_to_float_accepts_original_explicit_conversion
+tests/extra_tests/converter/test_source_elementary_reductions.py::test_original_gather_trigonometric_anchor_preserves_raw_criterion_and_both_native_roles[1]
+tests/extra_tests/converter/test_source_loop_admission.py::test_zero_fill_admission_keeps_other_opset_routes_excluded[16]
+tests/extra_tests/converter/test_source_loop_admission.py::test_zero_fill_admission_keeps_other_opset_routes_excluded[18]
+tests/extra_tests/converter/test_source_loop_admission.py::test_zero_fill_admission_keeps_other_opset_routes_excluded[21]
+tests/extra_tests/converter/test_source_loop_admission.py::test_zero_fill_admission_keeps_other_opset_routes_excluded[24]
+tests/extra_tests/converter/test_source_loop_admission.py::test_zero_fill_admission_keeps_other_opset_routes_excluded[27]
+tests/extra_tests/converter/test_source_loop_admission.py::test_zero_fill_admission_keeps_other_creation_wrappers_excluded[ones]
+tests/extra_tests/converter/test_source_loop_admission.py::test_zero_fill_admission_keeps_other_creation_wrappers_excluded[full]
+tests/extra_tests/converter/test_source_square_variance.py::test_max_never_falls_through_to_unaudited_legacy_route[float32-26]
+tests/extra_tests/converter/test_source_square_variance.py::test_symbolic_singleton_reshape_retains_transform_exclusions[rank-five]
+tests/extra_tests/converter/test_source_initializers.py::test_source_relu6_typed_initializers_survive_plugin_and_function_export[inline-float16]
+tests/extra_tests/converter/test_source_initializers.py::test_source_relu6_typed_initializers_survive_plugin_and_function_export[inline-bfloat16]
+tests/extra_tests/converter/test_source_initializers.py::test_source_relu6_typed_initializers_survive_plugin_and_function_export[inline-float32]
+tests/extra_tests/converter/test_source_initializers.py::test_source_relu6_typed_initializers_survive_plugin_and_function_export[inline-float64]
+tests/extra_tests/converter/test_source_initializers.py::test_source_relu6_typed_initializers_survive_plugin_and_function_export[nested-float16]
+tests/extra_tests/converter/test_source_initializers.py::test_source_relu6_typed_initializers_survive_plugin_and_function_export[nested-bfloat16]
+tests/extra_tests/converter/test_source_initializers.py::test_source_relu6_typed_initializers_survive_plugin_and_function_export[nested-float32]
+tests/extra_tests/converter/test_source_initializers.py::test_source_relu6_typed_initializers_survive_plugin_and_function_export[nested-float64]
+tests/extra_tests/converter/test_source_array_creation_promotion.py::test_creation_repairs_do_not_widen_product_admission[full]
+tests/extra_tests/converter/test_source_native_conv.py::test_unchanged_complete_cnn_exports_source_with_separate_raw_callback[False-0]
+tests/extra_tests/converter/test_source_native_conv.py::test_unchanged_complete_cnn_exports_source_with_separate_raw_callback[False-1]
+tests/extra_tests/converter/test_source_native_conv.py::test_unchanged_complete_cnn_exports_source_with_separate_raw_callback[True-0]
+tests/extra_tests/converter/test_source_native_conv.py::test_unchanged_complete_cnn_exports_source_with_separate_raw_callback[True-1]
+tests/extra_tests/converter/test_source_jnp_binary_dispatch.py::test_nonselected_binder_and_existing_profile_exclusions_remain
+tests/extra_tests/converter/test_source_jnp_binary_dispatch.py::test_where_full_adapters_and_dynamic_arange_compatibility_remain
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_real_raw_dots_keep_original_gemm_failure_and_require_source_structure[False-0]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_real_raw_dots_keep_original_gemm_failure_and_require_source_structure[False-1]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_real_raw_dots_keep_original_gemm_failure_and_require_source_structure[False-2]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_real_raw_dots_keep_original_gemm_failure_and_require_source_structure[False-3]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_real_raw_dots_keep_original_gemm_failure_and_require_source_structure[True-0]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_real_raw_dots_keep_original_gemm_failure_and_require_source_structure[True-1]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_real_raw_dots_keep_original_gemm_failure_and_require_source_structure[True-2]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_real_raw_dots_keep_original_gemm_failure_and_require_source_structure[True-3]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_unlisted_vmap_callback_absence_remains_absent_and_default_admission_unchanged
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[empty]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[missing-dot]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[duplicate]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[scenario]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[counterpart]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[digest]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[report]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[control-revision]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[counterpart-digest]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[raw-callback]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[check-status]
+tests/extra_tests/converter/test_source_precision_corpus_replay.py::test_audited_control_invariant_cannot_pass_by_omission_or_corruption[extra-check]
+tests/extra_tests/converter/test_source_finalization.py::test_valid_explicit_attribute_override_preserves_actual_jax_semantics[proto-graph]
+tests/extra_tests/converter/test_source_finalization.py::test_valid_explicit_attribute_override_preserves_actual_jax_semantics[proto-nested]
+tests/extra_tests/converter/test_source_finalization.py::test_valid_explicit_attribute_override_preserves_actual_jax_semantics[ir-graph]
+tests/extra_tests/converter/test_source_finalization.py::test_valid_explicit_attribute_override_preserves_actual_jax_semantics[ir-nested]
+tests/extra_tests/converter/test_source_finalization.py::test_valid_explicit_attribute_override_preserves_actual_jax_semantics[file-graph]
+tests/extra_tests/converter/test_source_finalization.py::test_valid_explicit_attribute_override_preserves_actual_jax_semantics[file-nested]
+tests/extra_tests/converter/test_source_finalization.py::test_nonconvertible_explicit_attribute_cannot_silently_keep_schema_default[proto-graph]
+tests/extra_tests/converter/test_source_finalization.py::test_nonconvertible_explicit_attribute_cannot_silently_keep_schema_default[proto-nested]
+tests/extra_tests/converter/test_source_finalization.py::test_nonconvertible_explicit_attribute_cannot_silently_keep_schema_default[ir-graph]
+tests/extra_tests/converter/test_source_finalization.py::test_nonconvertible_explicit_attribute_cannot_silently_keep_schema_default[ir-nested]
+tests/extra_tests/converter/test_source_finalization.py::test_nonconvertible_explicit_attribute_cannot_silently_keep_schema_default[file-graph]
+tests/extra_tests/converter/test_source_finalization.py::test_nonconvertible_explicit_attribute_cannot_silently_keep_schema_default[file-nested]
+tests/extra_tests/converter/test_source_profile.py::test_profile_distinguishes_inconsistent_traced_metadata[graph6-cast attribute]
+tests/extra_tests/converter/test_source_profile.py::test_profile_accepts_integer_data_and_requires_boolean_cond_origin
+tests/extra_tests/converter/test_source_precision_corpus_numerics.py::test_real_fixed_source_drift_blocks_before_runtime[dtype]
+tests/extra_tests/converter/test_source_precision_corpus_numerics.py::test_real_fixed_source_drift_blocks_before_runtime[shape]
+tests/extra_tests/converter/test_source_precision_corpus_numerics.py::test_real_fixed_source_drift_blocks_before_runtime[weak]
+tests/extra_tests/converter/test_source_precision_corpus_numerics.py::test_real_fixed_source_drift_blocks_before_runtime[source]
+tests/extra_tests/converter/test_source_precision_corpus_numerics.py::test_real_fixed_source_drift_blocks_before_runtime[axis]
+tests/extra_tests/converter/test_source_precision_corpus_numerics.py::test_current_default_add_and_reviewed_ordinary_matrix_admission
+tests/extra_tests/converter/test_source_native_cnn_nonzero.py::test_original_full_nonzero_cnn_frozen_envelope_all_native_and_cpu_roles[False-False-0]
+tests/extra_tests/converter/test_source_native_cnn_nonzero.py::test_original_full_nonzero_cnn_frozen_envelope_all_native_and_cpu_roles[False-False-1]
+tests/extra_tests/converter/test_source_native_cnn_nonzero.py::test_original_full_nonzero_cnn_frozen_envelope_all_native_and_cpu_roles[False-True-0]
+tests/extra_tests/converter/test_source_native_cnn_nonzero.py::test_original_full_nonzero_cnn_frozen_envelope_all_native_and_cpu_roles[False-True-1]
+tests/extra_tests/converter/test_source_native_cnn_nonzero.py::test_original_full_nonzero_cnn_frozen_envelope_all_native_and_cpu_roles[True-False-0]
+tests/extra_tests/converter/test_source_native_cnn_nonzero.py::test_original_full_nonzero_cnn_frozen_envelope_all_native_and_cpu_roles[True-False-1]
+tests/extra_tests/converter/test_source_native_cnn_nonzero.py::test_original_full_nonzero_cnn_frozen_envelope_all_native_and_cpu_roles[True-True-0]
+tests/extra_tests/converter/test_source_native_cnn_nonzero.py::test_original_full_nonzero_cnn_frozen_envelope_all_native_and_cpu_roles[True-True-1]
+tests/extra_tests/converter/test_source_native_cnn_pool.py::test_named_complete_original_cnn_keeps_same_symbolic_artifact[False]
+tests/extra_tests/converter/test_source_native_cnn_pool.py::test_named_complete_original_cnn_keeps_same_symbolic_artifact[True]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_exact_five_raw_sources_prepare_one_instance_artifact_and_two_batch_feeds[False-case3]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_exact_five_raw_sources_prepare_one_instance_artifact_and_two_batch_feeds[False-case4]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_exact_five_raw_sources_prepare_one_instance_artifact_and_two_batch_feeds[True-case3]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_exact_five_raw_sources_prepare_one_instance_artifact_and_two_batch_feeds[True-case4]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_only_explicit_counterpart_types_can_supply_structure
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_real_v3_live_controls_reject_v1_and_stale_control_records
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_native_linear_counterpart_rejects_parameter_and_wiring_corruption[kernel]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_native_linear_counterpart_rejects_parameter_and_wiring_corruption[bias]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_native_linear_counterpart_rejects_parameter_and_wiring_corruption[port]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_native_linear_counterpart_rejects_parameter_and_wiring_corruption[cast]
+tests/extra_tests/converter/test_source_leading_batch_corpus.py::test_native_linear_counterpart_rejects_parameter_and_wiring_corruption[missing]
+tests/extra_tests/converter/test_source_fixed_parameter_models.py::test_exact_original_parameter_model_first_barrier[0]
+tests/extra_tests/converter/test_source_fixed_parameter_models.py::test_exact_original_parameter_model_first_barrier[1]
+tests/extra_tests/converter/test_source_fixed_parameter_models.py::test_exact_original_parameter_model_first_barrier[3]
+tests/extra_tests/converter/test_source_fixed_parameter_models.py::test_exact_original_parameter_model_first_barrier[4]
+tests/extra_tests/converter/test_source_fixed_parameter_models.py::test_exact_original_parameter_model_first_barrier[20]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_real_scan_function_conv_preserves_carry_and_sliced_input_shapes[False-carry]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_real_scan_function_conv_preserves_carry_and_sliced_input_shapes[False-xs]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_real_scan_function_conv_preserves_carry_and_sliced_input_shapes[True-carry]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_real_scan_function_conv_preserves_carry_and_sliced_input_shapes[True-xs]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_named_fp64_matrix_in_scan_keeps_actual_double_physical_shapes[False]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_named_fp64_matrix_in_scan_keeps_actual_double_physical_shapes[True]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_packed_complex_scan_carry_and_slices_retain_both_named_function_channels[False-complex64]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_packed_complex_scan_carry_and_slices_retain_both_named_function_channels[False-complex128]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_packed_complex_scan_carry_and_slices_retain_both_named_function_channels[True-complex64]
+tests/extra_tests/converter/test_source_scan_physical_metadata.py::test_packed_complex_scan_carry_and_slices_retain_both_named_function_channels[True-complex128]
+tests/extra_tests/converter/test_source_captured_precision.py::test_source_captures_specialize_weak_metadata_and_reuse_equal_states[weak-first-instance-False]
+tests/extra_tests/converter/test_source_captured_precision.py::test_source_captures_specialize_weak_metadata_and_reuse_equal_states[weak-first-instance-True]
+tests/extra_tests/converter/test_source_captured_precision.py::test_source_captures_specialize_weak_metadata_and_reuse_equal_states[strong-first-instance-False]
+tests/extra_tests/converter/test_source_captured_precision.py::test_source_captures_specialize_weak_metadata_and_reuse_equal_states[strong-first-instance-True]
+tests/extra_tests/converter/test_source_captured_precision.py::test_source_legacy_source_captures_leave_ordinary_jax_behavior_intact[instance]
+tests/primitives/test_eqx.py::Test_weight_norm::test_eqx_weight_norm_linear_dynamic
+tests/primitives/test_eqx.py::Test_weight_norm::test_eqx_weight_norm_linear
+tests/primitives/test_eqx.py::Test_weight_norm::test_eqx_weight_norm_conv2d
+tests/primitives/test_eqx.py::Test_conv::test_eqx_conv2d_nchw
+tests/primitives/test_eqx.py::Test_conv::test_eqx_conv2d_batched_nchw
+tests/primitives/test_eqx.py::Test_gru_cell::test_eqx_gru_cell_basic
+tests/primitives/test_eqx.py::Test_lstm_cell::test_eqx_lstm_cell_basic
+tests/primitives/test_eqx.py::Test_spectral_norm::test_eqx_spectral_norm_linear_inference
+```
+
+</details>
+
+Evidence is retained locally under
+`/tmp/jax2onnx-restart-checkpoint-20261021/`. These records are provenance rather
+than tracked dependencies; no model or array payload is needed to read this
+ledger. The receipt paths identify each result's exact source, selector and
+scope. Phase counts are not inferred where drivers did not instrument them.
+
+| Evidence | Retained record |
+| --- | --- |
+| Completed local closeout | `native-wrapper-checkpoint-closeout-v1/receipt.json`; `native-wrapper-documentation-qualification-v1/receipt.json`; `native-wrapper-committed-source-v1/source-inputs.json` |
+| Prior green three-stack directed owner qualification and c5 typing | `source-final-constant-origin-actual-v1-primary/receipt.json`; `source-final-constant-origin-actual-v1-secondary/receipt.json`; `source-final-constant-origin-actual-v1-minimum/receipt.json`; `source-c5-current-typing-v1/receipt.json` |
+| Current code cut and permanent repeated-Function/If owner | `source-integer-cse-helper-typing-root-application-v1/source-inputs.json`; b90 live-branch packet `source-integer-cse-live-branch-root-application-v1/source-inputs.json`; prior unit-FMM repair `source-unit-fused-matmul-refresh-root-application-v1/source-inputs.json`; prior bootstrap `source-initial-inference-provenance-root-application-v1/source-inputs.json`; prior fresh-symbol packet `source-fresh-inference-symbol-root-application-v1/source-inputs.json`; prior fixture packaging `source-post-restoration-type-refresh-fixture-root-application-v1/source-inputs.json`; generic refresh `source-post-restoration-type-refresh-root-application-v1/source-inputs.json`; earlier marker-only packaging `source-repeated-function-if-main-root-application-v1/source-inputs.json`; `source-repeated-function-if-marker-packaging-v1/manifest.json`; `astra-repeated-function-if-main-application-amendment-v1/amendment.json` |
+| Applied generic refresh, exact review and current actual gate | `source-post-restoration-type-refresh-sealed-v1/manifest.json`; `astra-post-restoration-type-refresh-independent-review-v1/review.json`; `source-post-restoration-type-refresh-root-application-v1/receipt.json`; `source-post-restoration-type-refresh-actual-v1-primary-primary/receipt.json` |
+| Applied exact typing-only correction and fresh 9134 typing/RNG | `source-wip-fixed-typing-v1/receipt.json`; `source-integer-cse-helper-typing-sealed-v1/manifest.json`; `astra-integer-cse-helper-typing-review-v1/review.json`; `source-integer-cse-helper-typing-root-application-v1/receipt.json` |
+| Actual failed b90 typing attempt; RNG not run | `source-b90-wip-current-typing-v1/receipt.json` |
+| Prior e6 and earlier source51/a8/f82 typing/RNG | `source-e6-current-typing-v1/receipt.json`; `source-51-current-typing-v1/receipt.json`; `source-a8-current-typing-v1/receipt.json`; `source-f82-current-typing-v1/receipt.json` |
+| Retained f82 six-owner three-stack 183 gate | `source-refresh-fixture-current-actual-v1-primary/receipt.json`; `source-refresh-fixture-current-actual-v1-secondary/receipt.json`; `source-refresh-fixture-current-actual-v1-minimum/receipt.json` |
+| Applied exact fixture packaging and separate retained-symbol observation | `source-post-restoration-type-refresh-fixture-packaging-v1/manifest.json`; `source-post-restoration-type-refresh-fixture-root-application-v1/receipt.json`; `source-refresh-symbol-provenance-retained-v1/safe-summary.json`; `source-refresh-symbol-provenance-retained-root-launch-v1/receipt.json` |
+| Applied fresh-symbol packet, exact review and current actual gates | `astra-fresh-inference-symbol-contract-v1/contract.json`; `source-fresh-inference-symbol-sealed-v1/manifest.json`; `astra-fresh-inference-symbol-review-v1/review.json`; `source-fresh-inference-symbol-root-application-v1/receipt.json`; `source-fresh-inference-symbol-actual-v1-primary/receipt.json`; `source-fresh-symbol-current-actual-v1-minimum/receipt.json`; `source-fresh-symbol-current-actual-v1-secondary/receipt.json` |
+| Applied initial-symbol bootstrap contract | `astra-initial-inference-provenance-contract-v1/contract.json` |
+| Prior source51 bootstrap application and actual gate | `source-initial-inference-provenance-sealed-v1/manifest.json`; `astra-initial-inference-provenance-review-v1/review.json`; `source-initial-inference-provenance-root-application-v1/receipt.json`; `source-initial-inference-provenance-actual-v1-primary/receipt.json` |
+| Prior source51 paired 223 directed selections | `source-initial-provenance-current-actual-v1-secondary/receipt.json`; `source-initial-provenance-current-actual-v1-minimum/receipt.json` |
+| Applied unit-FMM selection and actual e6 gates | `astra-unit-fused-matmul-refresh-contract-v1/contract.json`; `source-unit-fused-matmul-refresh-sealed-v1/manifest.json`; `astra-unit-fused-matmul-refresh-review-v1/review.json`; `source-unit-fused-matmul-refresh-root-application-v1/receipt.json`; `source-unit-fused-matmul-refresh-actual-v1-primary/receipt.json`; `source-unit-fmm-current-actual-v1-secondary/receipt.json`; `source-unit-fmm-current-actual-v1-minimum/receipt.json` |
+| Applied exact live-branch proof and current b90 joint gate | `source-integer-cse-live-branch-sealed-v1/manifest.json`; `astra-integer-cse-live-branch-review-v1/review.json`; `source-integer-cse-live-branch-root-application-v1/receipt.json`; `source-integer-cse-live-branch-actual-v1-primary/receipt.json` |
+| LOCAL WIP gate authority, not accepted-checkpoint evidence | `root-local-wip-checkpoint-gate-planning-v1.json` |
+| Actual failed ordinary b90 full suite and corrected54+2 summary | `source-integer-cse-current-full-v1-primary/receipt.json`; `source-integer-cse-current-full-v1-primary-xml-metadata-summary-v2/summary.json`; `root-terminal-b90-failure-identities-safe-v2/summary.json`; preserved v1 `root-terminal-b90-failure-identities-safe-v1/summary.json` |
+| Fresh current 9134 six-owner SECONDARY/DIRECTMIN gates | `source-wip-ir10-owners-v1-secondary/receipt.json`; `source-wip-direct-minimum-owners-v1-minimum/receipt.json` |
+| Read-only after-checkpoint full-scope audit, not executed qualification | `astra-after-checkpoint-scope-audit-v1/audit.md` |
+| Retained e6 final-contract delta and diagnostic consumer groups | `source-final-boundary-contract-delta-retained-v1/safe-summary.json`; `source-final-cast-consumer-groups-retained-v1/safe-summary.json` |
+| Retained source51 Gemm failure and skipped unit-FMM producer chain | `source-bootstrap-gemm-failure-retained-v1/safe-summary.json`; `source-bootstrap-gemm-producer-chain-retained-v1/safe-summary.json` |
+| Retained a8 failure and corrected inference-call attribution | `source-fresh-symbol-later-failure-retained-v1/safe-summary.json`; `source-fresh-symbol-transition-retained-v1/safe-summary.json`; earlier `source-refresh-symbol-provenance-retained-v1/safe-summary.json` |
+| Earlier Transformer metadata boundary and unchanged refresh contract | `source-slice-shape-combined-actual-v1-primary/receipt.json`; `source-slice-shape-later-boundary-retained-metadata-v1/safe-summary.json`; `astra-unit-fmm-post-restoration-type-refresh-contract-v1/contract.json` |
+| Earlier state, transport and target qualification | `source-shared-models-b46-floor-minimum/receipt.json`; `source-deployment-correspondence-and-vit-v1-primary/receipt.json`; `source-native-nnx-log-softmax-root-application-v1/source-inputs.json` |
+| Integer cross-stack outcomes and safe historical seven errors | `source-integer-v1-cross-stack-qualification-ledger/receipt.json`; `source-integer-minimum-seven-safe-exception-extract-v1/receipt.json` (SHA256 `c324423c18ab49e6a7b6a9572856b4376c38b47abc54ad73c513e20c8380b1cf`) |
+| Cast571 and new original7-on acceptance | `source-positive-symbolic-cast-test-corrections-v2-focused-primary/receipt.json`; `source-positive-symbolic-cast-v1-original7-x64-on-primary/receipt.json`; durable evidence manifest `source-positive-symbolic-cast-v1-original7-x64-on-evidence-primary/evidence-manifest.json` |
+| Recovered original7/8/9 terminal observation | `source-original-nested-function-owners-v1-terminal-observation/receipt.json` (SHA256 `4a2802c9cb5f432b2107ac87a5da5c13d8b19c8786cd2d667fe8d54ecbb0df64`); all six cells retained in `source-original-nested-function-owners-v1-evidence-primary/` |
+| TopK PRIMARY and corrected SECONDARY selection | `source-topk-min-max26-v1-focused-primary/receipt.json`; `source-topk-minmax-corrected-v1-focused-secondary/receipt.json` |
+| PRIMARY Min/Max pass and activation failure | `source-activation-min-max26-corrected-v1-focused-primary/receipt.json`; safe diagnosis `source-activation-zero-sign-runtime-diagnostic-v1/receipt.json` (SHA256 `c5e5341861c3582c2dd181567fce02caa0ff32ece80a6b8e71a7271f6b8ba359`) |
+| Eqx18 complete original pair and controls | `source-eqx18-default-anchor-v1-full-original-primary/receipt.json`; `source-eqx18-default-anchor-v1-full-original-secondary/receipt.json`; durable manifests under `source-eqx18-default-anchor-v1-full-original-evidence-{primary,secondary}/` |
+| Linen19/Spectral20 and earlier Eqx default failures | `source-original-dropout-spectral-owners-v2-primary/receipt.json`; retained initial zero-case selector attempt remains separate |
+| Original GPT both-stack results and safe status | `source-native-unused-input-v1-original-gpt-primary/receipt.json`; `source-native-unused-input-v1-original-gpt-evidence-primary/safe-status.json` (SHA256 `6c0fd94452d6111573f9853eec53f0522b052f4427e6bd5f3898d05e8380f74d`); `source-native-unused-input-v1-original-gpt-secondary/receipt.json`; SECONDARY safe-status SHA256 `211e70ac13e3e471b281e70bcc845b0395234e675b1b56ccd8fc5b385a9ab676` |
+| Full original Transformer29 retained boundary | `source-min-max26-topk-v1-full-original-transformer-primary/receipt.json`; `source-min-max26-topk-v1-full-original-transformer-evidence-primary/safe-status.json` (SHA256 `1d7464da5e0e0d45bcaf5c0d50abc4e0fe0648872885c25491ea5574e4e5d7d2`) |
+| Earlier typing/RNG | `source-zero-topk-fusion-typing-correction-v2/receipt.json`; `source-84e-hotfix-ir11-current-typing-v1/receipt.json`; `source-c6-hotfix-ir11-current-typing-v1/receipt.json`; earlier `source-dcf-current-typing-v1/receipt.json` |
+| Applied capability packet and independent review | `source-installed-capability-diagnostics-draft-v1/manifest.json`; `astra-installed-capability-diagnostics-v1-review/review.json` (SHA256 `0552d4a92d0ce5d509d4bec81b627d6688240b762fa5c00fd209331cbbefbadf`) |
+| Applied Transformer scanner correction | `source-transformer-softmax-artifact-provenance-correction-v1/manifest.json`; `astra-transformer-softmax-artifact-provenance-v1-review/review.json` (SHA256 `51b8bec9e505bd3a5f0ee7e77496b8d76ec8b8a05782be6cfa5b0f88a79aa1d6`) |
+| New environment and explicit native-probe epoch | `primary-hotfix-environment-observation-v1/source-inputs.json`; `source-topk-primary-hotfix-native-protocol-v1/receipt.json` (SHA256 `4d6bb13a85a686be1765be2ce752fa14f625c60fd950aeaad8453567253b4393`); `source-topk-remaining-widths-native-secondary-v1/safe-summary.json`; `source-topk-remaining-widths-native-probe-sealed-v2/manifest.json` |
+| Updated PRIMARY core/capability controls | `source-onnx-ir11-core-capability-v1-focused-primary/receipt.json` (SHA256 `2a8fb943cbea97bdf4a01da77c89387ae6528f326946a23920e05945100f3e60`) |
+| Dependency strict documentation gates | `source-c99-dependencies-docs-build-root-launch-v1/receipt.json`; earlier `source-user-poetry-dependencies-doc-v1-strict-docs/receipt.json` (SHA256 `594bdc879e279698be541324d6855311b18d28e1629c9dfaca776d0e01a6b1d2`) |
+| Dependency documentation and current source cut | `source-user-poetry-update-dependencies-doc-v1/manifest.json`; `source-integer-cse-helper-typing-root-application-v1/source-inputs.json` |
+| Matched DIRECTMIN core/original selection and later precise closure | `source-onnx-ir10-core-capability-v1-focused-minimum/receipt.json`; later `source-missing-schema-counterpart-v3-focused-primary/receipt.json` and `source-missing-schema-counterpart-v3-focused-minimum/receipt.json` |
+| SECONDARY diagnostics/tensor selection and IR return modes | `source-ir10-secondary-capability-tensor-v1-secondary/receipt.json`; `source-ir11-return-modes-v1-primary/receipt.json`; `source-ir10-return-modes-v1-minimum/receipt.json` |
+| Actual BF16 retained-category and post-observation explanations | `source-topk-bf16-retained-word-analysis-v1/safe-summary.json`; `source-topk-bf16-post-observation-canonicalization-diagnostic-v1/safe-summary.json` |
+| Retained paired BF16/alias/deployment gates | `source-bf16-alias-deployment-actual-v1-primary/receipt.json`; `source-bf16-alias-deployment-actual-v1-secondary/receipt.json`; `source-bf16-alias-deployment-actual-v1-minimum/receipt.json`; approved BF16 packet `source-topk-portable-bfloat16-continuation-v1/manifest.json`; review `astra-topk-portable-bfloat16-independent-review-v1/review.json` |
+| Retained paired BF16 strict native-equivalence outcomes | `source-bf16-primary-actual-equivalence-rollup-v2.json` (SHA256 `cb3e60d62c412e2f420ce853bd2a97365a13862f42884a448e2cf7506f382014`); `source-bf16-secondary-actual-equivalence-rollup-v2.json` (SHA256 `5c700fd59d3e661b7ecb28e0d4a5ddede5cb484f3c1ee0b13932d124d5ed43bd`); nine/eight actual comparison record hashes, no array-payload reads |
+| Historical repeated Function/If export ownership failure | `source-repeated-function-if-actual-v1-primary/receipt.json`; later c5 unchanged external2 passes all three stacks, and dd1 packages the identical semantic body in MAIN |
+| Historical typing failure and narrow correction | `source-78ed-constant-alias-bf16-current-typing-v1/receipt.json`; `source-topk-redundant-cast-typing-correction-v1/manifest.json`; `source-a893-topk-typing-correction-current-typing-v1/receipt.json` |
+| Width, empty and Function-alias source boundaries | `source-topk-global-dispatch-actual-gate-v1-primary/receipt.json`; `source-topk-empty-result-actual-gate-v2-primary/receipt.json`; `source-constant-alias-actual-regressions-v1-primary/receipt.json`; `astra-function-optimized-output-alias-independent-review-v1/review.json` |
+| Actual trace-only supplement and admitted preparation review | `source-topk-native-trace-primary-v1/safe-summary.json`; `source-topk-native-trace-secondary-v1/safe-summary.json`; `source-topk-trace-root-preparation-review-v1.json` |
+| Actual shape-only HLO and retained extraction gaps | `source-bf16-topk-shape-only-hlo-primary-v1/safe-summary.json`; `source-bf16-topk-shape-only-hlo-secondary-v1/safe-summary.json`; `astra-bf16-hlo12-actual-safe-review-v1/review.json`; `source-bf16-topk-root-retained-gap-classification-v1.json` |
+| Immutable earlier-source map and finite retained review | `product-map-c686-eightcells-v2/receipt.json`; `astra-eqx-actual-numerical-review-v3/review.json`; `source-original14-first-whole-acceptance-evidence-v1/evidence-manifest.json` |
+
+Raw metadata and separately frozen numerical evidence remain distinct. Original
+MLP0/2 retain explicit `skip_numeric_validation=True`; MLP1 retains its omitted,
+default-false flag. All three raw rows retain `criteria=None`, failed structural
+callbacks and artifact-only runtime/numerics **UNVERIFIED**. Separate actual
+finite acceptance does not overwrite those fields. The original GPT criterion
+**67cd821a** and prepared Transformer criterion **d2ecaed3** are unchanged. The five native-binding owner indices 0/1/3/4/20 now have artifact-checked
+full-model evidence in their frozen gate; standalone raw `criteria=None` and
+four UNVERIFIED fields remain unchanged. No blanket numerical acceptance or
+failure waiver follows. Known
+ordering, subnormal, FP16-rounding and optimized-runtime failures remain
+**FAILED**; missing evidence remains **UNVERIFIED**.
+
+The same ordinary full suite is terminal and failed; its exact totals and 116
+identities are now recorded above. All 56 retained selector dispositions pass: **54 model/state runs plus 2 guards**.
+The historical 56-selector result of **19 PASS / 37 unfinished** is not current
+qualification. The typing-only correction is applied at 9134; fresh typing/RNG and both scoped
+SECONDARY/DIRECTMIN selections pass. Complete strict docs/rendered links, all
+seven normal hooks and exact staged review for
+the explicitly unfinished LOCAL WIP commit. Unresolved real failures remain
+recorded and do not themselves prohibit preserving reviewed WIP. Keep the
+fixture/expectation candidates external/unapplied; do not start another broad
+full run just to make WIP preservation contingent on repairing all 116 failures.
+Record actual preservation-commit check, strict-docs, normal-hook and staged
+review outcomes in the normal commit body; none converts the failed full suite
+to an accepted milestone.
+
+Even a green full standard suite would close only this checkpoint gate. The
+read-only after-checkpoint scope audit retains four further packets: execute
+the complete current-source 3,704-cell map and optional discovery; close measured
+implementation and separate 63 opaque/104 metadata-free/752 original manual
+accounting; finish all fixed-source preparation and numerical/installed
+evidence; and implement the coordinated ordinary export, allclose, browser and
+generator/public-preparation cutover with final acceptance. These are execution
+and implementation obligations, not completion implied by 331 PASS, a LOCAL WIP
+commit, an ordinary
+full suite or 3,704 product terminals. No new controller or duplicate 56 gate is
+needed; reuse the existing tools and each result’s exact scope.
+
+Preserve paired directed results and strict BF16 native-equivalence failures
+as separate evidence. Complete the supported-stack/minimum qualification,
+current inventory and complete original models under their frozen criteria.
+The full **1,852-row / 3,704-caller** current-source map, all **22 original owners**,
+**50 optional rows**, **104 registrations without metadata**, all fixed supplied
+JAX sources, scientific FP64/low-precision evidence and phases B–F remain
+required. The immutable c686 map’s **106 ordinary terminals, one incomplete and
+3,597 unstarted** belongs to its earlier source; those outcomes do not qualify
+the current map or numerical behavior. The held four-file namespace with 20 scoped preparation exports and its installed
+smoke remain obligations; it is not installed/published by this WIP. Only
+demonstrated ONNX representation and actual target limits may define support boundaries; unfinished conversion
+work cannot become a permanent exclusion.
+
+Public precision behavior remains **LEGACY** until the complete uniform source-preserving
+contract is qualified across all existing functionality and fixed supplied JAX sources. No accepted full-current qualification, denominator reduction,
+permanent public selector, per-operation fallback or capability loss is implied.
+
+## Retained checkpoint evidence
+
+The sections below preserve their original source epochs, failures and criteria.
+Their then-current language is historical; the current ledger above controls
+status. Numerical samples never transfer automatically to changed code.
 
 The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
 Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
@@ -20,11 +499,10 @@ evidence; they are no longer a supported-floor release gate. This decision
 does not fix numerical/provider gaps or remove any existing model, fixed source
 or numerical requirement from the single-interface migration target.
 
-Public precision policy stays **LEGACY**; full B–F acceptance remains open.
 
 ### Native transformed-callable capture
 
-The current local replay boundary captures the original native `vmap_f` and
+The fe214590 checkpoint replay boundary captures the original native `vmap_f` and
 `reraise_with_filtered_traceback` functions by exact nested-code and defining-
 globals identities. It retains the actual wrapper/source closures, owners and
 aliases without invoking the source or rebuilding a transformation during
@@ -59,16 +537,16 @@ actual production mypy passes all **559 files**, followed by the actual inventor
 of **17 RNG factories**. Inventory is not RNG or model numerical acceptance.
 The same typed sources pass both 15-owner affected selections: **919 SECONDARY
 and 919 DIRECTMIN cases**, zero failures/errors/skips, with source/Git state held.
-The current full PRIMARY suite passes **12,762 unique cases**, zero failures/
+The committed fe214590 PRIMARY suite passes **12,762 unique cases**, zero failures/
 errors/skips, in **1458.641726 seconds**, with source/Git state held. Exact identity
 reconciliation retains all 12,600 preceding full-suite cases and adds only 162
 wrapper-owner cases; neither prior IDs nor affected-selection IDs are removed.
 SECONDARY and DIRECTMIN have the same 919 identities, all present in full PRIMARY.
 All 1,109 source pins hold and the owned native process group is empty. Phases
 remain **NOT_INSTRUMENTED**. Strict docs/rendered links, all seven actual normal
-commit hooks and qualified/staged-byte/current-commit verification remain
-**PENDING**. These passing regression results do not establish full B–F or model
-numerical acceptance.
+commit hooks and qualified/staged-byte verification subsequently completed in
+local commit `fe214590`. These passing regression results do not establish full
+B–F or model numerical acceptance.
 
 **Original MLP2 result.** Under both original caller x64 states on PRIMARY,
 SECONDARY and MINIMUM, the unchanged ordinal-2 `MlpExample` target is captured;

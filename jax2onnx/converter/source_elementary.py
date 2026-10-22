@@ -238,7 +238,7 @@ def validate_elementary_equation(
         _axes,
         _params,
         _pointwise_shape,
-        _same_shape,
+        _reduction_shape,
     )
 
     name = site.primitive
@@ -316,16 +316,7 @@ def validate_elementary_equation(
                     "unsigned sum INT64 work is not bounded by the traced reduction extent",
                     "static reduced extents with every UINT32 partial sum bounded by INT64_MAX",
                 )
-        expected_shape = tuple(
-            size for axis, size in enumerate(source.shape) if axis not in axes
-        )
-        _same_shape(target.shape, expected_shape, site)
-        site.require(
-            target.symbol == (None if 0 in axes else source.symbol),
-            "reduction result changes its retained native symbolic scope",
-            "remove B exactly when its actual leading axis is reduced",
-            category="lowering-defect",
-        )
+        _reduction_shape(source, target, axes, site)
         return
     if name in {"abs", "sign", "min", "max", "clamp"}:
         allowed_dtypes = _FLOATS | _INTS
@@ -340,14 +331,14 @@ def validate_elementary_equation(
             site.require(
                 dtype != "bfloat16"
                 and (
-                    site.opset == 23
+                    site.opset in (23, 26)
                     or name == "max"
                     and site.opset == 16
                     or site.opset == 21
                     and dtype == "float64"
                 ),
                 "floating minimum/maximum requires the scoped signed-zero lowering",
-                "FP16/FP32/FP64 Min at23 or Max at16/23, or the scientific FP64 signed-zero selection at21",
+                "FP16/FP32/FP64 Min at23/26 or Max at16/23/26, or the scientific FP64 signed-zero selection at21",
             )
     else:
         site.require(
@@ -468,6 +459,6 @@ def validate_custom_jvp_forward(
         category="lowering-defect",
     )
     try:
-        _validate_scope(body, site.opset, ancestors)
+        _validate_scope(body, site.opset, ancestors, site.deployment_target)
     except SourcePrecisionError as exc:
         raise exc.with_context(f"{site.location}/custom JVP forward") from exc

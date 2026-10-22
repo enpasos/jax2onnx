@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import (
     Callable,
@@ -22,6 +23,7 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
 from onnx_ir.passes import common as common_passes
+from onnx_ir.tape import Tape
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
     iter_ir_functions,
@@ -2838,12 +2840,137 @@ def _run_function_optimizer_pass(opt_pass: _OptimizerPass, graph: ir.Graph) -> N
     opt_pass.function_graph_runner(graph)
 
 
+@dataclass(frozen=True)
+class _FunctionOutputMetadata:
+    name: str | None
+    type: ir.TypeProtocol | None
+    shape: ir.Shape | None
+    doc_string: str | None
+    metadata_props: dict[str, str]
+
+
+def _preserve_function_output_bindings(
+    graph: ir.Graph, original: Sequence[_FunctionOutputMetadata]
+) -> None:
+    """Restore distinct formal results after all destructive Function passes."""
+    if len(graph.outputs) != len(original):
+        raise ValueError("Function optimization changed its output arity.")
+    definitions: dict[str, ir.Value] = {}
+    for value in (
+        *graph.inputs,
+        *graph.initializers.values(),
+        *(value for node in graph for value in node.outputs),
+    ):
+        if value.graph is not graph or not value.name:
+            raise ValueError("Function definition has invalid ownership or name.")
+        previous = definitions.get(value.name)
+        if previous is not None and previous is not value:
+            raise ValueError(f"Conflicting Function definitions named {value.name!r}.")
+        definitions[value.name] = value
+    input_ids = {id(value) for value in graph.inputs}
+    if len(input_ids) != len(graph.inputs):
+        raise ValueError("Function has repeated input definitions.")
+    occupied: set[str] = set(definitions)
+    for owner in (graph, *graph.subgraphs()):
+        for value in (
+            *owner.inputs,
+            *owner.outputs,
+            *owner.initializers.values(),
+            *(value for node in owner for value in node.outputs),
+            *(value for node in owner for value in node.inputs if value is not None),
+        ):
+            if value.name:
+                occupied.add(value.name)
+    seen: set[int] = set()
+    aliases: list[
+        tuple[int, ir.Value, _FunctionOutputMetadata, str, ir.Shape | None]
+    ] = []
+    for index, (value, descriptor) in enumerate(zip(graph.outputs, original)):
+        if (
+            value.graph is not graph
+            or not value.name
+            or definitions.get(value.name) is not value
+        ):
+            raise ValueError("Function result is not an actual local definition.")
+        if (
+            descriptor.type is not None
+            and value.type is not None
+            and descriptor.type != value.type
+        ):
+            raise ValueError(f"Function output {index} changed its declared type.")
+        shape = value.shape.copy() if value.shape is not None else descriptor.shape
+        if descriptor.shape is not None and shape is not None:
+            if len(descriptor.shape) != len(shape):
+                raise ValueError(f"Function output {index} changed its declared rank.")
+            for axis, (declared, optimized) in enumerate(zip(descriptor.shape, shape)):
+                declared_dim = declared if isinstance(declared, int) else declared.value
+                optimized_dim = (
+                    optimized if isinstance(optimized, int) else optimized.value
+                )
+                if (
+                    declared_dim is not None
+                    and optimized_dim is not None
+                    and declared_dim != optimized_dim
+                ):
+                    raise ValueError(
+                        f"Function output {index} changed its declared shape."
+                    )
+                if optimized_dim is None and declared_dim is not None:
+                    shape[axis] = declared
+        identity = id(value)
+        if identity in input_ids or identity in seen:
+            base = descriptor.name or f"function_output_{index}"
+            name = base
+            suffix = 0
+            while name in occupied:
+                suffix += 1
+                name = f"{base}_{suffix}"
+            occupied.add(name)
+            aliases.append((index, value, descriptor, name, shape))
+        seen.add(identity)
+    tape = Tape(graph)
+    for index, value, descriptor, name, shape in aliases:
+        alias = tape.op(
+            "Identity",
+            [value],
+            output=ir.Value(
+                name=name,
+                type=deepcopy(
+                    descriptor.type if descriptor.type is not None else value.type
+                ),
+                shape=deepcopy(shape),
+                doc_string=descriptor.doc_string,
+                metadata_props=dict(descriptor.metadata_props),
+            ),
+        )
+        graph.outputs[index] = alias
+
+
 def optimize_graph(
     ir_model: ir.Model,
     *,
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
 ) -> ir.Model:
     _dbg("optimize_graph invoked")
+    # Model-wide passes can also rewrite Function results. Capture only the
+    # ordered signature metadata before any destructive pass, never tensor data.
+    function_outputs = [
+        (
+            function,
+            function.graph,
+            tuple(
+                _FunctionOutputMetadata(
+                    value.name,
+                    deepcopy(value.type),
+                    deepcopy(value.shape),
+                    value.doc_string,
+                    dict(value.metadata_props),
+                )
+                for value in function.outputs
+            ),
+        )
+        for function in iter_ir_functions(ir_model.functions)
+    ]
     passes = tuple(
         opt_pass
         for opt_pass in _OPTIMIZER_PASSES
@@ -2855,12 +2982,11 @@ def optimize_graph(
     # The passes are destructive; might as well raise exceptions if they occur.
 
     # Function bodies – do NOT prune function inputs (signature!)
-    for fn in iter_ir_functions(ir_model.functions):
-        graph_obj = getattr(fn, "graph", None)
-        if graph_obj is None:
-            continue
-        fgr = cast(ir.Graph, graph_obj)
+    for fn, fgr, original_outputs in function_outputs:
+        if fn.graph is not fgr:
+            raise ValueError("Function optimization replaced its owned graph.")
         for opt_pass in passes:
             _run_function_optimizer_pass(opt_pass, fgr)
+        _preserve_function_output_bindings(fgr, original_outputs)
 
     return ir_model

@@ -247,8 +247,8 @@ def test_common_source_path_isolates_function_cache_from_legacy_conversion() -> 
         ({"normalization_mode": "require_native"}, "Unsupported normalization_mode"),
         ({"inputs": [()]}, "requires typed inputs"),
         pytest.param(
-            {"inputs": [jax.ShapeDtypeStruct(("B", 2, 3, 4, 5), np.float32)]},
-            "rank-one through rank-four",
+            {"inputs": [jax.ShapeDtypeStruct(("2*B", 2, 3, 4, 5), np.float32)]},
+            "one atomic leading batch variable",
             id="options4-rank-two",
         ),
     ],

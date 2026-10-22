@@ -1556,6 +1556,67 @@ def native_mul_parameter_names() -> frozenset[str]:
     raise TypeError("native multiply parameter schema needs an exact adapter")
 
 
+_NATIVE_TOP_K_PRIMITIVE: object = vars(_native_lax_impl).get("top_k_p")
+_NATIVE_TOP_K_ABSTRACT: object = vars(_native_lax_impl).get("_top_k_abstract_eval")
+_NATIVE_TOP_K_ABSTRACT_CODE: object = (
+    _NATIVE_TOP_K_ABSTRACT.__code__
+    if type(_NATIVE_TOP_K_ABSTRACT) is types.FunctionType
+    else None
+)
+
+
+def native_top_k_primitive() -> Primitive:
+    """Return the frozen native TopK after checking both defining aliases."""
+    public: object = vars(_native_lax).get("top_k_p")
+    defining: object = vars(_native_lax_impl).get("top_k_p")
+    if (
+        type(_NATIVE_TOP_K_PRIMITIVE) is Primitive
+        and public is defining is _NATIVE_TOP_K_PRIMITIVE
+    ):
+        return _NATIVE_TOP_K_PRIMITIVE
+    raise TypeError("native TopK primitive bindings need an exact adapter")
+
+
+def native_top_k_parameter_names() -> frozenset[str]:
+    """Own the exact floor and modern native TopK parameter layouts."""
+    function: object = vars(_native_lax_impl).get("_top_k_abstract_eval")
+    if (
+        type(function) is types.FunctionType
+        and function is _NATIVE_TOP_K_ABSTRACT
+        and function.__code__ is _NATIVE_TOP_K_ABSTRACT_CODE
+        and function.__globals__ is vars(_native_lax_impl)
+        and function.__defaults__ is None
+        and function.__kwdefaults__ is None
+        and function.__closure__ is None
+    ):
+        code = function.__code__
+        if (
+            code.co_argcount == 1
+            and code.co_posonlyargcount == 0
+            and not code.co_flags & 0x0C
+            and code.co_varnames[:1] == ("operand",)
+        ):
+            names = code.co_varnames[1 : 1 + code.co_kwonlyargcount]
+            if names in (("k", "axis"), ("k", "axis", "is_stable")):
+                return frozenset(names)
+    raise TypeError("native TopK parameter schema needs an exact adapter")
+
+
+_NATIVE_SPLIT_PRIMITIVE: object = vars(_native_lax_impl).get("split_p")
+
+
+def native_split_primitive() -> Primitive:
+    """Return the frozen native Split after checking both defining aliases."""
+    public: object = vars(_native_lax).get("split_p")
+    defining: object = vars(_native_lax_impl).get("split_p")
+    if (
+        type(_NATIVE_SPLIT_PRIMITIVE) is Primitive
+        and public is defining is _NATIVE_SPLIT_PRIMITIVE
+    ):
+        return _NATIVE_SPLIT_PRIMITIVE
+    raise TypeError("native split primitive bindings need an exact adapter")
+
+
 _NATIVE_TILE_MISSING: object = object()
 _NATIVE_TILE_PRIMITIVE: object = vars(_native_lax_impl).get(
     "tile_p", _NATIVE_TILE_MISSING

@@ -370,19 +370,33 @@ def test_new_typed_boundaries_do_not_admit_unreviewed_semantics(
             return jax.lax.shift_left(x, np.asarray([1, 1], np.int32))
         return x + x
 
-    if kind == "rank_one":
-        # Keep the original BOOL(B,) identity and parameter ID as its positive
-        # counterpart, sharing one artifact across both concrete batch sizes.
-        feeds = [(np.arange(size) % 3 == 1,) for size in (2, 5)]
+    if kind in {"rank_one", "rank_five"}:
+        # Keep both original BOOL identity specs and parameter IDs as positive
+        # counterparts, sharing one artifact across actual mixed B2/B5 inputs.
+        tail = () if kind == "rank_one" else (2, 3, 4, 5)
+        width = 1 if kind == "rank_one" else 120
+        feeds = [
+            (np.arange(size * width).reshape((size, *tail)) % 3 == 1,)
+            for size in (2, 5)
+        ]
         _, proto, report, references = _artifact(fn, [spec], feeds=feeds)
+        shape = ("B", *tail)
         assert (
-            report.inputs[0].traced.shape == report.exported_outputs[0].shape == ("B",)
+            report.inputs[0].traced.shape == report.exported_outputs[0].shape == shape
         )
         assert (
             report.inputs[0].traced.dtype == report.exported_outputs[0].dtype == "bool"
         )
         assert proto.graph.input[0].type.tensor_type.elem_type == 9
         assert proto.graph.output[0].type.tensor_type.elem_type == 9
+        for port in (*proto.graph.input, *proto.graph.output):
+            assert (
+                tuple(
+                    dimension.dim_param or dimension.dim_value
+                    for dimension in port.type.tensor_type.shape.dim
+                )
+                == shape
+            )
         _accept_declared_storage(proto, feeds, references)
         return
     if kind == "complex_add":

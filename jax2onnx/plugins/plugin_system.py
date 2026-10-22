@@ -46,6 +46,11 @@ from jax2onnx.plugins._patching import (
     AssignSpec,
     MonkeyPatchSpec,
     _snapshot_attribute,
+    _forget_owned_patch,
+    _has_owned_leaf_patches,
+    _installed_attribute,
+    _record_owned_patch,
+    _suspend_owned_patches,
     apply_patches,
 )
 from jax2onnx.plugins._function_keys import (
@@ -102,6 +107,32 @@ _FUNCTION_LAYOUT: str = "__jax2onnx_function_layout"
 
 
 @dataclass(frozen=True)
+class _SourceFunctionCall:
+    """Exact owned callable, without hashing a bound receiver's array state."""
+
+    original: Callable[..., Any] = field(compare=False, hash=False, repr=False)
+    identity: tuple[int, int]
+    instance: bool
+    receiver: object | None = field(default=None, compare=False, hash=False, repr=False)
+
+    @classmethod
+    def capture(
+        cls,
+        original: Callable[..., Any],
+        *,
+        instance: bool,
+        receiver: object | None,
+    ) -> _SourceFunctionCall:
+        if inspect.ismethod(original):
+            identity = (id(original.__func__), id(original.__self__))
+        else:
+            identity = (id(original), id(receiver) if receiver is not None else 0)
+        if instance and receiver is None:
+            raise ValueError("SOURCE Function call has no exact receiver")
+        return cls(original, identity, instance, receiver)
+
+
+@dataclass(frozen=True)
 class _SourceFunctionTrace:
     """Call-site facts required when a source function is retraced later."""
 
@@ -113,6 +144,7 @@ class _SourceFunctionTrace:
     debug_key_reuse: bool = field(
         default_factory=lambda: bool(jax.config.jax_debug_key_reuse)
     )
+    call: _SourceFunctionCall | None = None
 
     @contextmanager
     def activate(self) -> Iterator[None]:
@@ -529,7 +561,12 @@ class PrimitiveLeafPlugin(PrimitivePlugin, PrimitiveLowering):
     @contextmanager
     def plugin_binding(cls) -> Iterator[None]:
         cls.ensure_abstract_eval_bound()
-        with apply_patches(cls.binding_specs()):
+        if active_precision_policy() is PrecisionPolicy.SOURCE:
+            # SOURCE observes the native program. Do not evaluate leaf factories,
+            # including AssignSpec declarations, while retaining registry/AD setup.
+            yield
+            return
+        with apply_patches(cls.binding_specs(), owner=cls):
             yield
 
     def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
@@ -785,20 +822,36 @@ class FunctionPlugin(PrimitivePlugin):
 
     def _source_primitive_impl(self, *args: Any, **kwargs: Any) -> list[Any]:
         trace: _SourceFunctionTrace = kwargs.pop(_SOURCE_TRACE)
-        with trace.activate():
-            outputs = list(jtu.tree_leaves(self._source_call(args, kwargs)))
+        with (
+            precision_policy_scope(PrecisionPolicy.SOURCE),
+            _activate_full_plugin_worlds_for_body(),
+            trace.activate(),
+        ):
+            outputs = list(
+                jtu.tree_leaves(self._source_call(args, kwargs, trace=trace))
+            )
         key_reuse = kwargs.get(_SOURCE_KEY_REUSE)
         if isinstance(key_reuse, FunctionKeyReuse):
             outputs = detach_function_key_output_aliases(args, outputs, key_reuse)
         return outputs
 
-    def _source_call(self, args: Sequence[Any], parameters: Mapping[str, Any]) -> Any:
+    def _source_call(
+        self,
+        args: Sequence[Any],
+        parameters: Mapping[str, Any],
+        *,
+        trace: _SourceFunctionTrace | None = None,
+    ) -> Any:
         parameters = dict(parameters)
         parameters.pop(_SOURCE_KEY_REUSE, None)
         adapter: FunctionStateAdapter | None = parameters.pop(_SOURCE_STATE, None)
         layout: FunctionOperandLayout | None = parameters.pop(_FUNCTION_LAYOUT, None)
         if adapter is None:
-            return self._primitive_impl(*args, **parameters)
+            if trace is None or trace.call is None:
+                return self._primitive_impl(*args, **parameters)
+            parameters.pop("instance_key", None)
+            positional, keywords = _unpack_function_arguments(args, parameters)
+            return trace.call.original(*positional, **keywords)
         if layout is None or layout.state_count != adapter.state_count:
             raise ValueError("SOURCE Function state is missing its operand layout")
         positional, keywords = _unpack_function_arguments(
@@ -813,13 +866,16 @@ class FunctionPlugin(PrimitivePlugin):
         self, args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
     ) -> tuple[list[Any], list[Any]]:
         trace: _SourceFunctionTrace = params.pop(_SOURCE_TRACE)
-        with trace.activate():
-            if _SOURCE_STATE in params:
-                values, output_dims = self._batch_call(
-                    lambda *single: self._source_call(single, params), args, dims
-                )
-            else:
-                values, output_dims = self._batching_rule(args, dims, **params)
+        with (
+            precision_policy_scope(PrecisionPolicy.SOURCE),
+            _activate_full_plugin_worlds_for_body(),
+            trace.activate(),
+        ):
+            values, output_dims = self._batch_call(
+                lambda *single: self._source_call(single, params, trace=trace),
+                args,
+                dims,
+            )
         return jtu.tree_leaves(values), jtu.tree_leaves(output_dims)
 
     def _bind_function_call(
@@ -914,6 +970,15 @@ class FunctionPlugin(PrimitivePlugin):
             numpy_dtype_promotion=call_dtype_promotion,
             numpy_rank_promotion=call_rank_promotion,
             debug_key_reuse=call_debug_key_reuse,
+            call=(
+                _SourceFunctionCall.capture(
+                    callee,
+                    instance=instance_key is not None,
+                    receiver=owner,
+                )
+                if adapter is None
+                else None
+            ),
         )
         results = self._source_primitive.bind(*operands, **parameters)
         restored = jtu.tree_unflatten(result_tree, results)
@@ -1225,7 +1290,18 @@ class FunctionPlugin(PrimitivePlugin):
             )
             invars = (*invars, *eqn.invars[layout.argument_count :])
         else:
-            callee = self._resolve_lowering_callee(params)
+            if source_trace is not None and source_trace.call is not None:
+                params.pop("instance_key", None)
+                callee = cast(
+                    Callable[..., object],
+                    (
+                        source_trace.call.receiver
+                        if source_trace.call.instance
+                        else source_trace.call.original
+                    ),
+                )
+            else:
+                callee = self._resolve_lowering_callee(params)
         eqn = eqn.replace(invars=list(invars), params=params)
         captures = self._capture_arguments(ctx, callee, params)
         registry = ctx.get_function_registry()
@@ -1407,6 +1483,7 @@ class FunctionPlugin(PrimitivePlugin):
         if source_trace is not None:
             tracing_signature = (
                 ctx.precision_policy.value,
+                ctx.deployment_target,
                 source_trace.x64_enabled,
                 source_trace.default_matmul_precision,
                 source_trace.numpy_dtype_promotion,
@@ -1415,6 +1492,10 @@ class FunctionPlugin(PrimitivePlugin):
                 tuple(aval.weak_type for aval in self._input_avals(eqn)),
                 tuple(capture.spec.weak_type for capture in captures.dynamic),
             )
+            if source_trace.call is not None:
+                # One receiver can retain distinct native methods at separate
+                # call sites. Keep their exact bodies distinct in the registry.
+                tracing_signature += (source_trace.call.identity,)
         return FunctionKey(
             self.name, input_signature, capture_signature, tracing_signature
         )
@@ -1454,7 +1535,12 @@ class FunctionPlugin(PrimitivePlugin):
             with ExitStack() as call_stack:
                 if source_trace is not None:
                     call_stack.enter_context(source_trace.activate())
-                return callee(*arguments[:base_count], **kwargs)
+                original = (
+                    source_trace.call.original
+                    if source_trace is not None and source_trace.call is not None
+                    else callee
+                )
+                return original(*arguments[:base_count], **kwargs)
 
         active = _IN_FUNCTION_BUILD.get()
         token = _IN_FUNCTION_BUILD.set(active | {self.name})
@@ -1753,6 +1839,53 @@ def onnx_function(
     raise TypeError("@onnx_function expects a class or callable target")
 
 
+def _call_prepared_nnx_method(
+    role: Any,
+    receiver: object,
+    arguments: tuple[Any, ...],
+    keywords: dict[str, Any],
+) -> Any:
+    """Keep an explicitly prepared body inside its original named NNX boundary.
+
+    Roles contain static source/method/schema records, never a live receiver.
+    The actual receiver may have just been reconstructed by NNX split/merge.
+    This entry never changes the plugin's shared original-callable fields.
+    """
+    from jax2onnx._source_nnx_method_preparation import _PreparedMethod
+    from jax2onnx._source_preparation import SourcePreparationError
+
+    if type(role) is not _PreparedMethod:
+        raise SourcePreparationError("unknown prepared NNX method role")
+    role.assert_receiver(receiver)
+    target = role.owner_type
+    plugin = ONNX_FUNCTION_PLUGIN_REGISTRY.get(_qualname_of_target(target))
+    if not isinstance(plugin, FunctionPlugin) or plugin.target is not target:
+        raise SourcePreparationError("original named NNX Function owner changed")
+    patch = _PATCH_STATE.get((target, "__call__"))
+    if patch is None:
+        if vars(target).get("__call__") is not role.original:
+            raise SourcePreparationError("original NNX method binding changed")
+        return role.method(receiver, *arguments, **keywords)
+    if (
+        patch["orig"] is not role.original
+        or vars(target).get("__call__") is not patch["patched"]
+    ):
+        raise SourcePreparationError("prepared NNX method patch ownership changed")
+    if active_precision_policy() is not PrecisionPolicy.SOURCE:
+        raise SourcePreparationError("prepared NNX export requires source policy")
+    if plugin.name in _IN_FUNCTION_BUILD.get():
+        return role.method(receiver, *arguments, **keywords)
+    return plugin._bind_function_call(
+        plugin.primitive,
+        role.method.__get__(receiver, target),
+        arguments,
+        keywords,
+        instance_key=_register_function_instance(receiver),
+        owner=receiver,
+        unbound_method=role.method,
+    )
+
+
 def _consume_onnx_function_hits() -> set[str]:
     hits = set(_ONNX_FN_HITS.get())
     _ONNX_FN_HITS.set(frozenset())
@@ -1818,19 +1951,30 @@ def _primitive_decorator(
 # ------------------------------------------------------------------------------
 
 
-def _iter_patch_specs() -> Iterator[PatchSpec]:
+@dataclass(frozen=True)
+class _PluginPatchSpec:
+    owner: object
+    spec: PatchSpec
+
+
+def _iter_patch_specs() -> Iterator[_PluginPatchSpec | PatchSpec]:
     """
-    Only yield patch specs for function plugins via their patch_info().
-    Leaf plugin AssignSpec/MonkeyPatchSpec are handled by apply_patches()
-    when a plugin opts into its own @plugin_binding context.
+    SOURCE selects only genuine FunctionPlugin owners before patch_info runs.
+    LEGACY retains its existing patch_info compatibility path, including numeric
+    leaves; their binding_specs are activated separately by plugin_binding.
     """
     for plugin in PLUGIN_REGISTRY.values():
+        if active_precision_policy() is PrecisionPolicy.SOURCE and not isinstance(
+            plugin, FunctionPlugin
+        ):
+            continue
         pinfo = getattr(plugin, "patch_info", None)
-        # Only function plugins implement patch_info() in this system.
         if callable(pinfo):
             try:
                 info = pinfo()
             except Exception:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    raise
                 continue
             if not info:
                 continue
@@ -1838,7 +1982,41 @@ def _iter_patch_specs() -> Iterator[PatchSpec]:
             targets = info.get("patch_targets", [])
             attr = info.get("target_attribute", "__call__")
             if callable(patch_fn) and targets:
-                yield patch_fn, targets, attr
+                yield _PluginPatchSpec(plugin, (patch_fn, targets, attr))
+
+
+@contextmanager
+def _source_native_patch_scope() -> Iterator[frozenset[tuple[int, str]]]:
+    if active_precision_policy() is not PrecisionPolicy.SOURCE:
+        yield frozenset()
+        return
+    functions = {
+        plugin
+        for plugin in PLUGIN_REGISTRY.values()
+        if isinstance(plugin, FunctionPlugin)
+    }
+    saved_fields = {
+        plugin: (plugin._orig_fn, plugin._unbound_orig_fn) for plugin in functions
+    }
+    needs_suspension = _has_owned_leaf_patches() or any(
+        state.get("policy") is PrecisionPolicy.LEGACY for state in _PATCH_STATE.values()
+    )
+    try:
+        if not needs_suspension:
+            yield frozenset()
+            return
+        saved_states = dict(_PATCH_STATE)
+        with _suspend_owned_patches() as blocked:
+            _PATCH_STATE.clear()
+            try:
+                yield blocked
+            finally:
+                _PATCH_STATE.clear()
+                _PATCH_STATE.update(saved_states)
+    finally:
+        for plugin, (original, unbound) in saved_fields.items():
+            plugin._orig_fn = original
+            plugin._unbound_orig_fn = unbound
 
 
 @contextmanager
@@ -1852,38 +2030,79 @@ def apply_monkey_patches() -> Iterator[None]:
     count nested uses, then restore the original attribute on exit so user code
     stays pristine once conversion finishes.
     """
-    touched: list[tuple[Any, str]] = []
-    try:
-        for patch_fn, targets, attr in _iter_patch_specs():
-            for tgt in targets:
-                key = (tgt, attr)
-                st = _PATCH_STATE.get(key)
-                if st is None:
-                    orig = getattr(tgt, attr)
-                    snapshot = _snapshot_attribute(tgt, attr, orig)
-                    new = patch_fn(orig)
-                    setattr(tgt, attr, new)
-                    _PATCH_STATE[key] = {
-                        "orig": orig,
-                        "snapshot": snapshot,
-                        "count": 1,
-                    }
+    with _source_native_patch_scope() as blocked:
+        touched: list[tuple[Any, str]] = []
+        try:
+            for specification in _iter_patch_specs():
+                if isinstance(specification, _PluginPatchSpec):
+                    owner: object | None = specification.owner
+                    patch_fn, targets, attr = specification.spec
                 else:
-                    st["count"] += 1
-                touched.append(key)
-        yield
-    finally:
-        for key in reversed(touched):
-            st = _PATCH_STATE.get(key)
-            if not st:
-                continue
-            st["count"] -= 1
-            if st["count"] == 0:
-                tgt, attr = key
-                try:
-                    st["snapshot"].restore(tgt, attr)
-                finally:
-                    _PATCH_STATE.pop(key, None)
+                    # Retain the private legacy/testing tuple boundary.
+                    owner = None
+                    patch_fn, targets, attr = specification
+                for tgt in targets:
+                    key = (tgt, attr)
+                    if (id(tgt), attr) in blocked:
+                        if isinstance(owner, FunctionPlugin):
+                            raise RuntimeError(
+                                "SOURCE Function patch ownership conflicts with a caller replacement"
+                            )
+                        continue
+                    st = _PATCH_STATE.get(key)
+                    if st is None:
+                        orig = getattr(tgt, attr)
+                        snapshot = _snapshot_attribute(tgt, attr, orig)
+                        new = patch_fn(orig)
+                        setattr(tgt, attr, new)
+                        record = (
+                            _record_owned_patch(
+                                tgt,
+                                attr,
+                                snapshot,
+                                new,
+                                owner=owner,
+                                leaf=isinstance(owner, PrimitiveLeafPlugin),
+                            )
+                            if owner is not None
+                            else None
+                        )
+                        _PATCH_STATE[key] = {
+                            "orig": orig,
+                            "snapshot": snapshot,
+                            "patched": new,
+                            "count": 1,
+                            "policy": active_precision_policy(),
+                            "owner": owner,
+                            "record": record,
+                        }
+                    else:
+                        if (
+                            active_precision_policy() is PrecisionPolicy.SOURCE
+                            and isinstance(owner, FunctionPlugin)
+                            and _installed_attribute(tgt, attr) is not st["patched"]
+                        ):
+                            raise RuntimeError(
+                                "SOURCE Function patch ownership conflicts with a caller replacement"
+                            )
+                        st["count"] += 1
+                    touched.append(key)
+            yield
+        finally:
+            for key in reversed(touched):
+                st = _PATCH_STATE.get(key)
+                if not st:
+                    continue
+                st["count"] -= 1
+                if st["count"] == 0:
+                    tgt, attr = key
+                    try:
+                        st["snapshot"].restore(tgt, attr)
+                    finally:
+                        record = st["record"]
+                        if record is not None:
+                            _forget_owned_patch(record)
+                        _PATCH_STATE.pop(key, None)
 
 
 # ------------------------------------------------------------------------------

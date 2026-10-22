@@ -246,6 +246,46 @@ class SelectNPlugin(PrimitiveLeafPlugin):
                 ctx.bind_value_for_var(out_var, result)
                 return
 
+            if source and np.dtype(out_var.aval.dtype) == np.dtype(np.int32):
+                from jax2onnx.converter.source_profile import (
+                    _Site,
+                    _tensor,
+                    _validate_select,
+                )
+                from jax2onnx.converter.source_representation import (
+                    representation_for_aval,
+                )
+
+                site = _Site(
+                    "native INT32 select emission", ctx.opset, eqn.primitive.name
+                )
+                _validate_select(
+                    eqn,
+                    [_tensor(v, site) for v in eqn.invars],
+                    [_tensor(out_var, site)],
+                    site,
+                )
+                for variable, value in (
+                    (selector_var, cond_val),
+                    (case_vars[0], false_val),
+                    (case_vars[1], true_val),
+                ):
+                    if not representation_for_aval(variable.aval).matches_ir_value(
+                        value
+                    ):
+                        raise TypeError(
+                            "SOURCE INT32 select physical input differs from its native declaration"
+                        )
+                # Both supported CPU providers implement exact INT32 Where.
+                # Wider carriers remain necessary for the narrower/missing
+                # integer kernels below; index arithmetic stays native INT32.
+                result = builder.op(
+                    "Where", [cond_val, true_val, false_val], output=out_spec
+                )
+                _ensure_tensor_metadata(result, out_shape, ir.DataType.INT32)
+                ctx.bind_value_for_var(out_var, result)
+                return
+
             if (
                 source
                 and np.issubdtype(out_var.aval.dtype, np.integer)

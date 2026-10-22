@@ -9,6 +9,10 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx.converter.source_split import require_native_split_emission
+from jax2onnx.plugins._complex_utils import coerce_dim_values
 from jax2onnx.plugins._utils import normalize_builder_outputs
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -72,6 +76,9 @@ class SplitPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.split`` to ONNX ``Split`` using IR-only ops."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            self._lower_source_native(ctx, eqn)
+            return
         data_var = eqn.invars[0]
         out_vars = list(eqn.outvars)
 
@@ -119,3 +126,33 @@ class SplitPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(res, out_shape)
             _ensure_value_metadata(ctx, res)
             ctx.bind_value_for_var(var, res)
+
+    def _lower_source_native(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        require_native_split_emission(eqn, ctx)
+        source = representation_for_aval(eqn.invars[0].aval)
+        data = ctx.require_value_for_var(eqn.invars[0])
+        if not source.matches_ir_value(data):
+            raise TypeError(
+                "SOURCE Split physical input differs from its native declaration"
+            )
+        # Sizes and axis are logical. A declared trailing complex-pair component
+        # axis, if later admitted by its own owner, remains attached to each piece.
+        sizes = _const_i64(ctx, eqn.params["sizes"], "split_sizes")
+        outputs = [
+            ctx.allocate_value_for_var(v, name_hint=ctx.fresh_name("split_out"))
+            for v in eqn.outvars
+        ]
+        results = ctx.builder.op_multi_out(
+            "Split",
+            [data, sizes],
+            {"axis": eqn.params["axis"]},
+            outputs=outputs,
+        )
+        for variable, result in zip(eqn.outvars, results, strict=True):
+            representation = representation_for_aval(variable.aval)
+            result.type = ir.TensorType(representation.ir_dtype)
+            _stamp_type_and_shape(
+                result, coerce_dim_values(representation.physical_shape)
+            )
+            _ensure_value_metadata(ctx, result)
+            ctx.bind_value_for_var(variable, result)

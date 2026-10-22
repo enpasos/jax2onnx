@@ -11,6 +11,7 @@ import onnx_ir as ir
 from jax import lax
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -33,6 +34,29 @@ from jax2onnx.plugins.plugin_system import (
 
 from .gather_helpers import get_gir_output_shape
 from .gather_compile import compile_to_gir
+
+
+def _source_int32_gather_bound(
+    ctx: LoweringContextProtocol, data: ir.Value, indices: ir.Value, axis: int
+) -> int | None:
+    """Keep I32 clipping only when the exact static maximum is representable."""
+    if (
+        ctx.precision_policy is not PrecisionPolicy.SOURCE
+        or indices.dtype != ir.DataType.INT32
+    ):
+        return None
+    shape = _shape_tuple(data)
+    canonical_axis = axis + len(shape) if axis < 0 else axis
+    if not 0 <= canonical_axis < len(shape):
+        return None
+    extent = shape[canonical_axis]
+    if (
+        isinstance(extent, (int, np.integer))
+        and not isinstance(extent, (bool, np.bool_))
+        and 0 < extent <= (1 << 31)
+    ):
+        return int(extent) - 1
+    return None
 
 
 _CONST_HANDLERS_REGISTERED: bool = False
@@ -851,6 +875,11 @@ class GatherPlugin(PrimitiveLeafPlugin):
         axis: int,
         need_invalid_mask: bool,
     ) -> tuple[ir.Value, ir.Value | None]:
+        bound = _source_int32_gather_bound(ctx, input_tensor, index_tensor, axis)
+        if bound is not None:
+            return self._clip_source_int32_indices(
+                ctx, index_tensor, bound, need_invalid_mask=need_invalid_mask
+            )
         index_shape = _shape_tuple(index_tensor)
         if index_tensor.type != ir.TensorType(ir.DataType.INT64):
             index_tensor = _as_value(
@@ -938,6 +967,36 @@ class GatherPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(clipped, index_shape)
         _ensure_value_metadata(ctx, clipped)
         return clipped, invalid_mask
+
+    def _clip_source_int32_indices(
+        self,
+        ctx: LoweringContextProtocol,
+        indices: ir.Value,
+        maximum: int,
+        *,
+        need_invalid_mask: bool,
+    ) -> tuple[ir.Value, ir.Value | None]:
+        shape = _shape_tuple(indices)
+        zero = ctx.bind_const_for_var(object(), np.asarray(0, dtype=np.int32))
+        maximum_value = ctx.bind_const_for_var(
+            object(), np.asarray(maximum, dtype=np.int32)
+        )
+
+        def emit(op: str, operands: list[ir.Value], dtype: ir.DataType) -> ir.Value:
+            value = ctx.builder.op(op, operands)
+            value.type = ir.TensorType(dtype)
+            _stamp_type_and_shape(value, shape)
+            _ensure_value_metadata(ctx, value)
+            return value
+
+        invalid = None
+        if need_invalid_mask:
+            below = emit("Less", [indices, zero], ir.DataType.BOOL)
+            above = emit("Greater", [indices, maximum_value], ir.DataType.BOOL)
+            invalid = emit("Or", [below, above], ir.DataType.BOOL)
+        low = emit("Max", [indices, zero], ir.DataType.INT32)
+        clipped = emit("Min", [low, maximum_value], ir.DataType.INT32)
+        return clipped, invalid
 
     def _fill_invalid_gather_result(
         self,

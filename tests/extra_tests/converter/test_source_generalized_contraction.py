@@ -1133,6 +1133,7 @@ def test_generalized_output_descriptor_rejects_before_emission(fault: str) -> No
 
     before = [(v.type, v.shape) for v in sources]
     ctx = SimpleNamespace(
+        deployment_target=None,
         builder=SimpleNamespace(opset=23, op=forbidden),
         require_value_for_var=lambda var: sources[eqn.invars.index(var)],
         allocate_value_for_var=lambda *args, **kwargs: output,
@@ -1166,7 +1167,7 @@ def test_empty_and_outer_shortcuts_do_not_discard_explicit_algorithm_contracts(
     with pytest.raises(SourcePrecisionError):
         _validate(eqn)
     with pytest.raises(NotImplementedError, match="precision .*private subset"):
-        DotGeneralPlugin()._lower_source(SimpleNamespace(), eqn)
+        DotGeneralPlugin()._lower_source(SimpleNamespace(deployment_target=None), eqn)
 
 
 @pytest.mark.parametrize("operand", [0, 1])
@@ -1193,6 +1194,7 @@ def test_physical_input_drift_rejects_before_allocation_or_emission(
         pytest.fail("invalid physical input reached allocation/emission")
 
     ctx = SimpleNamespace(
+        deployment_target=None,
         builder=SimpleNamespace(opset=23, op=forbidden),
         require_value_for_var=lambda var: values[eqn.invars.index(var)],
         allocate_value_for_var=forbidden,

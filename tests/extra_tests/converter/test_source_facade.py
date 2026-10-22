@@ -26,6 +26,9 @@ from jax2onnx.precision import (
     get_precision_report,
     validate_source_samples,
 )
+from tests.extra_tests.converter.source_capability_counterparts import (
+    SourceSchemaObservation,
+)
 from tests.extra_tests.converter.source_precision_diagnostics import DiagnosticValidator
 
 
@@ -278,14 +281,88 @@ def test_source_output_name_preserves_unnamed_input_alias() -> None:
     assert artifact.graph.output[0].name == "result"
 
 
-def test_source_report_preserves_mixed_structured_output_order() -> None:
+def test_source_report_preserves_mixed_structured_output_order(
+    monkeypatch: pytest.MonkeyPatch, record_property: Callable[[str, object], None]
+) -> None:
     def model(x: jax.Array) -> Any:
         return x.astype(jnp.float16), {
             "bits": jax.lax.bitcast_convert_type(x, jnp.uint32),
             "positive": x > np.float32(0),
         }
 
-    artifact = _source(model, [()], opset=26, output_names=["half", "bits", "positive"])
+    observation = SourceSchemaObservation(ui.check_source_schema)
+    original_trace = conversion_api._trace_to_jaxpr
+    traces = []
+
+    def observe_trace(*args: Any, **kwargs: Any) -> Any:
+        returned = original_trace(*args, **kwargs)
+        traces.append(returned)
+        return returned
+
+    not_returned = object()
+    artifact = not_returned
+    with monkeypatch.context() as active:
+        active.setattr(ui, "check_source_schema", observation)
+        active.setattr(conversion_api, "_trace_to_jaxpr", observe_trace)
+        try:
+            artifact = _source(
+                model, [()], opset=26, output_names=["half", "bits", "positive"]
+            )
+        except onnx.checker.ValidationError as cause:
+            diagnostic = observation.missing_schema_failure(
+                cause, operator="BitCast", opset=26
+            )
+            if diagnostic is None:
+                raise
+            attempt = observation.assert_unchanged()
+            assert attempt.cause is cause and artifact is not_returned
+            assert len(traces) == 1
+            assert [
+                np.dtype(value.aval.dtype).name for value in traces[0].jaxpr.outvars
+            ] == ["float16", "uint32", "bool"]
+            candidate = onnx.load_model_from_string(attempt.blob)
+            assert get_precision_report(candidate) is None
+            assert [value.name for value in candidate.graph.output] == [
+                "half",
+                "bits",
+                "positive",
+            ]
+            assert [
+                value.type.tensor_type.elem_type for value in candidate.graph.output
+            ] == [
+                onnx.TensorProto.FLOAT16,
+                onnx.TensorProto.UINT32,
+                onnx.TensorProto.BOOL,
+            ]
+            assert all(
+                value.type.tensor_type.HasField("shape")
+                and not value.type.tensor_type.shape.dim
+                for value in candidate.graph.output
+            )
+            assert len(candidate.graph.input) == 1
+            assert (
+                candidate.graph.input[0].type.tensor_type.elem_type
+                == onnx.TensorProto.FLOAT
+            )
+            assert (
+                candidate.graph.input[0].type.tensor_type.HasField("shape")
+                and not candidate.graph.input[0].type.tensor_type.shape.dim
+            )
+            (bitcast,) = [
+                node for node in candidate.graph.node if node.name == diagnostic["node"]
+            ]
+            assert tuple(bitcast.input) == (candidate.graph.input[0].name,)
+            assert tuple(bitcast.output) == ("bits",)
+            assert [
+                (attribute.name, attribute.type, attribute.i)
+                for attribute in bitcast.attribute
+            ] == [("to", onnx.AttributeProto.INT, onnx.TensorProto.UINT32)]
+            record_property("source_failed_missing_schema", diagnostic)
+            return
+    attempt = observation.assert_checker_boundary()
+    assert attempt.returned and attempt.cause is None
+    assert len(traces) == 1
+
     report = get_precision_report(artifact)
     assert report is not None
     assert [value.dtype for value in report.traced_outputs] == [
@@ -303,6 +380,7 @@ def test_source_report_preserves_mixed_structured_output_order() -> None:
         "bits",
         "positive",
     ]
+    observation.assert_report_attachment(artifact, report)
 
 
 def test_source_saved_external_data_preserves_report_and_boundaries(

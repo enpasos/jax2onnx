@@ -32,6 +32,8 @@ from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
 from .typing_support import ConverterContext, SymbolicDimOrigin
 from .precision_policy import PrecisionPolicy
+from .source_deployment import DeploymentTarget, MatrixPrecisionRequirement
+from .source_deployment_bindings import MatrixSiteBinding, record_matrix_site
 from .source_representation import representation_for_aval
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
@@ -183,9 +185,17 @@ class IRContext:
         stacktrace_metadata: Optional[bool] = None,
         precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
         jaxpr_validator: Callable[[Any, int], None] | None = None,
+        deployment_target: DeploymentTarget | None = None,
     ):
         if precision_policy is PrecisionPolicy.SOURCE and enable_double_precision:
             raise ValueError("Source precision cannot use legacy double promotion")
+        if (
+            deployment_target is not None
+            and precision_policy is not PrecisionPolicy.SOURCE
+        ):
+            raise ValueError("Deployment targets require the private SOURCE path")
+        self._deployment_target = deployment_target
+        self._matrix_precision_requirements: list[MatrixSiteBinding] = []
         self._precision_policy = precision_policy
         self._jaxpr_validator = jaxpr_validator
         if stacktrace_metadata is None:
@@ -296,6 +306,28 @@ class IRContext:
     def precision_policy(self) -> PrecisionPolicy:
         return self._precision_policy
 
+    @property
+    def deployment_target(self) -> DeploymentTarget | None:
+        return self._deployment_target
+
+    @property
+    def matrix_precision_bindings(self) -> tuple[MatrixSiteBinding, ...]:
+        return tuple(self._matrix_precision_requirements)
+
+    @property
+    def source_scope(self) -> str:
+        return self._name_prefix or "graph"
+
+    def record_matrix_precision_requirement(
+        self,
+        requirement: MatrixPrecisionRequirement,
+        output: ir.Value,
+        matrix_output: ir.Value,
+    ) -> None:
+        self._matrix_precision_requirements.append(
+            record_matrix_site(requirement, output, matrix_output)
+        )
+
     # ------------------------------- Function registry helpers ------------------
 
     def get_function_registry(self) -> Optional["FunctionRegistry"]:
@@ -329,7 +361,9 @@ class IRContext:
             stacktrace_metadata=self.builder.stacktrace_metadata_enabled,
             precision_policy=self.precision_policy,
             jaxpr_validator=self._jaxpr_validator,
+            deployment_target=self.deployment_target,
         )
+        child._matrix_precision_requirements = self._matrix_precision_requirements
         child.record_primitive_calls_file = self.record_primitive_calls_file
         child._lowering_record_owner = self._lowering_record_owner
         child._primitive_call_records = (

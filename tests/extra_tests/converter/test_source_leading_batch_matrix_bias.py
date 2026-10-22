@@ -652,6 +652,7 @@ def test_symbolic_dot_scope_and_typed_metadata_fail_before_lowering(
         pytest.fail("logical corruption must fail before reading or emitting IR")
 
     context = SimpleNamespace(
+        deployment_target=None,
         require_value_for_var=forbidden,
         allocate_value_for_var=forbidden,
         bind_value_for_var=forbidden,
@@ -739,6 +740,7 @@ def test_symbolic_matmul_checks_canonical_physical_values_before_emission(
         pytest.fail("invalid physical values must fail before emitting or binding")
 
     context = SimpleNamespace(
+        deployment_target=None,
         require_value_for_var=lambda var: values[
             "lhs" if var is equation.invars[0] else "rhs"
         ],

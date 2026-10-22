@@ -925,6 +925,7 @@ def _lowering_fixture(eqn: Any) -> tuple[Any, Any, Any, Any]:
         return output
 
     ctx = SimpleNamespace(
+        deployment_target=None,
         precision_policy=PrecisionPolicy.SOURCE,
         builder=builder,
         fresh_name=builder.fresh_name,

@@ -693,6 +693,7 @@ def test_fp64_enum_admission_keeps_semantic_shape_and_weakness_boundaries(
         pytest.fail("logical corruption must fail before reading or emitting IR")
 
     context = SimpleNamespace(
+        deployment_target=None,
         require_value_for_var=forbidden,
         allocate_value_for_var=forbidden,
         bind_value_for_var=forbidden,
@@ -733,6 +734,7 @@ def test_new_fp64_precision_path_still_checks_physical_storage_before_emission(
         pytest.fail("physical mismatch must fail before emission or binding")
 
     context = SimpleNamespace(
+        deployment_target=None,
         require_value_for_var=lambda var: values[
             "lhs" if var is equation.invars[0] else "rhs"
         ],

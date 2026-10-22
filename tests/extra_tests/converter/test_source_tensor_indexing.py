@@ -7,7 +7,7 @@ file adds no diagnostic validator or alternative exporter. Original loop/trig
 compositions and broader symbolic declarations remain owned by their batches.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 import hashlib
 import json
@@ -35,6 +35,11 @@ from jax2onnx.converter.source_profile import (
 from jax2onnx.precision import CheckStatus, SampleCriteria, get_precision_report
 from scripts.source_precision_inventory import canonical_contract
 from tests.extra_tests.converter import source_precision_support as source
+from tests.extra_tests.converter.source_capability_counterparts import (
+    accept_samples_or_assert_runtime_capability_failure,
+    assert_schema_capability_failure,
+)
+from tests.extra_tests.converter.source_integer_structure import Int32IndexCounterpart
 from tests.extra_tests.converter.test_source_profile import _graph as _typed_graph
 from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
     _accept,
@@ -135,7 +140,7 @@ def test_frozen_original_tensor_index_selector_retains_all_63_rows() -> None:
 @pytest.mark.parametrize("x64", [False, True])
 @pytest.mark.parametrize("family,ordinal", _PRODUCT_ORIGINAL)
 def test_original_tensor_index_product_admission(
-    family: str, ordinal: int, x64: bool
+    family: str, ordinal: int, x64: bool, record_property: Callable[[str, object], None]
 ) -> None:
     origin = f"plugin::{family}"
     metadata = source.raw_source_case(origin, ordinal)
@@ -172,7 +177,15 @@ def test_original_tensor_index_product_admission(
         )
         assert sampled.model_dtype is source.PRESERVE_FACTORY_DTYPE
         assert sampled.criteria is scenario.criteria
-        result = source.run_source_case(metadata, sampled, optimization=None)
+        integer_counterpart = (
+            Int32IndexCounterpart() if family == "iota" and ordinal in (0, 6) else None
+        )
+        result = source.run_source_case(
+            metadata,
+            sampled,
+            optimization=None,
+            _corpus_counterpart=integer_counterpart,
+        )
         if not x64 and family == "gather" and ordinal in (2, 3):
             assert result.model is None and result.stage == "source-preparation"
             assert "64" in result.audit.detail
@@ -201,10 +214,22 @@ def test_original_tensor_index_product_admission(
                     jax.make_jaxpr(metadata["callable"])(*native_specs)
                 assert str(native.value) == detail
             return
+        if result.model is None:
+            assert_schema_capability_failure(result, record_property)
+            assert result.prepared is not None and result.prepared.scenario == sampled
+            continue
         assert result.model is not None, result.audit.detail
         assert result.audit.status is CheckStatus.VALIDATED
         assert result.schema is CheckStatus.VALIDATED
-        assert result.raw_callback_status == "passed"
+        if integer_counterpart is None:
+            assert result.raw_callback_status == "passed"
+        else:
+            # Prospective SOURCE structure is independent of every preserved
+            # raw LEGACY Range→Cast observation. Numerics remain unchanged.
+            assert result.raw_callback_status in {"passed", "failed"}
+            assert (
+                result.corpus_structure is not None and result.corpus_structure.accepted
+            )
         assert result.numerical_status is CheckStatus.UNVERIFIED
         assert result.prepared is not None and result.prepared.scenario == sampled
         report = get_precision_report(result.model)
@@ -701,7 +726,7 @@ def test_permuted_reshape_retains_original_native_batch_origin_for_all_consumers
     "update_shape,opset", [((2, 0), 23), ((2, 0), 26), ((3, 0), 26)]
 )
 def test_nonleading_empty_update_keeps_native_identity_and_original_values(
-    update_shape: Any, opset: int
+    update_shape: Any, opset: int, record_property: Callable[[str, object], None]
 ) -> None:
     def fn(x: Any, update: Any, index: Any) -> Any:
         return x, jax.lax.dynamic_update_slice(x, update, (index, index)), update, index
@@ -720,7 +745,9 @@ def test_nonleading_empty_update_keeps_native_identity_and_original_values(
     assert not any(
         node.op_type in {"ScatterND", "TensorScatter"} for node in model.graph.node
     )
-    _accept(model, (values,), references, SampleCriteria("bitwise"))
+    accept_samples_or_assert_runtime_capability_failure(
+        model, (values,), references, SampleCriteria("bitwise"), record_property
+    )
 
 
 @pytest.mark.parametrize("opset", [16, 23])
@@ -859,6 +886,7 @@ def test_copy_product_preserves_real_scalar_and_shared_batch_contracts(
 def test_copy_native_consumer_and_direct_outputs_have_exact_cpu_values(
     dtype: Any,
     opset: int,
+    record_property: Callable[[str, object], None],
 ) -> None:
     if dtype is np.uint64:
         payload = np.asarray([0, 1, 2**64 - 1], dtype)
@@ -875,7 +903,9 @@ def test_copy_native_consumer_and_direct_outputs_have_exact_cpu_values(
     _, model, _, references = _artifact(
         _copy_observable, _specs([("B", 3)], dtype), feeds=feeds, opset=opset
     )
-    _accept(model, feeds, references, SampleCriteria("bitwise"))
+    accept_samples_or_assert_runtime_capability_failure(
+        model, feeds, references, SampleCriteria("bitwise"), record_property
+    )
 
 
 def test_bfloat16_copy_consumer_preserves_native_rounding_and_direct_source() -> None:

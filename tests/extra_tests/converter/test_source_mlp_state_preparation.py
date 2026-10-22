@@ -13,6 +13,12 @@ import numpy as np
 import pytest
 
 from scripts.source_precision_inventory import raw_registrations
+from jax2onnx._compat.jax import selected_prng_key_from_words, selected_prng_key_words
+from jax2onnx._source_state_preparation import (
+    PreparedStatefulCall,
+    prepare_linen_call,
+    prepare_nnx_call,
+)
 from jax2onnx.converter.source_representation import representation_for_aval
 from tests.extra_tests.converter.source_precision_support import (
     _global_source_configuration,
@@ -100,101 +106,53 @@ def test_key_representation_rejects_unselected_native_shape_or_implementation(
 
 @dataclass
 class PreparedMLP:
-    """A caller-declared (x, flag, *words) -> (y, *next_words) computation."""
+    """Retain established MLP selectors on the production whole-call adapter."""
 
     original: Any
     kind: str
-    graphdef: Any
-    fixed: Any
-    rng_tree: Any
-    key_implementations: tuple[str | None, ...]
-    initial_words: tuple[jax.Array, ...]
-    bridge_implementation: str | None
+    prepared: PreparedStatefulCall
+    initial_words: tuple[Any, ...]
 
     @classmethod
     def from_original(cls, original: Any, kind: str) -> "PreparedMLP":
-        module = original if kind == "nnx" else original._model
-        graphdef, rng, fixed = nnx.split(module, nnx.RngState, ...)
-        leaves, tree = jax.tree_util.tree_flatten(rng)
-        implementations = tuple(
-            (
-                str(jax.random.key_impl(value))
-                if jax.dtypes.issubdtype(value.dtype, jax.dtypes.prng_key)
-                else None
-            )
-            for value in leaves
+        if kind not in {"nnx", "linen"}:
+            raise ValueError("Unknown original MLP framework")
+        prepared = (
+            prepare_nnx_call(original)
+            if kind == "nnx"
+            else prepare_linen_call(original)
         )
-        words = tuple(
-            jax.random.key_data(value) if impl is not None else value
-            for value, impl in zip(leaves, implementations, strict=True)
-        )
-        bridge_impl = None
+        words = prepared.initial_words
         if kind == "linen":
-            bridge_impl = str(jax.random.key_impl(original._rngs))
-            words += (jax.random.key_data(original._rngs),)
-        return cls(
-            original, kind, graphdef, fixed, tree, implementations, words, bridge_impl
-        )
+            # Preserve the old helper's explicit fixed caller-key port. It is
+            # bound unchanged for a whole call and returned without advancing.
+            words += (selected_prng_key_words(original._rngs),)
+        return cls(original, kind, prepared, words)
 
-    def _rng_state(self, words: tuple[jax.Array, ...]) -> Any:
-        return jax.tree_util.tree_unflatten(
-            self.rng_tree,
-            [
-                (
-                    jax.random.wrap_key_data(value, impl=impl)
-                    if impl is not None
-                    else value
-                )
-                for value, impl in zip(words, self.key_implementations, strict=True)
-            ],
-        )
-
-    def words_from_model(self, target: Any) -> tuple[jax.Array, ...]:
-        module = target if self.kind == "nnx" else target._model
-        leaves = jax.tree_util.tree_leaves(nnx.state(module, nnx.RngState))
-        words = tuple(
-            jax.random.key_data(value) if impl is not None else value
-            for value, impl in zip(leaves, self.key_implementations, strict=True)
-        )
+    def words_from_model(self, target: Any) -> tuple[Any, ...]:
+        words = self.prepared.words_from_target(target)
         if self.kind == "linen":
-            words += (jax.random.key_data(target._rngs),)
+            words += (selected_prng_key_words(target._rngs),)
         return words
 
     def fresh_original(self) -> Any:
-        rng_words = self.initial_words[: len(self.key_implementations)]
-        model = nnx.merge(
-            self.graphdef, self._rng_state(rng_words), self.fixed, copy=True
-        )
-        if self.kind == "linen":
-            key = jax.random.wrap_key_data(
-                self.initial_words[-1], impl=self.bridge_implementation
-            )
-            return type(self.original)(model, key)
-        return model
+        return self.prepared.fresh_original()
 
-    def _branch(
-        self, flag: bool, x: jax.Array, *words: jax.Array
-    ) -> tuple[jax.Array, ...]:
-        rng_words = words[: len(self.key_implementations)]
-        model = nnx.merge(
-            self.graphdef, self._rng_state(rng_words), self.fixed, copy=True
-        )
-        target = model
-        if self.kind == "linen":
-            key = jax.random.wrap_key_data(words[-1], impl=self.bridge_implementation)
-            target = type(self.original)(model, key)
-        y = target(x, deterministic=flag)
-        return (y, *self.words_from_model(target))
+    def _branch(self, flag: bool, x: Any, *words: Any) -> tuple[Any, ...]:
+        if self.kind == "nnx":
+            return self.prepared.concrete(flag, x, *words)
+        key = selected_prng_key_from_words(words[-1])
+        bound = type(self.original)(self.original._model, key)
+        prepared = prepare_linen_call(bound)
+        return (*prepared.concrete(flag, x, *words[:-1]), words[-1])
 
-    def __call__(
-        self, x: jax.Array, deterministic: jax.Array, *words: jax.Array
-    ) -> tuple[jax.Array, ...]:
-        return jax.lax.cond(
-            deterministic,
-            lambda args: self._branch(True, *args),
-            lambda args: self._branch(False, *args),
-            (x, *words),
-        )
+    def __call__(self, x: Any, deterministic: Any, *words: Any) -> tuple[Any, ...]:
+        if self.kind == "nnx":
+            return self.prepared(x, deterministic, *words)
+        key = selected_prng_key_from_words(words[-1])
+        bound = type(self.original)(self.original._model, key)
+        prepared = prepare_linen_call(bound)
+        return (*prepared(x, deterministic, *words[:-1]), words[-1])
 
 
 @pytest.mark.parametrize("kind", ["nnx", "linen"])

@@ -57,7 +57,7 @@ class NativeShapeContract:
 
 
 def native_shape_contract(shape: Sequence[object]) -> NativeShapeContract:
-    """Decode native static extents or one actual atomic B at any rank-1–4 axis."""
+    """Decode native static extents or one actual atomic B at its exact axis."""
     normalized: list[int | str] = []
     symbol: tuple[str, object] | None = None
     symbol_axis: int | None = None
@@ -67,10 +67,8 @@ def native_shape_contract(shape: Sequence[object]) -> NativeShapeContract:
                 raise ValueError("requires nonnegative static extents")
             normalized.append(int(dim))
             continue
-        if symbol is not None or len(shape) not in (1, 2, 3, 4):
-            raise ValueError(
-                "requires at most one atomic native B in rank-one through rank-four tensors"
-            )
+        if symbol is not None:
+            raise ValueError("requires at most one actual atomic native B per tensor")
         label, scope = atomic_symbolic_dimension(dim)
         if scope is None:
             raise ValueError("requires an actual native symbolic scope")
@@ -99,7 +97,7 @@ def validate_native_shapes(shapes: Sequence[Sequence[object]]) -> object | None:
 def source_shape_contract(
     shape: Sequence[object],
 ) -> tuple[tuple[int | str, ...], tuple[str, object | None] | None]:
-    """Admit static extents or the finite leading shared-batch declaration."""
+    """Admit static extents or one leading atomic B with positive static tails."""
     dims = tuple(shape)
     static = all(
         isinstance(dim, (int, np.integer)) and not isinstance(dim, bool) and dim >= 0
@@ -108,10 +106,10 @@ def source_shape_contract(
     if static:
         return normalized_shape_dimensions(dims), None
     requirement = (
-        "static nonnegative integer dimensions or rank-one through rank-four shapes "
+        "static nonnegative integer dimensions or shapes "
         "with one atomic leading batch variable and positive static tails"
     )
-    if len(dims) not in (1, 2, 3, 4) or any(
+    if any(
         isinstance(dim, bool) or not isinstance(dim, (int, np.integer)) or dim <= 0
         for dim in dims[1:]
     ):

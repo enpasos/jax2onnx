@@ -438,6 +438,7 @@ def _lower(eqn: Any, values: Any, output: Any, *, forbidden: bool = False) -> An
         return output
 
     context = SimpleNamespace(
+        deployment_target=None,
         builder=SimpleNamespace(opset=23, op=op),
         require_value_for_var=lambda var: values[eqn.invars.index(var)],
         allocate_value_for_var=allocate,

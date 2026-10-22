@@ -49,7 +49,7 @@ LINEAR_SOURCE_SHA256: Final = (
 LINEAR_ORACLE_VERSION: Final = "leading-b-linear-source-counterpart-v1"
 GATHER_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/gather.py"
 GATHER_SOURCE_SHA256: Final = (
-    "2f611cd91778d3bd4ae89b84deef90773baf52ceeafcc1cd5b2178d2c0d903e2"
+    "b999da7239abf9dff0d1e19df611f3a79ad9434da5f2c7547091a00f2a68f907"
 )
 GATHER_ORACLE_VERSION: Final = "gather-trig-native-copy-source-counterpart-v2"
 # Complete original native traces, including index normalization and Where JIT.
@@ -2114,18 +2114,51 @@ class _NormalizationExpressions:
                 )
             base = self.take(arms[0], "Max", 2)
             self.attributes(base, set())
-            correction = self.take(arms[1], "Add", 2)
-            self.attributes(correction, set())
+            correction = self.take(arms[1], "Gather", 2)
+            if self.attributes(correction, {"axis"}) != {"axis": 0}:
+                raise ValueError("Max zero-table Gather axis differs")
             if self.types[base.output[0]] != (dtype, shape) or self.types[
                 correction.output[0]
             ] != (dtype, shape):
                 raise ValueError(
                     "Max correction does not retain exact source/result dtype/shape"
                 )
-            if tuple(base.input) != tuple(correction.input):
+            if self.types[correction.input[0]] != (dtype, (2,)) or self.expression(
+                correction.input[0]
+            ) != self.constant(np.asarray([0.0, -0.0], dtype=dtype)):
                 raise ValueError(
-                    "Max zero correction operands differ from the consumed Max"
+                    "Max zero table must retain exact original typed words"
                 )
+            sign_cast = self.take(correction.input[1], "Cast", 1)
+            if self.attributes(sign_cast, {"to"}) != {"to": onnx.TensorProto.INT64}:
+                raise ValueError("Max zero-table index Cast must be exact INT64")
+            sign = self.take(sign_cast.input[0], "And", 2)
+            self.attributes(sign, set())
+            if self.types[sign_cast.output[0]] != ("int64", shape) or self.types[
+                sign.output[0]
+            ] != ("bool", shape):
+                raise ValueError("Max zero sign/index dtype/shape differs")
+            for condition, operand in zip(sign.input, base.input, strict=True):
+                less = self.take(condition, "Less", 2)
+                self.attributes(less, set())
+                reciprocal = self.take(less.input[0], "Reciprocal", 1)
+                self.attributes(reciprocal, set())
+                operand_shape = self.types[operand][1]
+                if (
+                    reciprocal.input[0] != operand
+                    or self.types[operand][0] != dtype
+                    or self.types[reciprocal.output[0]] != (dtype, operand_shape)
+                    or self.types[less.output[0]] != ("bool", operand_shape)
+                ):
+                    raise ValueError(
+                        "Max zero correction operands/types differ from consumed Max"
+                    )
+                if self.expression(less.input[1]) != self.constant(
+                    np.asarray(0, dtype=dtype)
+                ):
+                    raise ValueError(
+                        "Max sign comparison requires original positive zero"
+                    )
             tie = self.take(cast.input[0], "And", 2)
             self.attributes(tie, set())
             if self.types[tie.output[0]] != ("bool", shape):

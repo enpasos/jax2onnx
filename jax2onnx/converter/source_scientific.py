@@ -200,7 +200,7 @@ def validate_scatter_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) 
             "the exact native strong scalar add/multiply body in the original data dtype",
             category="lowering-defect",
         )
-        _validate_scope(reducer, site.opset, ancestors)
+        _validate_scope(reducer, site.opset, ancestors, site.deployment_target)
     validate_native_results(
         eqn,
         site,
@@ -263,7 +263,7 @@ def validate_remat_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) ->
         category="lowering-defect",
     )
     try:
-        _validate_scope(body, site.opset, ancestors)
+        _validate_scope(body, site.opset, ancestors, site.deployment_target)
     except SourcePrecisionError as exc:
         raise exc.with_context(f"{site.location}/remat2 forward") from exc
     validate_native_results(

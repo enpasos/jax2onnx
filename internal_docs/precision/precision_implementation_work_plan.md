@@ -1,340 +1,63 @@
-# Source Precision Implementation Work Plan
+# Computation Precision Implementation Work Plan
 
-Status: updated 2026-10-22; **NATIVE WRAPPER PRETYPING FOCUSED 441/437/437 PASS;
-CURRENT PRODUCTION TYPING/RNG, SECONDARY/DIRECTMIN 919 EACH AND FULL PRIMARY 12,762 PASS;
-DOCUMENTATION, NORMAL HOOKS AND CURRENT COMMIT PENDING; FULL B–F OPEN**.
+Status: accepted complete B–F plan, updated 2026-10-22. One normal export must
+preserve the selected JAX computation across all existing functionality and
+fixed supplied sources, with no permanent selector, fallback or capability loss.
+Only demonstrated ONNX representation and actual target limits restrict support.
 
-## Native transformed-callable checkpoint
+## Current implementation and next gates
 
-The local replay boundary retains original native vmap/traceback functions,
-canonical imported safe_zip bindings and source-state aliases. Each selected
-operation restores exact caller axis local/effective state, including unset,
-while preserving actual return/error/export/callback outcomes and separate
-context gaps. Historical pretyping focused runs pass 441 PRIMARY and 437 each
-on SECONDARY/MINIMUM; the later typing-only source passes actual 559-file mypy
-and completes the 17-factory RNG inventory. Both typed-source 15-owner affected
-selections pass 919 cases each on SECONDARY and DIRECTMIN, zero failures/errors/
-skips. The current full PRIMARY suite passes 12,762 unique cases, zero failures/
-errors/skips, retaining all 12,600 prior IDs and adding 162 wrapper cases. Both
-919-case selections occur in full PRIMARY and all 1,109 source pins hold.
-Current documentation, normal-hook and commit gates remain pending. The
-[canonical wrapper record](poc/source_integration_findings.md#native-transformed-callable-capture)
-keeps those source epochs separate.
+The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
+exact source/stack results. `fe214590` remains the completed checkpoint; later
+three-stack directed results include unchanged repeated Function/If and exact
+Constant origins. BF16 portable word semantics and strict native NaN failures
+remain separate. Public behavior remains LEGACY; no new closeout is claimed.
 
-Original MLP2 source/export checks now validate under both caller x64 states
-on all three stacks; original callbacks remain FAILED, criteria None and
-numeric skipping true, with runtime/numerics UNVERIFIED. The accepted four-cell
-MLP0/1 source-only context capture is bound to earlier b945a957 bytes. It does
-not authorize current numerical execution; fresh source/context correspondence
-and separate numerical-harness qualification remain required under R2.
-Public precision policy/options/defaults remain LEGACY.
+1. Retain the actual b90 331-case joint pass, including all 44 new live-branch
+   controls, full unchanged Transformer 52 and repeated Function/If 2. The proof
+   preserves original Cast bytes/artifacts, final precision equality, both
+   endpoint partitions and exact downstream redirects. Prior failed epochs
+   remain intact. Current 9134 adds only the reviewed typing annotations/local
+   rename; fresh typing/RNG and both scoped 279-case SECONDARY/DIRECTMIN
+   selections pass.
+   The terminal full suite remains a b90 result; no 9134 full rerun is claimed.
+2. Retain the terminal FAILED result of the same ordinary PRIMARY full suite
+   and the exact canonical failure ledger. All 54 actual model/state runs plus 2
+   singleton guards pass (44 state+10 native model runs+2 controls); the remaining
+   failures are unresolved and unwaived. No full-suite acceptance is claimed. Do not inherit
+   the historical 19 passes or turn the 37 earlier unfinished cases into current
+   results. Qualify affected supported
+   stacks, direct minima, current typing/RNG and actual schema/runtime outcomes.
+3. Refresh the complete current inventory and map without changing the
+   1,852-row/3,704-caller denominator: all 22 original owners, 50 optional rows and
+   104 registrations without metadata remain obligations. Keep earlier maps
+   and failed receipts in their own epochs.
+4. Complete general fixed-source preparation, scientific FP64/low-precision
+   evidence and all remaining B–F operator/scope/option/model/state gates.
+   Define prepared computations and independent native references explicitly;
+   sample success or implementation exclusions do not reduce the user’s goal.
+   The after-checkpoint audit keeps four packets: full 3,704-cell map/discovery;
+   measured gaps plus 63 opaque/104 metadata-free/752 original manual accounting;
+   complete fixed-source/numerical/installed preparation; coordinated ordinary
+   export/allclose/browser/generator cutover. A standard full suite alone does
+   not complete these implementation and qualification obligations.
+5. Distinguish preservation from acceptance. An explicitly unfinished LOCAL WIP
+   commit may preserve reviewed changes with real failures recorded after the
+   relevant actual checks, strict docs/links, all seven normal hooks and final
+   staged-byte review. It need not repair every current full-suite failure or
+   require another broad full run first. Keep the fixture/expectation candidates
+   external/unapplied in this WIP. An accepted/green checkpoint still needs its
+   complete current qualification; full B–F completion and public cutover need
+   the complete uniform source-preserving acceptance matrix. No green milestone,
+   release or completion follows from preservation. Record actual relevant check,
+   strict-docs, normal-hook and staged-review outcomes in the normal commit body.
 
-## Retained storage-v3 qualification
+<a id="current-binding-minimum-version-obligation"></a>
 
-The preceding storage-v3 checkpoint preserves original Dropout/static uniform, literal
-branch outputs, logical-key reports and replay owner lifetime. The shared file
-serializer also corrects ordinary public LEGACY exports: Function tensor
-attributes remain inline and root initializers may remain external across
-ONNX versions, preserving exact payloads. Public precision policy/options/
-defaults remain LEGACY; all existing functionality and fixed sources stay in
-scope. The [canonical record](poc/source_integration_findings.md#native-equinox-dropout-and-shared-static-uniform)
-binds every source epoch, retained failure and remaining gate.
-
-Current storage-v3 sources have 13 Python paths/1,108 held inputs. The same five
-storage cases pass on MINIMUM and PRIMARY; seven direct quality checks pass,
-including 559-file typing/RNG inventory, pinned Black, Ruff and four policies.
-All 26 affected owners pass 1,752 supported minimum cases and all 1,813 cases on
-each modern stack. The 61 target-capability cases remain separate requirements;
-this is not full minimum acceptance. The full PRIMARY suite records **12,600 PASS / 0 FAIL / 0 ERROR / 0 SKIP of 12,600 cases**, in 1451.264381 seconds.
-At the qualification cut recorded here (2026-10-21T20:59:01.968117+00:00), strict
-documentation, rendered-link checks, normal commit hooks, staging/qualified-byte
-checks and commit had not yet run. Later closeout evidence is recorded separately.
-The [completed storage-v3 closeout](poc/source_integration_findings.md#storage-v3-local-closeout) records local commit
-`dde196609d` and its completed documentation, seven normal hooks and held-byte gates.
-
-Retain the earlier expanded minimum 1,750-PASS/60-FAIL receipt, its independent
-59-capability/one-storage classification and the unchanged-c686 storage failure.
-Original storage payloads were already exact. The new LEGACY fixtures' v1/v2
-each 4-PASS/one-FAIL occurred before save and were corrected only in tests;
-production UI stayed unchanged through those fixture revisions. Earlier literal
-v2/v3 failures, initial 54-case v4/quality passes, diagnostic 64-call artifacts,
-lifetime six-case three-stack passes and old 680-case modern/failed-minimum receipts retain
-their own source epochs and original criteria.
-
-At that storage-v3 cut, the immutable c686 map retained 87 ordinary terminals/
-one original incomplete/3,616 unstarted, all 1,852 rows/3,704 callers. C686's
-commit and seven actual normal hooks are verified; the storage-v3 normal-hook
-and commit gates were then pending. Its then-future wrapper/context work has
-the separate later results above. Numerical certificates retain the hard R2
-hold and reduce no fixed-source, state/RNG or numerical obligation.
-
-The authorized support floor is **Python >=3.11 / JAX and JAXLIB >=0.10.2 /
-Flax >=0.12.8**. Dependency declarations and both checked lockfiles are applied;
-retained metadata from an unpublished pre-restart wheel declares those bounds.
-Existing locked package versions and Python variants are retained. Python 3.11 remains supported. The
-SECONDARY stack is the exact framework-floor target; its newer ONNX/ORT and
-other dependencies do not establish all-direct-dependency-minimum acceptance.
-ORT 1.24.1 and the other declared bounds are unchanged.
-
-Earlier JAX 0.8.1/Flax 0.12.1 runs retain their actual outcomes as historical
-evidence; they are no longer a supported-floor release gate. This decision
-does not fix numerical/provider gaps or remove any existing model, fixed source
-or numerical requirement from the single-interface migration target.
-
-The preceding platform/eye checkpoint passes **11,685 unique PRIMARY full-suite cases**
-and the same **110 focused identities on all three installed JAX stacks and
-actual ORT 1.24.1**, with zero failures/errors/skips. Strict documentation,
-**269 rendered links across nine docs**, all seven normal hooks and qualified
-committed-byte verification pass. Its failed 104-case epochs remain retained.
-
-The v3 twelve-path generalized-contraction work passed the same **993
-focused identities on all three then-installed JAX stacks**, including **376** new-owner
-cases and all five previously failing IDs. Each earlier three-stack run remains
-**988 PASS / five FAIL of 993**, with zero errors/skips. The corrected named
-checks inspect the actual exported function body and retain original bitwise
-comparisons; the original native evaluator rejects a corrupted result convention.
-The only subsequent production correction uses typed normalized shape locals
-with equivalent runtime behavior. Typing passes on **559 source files**;
-**17 RNG factories** are an inventory count. Pinned Black/Ruff and all four
-policies pass for the v3 source epoch. Phases are **NOT_INSTRUMENTED**. Its
-subsequent full-suite failure, the v4 failures and corrected v5 results are
-recorded below. Its then-pending documentation and normal commit gates were
-subsequently completed at `c686304c`; later packets require their own gates.
-
-The historical coordinator three-cell smoke/resume on immutable `b7eb923a`
-retains three Equinox Linear profile exclusions, original native state/results,
-and the full **1,852-row / 3,704-caller** denominator. It proves bounded execution
-and resume behavior, not a full map or numerical acceptance. The later full
-schedule on immutable `c686304c` has the separately paused status above.
-The [current checkpoint record](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
-binds qualification, retained failures and remaining gates.
-
-The subsequent complete PRIMARY v3 run is **FAILED: 11,992 PASS / 69 FAIL
-of 12,061 unique cases**, zero errors/skips, **691.290155 seconds**. All 11,685
-preceding IDs, all 993 focused IDs and all 1,098 source/config pins were
-retained; the only 376 additions are the generalized-contraction owner.
-Both v4 affected runs also remain **FAILED: 1,419 PASS / 21 FAIL of 1,440**,
-zero errors/skips, with identical IDs and held sources.
-
-The v5 fixture correction retains each intended corruption using a fresh
-native annotation on the same test variable and checks the specific unknown
-physical-dimension error. It introduces no production mutable proxy, inference
-replacement, skip or changed numerical bound. The same **1,443 affected cases
-pass on SECONDARY and PRIMARY**, with zero failures/errors/skips: all 1,440
-previous identities plus the three minimum-installer tests. Sources and Git
-state hold within both runs; all 934 Python inputs still match after the
-separately reviewed lock update.
-
-The completed v5 PRIMARY full run passes **12,061 unique cases**, with zero
-failures, errors or skips, in **660.279726 seconds**. Every earlier v3 full
-identity and all 1,443 affected identities are present. Its 1,098 source/config
-pins matched the held source checkpoint before this five-document status
-update; all 934 Python inputs remain unchanged. This installed
-PRIMARY environment is Python 3.12.9 / JAX and jaxlib 0.12.0 / Flax 0.12.10;
-it is distinct from Poetry's Python 3.12 lock selection.
-
-The original SECONDARY full run was interrupted by the VM restart. Its log
-survives, but no terminal receipt or XML exists, so it has no passing result.
-The new complete SECONDARY run finishes with **12,054 PASS / two SKIP of
-12,056 unique cases**, zero failures/errors, in **1,836.001337 seconds**.
-It uses Python 3.11.12 / JAX and jaxlib 0.10.2 / Flax 0.12.8 and exactly the
-same 1,098 pinned source/config files as PRIMARY. All 1,443 affected identities
-are present and pass. The two skips are the absent optional Keras integration
-and JAX's absent `one_minus_square` primitive. Five PRIMARY-only identities
-are three feature-gated `no_collectives` context cases and two generated
-`one_minus_square` cases; no other identity is missing. These conditional
-cases and skips are explicit limits of this installed-stack result.
-
-The separate fresh Python 3.11 all-direct-minimum lane verifies all fifteen
-runtime dependencies at their declared lower bounds, including ORT 1.24.1.
-Its first actual sixteen-owner CI replay is **FAILED: 464 PASS / one FAIL of
-465 cases**, zero errors/skips: the isolated setup omitted the declared
-`mypy==2.3.1` development tool required by one typing test. This is a test-tool
-setup failure; that guard did not execute its intended typing check. The
-failed result is retained without changing source, criteria or runtime floors.
-After installing the declared tool, the unchanged local sixteen-owner replay
-passes **all 465 unique cases**, zero failures/errors/skips, in **104.421656
-seconds**. It retains exactly the failed epoch's 465 identities and the same
-1,098 original source/config and 960 execution-Python file hashes. This is a
-local replay of the CI selection at all fifteen direct runtime minima, not a
-hosted CI run or complete supported-functionality/B–F acceptance.
-
-The `c686304c` checkpoint's normal hooks, local commit and qualified-byte
-verification are complete. The later applied packet still requires its own
-remaining qualification and final gates stated above. Full existing-
-functionality and B–F acceptance remain separate obligations.
-
-Complete supported-floor and full **B–F** acceptance remain open; public behavior stays **LEGACY**.
-
-## Current binding minimum-version obligation
-
-Qualify the exact **JAX/JAXLIB 0.10.2 / Flax 0.12.8 / Python 3.11**
-framework-floor stack and the supported modern stack before the public
-transition. Keep the all-direct-dependency-minimum environment and unchanged
-ORT 1.24.1 requirements distinct from framework-floor evidence.
-
-Central native PRNG, aval/equation-context, all **21/22 recorded JIT fields**,
-scan and typed-carrier ownership remain essential. Historical compatibility
-helpers and controls are retained; the floor decision alone does not justify
-deleting them. Common SOURCE features may proceed with focused qualification
-on both supported framework stacks, while full existing functionality, fixed
-sources, meaningful rejection/restoration controls and numerical requirements
-remain binding. No permanent public selector, per-operation legacy fallback
-or numerical-policy waiver is authorized.
-
-The immediate gates are:
-
-1. Preserve the original wrapper/source objects, state/RNG, safe_zip aliases and
-   exact caller context. Keep the 441/437/437 pretyping focused passes historical;
-   the current typing-only source has its own 559-file mypy/17-factory inventory
-   pass. Preserve the final typed-source 15-owner SECONDARY/DIRECTMIN 919 each
-   and full PRIMARY 12,762 passes, including all 12,600 prior IDs and 162 wrapper
-   additions, retaining every failed epoch and exact test identity. These
-   regression passes do not complete full B–F or model numerical acceptance.
-2. Complete current strict docs/rendered-link checks, all seven actual normal
-   commit hooks, independent review and qualified/staged-byte/local-commit
-   verification. Earlier storage-v3 direct quality/full passes and prior hooks
-   do not substitute for the current checkpoint's gates.
-3. Continue the immutable c686 1,852-row/3,704-caller map from 98 ordinary
-   terminals, one original incomplete and 3,605 unstarted. Preserve all attempts
-   and the explicit incomplete retry procedure. These old-source product
-   observations do not qualify current MAIN runtime/numerics.
-4. Keep the original failed MLP0/1/2 callbacks and raw `criteria=None`.
-   Preserve per-row metadata: MLP0/2 explicitly set `skip_numeric_validation=True`;
-   MLP1 omits the flag, retaining its default false. Artifact-only raw replay
-   executes no ORT and leaves runtime/numerics UNVERIFIED for all three rows.
-   The accepted four-cell source-only v4 epoch binds earlier b945a957 sources only. Before numerical execution, refresh correspondence to current
-   wrapper sources and independently qualify the exact numerical harness under
-   the retained R2 hold. Source-only acceptance is not a current execution grant.
-5. Complete original callbacks/criteria, all 50 optional rows, 104 metadata-free
-   registrations, general fixed-source preparation and supported-floor,
-   scientific-FP64 and low-precision obligations before the full B–F/public
-   transition. Preserve one ordinary export contract over all existing
-   functionality, without a permanent selector, per-operation fallback or
-   capability loss. LEGACY remains.
-
-## Historical committed checkpoint context
-
-The following paragraphs retain their original committed-checkpoint scopes.
-Their then-current stacks, support floors and next-packet wording are historical;
-the authorized current policy and qualification obligations are stated above.
-
-The bounded canonical native capture adapter is committed at `98ace5f9`, with
-**859 cases / 2,577 phases on each installed stack**, including 207 capture controls and all 652 retained
-affected cases. Its exact original 17-row replay covers **34 caller cells per
-stack**: 30 native-valid cases, four original native failures, zero capture
-gaps, ten artifact/callback passes and 20 SOURCE profile exclusions. Original
-sources, feeds, options, opset 23 and `criteria=None` are unchanged. These replays
-run no ONNX Runtime and leave runtime/numerics **UNVERIFIED**. Earlier failed
-test epochs and native failures remain in the
-[canonical capture record](poc/source_integration_findings.md#canonical-native-capture-checkpoint).
-The complete PRIMARY suite passes **11,322 cases / 33,966 phases**, zero
-failures/errors/skips, retaining all 11,115 prior passing IDs and adding 207.
-Quality and all seven normal code hooks pass; all **945 Python / 164 other
-inputs** retain their qualified contents through commit.
-
-The private shared native result check is committed at `00d0a43c`, with
-**627 cases / 1,881 phases on each supported stack**, the complete PRIMARY
-suite's **11,115 cases / 33,345 phases**, zero failures/errors/skips, and all
-seven normal code hooks passing. It checks existing scan/while/scatter/remat
-owners against frozen native evaluators, strict result metadata and the recorded
-native context. Owner-specific parameter, body and lowering checks remain
-essential. This refactor grants no new SOURCE admission, numerical/provider
-guarantee or public capability. This helper is qualified only on the installed
-JAX 0.10.2/0.11.2 stacks; the later minimum-version import failure and repair
-obligations are recorded above. The [shared native result contract checkpoint](poc/source_integration_findings.md#shared-native-result-contract-checkpoint)
-retains the failed quality epochs, accepted corrections and actual receipts.
-Public behavior remains **LEGACY** and full B–F acceptance remains open.
-
-Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
-finite native/CPU qualification for static shapes at opsets 23/26. It retains
-declared pair storage and JAX's chosen width. The [latest checkpoint](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)
-separates those samples from the partial initial raw map and the **FAILED**
-ordering-kernel diagnostics. Public behavior remains **LEGACY**; all existing
-functionality, fixed sources and full B–F acceptance remain open.
-
-The preceding private [CNN, pooling, scientific FP64 and raw-replay checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
-is committed at **`118ddd8b`** after independent finite-checkpoint acceptance,
-corrected dual-stack checks, the complete PRIMARY suite and all seven normal
-code hooks. It retains the unchanged full-CNN nonzero comparison, native pooling
-and selected scientific FP64 at opset 21. The raw lane's 49 maintained controls
-do not run the full 1,852-row / 3,704-caller map. Public behavior stays **LEGACY**;
-the full B–F migration remains open.
-
-The preceding explicit FP64 Linear code checkpoint is `b2a866bb`. Its strict
-documentation build passed, and its eight-document update is committed at
-`97929998`. The canonical findings retain its original runtime and failed epochs.
-
-The integrated private elementary/reduction selection passes **183 cases /
-549 phases per supported stack**, zero test failures/errors/skips, with
-independent review of actual source, artifacts and saved comparisons. This is
-finite implementation evidence: eight original Sign numerical reports remain
-**FAILED**, 44 original composition artifacts remain numerically **UNVERIFIED**,
-and both Gather raw graph callbacks remain **FAILED** while their separate
-finite numerical predicates pass. The [canonical checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
-binds the scope, new Asin controls and retained failed epochs.
-
-The preceding accepted local code checkpoint **`11748451`** is committed. Its
-complete PRIMARY suite
-passes **10,237 cases / 30,711 phases**, and the focused selection passes
-**1,937 cases / 5,811 phases on each supported stack**, with zero test
-failures/errors/skips in those executions. All seven normal code hooks pass;
-86 committed Python paths (63 production and 23 test/support) match the qualified
-bytes, all **923 Python / 163 other input pins** hold through hooks and commit,
-and the worktree is clean at commit verification. The focused and full results
-have independent finite-checkpoint acceptance. These results retain the separate
-failed numerical gates; they do not complete the precision migration.
-
-The native loop checkpoint **`c033d301`** is committed after independent
-acceptance. **477 cases / 1,431 phases per stack** and the complete PRIMARY
-suite's **10,395 cases / 31,185 phases** pass, with zero failures/errors/skips.
-All seven normal code hooks pass; all 1,088 source/input files hold through
-commit, whose seven paths match the qualified bytes. The
-[latest checkpoint](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples) retains both failed focused epochs and the exact
-finite admission scope.
-
-All eight saved artifacts across the original six normalized014/015 selectors
-now have independent bounded structural and finite target-sample acceptance on
-both stacks: **384 returns / 16 sessions per stack**, retaining all source,
-weights, state, flags and criteria distinctions. Their frozen 117-derived
-snapshot is separate from current MAIN. Six raw callbacks per stack remain
-FAILED, two PASSED; stored export reports stay UNVERIFIED. The PRIMARY exit99
-and missing final origins remain history; later saved-computation/structure and
-target reviews have their own acceptance. The [latest canonical record](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration) binds these scopes.
-
-The native FP32 Conv and Scan physical-metadata checkpoint is committed at
-**`3223d080`** after independent finite acceptance. The earlier failed focused
-epochs remain, with actual SECONDARY totals corrected for three legacy runtime-fusion skips. Latest PRIMARY passes 687 cases;
-SECONDARY has 684 PASS / three unchanged legacy SKIP, pytest zero and strict
-wrapper exit 99. All 586 converter-selection cases pass on each stack; assertions
-after those legacy skips did not execute. The reviewed fixture correction
-retains controls and production bytes. Production typing on 551 files, 17 RNG factory report
-entries, and fixture style/AST checks pass. The complete PRIMARY suite passes
-**10,504 cases / 31,512 phases**, with zero failures/errors/skips and all 1,091
-source/input files held. All seven normal code hooks pass, and the worktree is
-clean at commit verification. The later explicit FP64 Linear checkpoint is
-committed at `b2a866bb`, with documentation at `97929998`.
-
-The current CNN/pooling, nonzero finite-sample, scientific FP64 and raw replay
-work is committed at `118ddd8b` after its corrected focused/full and commit
-gates; see the
-[canonical current record](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint). Preserve the full original CNN and its eight
-parameter arrays, native weak-pool conversion before Div, and the original
-Issue52 NPZ/inputs, opset 21 and rtol=1e-5 / atol=1e-6. The CNN's separate a priori
-predicate covers its recorded samples; opaque provider algorithms remain
-**UNVERIFIED**. A passing subnormal diagnostic retains the native-bitwise sample
-as **FAILED** and its raising acceptance guard. Raw callbacks and `criteria=None`
-remain unchanged. Run the full 1,852-row / 3,704-caller map after this checkpoint;
-49 maintained lane controls do not supply that map.
-
-Keep all 51 raw loop rows, remaining normalization graph contracts,
-whole-carrier MLIR, general fixed-source preparation, optional models,
-FP16/BF16 rounding and scientific FP64 open under the full B–F gates. Strict
-Erfc full/native comparisons, eight original Sign reports per stack and original
-Gather callbacks remain failed; 22 original compositions / 44 artifacts remain
-numerically unverified with comparison criteria still open. Production FTZ/runtime policy and criteria are unchanged. Public
-behavior stays **LEGACY**, with no profile-limited finish or permanent mixed
-public precision interface.
+The exact framework floor remains Python 3.11/JAX and JAXLIB 0.10.2/Flax 0.12.8;
+all-direct-minimum ORT 1.24.1 evidence is separate. Native PRNG, equation/context,
+JIT/scan schemas and typed-carrier guards remain essential. The following
+completion contract and phase matrix retain their full acceptance scope.
 
 ## Completion contract
 

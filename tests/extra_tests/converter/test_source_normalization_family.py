@@ -1093,15 +1093,15 @@ def _consumer_structure(
     assert len(root_imports) == len(model.opset_import)
     assert len(imports) == len(function.opset_import)
     assert root_imports.get("") == imports.get("") == 23
-    # Function construction retains its own unused domain import at version23;
-    # the root calls this actual custom Function at version1. An unused local
-    # import does not change that call-site resolution.
+    # Function construction retains an unused self-domain import at the
+    # standard opset version, or version1 with IR 1.1. The root still resolves
+    # the actual custom Function call through its own import.
     definitions = {(item.domain, item.name) for item in model.functions}
     used_domains = {node.domain for node in function.node}
     assert set(imports) <= {"", function.domain} | used_domains
     for domain, version in imports.items():
         if domain and domain not in used_domains:
-            assert domain == function.domain and version == 23
+            assert domain == function.domain and version in (1, imports[""])
             assert root_imports.get(domain, 0) > 0
         else:
             assert version == root_imports.get(domain)

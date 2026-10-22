@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -59,6 +60,30 @@ def _const_scalar_of_dtype(
     dtype: np.dtype[Any],
 ) -> ir.Value:
     return ctx.bind_const_for_var(object(), np.asarray(value, dtype=dtype))
+
+
+def _source_int32_range_extent(ctx: LoweringContextProtocol, eqn: Any) -> int | None:
+    """Use Range11 INT32 only while its FP32 length calculation is exact."""
+    if ctx.precision_policy is not PrecisionPolicy.SOURCE:
+        return None
+    if np.dtype(eqn.params["dtype"]) != np.dtype(np.int32):
+        return None
+    shape = eqn.params.get("shape")
+    dimension = eqn.params.get("dimension")
+    if (
+        type(shape) is not tuple
+        or type(dimension) is not int
+        or not 0 <= dimension < len(shape)
+    ):
+        return None
+    extent = shape[dimension]
+    if (
+        isinstance(extent, (int, np.integer))
+        and not isinstance(extent, (bool, np.bool_))
+        and 0 <= extent <= (1 << 24)
+    ):
+        return int(extent)
+    return None
 
 
 @register_native_primitive(
@@ -172,6 +197,9 @@ class IotaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.iota`` (and broadcasted variants) with pure IR ops."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if _source_int32_range_extent(ctx, eqn) is not None:
+            self._lower_source_int32_range(ctx, eqn)
+            return
         builder = ctx.builder
 
         params = eqn.params
@@ -320,3 +348,45 @@ class IotaPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(identity_out, tuple(shape))
             _ensure_value_metadata(ctx, identity_out)
             ctx.bind_value_for_var(out_var, identity_out)
+
+    def _lower_source_int32_range(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        from jax2onnx.converter.source_profile import _Site, _tensor, _validate_iota
+
+        site = _Site("native INT32 iota emission", ctx.opset, eqn.primitive.name)
+        site.require(
+            eqn.primitive is jax.lax.iota_p and not eqn.effects,
+            "INT32 iota emission needs the pure native primitive",
+            "the existing canonical native iota contract",
+            category="lowering-defect",
+        )
+        _validate_iota(eqn, [_tensor(v, site) for v in eqn.outvars], site)
+        shape = tuple(eqn.params["shape"])
+        dimension = eqn.params["dimension"]
+        extent = _source_int32_range_extent(ctx, eqn)
+        if extent is None:
+            raise ValueError(
+                "SOURCE INT32 Range requires its exact native extent proof"
+            )
+        start = _const_scalar_of_dtype(ctx, 0, np.dtype(np.int32))
+        limit = _const_scalar_of_dtype(ctx, extent, np.dtype(np.int32))
+        delta = _const_scalar_of_dtype(ctx, 1, np.dtype(np.int32))
+        value = ctx.builder.op("Range", [start, limit, delta])
+        value.type = ir.TensorType(ir.DataType.INT32)
+        _stamp_type_and_shape(value, (extent,))
+        _ensure_value_metadata(ctx, value)
+        if len(shape) > 1:
+            axes = _const_i64(
+                ctx, [i for i in range(len(shape)) if i != dimension], "iota_unsq_axes"
+            )
+            value = ctx.builder.op("Unsqueeze", [value, axes])
+            value.type = ir.TensorType(ir.DataType.INT32)
+            _stamp_type_and_shape(
+                value, tuple(extent if i == dimension else 1 for i in range(len(shape)))
+            )
+            _ensure_value_metadata(ctx, value)
+            target_shape = _lower_i64_vector(ctx, shape, "iota_expand_shape")
+            value = ctx.builder.op("Expand", [value, target_shape])
+            value.type = ir.TensorType(ir.DataType.INT32)
+            _stamp_type_and_shape(value, shape)
+            _ensure_value_metadata(ctx, value)
+        ctx.bind_value_for_var(eqn.outvars[0], value)

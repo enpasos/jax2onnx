@@ -1,156 +1,56 @@
 # Computation Precision Migration Plan: User View
 
-Status: accepted plan for the complete precision transition, updated 2026-10-20.
-The completed normal `to_onnx(...)` call will preserve the JAX computation
-through one consistent rule across the existing functionality and fixed
-third-party sources. There will be no permanent public mode/profile selector
-or loss of existing capabilities.
+Status: accepted plan for the complete transition, updated 2026-10-22. The final
+normal `to_onnx(...)` call preserves the selected JAX computation through one
+consistent rule across all existing functionality and fixed supplied sources,
+without a permanent selector or capability loss.
 
-Public behavior and the current `enable_double_precision` argument remain
-unchanged while private work preserves more selected calculations at the
-precision chosen by the model and JAX configuration.
-Complete-model, low-precision and target acceptance remain unfinished. The
-[technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
-records exact results and remaining diagnostics; the
-[implementation work plan](precision_implementation_work_plan.md) defines the
-full coverage gates. No release or deadline is promised.
+Public behavior and `enable_double_precision` remain unchanged. Private results
+now include the same repeated nested-Function recipe on three stacks and
+portable BF16 word checks. Strict native NaN failures remain explicit.
+The latest shared repair passes the complete Transformer example under its
+original comparisons. The b90 full suite is terminal and failed; all 54 model/state
+runs plus 2 guard controls pass, while the other failures remain unresolved in
+the technical ledger. A local
+WIP commit would preserve unfinished work without accepting the migration.
+Current code adds only a reviewed typing correction; fresh typing/RNG passes
+and both scoped older-runtime selections pass.
+This progress does not
+complete the full inventory, fixed-source and numerical workflows or public
+transition. The [current snapshot](precision_current_state_user_view.md#local-branch-snapshot)
+and [technical ledger](poc/source_integration_findings.md#current-checkpoint)
+own exact evidence, preserved historical results and remaining gates.
 
-Private checks now preserve same-width complex64 and complex128 addition,
-including captured values and calls through named functions. Complex128 still
-requires JAX x64 before tracing; export does not enable it or recover narrowed
-values. Other complex arithmetic and mixed widths still need implementation.
-
-Ordering diagnostics retain failed comparisons for ties, NaNs and subnormals;
-some native results also fail exact association with their original input.
-These limits do not change the public export call. See the
-[latest technical checkpoint](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)
-for the supported samples and retained failures. Full coverage, fixed-source
-workflows and the public transition remain open.
-
-Selected loop state, runtime flags and empty outputs have private export
-coverage. All six selected original source configurations now pass their frozen
-saved-artifact CPU comparisons on both supported stacks. These results retain
-their original structural verdicts and apply to the saved source snapshot.
-The finite convolution checkpoint is committed, and one unchanged masked FP64
-example also passes saved-artifact CPU comparisons against its saved PRIMARY
-JAX references on both runtime stacks. Explicit FP64 Linear preparation now has
-finite native and CPU comparisons.
-
-Private comparisons now cover the unchanged original CNN, including native
-pooling and its original nonzero inputs, and selected scientific FP64 examples.
-They preserve JAX's chosen types, including a native FP32 pool sum followed by
-an FP64 conversion where JAX requires it. The fixed CNN error bound applies to
-the recorded samples; a general guarantee for provider kernels remains
-**UNVERIFIED**.
-
-Exact operand selection for the recorded Min/Max subnormals does not establish
-bitwise equality with native JAX: that criterion remains **FAILED**, even when
-a diagnostic correctly detects it. Full coverage and fixed-source workflows
-still need acceptance before the public transition. See the
-[technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
-for exact results, retained failures and remaining work.
-
-The private implementation now preserves an original full Linear model
-configured explicitly for FP64 arithmetic, with either retained parameter storage or an explicit
-conversion of its stored values to FP64. The original model source, complete
-weights, options and state remain available. The caller enables JAX x64 before
-preparation; export does not globally rewrite the computation. These finite
-checks do not provide a public preparation API or general scientific FP64
-support, and widening existing FP32 weights cannot recover lost precision.
-
-This document explains how someone exporting models would prepare for and
-evaluate the transition. See the [document guide](README.md),
-[current behavior](precision_current_state_user_view.md), and
-[proposed target behavior](precision_target_state_user_view.md). The
-[technical migration plan](precision_migration_plan.md) describes the underlying
-work and acceptance criteria.
+The plan below describes the completed experience independently of checkpoints.
+Precision choices stay in model configuration, explicit source/preparation and
+JAX settings; numerical acceptance stays tied to the actual target and supplied
+comparisons. Only demonstrated ONNX or target limits constrain support. Missing
+implementation remains work to complete. The implementation plan retains the
+full scope; no release or deadline is promised.
 
 ## What would change, and when
 
-PR #275 has repaired selected cases where explicit FP32 values feed consumers
-under the existing double-precision rules. Existing export options, including
-`enable_double_precision`, retain their meanings. This is a bounded fix, not
-general support for every operation or runtime at every dtype.
+The transition makes the model's intended arithmetic the ordinary export rule.
+Existing public options retain their meanings until the complete migration is
+qualified. Selected samples demonstrate why the change needs explicit guidance:
 
-The [experiments](poc/README.md) give practical reasons to keep the
-transition explicit:
-
-| What was observed | What must happen before relying on the proposed behavior |
+| Observed behavior | Consequence for migration |
 | --- | --- |
-| After an FP64 input `1e8`, deliberate FP32 arithmetic returns `0` in JAX and the source experiment, while legacy double export returns `1` in FP64. | Explain this expected contract change and compare application results with the intended JAX model as well as the previous artifact. |
-| Public matrix export loses a requested FP32 result; the bounded private source lowering now retains it. A separate FP16 square/sum example still misses required intermediate rounding. | Keep the successful matrix cases and the rejected square/sum sample separate. Validate result types and rounding on the actual target. |
-| Complete source exports of the selected FP64 variance calculation now succeed inline, in a named function, and in a conditional. | Retain these regression cases while extending normalization coverage and checking the intended deployment. |
-| Source input preparation now preserves weak typing: weak scalar `2048` plus explicit FP16 `1` returns FP16 `2048`; a strong input with the same shape/dtype returns FP32 or FP64 `2049`. | Keep the original input properties in comparisons. The source correction has regression coverage on both stacks; public legacy normalization retains its observed behavior. |
-| Selected mixed FP64/FP32 calculations survive serialization inside a named function and either branch of a conditional. | Retain these bounded source/legacy checks while completing other scopes, operations, and deployment evidence. |
-| Local JAX x64 and matrix-precision settings survive named-function boundaries, and cached conditionals no longer mix successive source and legacy exports. | Keep the contextual and sequential-export regressions in the regular suite as supported cases expand. |
+| Deliberate FP32 arithmetic after an FP64 input can differ from legacy widening. | Compare against the intended JAX model and explain expected changes from the previous artifact. |
+| Typed and weak scalar inputs can produce different JAX promotions. | Preserve the actual input properties and tracing configuration. |
+| An artifact can load and run while missing an intermediate rounding requirement. | Validate the supplied numerical criterion on the actual runtime target. |
+| Original models need their real state, runtime flags and complete computation. | Keep those contracts intact; a smaller example or edited source does not establish model support. |
 
-The calling experiment makes omitted/false/true legacy settings,
-source-preserving calls, warnings, and conflicts directly comparable. Its
-private selector is an experiment interface. Positive results cover selected
-CPU samples, including audited named functions and two-branch conditionals.
-Remaining loop/JIT forms, general deployment diagnostics and operation coverage
-remain open beyond the reviewed private loop and Where/JIT cases. BF16 model validity alone does
-not establish execution support. The private CPU sample check records execution
-settings and refuses to accept a failed or untested numerical sample. The known
-FP16 square/sum result remains a failure on the recorded runtimes. Passing the
-tests includes recognizing that failure; it is not a deployment certificate.
+The [current ledger](poc/source_integration_findings.md#current-checkpoint)
+records implemented behavior, finite accepted samples and remaining failures.
+Integer and Boolean comparisons remain exact; floating comparisons retain their
+stated criteria. Missing criteria or execution evidence remain unverified.
+An unfinished implementation remains open work and cannot be treated as a
+technical impossibility.
 
-The first bounded artifact batch is recorded; the next work resolves its measured
-gaps, continues the frozen scenario plan in bounded batches, completes
-unresolved recipes and comparison criteria, and migrates the remaining
-operators, scopes and options. Missing comparison criteria remain unverified;
-they are not silently replaced with exact agreement. Integer and Boolean
-results must remain exact even when floating outputs use a tolerance.
-Runtime failures remain visible under their recorded criteria.
-The first private diagnostic parameter packet carried real named Boolean inputs
-through the complete prepared call, including framework Dropout and local
-Function defaults. An external whole-call `lax.cond` adapter preserves a bounded
-unchanged Python-branch implementation and both runtime choices; static binding
-is appropriate only for an intended fixed setting. Broader model and stochastic
-contracts remain open. Native array-sequence binding is implemented, but recorded
-exact floating-point discrepancies and dynamic `arange` compatibility remain
-unresolved; matching graph types does not establish matching runtime results.
-The [matrix findings](poc/matrix_and_optimizer_findings.md) likewise retain exact
-failures for selected subnormal values. A separate recheck of two original
-matrix scenarios now passes schema checking but still fails the existing
-structural callback; it establishes no new corpus acceptance. Static NCHW
-input/output boundaries and the shared optimizer/naming dependency have passed
-independent review. Eight historical min/max signed-zero observations per stack
-remain failed under their original criteria; new artifacts from the bounded
-lowerer now pass those samples. The opset-21 subnormal diagnostic checks exact
-operand selection while retaining native-bitwise numerical acceptance as
-**FAILED**; its test passing does not establish native-bitwise agreement.
-Subnormal failures and a measured execution-cost increase remain visible.
-One shared batch dimension through Add and named
-composition has private implementation evidence with unchanged source and
-multiple batches. Broader acceptance across 310 symbolic and seven NCHW rows
-remains open;
-symbolic layouts, normalization and broader model coverage require further work.
-Native sine/cosine and the newer Where/JIT binding preserve the complete native
-trace of the unchanged gather example. Its x64-on scenario still fails the raw
-structural check for a broadcast constant; x64-off retains its configuration
-conflict. The later diagnostic counterpart validates a separate representation
-without runtime acceptance. Ordinary static matrix
-admission now has main evidence. The bounded Leading-B matrix/bias extension
-is committed at `718f448e` and preserves the five unchanged MatMul, GPT Add and
-NNX Linear sources, including their real weights, bias and configuration.
-Their selected FP32 CPU samples pass at batch sizes two and five in 40 runs per
-stack, with independent acceptance. Broader dynamic-shape and model requirements
-remain open. The Exp/multiplication extension now also has independent
-integration acceptance and 1,489 passing main checks per stack. Its own fixed
-CPU samples do not replace the preceding five-source observation. Bounded
-Where/JIT semantics and actual-main integration are now independently accepted
-for the private path. The later Gather diagnostic check preserves that example
-without establishing product or runtime support. The committed Typed checkpoint now adds
-bounded value-family rules with independent integration acceptance. The later
-named binder and finite preparation proof advance those shared prerequisites;
-complete Gather and broader model acceptance remain open.
-An unreviewed operation or an unfinished implementation remains open work; it
-cannot be relabeled as a technical limit to complete the migration.
-
-After the full coverage gates pass, normal export follows the new rule.
-Release notes and migration examples must explain the changed default and old
-arguments. Current public behavior stays unchanged during development.
+After all coverage and validation gates pass, normal export follows the new
+rule. Release notes and migration examples will explain the changed default
+and old argument. No release or deadline is assigned.
 
 ## Understand the completed call behavior
 

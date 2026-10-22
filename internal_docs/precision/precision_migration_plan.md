@@ -1,90 +1,23 @@
 # Computation Precision Migration Plan
 
-Status: accepted plan for a complete precision migration, updated 2026-10-20. The
-[implementation work plan](precision_implementation_work_plan.md) defines the
-existing-functionality acceptance matrix and checkpoint ledger. The final normal
-`to_onnx(...)` call preserves the JAX computation through one consistent contract.
-The bounded `source-static-v1` profile is an internal implementation milestone;
-it is not the completion scope or a planned public precision mode. The shared
-private conversion pipeline and artifact/sample report APIs are committed.
+Status: accepted plan for the complete migration, updated 2026-10-22. The final
+normal `to_onnx(...)` call preserves the JAX computation through one consistent
+contract across existing functionality and fixed sources, without a permanent
+public precision mode/profile selector or capability loss. The private
+source-static milestone is implementation scaffolding, not completion scope.
 
-Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
-finite native/CPU qualification for static shapes at opsets 23/26. It retains
-declared pair storage and JAX's chosen width. The [latest checkpoint](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)
-separates those samples from the partial initial raw map and the **FAILED**
-ordering-kernel diagnostics. Public behavior remains **LEGACY**; all existing
-functionality, fixed sources and full B–F acceptance remain open.
+Public precision behavior remains LEGACY. The [canonical current ledger](poc/source_integration_findings.md#current-checkpoint)
+separates completed `fe214590` qualification from later directed results. The
+unchanged repeated-Function/If recipe now passes all three stacks. Portable BF16
+source words and strict native NaN failures remain separate. The current PRIMARY
+Transformer owner passes; the fresh current suite and full migration remain open. The implementation
+plan retains all coverage obligations; no release version or deadline is set.
 
-The preceding private [CNN, pooling, scientific FP64 and raw-replay checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
-is committed at **`118ddd8b`** after independent finite-checkpoint acceptance,
-corrected dual-stack checks, the complete PRIMARY suite and all seven normal
-code hooks. It retains the unchanged full-CNN nonzero comparison, native pooling
-and selected scientific FP64 at opset 21. The raw lane's 49 maintained controls
-do not run the full 1,852-row / 3,704-caller map. Public behavior stays **LEGACY**;
-the full B–F migration remains open.
-
-The preceding explicit FP64 Linear code checkpoint is `b2a866bb`. Its strict
-documentation build passed, and its eight-document update is committed at
-`97929998`. The canonical findings retain its original runtime and failed epochs.
-
-Current private elementary/reduction evidence passes **183 cases / 549 phases
-per supported stack**, with zero test failures/errors/skips and independent
-actual-evidence acceptance. Bounded native bindings/typed lowerers and the
-same-width FP32/FP64 Asin expression are committed in the private pipeline.
-This does not give all 183 cases numerical acceptance: eight original Sign reports remain **FAILED**,
-44 original composition artifacts remain numerically **UNVERIFIED**, and both
-Gather raw graph callbacks remain **FAILED** despite separately verified finite
-numerical comparisons. The [canonical checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
-retains the exact source, criteria, counts and failed epochs.
-
-The preceding accepted local code checkpoint **`11748451`** is committed. Its
-complete PRIMARY suite
-passes **10,237 cases / 30,711 phases**, and the focused selection passes
-**1,937 cases / 5,811 phases on each supported stack**, with zero test
-failures/errors/skips in those executions. All seven normal code hooks pass;
-86 committed Python paths (63 production and 23 test/support) match the qualified
-bytes, all **923 Python / 163 other input pins** hold through hooks and commit,
-and the worktree is clean at commit verification. The focused and full results
-have independent finite-checkpoint acceptance. These results retain the separate
-failed numerical gates; they do not complete the precision migration.
-
-The native loop checkpoint **`c033d301`** is committed after independent
-acceptance: **477 cases / 1,431 phases per stack** and the complete PRIMARY
-suite's **10,395 cases / 31,185 phases** pass, with zero failures/errors/skips.
-All seven normal code hooks pass, preserving all 1,088 source/input files
-through the seven-path commit. Separate saved-artifact evidence now accepts all
-eight artifacts across the original six selectors on each stack: 384 returns /
-16 sessions per stack. The raw callback verdicts and earlier unverified reports
-remain unchanged. These frozen 117-derived results are distinct from current
-MAIN qualification; see the [latest findings](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration).
-
-The inventory still retains all 1,852 rows / 3,704 caller obligations, including
-318 elementary raw contracts / 636 caller obligations and 50 optional obligations.
-Strict Erfc full/native gates remain failed, with configured numerical evidence
-only at opset 23 and low-precision numerics unverified. Fresh current-MAIN model qualification and model-wide acceptance, broader
-complete models, optional-environment work,
-general fixed-source preparation and scientific FP64 remain open. No tolerance,
-model/input or FTZ/runtime-policy change closes those gaps. Public behavior
-stays **LEGACY** until the full B–F single-contract migration is complete.
-
-For the transition from an export user's perspective, read the
-[user view](precision_migration_plan_user_view.md). All companion documents are
-listed in the [precision overview](README.md).
-
-During development, the migration retains the existing public precision rules
-while validating the source numerical contract. The [experiments](poc/README.md)
-make the behavioral differences reviewable; their passing tests also include
-recognized numerical failures. Each stage therefore needs explicit acceptance
-evidence beyond the experiment's test result. No release version is assigned.
-
-Read the [current-state analysis](precision_current_state.md) for the existing
-behavior and the [target-state design](precision_target_state.md) for the proposed
-contract. The implementation baseline is `fae17822`, which merges PR #275 on
-top of PR #274's native lowering architecture. The fix uses explicit operand
-adaptations in selected lowerings; it does not introduce the target precision
-mode or a general runtime capability engine. The newer
-[private integration](poc/source_integration_findings.md) is separate local
-work beyond that baseline, not a merged or released public capability.
+Read the [user migration plan](precision_migration_plan_user_view.md) for the
+proposed caller experience, the [current analysis](precision_current_state.md)
+for existing public behavior and the [target design](precision_target_state.md)
+for the complete numerical contract. The plan below is independent of any
+particular implementation checkpoint.
 
 ## Migration objective and boundaries
 
@@ -165,189 +98,42 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
-The shared named binder and finite preparation proof are described in the
-[named-parameter findings](poc/named_runtime_parameters_findings.md) and
-[preparation findings](poc/fixed_source_preparation_findings.md). The binder uses
-one positional/named mapping for native tracing, original-model preparation,
-reports and physical sample feeds. Its finite scope does not close the models
-that use it. The preparation proof makes an explicit selected numerical change;
-a general fixed-source preparation mechanism remains required work before F.
+Current 9134 adds only reviewed local typing annotations/key rename; fresh
+typing/RNG and both scoped 279-case SECONDARY/DIRECTMIN selections pass. The reviewed b90 live-branch restoration passes the 331-case PRIMARY
+joint gate, including all 44 new controls, unchanged Transformer 52 and repeated
+Function/If 2. Original Cast bytes/artifacts, endpoint bindings, mathematics and
+final precision equality remain unchanged. The earlier two Transformer 26
+failures are closed in this scope, while historical receipts remain intact.
 
-The [MLP and bounded normalization checkpoint](poc/source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance)
-now has independent finite acceptance. The original NNX/Linen MLPs retain their
-30/20/10 dimensions, seed 17, positive Dropout rate 0.1, running-stat BatchNorm,
-GELU choice, captured parameters and original factory dtypes. External pure
-whole-model preparation exposes actual state and RNG inputs/outputs without
-editing the model source. Recorded runtime sequences preserve state feedback,
-reset/replay and both controls against all four frozen JAX references. The
-permanent regression covers six cases on both stacks. This closes that finite
-model matrix, not the all-model or all-PRNG contract.
+The same ordinary full suite is terminal and failed. All 54 model/state runs
+plus 2 guards pass, while remaining failures stay unresolved in the canonical
+ledger. These positives do not complete full-suite or migration acceptance. Do not inherit the
+historical 19 PASS/37 unfinished result. Fresh current 9134
+SECONDARY and DIRECTMIN each pass 279 cases, and typing/RNG passes. The proposed LOCAL
+WIP commit may preserve unfinished changes after relevant actual checks, all
+seven hooks and exact staged review; it is separate from an accepted checkpoint
+and need not repair every full-suite failure or require another broad run first.
+A green full standard
+suite would close this checkpoint gate, not the full migration. The complete
+map, 63 opaque originals, 104 metadata-free registrations, 752 original manual
+anchors, fixed-source/numerical workflows and coordinated ordinary export/
+allclose/browser/generator cutover remain required. Public behavior stays LEGACY
+until that complete uniform transition is qualified.
 
-Static square, variance/std and LayerNorm support now have bounded acceptance,
-including the recorded inline, named Function and conditional examples. The
-named-boundary proof establishes actual exported-body eager/JIT equality;
-whole-carrier equality retains its explicit missing-MLIR limit. Functions014/015
-still need complete original-model export, state and numerical acceptance.
-Preserve their parameters, dimensions, decorators, LayerNorm → Linear → exact
-GELU → Dropout → Linear → Dropout composition and both live Dropout sites. Keep
-Function014's fixed B=5 and exercise each declared symbolic-B artifact at B=2/5.
+Preserve original factories/configuration, parameters, source casts, RNG, state,
+aliases, callbacks, frozen criteria and actual target evidence. Prepared and
+original computations keep separate native references and retained outcomes.
+Current three-stack recipe success does not complete every model or scope.
+Installed-capability diagnostics retain actual failed schema/load outcomes;
+passing diagnostic assertions never makes the failed capability available.
 
-The current package extends one shared leading B to ranks one through four in
-export and sample validation, including the exact declared NHWC/NCHW boundary.
-It adds bounded normalization handlers and per-operation/type opset-16 checks.
-The [implementation work plan](precision_implementation_work_plan.md#full-migration-phases-and-review-gates)
-retains the detailed shape, nested-scope, matrix and PRNG boundaries.
-
-Keep all **12 original default LayerNorm rows / 24 raw x64 cells**, including
-NNX row 13's captured affine reshape and the six original opset-16 cells. The
-later options acceptance covers all 30 original rows / 60 caller-x64 contexts,
-including the 18 nondefault-option rows / 36 cells, under reviewed SOURCE graph
-counterparts. All 60 original raw graph callbacks remain false; native ONNX
-LayerNormalization emission and those original graph contracts stay open.
-Retain original factories, constants, dimensions, opsets and numerical criteria.
-The bounded qualifier preserves exact eager zeros everywhere and exact JIT zeros
-outside the six pretarget-proven native conflict masks. The earlier options-v2
-failure remains history; options 131 and focused 159 now pass on both stacks.
-
-The preceding Matrix44 and retained 348 acceptance remains valid within its
-recorded scope. The current checkpoint additionally covers the finite common
-tensor/index families, Erfc and the original GPT_MLP FP32 cases. Activated
-whole-carrier MLIR execution remains **NOT_ESTABLISHED**. The earlier original-six
-Function-model run stopped at Erfc before producing a model artifact; after the
-new lowering it needs a fresh run under the unchanged model contracts. Do not
-infer another barrier from that historical result.
-
-The elementary/reduction code checkpoint `11748451` now has independently
-accepted dual-stack finite evidence and final focused/full qualification. The
-183-case / 549-phase result per stack retains its Sign/composition/Gather limits;
-the later focused 1,937-case result per stack, complete 10,237-case PRIMARY result
-and seven normal hooks qualify the committed bytes. Earlier failed full-v1,
-focused14-v1 and focused15-v1 executions remain failed history. Full-v2/v3 were
-collection-only. No single aggregate execution is invented from these cohorts.
-
-Generic SOURCE admission accepts opsets 16, 18, 21, 23, 24, 26 and 27 with owning
-operation/type checks. Native forward scan is now admitted at opsets 23/26 and while at
-18/23/26, including actual original while row 20 at opset 18. Native schemas, JAX 0.11
-flat-tree partitions, carry/result weakness, recursively validated JIT/If/Function
-bodies, static complex/empty storage and real Boolean dependencies retain their
-finite contracts. Only strong static FP32/FP64 zeros at opsets 23/26 are newly admitted
-among creation wrappers. The seven-path packet is committed at **`c033d301`**, with actual dual477
-acceptance, a **10,395-case / 31,185-phase** complete PRIMARY PASS and all seven
-normal code hooks passing. The qualified 1,088 source/input files hold through
-commit.
-All 51 raw loop rows remain obligations rather than a closed family.
-
-All eight saved artifacts across the original six normalized014/015 selectors
-now have independently accepted structure and finite CPU samples on both stacks:
-384 actual returns / 16 sessions per stack. Four native roles, actual flags,
-exact state feedback and both optimization modes are retained. Original014 keeps
-its existing tolerance; original015 uses the new separately accepted strict
-rtol=0.002 / atol=0 proposal, preserving historical `atol=None` and raw missing criteria.
-Six raw callbacks per stack remain FAILED, two PASSED, and earlier stored export
-reports remain UNVERIFIED. The PRIMARY capture exit99/missing-final-origins and
-its later saved-data audit remain distinct from the subsequent accepted target
-runs. These results use the frozen 117-derived snapshot; current MAIN model
-qualification remains separate.
-
-The native FP32 Conv and Scan physical-metadata integration is committed at
-**`3223d080`** after independent finite-checkpoint acceptance. The earlier focused
-failures remain, with secondary totals corrected for three unchanged legacy
-runtime-fusion skips. V3 PRIMARY passes 687 cases; SECONDARY has 684 PASS / three
-SKIP, pytest exit 0 but strict wrapper exit 99. All 586 converter-selection
-cases pass per stack. Numerical assertions after the legacy skips did not run;
-this is not SOURCE exclusion or ONNX impossibility. The reviewed fixture
-correction audits exact Function context, wiring and actual native bodies while
-preserving production. Typing on 551 files, 17 RNG factory report entries, and fixture style/AST
-checks pass. The complete PRIMARY suite passes **10,504 cases / 31,512 phases**,
-with zero failures/errors/skips. All seven normal code hooks pass, all 1,091
-source/input files hold through commit, and the worktree is clean at commit
-verification. The [canonical record](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration)
-records exact epoch boundaries.
-
-The unchanged [masked FP64 saved sample](poc/source_integration_findings.md#masked-fp64-saved-sample)
-now passes its original criterion on both ORT stacks against saved PRIMARY
-eager/JIT references. This finite result adds no fresh SECONDARY native or
-whole-family acceptance. The later corrected scientific selection passes
-141 cases / 423 phases on each stack, including unchanged Issue52 at opset 21;
-its current focused/full checkpoint qualification is separately accepted.
-
-The current [CNN/scientific/raw-replay checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
-is committed at `118ddd8b`; next run the full inventory map. Its reviewed CNN matcher preserves the complete
-original parameters and signed-zero selectors; finite nonzero acceptance uses
-the separately fixed a priori predicate, not a replacement raw criterion.
-The scientific FP64 work preserves original sources, opsets and numerical
-criteria. Exact subnormal operand selection and native-bitwise FAILED reports
-remain distinct obligations. Corrected dual37, full PRIMARY, independent finite
-acceptance, all seven normal code hooks and code commit `118ddd8b` are complete.
-
-The explicit FP64 Linear code checkpoint `b2a866bb` and documentation commit
-`97929998` are complete. Continue broader original scientific, normalization,
-fixed-source and end-to-end contracts through the ordinary pipeline. Strict
-Erfc and other known numerical failures remain explicit; all 1,852 rows /
-3,704 caller obligations still require the complete inventory accounting.
-
-Carry the accepted prerequisites through the shared private pipeline. Retain
-fixed-source external preparation, original native criteria, actual runtime
-controls and state, and explicit unresolved contracts. A source rewrite,
-synthetic flag, admission bypass or per-operation legacy fallback does not close
-the remaining models. Protected PoC BitCast/opset-23 and HIGHEST-dot diagnostics
-remain as recorded in the
-[Sum findings](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition).
-
-The preceding code checkpoint and joined 101-case runtime suite have independent
-acceptance on both stacks, retaining the original-step references and explicit
-native limits. The primary full and secondary affected-area integration checks
-and seven actual commit hooks also pass. The
-[current integration status](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-preserves every failed diagnostic/runtime epoch. The shared-batch package has
-its own finite acceptance at `bb7a7d76`; complete original-model follow-through
-remains open.
-The final public transition still requires all existing functionality across
-phases B–F, including general fixed-source preparation beyond these finite owners.
-
-The immediate review follow-ups have reached this checkpoint:
-
-| Work package | Implemented result | Remaining limit |
-| --- | --- | --- |
-| Preserve function context | Capture and replay call-time x64 and default matrix precision; specialize functions accordingly. Separate ordinary JAX, legacy, and source trace/JIT caches. | Other configuration settings and concurrent export are not generally validated. |
-| Preserve captured-state semantics | SOURCE specialization distinguishes weak/strong JAX arrays in supported instance state and nested static arguments while reusing equivalent states. | Other captured metadata and unsupported object forms still require an audit. |
-| Apply policy during optimization | Explicit registry eligibility excludes four unaudited arithmetic/reduction rewrites under SOURCE, including an enabled legacy reciprocal rewrite. | Eligible structural passes do not certify runtime arithmetic; further numerical implementations require evidence. |
-| Put regressions in CI | Durable input, context, scope, numerical, rejection, and isolation tests live under `tests/extra_tests/converter`; PoC modules reuse private test helpers. | Supplemental diagnostic demos remain an explicit internal invocation. |
-| Preserve preferred FP32 matrix result | Local FP32 operand casts and FP32 MatMul preserve the original FP16 inputs for the admitted rank-2/rank-3 default-precision cases. | Other shapes, types, precision algorithms, and deployment costs need separate evidence. Public legacy behavior is unchanged. |
-| Export wider normalization | The actual JAX callable passes inline/function/conditional serialization and CPU checks, including exact variance `8388609`. | This is model-chosen FP64 work on selected samples, not general normalization support or adoption of a legacy accuracy policy. |
-| Enforce sample acceptance | The committed CPU sample API rejects failed and unverified samples, including the original FP16 square/sum and optimized FP32 reciprocal cases; load/run errors remain distinct. | The gate checks supplied samples. There is no automatic rewrite or model-wide capability database. |
-| Preserve typed representations | Logical/physical descriptors retain actual payloads; the Typed checkpoint adds audited bounded BOOL/integer operations and static complex construction/extraction. Input canonicalization still fails before tracing. | General integer/complex arithmetic, symbolic complex and broader loops remain open; diagnostic and sample results keep their separate status. |
-| Preserve loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; finite noncomplex and complex while/scan cases retain typed carries, physical channel axes, static extents and empty results. | Broader recursive contracts remain open; the earlier direct-Where negative-zero failure remains recorded under its bitwise criterion; the finite copy-based selection repair does not close broader loop contracts. |
-| Preserve native Sum | Captured-original SOURCE forwarding and the narrow companion repair are committed at `2d1ea944` after independent integration acceptance, dual-stack checks, the full primary suite and actual hooks. | Protected examples still fail the BitCast requirement at opset 23; HIGHEST dots, broader target/model support and the complete migration remain open. |
-| Preserve native normalization | Native forwarding and bounded static square, variance/std and NNX/Linen/Equinox LayerNorm examples have independent source/CPU acceptance. | Named-scope payload equality covers the actual exported body; whole-carrier JIT equality and complete Functions014/015 acceptance remain open. |
-| Preserve original MLP state and numerics | Original NNX/Linen models pass the finite runtime-control, state-feedback and four-reference matrix; six permanent CI cases pass on both stacks. | The later joined101 runtime suite and primary-full/secondary focused integration are independently accepted; code checkpoint `7d74a200` passes all seven actual hooks. Earlier failures remain recorded. Broader model/PRNG coverage remains open. [Current status](poc/source_integration_findings.md#full-suite-failure-and-finite-repair-status) records the finite repairs. |
-| Preserve native Where and pure JIT | Original Where calls and pure closed JIT bodies retain actual bindings, constants, scopes and native inline hints. The committed Typed checkpoint extends bounded real/discrete selection and masks. | The finite FP16/FP32/FP64 copy-based repair is committed at `778dce3c` after integration, full-suite and hook acceptance; direct-Where history, broader JIT, complex selection and general symbolic shapes remain separate. |
-| Freeze source scenarios | The reviewed plan retains 3,704 caller obligations from all 1,852 rows, preserving all 1,802 original core contracts and 50 optional obligations. | Opaque recipes, incomplete optional environments, unresolved numerical criteria and unexecuted cells remain visible; imports do not establish SOURCE acceptance. |
-
-The [accepted work plan](precision_implementation_work_plan.md) connects this
-private foundation to the existing export boundary. Its internal `source-static-v1`
-profile admits static floating kernels, the bounded preferred-FP32 matrix
-lowering, FP32-to-UINT32 bitcast at opset 26, audited named functions, and
-two-branch conditionals. Generic SOURCE admission accepts opsets 16, 18, 21,
-23, 24, 26 and 27 subject to operation/type-specific checks; earlier Function/If
-sample evidence covers its recorded opsets 23/26. It supports names, primitive recording,
-and proto/IR/standard/web file returns through reviewed private facade integration.
-Web packaging does not establish browser execution. Selected static NCHW
-boundaries and the finite shared-B Add/named-composition extension have reviewed
-private implementation. Leading-B matrix/bias and the native Exp/Mul extension
-add the finite rank-two/three contracts described above. Native Where and typed
-JIT add static BOOL dependencies and recursively checked pure closed bodies.
-The Typed checkpoint extends bounded BOOL/integer predicates, conversions,
-selection and masks, plus static complex construction/extraction. Each checkpoint retains
-its own integration and sample evidence. The persisted profile identifier is
-unchanged.
-The named binder removes the blanket nonempty `input_params` gate while
-preserving each declared value's native type, scope and actual variable binding.
-Dynamic layouts, nondefault normalization, unlisted operations, effects, broader
-symbolic shapes, remaining loop forms and unsupported JIT forms remain temporary
-audited-profile gates; the finite native loop rules above do not close the family,
-and a successfully bound parameter does not bypass those checks.
-Where the existing converter supports them, they remain required migration work.
+Complete all22 original owners, the unchanged1,852-row/3,704-caller inventory,
+optional environments, broader operators/scopes/options, fixed supplied JAX
+sources and scientific/low-precision contracts before the public transition.
+Only demonstrated representation and target limits define support boundaries.
+Temporary missing implementation is unfinished work, and the final experience
+remains one uniform source-preserving converter contract across the full B–F
+acceptance matrix.
 
 The implementation follows these acceptance requirements:
 
@@ -394,163 +180,6 @@ The initial scenario plan leaves missing, one-sided and legacy-variant-only
 criteria unresolved; it does not invent exact comparisons. Freeze reviewed
 criteria before numerical runs. Integer and Boolean outputs always require
 exact values, including mixed outputs whose floating values use tolerances.
-Finite C3b promotion-context, C3c complex-loop, C4a recording/packaging and D1a
-array-promotion repairs have independent focused acceptance. D1a was
-diagnostic at that checkpoint. The later bounded Where/JIT admission is
-recorded above; `full` still requires diagnostic admission.
-Remaining C4 options and broader scope/operator/model coverage in
-phases D/E/F remain open. The first B3 batch is recorded in the
-[corpus findings](poc/source_corpus_findings.md); no numerical corpus acceptance
-follows from its artifact checks.
-Preexisting negative contracts remain distinct from positive capabilities that
-the migration must preserve.
-
-C4c now traces positional inputs and real scalar-BOOL named operands in one
-complete prepared root through the private diagnostic handshake. One ordered map
-ties each actual source var to its normalized spec, final graph input, name and report entry. Initially every
-real root formal is retained, including unused declarations; no artificial sink
-or weakened boundary check is needed. SOURCE bypasses late name-based promotion
-and materialization. NNX/Linen/Equinox Dropout consumes actual operands, while
-callee defaults and explicit literals stay local. The packet remains diagnostic
-and keeps all 22 compatibility rows and their state/key prerequisites visible.
-The bounded all-22 pass yields three checked artifacts and 19 pending rows per
-stack, with zero ORT executions and all lowering/runtime/numerical gates
-unverified. An external whole-root `lax.cond` adapter can support genuine Python
-branching in an unchanged pure source; static binding is only for an intended
-fixed setting. Structural control checks do not certify stochastic equivalence.
-
-D1b now uses captured native JAX `arange`/`linspace` binding before argument
-normalization, preserving dtype, weakness, omitted-step behavior, integer flooring
-and explicit conversion boundaries. Existing dynamic `arange` capability remains
-required compatibility work. Native typed graphs alone do not establish exact floating
-results: recorded FP16 and FP32 `linspace` samples disagree with both JAX stacks
-on ORT and ONNX ReferenceEvaluator. Those exact criteria remain failed; the
-evidence does not establish an ORT-only defect or an ONNX impossibility.
-The reviewed compiled-arithmetic observations in the linked findings explain
-selected discrepancies; any numerical adaptation still needs separate evidence.
-Ordinary cross-runtime reproducibility and deliberately required rounding need
-separate, reviewed criteria; accepted binding changes do not close these failed
-numerical gates. BF16 loading/result-interface failures and the installed
-opset27 runtime limit remain separately recorded.
-
-The shared Dropout optimizer repair now omits only the proven-false optional
-training input for a standard-domain, same-graph `Not(True)` match. Shared uses,
-captures and observable outputs remain intact; dynamic/direct-False behavior and
-traversal are unchanged. D2a adds bounded same-dtype FP32/FP64 rank-2–4 matrix
-lowering with checked batch/contracting axes and native SOURCE `matmul` binding.
-It retains canonical operands, default precision and explicit implementation
-exclusions. Four recorded subnormal targets per stack still fail exact numerical
-criteria, despite valid artifacts and successful execution. Neither the finite
-matrix packet nor the Dropout repair broadens audited admission or establishes
-stochastic/full-model acceptance. The separate two-cell B3 supplement leaves
-structural-oracle migration open; it closes no corpus row.
-
-The committed C4b packet implements selected static logical rank-four NCHW
-boundaries through one representation descriptor, preserving the original NHWC
-computation, dtype and complex component axis. Strict IR/proto/reloaded checks,
-names, aliases and real named controls remain active. Its shared observer repair
-also protects inverse-output captures and lexical names across native NameFix.
-The initial full run exposed ten regressions from detached Transpose use links;
-the final local-consumer correction passes 238 checks per stack independently,
-including the unchanged failures and all 57 observer/36 layout cases. The earlier
-572-case selection remains historical focused evidence. Symbolic layouts,
-normalization and raw-metadata replay remain separate work. No whole-model layout
-row closes.
-
-The native add/min/max group uses one opt-in at the existing binder, leaving
-other callers and LEGACY unchanged. Selected gradient/vmap samples pass. Its
-eight historical signed-zero CPU failures per stack remain recorded; the later
-finite lowerer now passes those samples on new artifacts. The separate Mul-None
-diagnostic correction changes no production lowerer or profile.
-
-The shared-B packet is implemented and passes focused review: two equal `(B,K)`
-inputs, audited Add and named composition, one artifact at B=2/5. It preserves
-actual symbol scopes and checks report/artifact/input/reference/output contracts
-with fresh bindings per sample. BF16 loading remains FAILED on the measured
-CPUs. At that checkpoint all 310 raw symbolic rows remained open. The only raw
-symbolic declaration
-with two inputs of rank two and identical shapes includes Divide/Mean, beyond
-this packet.
-
-The B3 tooling revision selects 13 unchanged raw rows/26 artifact-only cells.
-Four exact dot rows have explicit SOURCE MatMul counterparts while original Gemm
-callback failures/history are retained. The repaired preparation-path guard and
-fresh side evidence have independent acceptance; main replays match: 24 artifacts are checked and
-two outcomes remain unresolved per stack, with zero ORT. The proposal ledger records
-comparator orientation, variant thresholds and harness settings; it adopts no
-criteria and enables no runtime stage. All 26 cells keep lowering/runtime/numerics
-unverified. The original 36-cell batch, two-dot supplement, all-22 results and
-seven NCHW rows remain unchanged.
-
-The bounded GatherElements Min/Max lowerer now has independent acceptance and
-132 focused passes per stack. At opset 23 it preserves equal FP16/FP32/FP64 types,
-canonical values and scoped constants; zero signs pass on new artifacts. Four
-strict subnormal artifacts per stack and 108 inherited FP32/FP64 grid mismatches
-remain failed. Its source graphs have 15 total nodes for Min and 12 for Max,
-with one Min or Max operator. The finite cost remains 1.242–1.542× baseline on
-one FP16 Min broadcast workload, not a general bound. Integrated checks and
-actual hooks pass at `fc3f9323`; default admission stays unchanged. Export has no
-runtime-target argument; sample evidence and its raising guard remain separate.
-
-Native SOURCE `jnp.sin`/`jnp.cos` binding is implemented and independently
-reviewed; main checks pass 553 tests per stack. At that historical checkpoint,
-a separate two-cell gather revision retains x64-off's configuration conflict and now reaches custom Where
-at scope 0/equation 11 on x64-on. It adds no artifact or runtime acceptance.
-Native Sin/Cos and the exact trace prefix are preserved; the complete traces
-still differ at Where. DOUBLE cosine's existing half-angle arithmetic remains
-unaudited. The primary observer's exit-1 list/tuple failure and separate JSON
-correction remain visible in the new findings.
-
-The approved `source-corpus-fp32-conjunction-v1` counterpart has now executed:
-twelve unchanged strong-FP32 rows/24 cells, CPU optimization disabled/all,
-48 actual runs per stack and no pending cell. All three comparisons pass for
-each captured output under the predeclared `1e-5` absolute/relative tolerances
-and equal-NaN rule, after exact count/dtype/shape checks. The historical-context
-reference uses the same inputs and unchanged native callable under x64 disabled
-and matmul precision `float32`. Independent post-run review accepts these
-recorded samples.
-Historical None criteria, the proposal ledger and existing `SampleCriteria`
-remain unchanged; diagnostic lowering is still UNVERIFIED.
-
-Ordinary-matrix admission and its fresh fixed-sample numerical packet retain
-actual-main evidence; the historical numerical CLI remains strictly pinned.
-The native NNX Linear/reshape prerequisite is committed at `791664f8`.
-The [Leading-B matrix/bias findings](poc/leading_batch_matrix_bias_findings.md)
-now record independently accepted seven-path semantics and the separate four-path
-provenance/preparation repair. Final v2 tooling and actual-main integration have
-independent acceptance. The fresh v3 observation records ten symbolic artifacts
-per stack serving both B=2 and B=5, with exact native scope and sample bindings,
-actual parameters and unchanged runtime operand ports. All forty actual runs
-per stack meet the fixed three-predicate FP32 criterion, with independent result
-acceptance. Both inventory CLI checks and the 6,816-test complete primary-stack
-run pass; commit `718f448e` passes all seven actual hooks. The original
-preparation failures and post-return wrapper reporting error stay recorded
-separately.
-
-The [native Exp/weakness and actual-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
-now has independent semantic and actual-main acceptance: 1,489 main checks per
-stack, with the original 990 cases and fourteen review guards retained. Its
-fixed edge/finite CPU samples and BF16 structural limits are separate from the
-older corpus numerical observations. The complete primary-stack suite passes **6,933 tests** (13,130
-warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
-all five code/inventory paths and all 860 Python hashes remain unchanged.
-The subsequent [Where/JIT checkpoint](poc/where_jit_admission_findings.md) has
-independent semantic and actual-main acceptance, including the typed native
-inline compatibility seam. The raw gather trace now matches completely, while
-its unchanged callback and x64-off conflict remain unresolved. The subsequent
-[Gather counterpart](poc/gather_counterpart_findings.md) validates one exact
-diagnostic structure with those raw failures retained and zero ORT calls.
-At that earlier checkpoint the original trigonometric Gather rows remained
-outside product admission. The later elementary checkpoint adds their finite
-SOURCE numerical controls while retaining both failed raw graph callbacks; the
-common-family checkpoint covers the other bounded Gather forms. The subsequent Typed checkpoint
-covers the bounded value families recorded above, with independent actual-main
-acceptance, 8,659 full-suite passes and all actual hooks passing. The named
-binder and finite preparation proof described above advance separate shared
-prerequisites. Retain the accepted finite MLP state/runtime result while
-completing the remaining original models, broader symbolic shapes, layouts,
-normalization and optional-model contracts. These bounded packets do not close
-the whole inventory.
 
 ## Stage 1 Inventory and freeze observable behavior
 

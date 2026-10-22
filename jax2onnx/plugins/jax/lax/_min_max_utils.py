@@ -1,8 +1,9 @@
 # jax2onnx/plugins/jax/lax/_min_max_utils.py
 
-"""Finite SOURCE zero-tie signs for Max16/23, Min23 and scientific FP64 at21.
+"""Finite SOURCE zero-tie signs for Max16/23/26, Min23/26 and scientific FP64 at21.
 
-GatherElements preserves selected negative zeros on the measured CPU targets.
+Typed table selection retains exact zero words without arithmetic identities that
+CPU optimization can remove. GatherElements preserves the selected words.
 The original scientific21 route reuses this selection with separate target
 qualification. This representation does not settle other opsets, BF16, subnormal
 differences or whole-family numerical admission. LEGACY keeps its existing path.
@@ -31,7 +32,7 @@ def lower_source_min_max(
     out_var = eqn.outvars[0]
     dtype = np.dtype(out_var.aval.dtype)
     if not (
-        ctx.opset == 23
+        ctx.opset in (23, 26)
         or operation == "Max"
         and ctx.opset == 16
         or ctx.opset == 21
@@ -107,18 +108,30 @@ def lower_source_min_max(
         name=ctx.fresh_name(f"{prefix}_selection_axis"),
         array=np.asarray([0], dtype=np.int64),
     )
+    zero_choices = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{prefix}_zero_choices"),
+        array=np.asarray([0.0, -0.0], dtype=dtype),
+    )
     base = emit(operation, [lhs, rhs], shape)
     left_zero = emit("Equal", [lhs, zero], lhs_shape, ir.DataType.BOOL)
     right_zero = emit("Equal", [rhs, zero], rhs_shape, ir.DataType.BOOL)
     ties = emit("And", [left_zero, right_zero], shape, ir.DataType.BOOL)
-    if operation == "Min":
-        negative_left = emit("Neg", [lhs], lhs_shape)
-        negative_right = emit("Neg", [rhs], rhs_shape)
-        correction = emit(
-            "Neg", [emit("Add", [negative_left, negative_right], shape)], shape
-        )
-    else:
-        correction = emit("Add", [lhs, rhs], shape)
+    # Reciprocal exposes each zero sign as an infinity sign. Selecting original
+    # typed zero words avoids Add(x, +0), which CPU optimization can erase.
+    left_reciprocal = emit("Reciprocal", [lhs], lhs_shape)
+    right_reciprocal = emit("Reciprocal", [rhs], rhs_shape)
+    left_negative = emit("Less", [left_reciprocal, zero], lhs_shape, ir.DataType.BOOL)
+    right_negative = emit("Less", [right_reciprocal, zero], rhs_shape, ir.DataType.BOOL)
+    negative = emit(
+        "Or" if operation == "Min" else "And",
+        [left_negative, right_negative],
+        shape,
+        ir.DataType.BOOL,
+    )
+    zero_index = emit(
+        "Cast", [negative], shape, ir.DataType.INT64, to=int(ir.DataType.INT64)
+    )
+    correction = emit("Gather", [zero_choices, zero_index], shape, axis=0)
     # Reuse actual IR dimensions, including symbols; only the artificial choice
     # axis is added. No dimension is concretized or inferred from complex storage.
     selected_shape = ir.Shape((1, *shape.dims))

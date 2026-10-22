@@ -21,6 +21,7 @@ import pytest
 
 from jax2onnx import onnx_function, to_onnx, user_interface as ui
 from jax2onnx.converter import conversion_api
+from jax2onnx.converter.source_deployment import DeploymentTarget
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.precision import (
@@ -200,9 +201,11 @@ def test_one_symbolic_artifact_keeps_actual_named_bindings(
     validator_calls = []
     real_validator = ui.validate_source_jaxpr
 
-    def validate(jaxpr: Any, opset: int) -> None:
+    def validate(
+        jaxpr: Any, opset: int, *, deployment_target: DeploymentTarget | None = None
+    ) -> None:
         validator_calls.append([eqn.primitive.name for eqn in jaxpr.eqns])
-        real_validator(jaxpr, opset)
+        real_validator(jaxpr, opset, deployment_target=deployment_target)
 
     monkeypatch.setattr(ui, "validate_source_jaxpr", validate)
     manifest = {

@@ -2,7 +2,7 @@
 
 """Pure Jaxpr admission checks for the internal ``source-static-v1`` milestone.
 
-The persisted identifier includes shared leading-batch ranks one through four
+The persisted identifier includes shared leading-batch shapes
 for reviewed pointwise and normalization operations. Matrix and native PRNG
 families retain their own narrower shape proofs. Static real/discrete tensor
 layout, point-indexing and dynamic slice/update families preserve native types,
@@ -44,6 +44,10 @@ from jax2onnx._compat.jax import (
     selected_prng_key_words,
     is_native_precision_pair,
 )
+from jax2onnx.converter.source_deployment import (
+    DeploymentTarget,
+    matrix_precision_contract,
+)
 from jax2onnx.converter.source_elementary import (
     ELEMENTARY_OPERATIONS,
     validate_elementary_equation,
@@ -59,6 +63,9 @@ from jax2onnx.converter.source_scientific import (
 )
 from jax2onnx.converter.source_convolution import validate_native_conv
 from jax2onnx.converter.source_pooling import validate_native_window_sum
+from jax2onnx.converter.source_tile import validate_native_tile
+from jax2onnx.converter.source_split import validate_native_split
+from jax2onnx.converter.source_top_k import validate_native_top_k
 from jax2onnx.converter.source_native_contract import validate_native_results
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
@@ -185,6 +192,7 @@ class _Site:
     primitive: str | None = None
     requested_dtypes: tuple[str, ...] = ()
     precision_params: Mapping[str, str] | None = None
+    deployment_target: DeploymentTarget | None = None
 
     def fail(
         self,
@@ -844,7 +852,14 @@ def _validate_dot(
         precision is None
         or precision == default
         or native_fp64
-        and is_native_precision_pair(precision),
+        and is_native_precision_pair(precision)
+        or matrix_precision_contract(
+            site.deployment_target,
+            precision,
+            tuple(value.dtype for value in (*inputs, *outputs)),
+            None if preferred is None else np.dtype(preferred).name,
+        )
+        is not None,
         "matrix precision/algorithm is outside the profile",
         (
             "native FP64 Precision enum pairs without explicit algorithms"
@@ -1688,40 +1703,51 @@ def _signature(variables: Sequence[Any], site: _Site) -> tuple[Any, ...]:
 
 
 def _pointwise_shape(inputs: Sequence[_Tensor], result: _Tensor, site: _Site) -> None:
-    """Prove native leading-B broadcasting before labels lose their scope."""
+    """Prove right-aligned broadcasting while retaining actual B's axis/scope."""
     symbolic_inputs = [value for value in inputs if value.symbol is not None]
     if symbolic_inputs:
+        rank = len(result.shape)
         batch = symbolic_inputs[0]
         site.require(
-            all(
-                value.symbol in (None, batch.symbol)
-                and len(value.shape) <= len(batch.shape)
-                and (value.symbol is None or len(value.shape) == len(batch.shape))
-                for value in inputs
-            )
-            and result.symbol == batch.symbol,
-            "pointwise operands do not share the same leading-batch shape",
-            "one actual native B/scope, with scalar or static trailing dimensions",
+            rank == max(len(value.shape) for value in inputs)
+            and all(len(value.shape) <= rank for value in inputs)
+            and result.symbol == batch.symbol
+            and batch.symbol_axis is not None,
+            "pointwise operands do not share the native result rank/scope",
+            "right-aligned native broadcasting with one actual atomic B/scope",
         )
-        shapes = [
-            (1,) * (len(batch.shape) - len(value.shape)) + value.shape
-            for value in inputs
-        ]
+        assert batch.symbol_axis is not None
+        axis = rank - len(batch.shape) + batch.symbol_axis
         site.require(
-            all(shape[0] in (1, batch.shape[0]) for shape in shapes),
-            "static leading extent cannot broadcast to the native batch",
-            "a scalar/static channel operand or literal leading extent 1",
+            result.symbol_axis == axis
+            and all(
+                value.symbol == batch.symbol
+                and value.symbol_axis is not None
+                and rank - len(value.shape) + value.symbol_axis == axis
+                for value in symbolic_inputs
+            ),
+            "pointwise symbolic axes are not aligned in the native result",
+            "the same B/scope at the same right-aligned result axis",
         )
-        tail = []
-        for axis in range(1, len(batch.shape)):
-            dimensions = {shape[axis] for shape in shapes if shape[axis] != 1}
+        shapes = [(1,) * (rank - len(value.shape)) + value.shape for value in inputs]
+        site.require(
+            all(
+                value.symbol is not None or shape[axis] == 1
+                for value, shape in zip(inputs, shapes, strict=True)
+            ),
+            "static extent cannot broadcast over the native batch axis",
+            "a singleton static extent at the actual symbolic result axis",
+        )
+        dimensions = []
+        for index in range(rank):
+            sizes = {shape[index] for shape in shapes if shape[index] != 1}
             site.require(
-                len(dimensions) <= 1,
-                "incompatible pointwise operand tails",
-                "equal positive trailing extents or singleton dimensions",
+                len(sizes) <= 1,
+                "incompatible pointwise operand dimensions",
+                "equal static extents or singleton broadcasting outside B's axis",
             )
-            tail.append(next(iter(dimensions), 1))
-        shape = (batch.shape[0], *tail)
+            dimensions.append(next(iter(sizes), 1))
+        shape = tuple(dimensions)
     else:
         site.require(
             result.symbol is None,
@@ -1738,6 +1764,94 @@ def _pointwise_shape(inputs: Sequence[_Tensor], result: _Tensor, site: _Site) ->
                 category="lowering-defect",
             )
     _same_shape(result.shape, shape, site)
+
+
+def _validate_broadcast_in_dim(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    """Bind native target shape and the exact mapped symbolic axis."""
+    _arity(eqn, 1, 1, site)
+    _params(
+        eqn,
+        {"shape", "broadcast_dimensions"},
+        site,
+        required={"shape", "broadcast_dimensions"},
+    )
+    source, target = inputs[0], outputs[0]
+    site.require(
+        source.dtype in _REAL_VALUES and target.dtype in _REAL_VALUES,
+        "complex broadcast remains outside this audited family",
+        "ordinary Boolean/integer/floating broadcasts",
+    )
+    site.require(
+        all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
+        "broadcast placement is outside the profile",
+        "an explicit unplaced broadcast",
+    )
+    site.require(
+        eqn.invars[0].aval.weak_type == eqn.outvars[0].aval.weak_type,
+        "broadcast changes native weakness",
+        "the original operand weakness",
+        category="lowering-defect",
+    )
+    declared = native_shape_contract(eqn.params["shape"])
+    dimensions = eqn.params.get("broadcast_dimensions", ())
+    site.require(
+        len(dimensions) == len(source.shape)
+        and all(
+            isinstance(dim, (int, np.integer))
+            and not isinstance(dim, bool)
+            and 0 <= dim < len(target.shape)
+            for dim in dimensions
+        )
+        and tuple(sorted(set(dimensions))) == tuple(dimensions),
+        "invalid broadcast dimensions",
+        "one distinct, increasing output axis per input axis",
+        category="lowering-defect",
+    )
+    site.require(
+        declared.shape == target.shape
+        and declared.symbol == target.symbol
+        and declared.symbol_axis == target.symbol_axis
+        and (source.symbol is None or source.symbol == target.symbol)
+        and (
+            source.symbol is None
+            or source.symbol_axis is not None
+            and dimensions[source.symbol_axis] == target.symbol_axis
+        )
+        and source.dtype == target.dtype
+        and all(
+            size in (1, target.shape[axis])
+            for size, axis in zip(source.shape, dimensions, strict=True)
+        ),
+        "broadcast attributes or result disagree with the operand",
+        "a matching target shape/dtype and compatible mapped dimensions",
+        category="lowering-defect",
+    )
+
+
+def _reduction_shape(
+    source: _Tensor, target: _Tensor, axes: tuple[int, ...], site: _Site
+) -> None:
+    """Remove only the actual reduced axes, including B exactly when selected."""
+    _same_shape(
+        target.shape,
+        tuple(size for axis, size in enumerate(source.shape) if axis not in axes),
+        site,
+    )
+    source_axis = source.symbol_axis
+    retained_axis = (
+        None
+        if source_axis is None or source_axis in axes
+        else source_axis - sum(axis < source_axis for axis in axes)
+    )
+    site.require(
+        target.symbol == (None if retained_axis is None else source.symbol)
+        and target.symbol_axis == retained_axis,
+        "reduction result changes its retained native symbolic axis/scope",
+        "remove B only when its actual axis is reduced; otherwise reindex the same B/scope",
+        category="lowering-defect",
+    )
 
 
 def _validate_normalization_activation_unary(
@@ -1833,6 +1947,14 @@ def _validate_bitwise(
 def _validate_conversion(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
+    site.require(
+        eqn.primitive is jax.lax.convert_element_type_p
+        and not eqn.effects
+        and type(eqn.params) is dict,
+        "conversion identity, effects or parameter container differs from native",
+        "the pure canonical lax.convert_element_type_p with native dictionary parameters",
+        category="lowering-defect",
+    )
     _arity(eqn, 1, 1, site)
     _params(eqn, {"new_dtype", "weak_type"}, site, required={"new_dtype", "weak_type"})
     source, target = inputs[0], outputs[0]
@@ -1851,6 +1973,7 @@ def _validate_conversion(
         and eqn.params["new_dtype"] == np.dtype(target.dtype)
         and type(eqn.params["weak_type"]) is bool
         and target.symbol == source.symbol
+        and target.symbol_axis == source.symbol_axis
         and eqn.outvars[0].aval.weak_type is eqn.params["weak_type"],
         "cast attribute, scope or weakness disagrees with its traced result",
         "the actual new_dtype and native Boolean weak_type, unchanged shape and symbolic scope",
@@ -2164,7 +2287,7 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
         _validate_jit(uniform, site, ancestors | {id(body)})
         return
     try:
-        _validate_scope(body, site.opset, ancestors)
+        _validate_scope(body, site.opset, ancestors, site.deployment_target)
     except SourcePrecisionError as exc:
         raise exc.with_context(f"{site.location}/jit body") from exc
 
@@ -2188,12 +2311,39 @@ def _validate_equation(
         "the same atomic batch variable and scope as actual formals",
     )
     name = site.primitive
+    if name == "tile":
+        validate_native_tile(eqn, inputs, outputs, formal_symbols, site)
+        return
+    if name == "split":
+        validate_native_split(eqn, inputs, outputs, formal_symbols, site)
+        return
+    if name == "top_k":
+        validate_native_top_k(eqn, inputs, outputs, formal_symbols, site)
+        return
     site.require(
         not any(_extended_symbolic_shape(value) for value in (*inputs, *outputs))
         or name in {"dot_general", "transpose", "jit"}
-        or bool(name and name.startswith("onnx_fn::")),
+        or bool(name and name.startswith("onnx_fn::"))
+        or name
+        in {
+            "and",
+            "select_n",
+            "copy",
+            "stop_gradient",
+            "convert_element_type",
+            "broadcast_in_dim",
+            "reduce_max",
+            "max",
+            "sub",
+            "exp",
+            "reduce_sum",
+            "div",
+        }
+        and all(
+            not any(dim == 0 for dim in value.shape) for value in (*inputs, *outputs)
+        ),
         "nonleading or zero-tail symbolic layout has no audited owner",
-        "the shared contraction, exact transpose and native signature carriers; other owners retain leading B with positive tails",
+        "the shared contraction/transpose/signature carriers, or precisely checked positive-tail attention owners; other owners retain their existing layout guards",
     )
     _validate_opset16_equation(inputs, outputs, site)
     validate_original_elementary_opset(inputs, outputs, site)
@@ -2378,58 +2528,7 @@ def _validate_equation(
     elif name == "convert_element_type":
         _validate_conversion(eqn, inputs, outputs, site)
     elif name == "broadcast_in_dim":
-        _arity(eqn, 1, 1, site)
-        _params(
-            eqn,
-            {"shape", "broadcast_dimensions"},
-            site,
-            required={"shape", "broadcast_dimensions"},
-        )
-        source, target = inputs[0], outputs[0]
-        site.require(
-            source.dtype in _REAL_VALUES and target.dtype in _REAL_VALUES,
-            "complex broadcast remains outside this audited family",
-            "ordinary Boolean/integer/floating broadcasts",
-        )
-        site.require(
-            all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
-            "broadcast placement is outside the profile",
-            "an explicit unplaced broadcast",
-        )
-        site.require(
-            eqn.invars[0].aval.weak_type == eqn.outvars[0].aval.weak_type,
-            "broadcast changes native weakness",
-            "the original operand weakness",
-            category="lowering-defect",
-        )
-        declared_shape, declared_symbol = source_shape_contract(eqn.params["shape"])
-        dimensions = eqn.params.get("broadcast_dimensions", ())
-        site.require(
-            len(dimensions) == len(source.shape)
-            and all(
-                isinstance(dim, (int, np.integer))
-                and not isinstance(dim, bool)
-                and 0 <= dim < len(target.shape)
-                for dim in dimensions
-            )
-            and tuple(sorted(set(dimensions))) == tuple(dimensions),
-            "invalid broadcast dimensions",
-            "one distinct, increasing output axis per input axis",
-            category="lowering-defect",
-        )
-        site.require(
-            declared_shape == target.shape
-            and declared_symbol == target.symbol
-            and (source.symbol is None or source.symbol == target.symbol)
-            and source.dtype == target.dtype
-            and all(
-                size in (1, target.shape[axis])
-                for size, axis in zip(source.shape, dimensions, strict=True)
-            ),
-            "broadcast attributes or result disagree with the operand",
-            "a matching target shape/dtype and compatible mapped dimensions",
-            category="lowering-defect",
-        )
+        _validate_broadcast_in_dim(eqn, inputs, outputs, site)
     elif name == "reduce_sum":
         _arity(eqn, 1, 1, site)
         _params(eqn, {"axes"}, site, required={"axes"})
@@ -2461,22 +2560,7 @@ def _validate_equation(
             "reduction placement is outside the profile",
             "native floating reduction with unspecified placement",
         )
-        site.require(
-            source.symbol is None or 0 not in axes,
-            "reduction over the symbolic batch is outside the profile",
-            "reduce only positive static tail axes while retaining native B",
-        )
-        _same_shape(
-            target.shape,
-            tuple(size for axis, size in enumerate(source.shape) if axis not in axes),
-            site,
-        )
-        site.require(
-            target.symbol == source.symbol,
-            "reduction result symbolic scope differs from its operand",
-            "the same retained atomic native leading B",
-            category="lowering-defect",
-        )
+        _reduction_shape(source, target, axes, site)
     elif name == "dot_general":
         _validate_dot(eqn, inputs, outputs, site)
     elif name == "conv_general_dilated":
@@ -2580,7 +2664,7 @@ def _validate_equation(
                 category="lowering-defect",
             )
             try:
-                _validate_scope(body, site.opset, ancestors)
+                _validate_scope(body, site.opset, ancestors, site.deployment_target)
             except SourcePrecisionError as exc:
                 raise exc.with_context(f"{site.location}/branch {index}") from exc
     elif name is not None and name.startswith("onnx_fn::"):
@@ -2593,17 +2677,24 @@ def _validate_equation(
         )
 
 
-def validate_source_jaxpr(jaxpr: Any, opset: int) -> None:
+def validate_source_jaxpr(
+    jaxpr: Any, opset: int, *, deployment_target: DeploymentTarget | None = None
+) -> None:
     """Validate one scope and recursively inspect conditionals, loops and plain JIT.
 
     Pass this function as the common converter's validator to also check actual
     retraced ONNX Function bodies. A callback alone does not identify the enclosing
     function name; its caller can prefix ``SourcePrecisionError.with_context``.
     """
-    _validate_scope(jaxpr, opset, frozenset())
+    _validate_scope(jaxpr, opset, frozenset(), deployment_target)
 
 
-def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
+def _validate_scope(
+    jaxpr: Any,
+    opset: int,
+    ancestors: frozenset[int],
+    deployment_target: DeploymentTarget | None = None,
+) -> None:
     site = _Site("graph", opset)
     site.require(
         not getattr(jaxpr, "is_high", False),
@@ -2733,6 +2824,7 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
             eqn.primitive.name,
             tuple(str(var.aval.dtype) for var in variables),
             params,
+            deployment_target=deployment_target,
         )
         eqn_site.require(
             not eqn.effects,

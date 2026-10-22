@@ -58,6 +58,16 @@ Only graph-scoped passes with `function_bodies=True` run inside imported ONNX
 Function bodies. Model-wide passes (`name_fix`, CSE, constant lifting,
 dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
 
+After all eligible passes, Function result bindings are finalized on the same
+live graph. Each output position has a distinct name separate from input names;
+repeated results and input passthrough receive typed `Identity` aliases. The
+optimizer captures ordered output metadata before rewriting and preserves it on
+these aliases, retaining inferred dimensions while rejecting contradictory
+types, known dimensions or local definitions.
+Existing distinct produced results, Function objects and callers stay intact.
+This final step applies to both precision policies and leaves top-level output
+naming unchanged.
+
 ### Precision policy
 
 The shared converter finalizer passes `IRContext.precision_policy` to

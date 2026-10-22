@@ -270,9 +270,12 @@ def validate_selected_random_equation(eqn: Any) -> None:
             "requires recorded native partitionable=True context and unchanged selected ambient mode",
         )
         _, symbol = _shape_signature(shape)
+        # The unchanged conv-ViT embedding exposes a rank-four mask. The
+        # shared Range/Reshape grid preserves native row-major counters at
+        # this rank; all key/context/scope and integer checks remain shared.
         _supported(
-            symbol is None or len(shape) in (2, 3),
-            "symbolic random bits retain the audited rank-two/rank-three packet",
+            symbol is None or len(shape) in (2, 3, 4),
+            "symbolic random bits retain the audited rank-two/rank-three/rank-four packet",
         )
         if all(isinstance(dim, (int, np.integer)) for dim in shape):
             _require(
@@ -335,11 +338,11 @@ def prove_native_uniform(eqn: Any) -> _Uniform | None:
     )
     shape = tuple(output_aval.shape)
     _supported(
-        len(shape) in (2, 3)
+        len(shape) in (2, 3, 4)
         or len(shape) == 1
         and type(shape[0]) is int
         and shape[0] >= 0,
-        "uniform requires an audited rank-two/rank-three shape or a static rank-one shape",
+        "uniform requires an audited rank-two/rank-three/rank-four shape or a static rank-one shape",
     )
     scalar_shape = (1,) * len(shape)
     key, low, high = body.invars

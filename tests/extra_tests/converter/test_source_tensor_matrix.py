@@ -1008,6 +1008,7 @@ def test_tensor_matrix_rejects_unsupported_or_corrupt_native_contract_before_emi
         )
 
     context = SimpleNamespace(
+        deployment_target=None,
         require_value_for_var=forbidden,
         allocate_value_for_var=forbidden,
         bind_value_for_var=forbidden,
@@ -1067,6 +1068,7 @@ def test_tensor_matrix_checks_physical_metadata_before_emitting_or_mutating(
         )
 
     context = SimpleNamespace(
+        deployment_target=None,
         require_value_for_var=lambda var: values[
             "lhs" if var is equation.invars[0] else "rhs"
         ],

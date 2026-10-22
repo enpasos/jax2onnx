@@ -51,6 +51,8 @@ from .function_scope import FunctionRegistry
 from .precision_policy import PrecisionPolicy, precision_policy_scope
 from .normalization_options import normalize_normalization_mode
 from .source_profile import SourcePrecisionError, validate_source_input_dtype
+from .source_deployment import DeploymentTarget
+from .source_deployment_bindings import attach_matrix_bindings
 from .source_representation import representation_for_aval, validate_source_shapes
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
@@ -388,6 +390,28 @@ def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
     if not ir_funcs:
         return
 
+    local_domains: set[str] = set()
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        local_ids = {_function_store_identifier(function) for function in ir_funcs}
+        local_domains = {
+            domain for domain, _, _ in local_ids if domain not in {"", "ai.onnx"}
+        }
+        for graph in (ir_model.graph, *(function.graph for function in ir_funcs)):
+            for node in graph.all_nodes():
+                if (
+                    node.domain in local_domains
+                    and node.op_identifier() not in local_ids
+                ):
+                    raise SourcePrecisionError(
+                        "local Function domain contains an unresolved external operator",
+                        phase="finalization",
+                        category="lowering-defect",
+                        location="function import ownership",
+                        opset=ctx.builder.opset,
+                        requirement="every call in an attached local Function domain resolves to its exact domain/name/overload definition",
+                        action="separate the external operator domain or attach its actual local Function definition",
+                    )
+
     functions_store = ir_model.functions
     for fn_ir in ir_funcs:
         functions_store[_function_store_identifier(fn_ir)] = fn_ir
@@ -399,6 +423,13 @@ def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
         if dom and dom not in model_imports:
             model_imports[dom] = 1
     ir_model.opset_imports.update(model_imports)
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        # Attachment owns the complete actual local definitions and the model's
+        # declared custom-domain versions. Standard/external imports stay exact.
+        for function in ir_funcs:
+            for domain in function.graph.opset_imports:
+                if domain in local_domains:
+                    function.graph.opset_imports[domain] = model_imports[domain]
 
 
 def _iter_graph_values(gr: ir.Graph) -> Iterable[ir.Value]:
@@ -700,6 +731,7 @@ def _create_ir_context(
     normalization_mode: str = "auto",
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     jaxpr_validator: Callable[[Any, int], None] | None = None,
+    deployment_target: DeploymentTarget | None = None,
 ) -> IRContext:
     ctx = IRContext(
         opset=opset,
@@ -708,6 +740,7 @@ def _create_ir_context(
         input_specs=input_specs,
         precision_policy=precision_policy,
         jaxpr_validator=jaxpr_validator,
+        deployment_target=deployment_target,
     )
     ctx._call_input_param_names = set(frozen_params.keys())
     ctx._call_input_param_literals = dict(frozen_params)
@@ -1092,6 +1125,7 @@ def _convert_to_ir(
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     jaxpr_validator: Callable[[Any, int], None] | None = None,
     trace_observer: Callable[[_TraceResult], None] | None = None,
+    deployment_target: DeploymentTarget | None = None,
 ) -> ir.Model:
     """Trace, lower, and finalize through one private conversion pipeline.
 
@@ -1099,6 +1133,8 @@ def _convert_to_ir(
     configuration and requires a validator for its bounded audited subset.
     """
     normalization_mode = normalize_normalization_mode(normalization_mode)
+    if deployment_target is not None and precision_policy is not PrecisionPolicy.SOURCE:
+        raise ValueError("Deployment targets require the private SOURCE path")
     if precision_policy is PrecisionPolicy.SOURCE:
         if inputs_as_nchw is not None and len(inputs_as_nchw) == 0:
             inputs_as_nchw = None
@@ -1143,6 +1179,7 @@ def _convert_to_ir(
         record_primitive_calls_file=record_primitive_calls_file,
         precision_policy=precision_policy,
         jaxpr_validator=jaxpr_validator,
+        deployment_target=deployment_target,
     )
     _bind_closed_jaxpr_constants(
         ctx,
@@ -1182,6 +1219,10 @@ def _convert_to_ir(
                         f"or shape {representation.physical_shape}"
                     )
         _source_input_values(trace, model.graph.inputs, require_internal_names=True)
+        if deployment_target is not None:
+            attach_matrix_bindings(
+                model, deployment_target, ctx.matrix_precision_bindings
+            )
     return model
 
 

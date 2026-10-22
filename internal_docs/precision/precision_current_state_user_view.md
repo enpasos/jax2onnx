@@ -14,95 +14,45 @@ loading and execution; the broader precision contract remains a proposal.
 
 ## Local Branch Snapshot
 
-This local branch supports **JAX and jaxlib 0.10.2 or newer, Flax 0.12.8 or
-newer, and Python 3.11 or newer**. It preserves more of the original source's
-precision and model state in finite tested cases. Public precision policy,
-options and defaults, including `enable_double_precision`, remain unchanged.
-The current branch passes its full primary regression suite and affected checks
-across the supported framework stacks and dependency minima. These checks
-establish the tested behavior; model numerical evidence remains limited to the
-recorded samples described below.
+The supported floor remains **Python 3.11+, JAX/JAXLIB 0.10.2+, Flax 0.12.8+
+and ONNX IR 1.0.0+**. The user’s Poetry update retains the modern JAX 0.12.0.1 /
+IR 1.1.0 stack. Current public options, defaults and `enable_double_precision`
+remain unchanged.
 
-Ordinary public file exports receive a shared storage correction: constants
-inside an ONNX Function stay inline while large root initializers can remain in
-a sidecar file. Exact tensor contents are preserved across supported ONNX
-versions. Native diagonal calculations and identity-matrix dtype choices also
-have finite regression coverage. These corrections do not establish new model
-numerical accuracy.
+The private path preserves more original model functions, state, explicit
+rounding and input-derived layouts. The same repeated nested-Function recipe
+now passes both CPU settings against three native references on all three
+tested stacks. Portable BF16 TopK source-word checks also pass; compiled JAX
+NaN words and ordering keep their separate failed native comparisons. These
+samples establish neither all-model support nor a general numerical guarantee.
 
-The private source path preserves the source's precision in more static-shape
-tensor contractions, including scalar and empty results, captured parameters and
-calls through named functions. It retains the original Equinox Linear call and
-carries an input-derived batch size through more layouts to the correct output
-axis. Mixed FP32/FP64 dot operands follow JAX's native result choice, including an
-explicitly requested FP32 result; stored parameters, inputs and returned aliases
-keep their widths. Static empty additions avoid an empty runtime Add. See the
-[contraction findings](poc/source_integration_findings.md#equinox-forwarding-shared-symbolic-contraction-and-output-axes)
-for the checked cases and retained failures.
+The b90 shared repair passes the complete Transformer example with its
+original comparisons. It preserves the type-conversion dataflow through proved
+repeated-expression branches. That result qualifies the tested example and
+directed regression selection; it is not a guarantee for every model.
 
-The sample validator can compare real bfloat16 inputs and outputs without
-converting them to float32, including scalar, empty and mixed outputs and
-results whose size depends on input values. Exact-bit checks preserve signed
-zeros, very small values and NaN payloads; ordinary exact and tolerance-based
-comparisons are also tested. Missing CPU operations, including the tested
-bfloat16 addition, still fail to load. Sample transport does not provide those
-operations or certify a complete model.
+The b90 full suite has finished with unresolved failures. Current code adds
+only a reviewed typing correction whose fresh typing/RNG and scoped checks on
+both older-runtime stacks pass. The b90 full suite’s 54 model/state runs
+and 2 guard controls all pass; that bounded result does not accept the remaining
+failures or establish every numerical contract. A local WIP
+commit would preserve unfinished work; it would not mark the converter or this
+migration accepted. Supported-stack checks, the full inventory,
+fixed-source and numerical workflows, and the public transition remain open.
+The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
+owns exact epochs and preserved failures. Only its stated historical checkpoint
+completed full qualification; there is no public cutover.
 
-The private source path retains original Dropout calls and can now preserve an
-original function transformed by JAX `vmap`, including its model state and
-surrounding JAX configuration. The original source and stored values remain
-available for comparison.
+Ordinary file exports retain inline Function constants and external storage for
+large root initializers. Actual runtime support and numerical acceptance require
+the target and supplied comparisons. Existing criteria and raw callback failures
+remain binding; no general scientific-FP64 preparation API is claimed.
 
-The original MLP2 example can now be exported on that private path, but the
-original graph checks for MLP0, MLP1 and MLP2 still fail. Model numerical
-correctness remains unverified: these export checks do not compare model outputs
-in ONNX Runtime. The [current technical record](poc/source_integration_findings.md#native-transformed-callable-capture)
-separates the checked capabilities and remaining limits.
-
-Recorded saved-artifact CPU comparisons cover selected original configurations
-with loop state, runtime flags and empty results on both supported framework
-stacks. A masked FP64 example also passes against saved PRIMARY JAX references.
-These results belong to earlier source snapshots and retain their individual
-structural pass/fail results; they do not certify the current implementation or
-other inputs. The original full Linear model configured explicitly for FP64
-arithmetic has finite comparisons with either retained parameter storage or an
-explicit conversion of stored values to FP64. Its source, complete weights,
-options and state remain available. The caller enables JAX x64 before
-preparation; export does not rewrite the computation globally, and widening
-existing FP32 weights cannot recover lost precision.
-
-Recorded comparisons also cover the unchanged original CNN, including pooling
-with its original nonzero inputs, and selected scientific FP64 examples.
-Pooling preserves JAX's FP32 sum and any later FP64 conversion. The CNN's fixed
-error bound is derived from its original inputs and weights; it does not
-guarantee other provider kernels. Same-width complex64/complex128 addition has
-finite coverage, including captured values and named calls. Complex128 requires
-JAX x64 before tracing; export does not enable it or recover narrowed values.
-Other complex arithmetic and mixed widths remain unfinished.
-
-Runtime and numerical limits remain visible. Some FP64 artifacts load with
-optimization disabled but fail under the unchanged default full optimization;
-subnormal samples still mismatch under the original settings. Ordering checks
-retain failures for ties, NaNs and subnormals, including native results that
-cannot be associated exactly with their original input. For recorded Min/Max
-subnormal samples, exact source operand selection is checked separately from
-native bitwise equality; the native-bitwise criterion remains **FAILED**. Passing
-diagnostics do not accept these results. The
-[model and raw-replay findings](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
-and [complex/ordering findings](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)
-record the sample limits.
-
-Complete-model and numerical coverage remain unfinished: fixed-source
-preparation, original callbacks and criteria, DINO state and broader replay,
-remaining loop/JIT forms, low-precision arithmetic, other inputs and deployment
-validation still need work. A native JIT gap for a captured outer function body
-remains an explicit implementation/evidence obligation, rather than a permanent
-model-support restriction. The completed migration will offer one ordinary
-source-preserving export contract across existing functionality and fixed
-third-party sources, without a permanent public mode/profile selector or loss of
-capabilities. There is no public preparation API or general scientific FP64
-guarantee yet. Until that transition, use the current export options and a
-consistently configured JAX reference as described below.
+The completed migration will provide one ordinary source-preserving experience
+for all existing functionality and fixed supplied JAX sources. Genuine ONNX or
+target limits must be demonstrated; missing implementation is unfinished work.
+Until those gates close, use the current settings and a consistently configured
+JAX reference as described below.
 
 ## Choosing the Export Setting
 

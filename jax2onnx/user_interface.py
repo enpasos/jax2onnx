@@ -44,6 +44,8 @@ Example:
 """
 
 import logging
+from functools import partial
+from dataclasses import replace
 import importlib
 import json
 import os
@@ -80,6 +82,7 @@ import onnx_ir as ir
 from onnx_ir.traversal import RecursiveGraphIterator
 from jax import core
 
+from jax2onnx._source_capability import check_source_schema
 from jax2onnx.converter.conversion_api import (
     InputSpec,
     ShapeDimSpec,
@@ -94,6 +97,21 @@ from jax2onnx.converter.conversion_api import (
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_deployment import (
+    DEPLOYMENT_METADATA_KEY,
+    DeploymentTarget,
+    DeploymentRequirements,
+    deployment_requirements_from_json,
+    _deployment_graph_scope,
+    _deployment_function_scope,
+    _deployment_child_scope,
+)
+from jax2onnx.converter.source_deployment_bindings import (
+    owned_graphs,
+    resolve_matrix_bindings,
+    update_matrix_bindings,
+    refresh_matrix_names,
+)
 from jax2onnx.converter.normalization_options import (
     NormalizationMode,
     normalize_normalization_mode,
@@ -476,6 +494,112 @@ def _apply_custom_io_names_on_ir(
     )
     target_names = [target_by_value[id(value)] for value in rename_values]
     ir.convenience.rename_values(rename_values, target_names)
+    if DEPLOYMENT_METADATA_KEY in model.metadata_props:
+        refresh_matrix_names(model)
+
+
+def _finalize_source_deployment(model: ir.Model) -> None:
+    """Bind qualified equations to the final owned IR producer and source scope."""
+    payload = model.metadata_props.get(DEPLOYMENT_METADATA_KEY)
+    requirements = deployment_requirements_from_json(payload)
+    if requirements is None:
+        return
+    requirements, values = resolve_matrix_bindings(model)
+    index = 0
+    for graph in owned_graphs(model):
+        for node in graph:
+            node.name = f"jax2onnx_src_{index:06d}"
+            index += 1
+    scopes: dict[int, str] = {}
+
+    def visit(graph: ir.Graph, scope: str) -> None:
+        if id(graph) in scopes:
+            raise ValueError("Deployment Graph has ambiguous lexical ownership")
+        scopes[id(graph)] = scope
+        for node in graph:
+            tag = node.name
+            if tag is None:
+                raise ValueError("Deployment source node lost its tag")
+            for attribute in node.attributes.values():
+                if attribute.type is ir.AttributeType.GRAPH:
+                    visit(
+                        attribute.as_graph(),
+                        _deployment_child_scope(scope, tag, attribute.name, 0),
+                    )
+                elif attribute.type is ir.AttributeType.GRAPHS:
+                    for position, child in enumerate(attribute.as_graphs()):
+                        visit(
+                            child,
+                            _deployment_child_scope(
+                                scope, tag, attribute.name, position
+                            ),
+                        )
+
+    visit(model.graph, _deployment_graph_scope(str(model.graph.name)))
+    for function in iter_ir_functions(model.functions):
+        visit(
+            function.graph,
+            _deployment_function_scope(
+                function.domain, function.name, function.overload
+            ),
+        )
+    sites = []
+    for site, (logical, matrix) in zip(
+        requirements.matrix_precision, values, strict=True
+    ):
+        matrix_graph, producer = matrix.graph, matrix.producer()
+        if (
+            matrix_graph is None
+            or producer is None
+            or logical.graph is not matrix_graph
+        ):
+            raise ValueError("Deployment logical matrix result lost its actual scope")
+        descendant = logical
+        seen: set[int] = set()
+        while descendant is not matrix:
+            if id(descendant) in seen:
+                raise ValueError("Deployment logical result has cyclic provenance")
+            seen.add(id(descendant))
+            descendant_node = descendant.producer()
+            if (
+                descendant.graph is not matrix_graph
+                or descendant_node is None
+                or descendant_node.graph is not matrix_graph
+                or descendant_node.domain not in ("", "ai.onnx")
+                or descendant_node.op_type not in {"Identity", "Transpose", "Reshape"}
+                or not descendant_node.inputs
+                or descendant_node.inputs[0] is None
+            ):
+                raise ValueError(
+                    "Deployment logical result is not a layout-only matrix descendant"
+                )
+            descendant = descendant_node.inputs[0]
+        if producer.op_type != "MatMul" or producer.domain not in ("", "ai.onnx"):
+            raise ValueError(
+                "Deployment lowering remains unfinished for a non-MatMul precision site"
+            )
+        if any(
+            value is None or value.dtype is not ir.DataType.FLOAT
+            for value in (*producer.inputs, *producer.outputs)
+        ):
+            raise ValueError("Deployment source matrix producer is not exact FLOAT")
+        port = matrix.index()
+        if port is None or producer.outputs[port] is not matrix:
+            raise ValueError("Deployment source matrix lost its actual output port")
+        if not logical.name or not matrix.name:
+            raise ValueError("Deployment source matrix lost its final name")
+        sites.append(
+            replace(
+                site,
+                output=logical.name,
+                matrix_output=matrix.name,
+                matrix_scope=scopes[id(matrix_graph)],
+                matrix_tag=producer.name,
+            )
+        )
+    update_matrix_bindings(
+        model, DeploymentRequirements(requirements.target, tuple(sites))
+    )
 
 
 def _source_migration_gap(option: str, opset: int) -> None:
@@ -854,6 +978,9 @@ def _build_source_report(
         caller_default_matmul_precision=caller_precision,
         caller_numpy_dtype_promotion=caller_dtype_promotion,
         caller_numpy_rank_promotion=caller_rank_promotion,
+        deployment_requirements=deployment_requirements_from_json(
+            model.metadata_props.get(DEPLOYMENT_METADATA_KEY)
+        ),
         inputs=tuple(
             PrecisionInputSummary(
                 binding.trace_index,
@@ -1136,10 +1263,16 @@ def _to_onnx(
     normalization_mode: NormalizationMode = "auto",
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
+    deployment_target: DeploymentTarget | None = None,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """One facade pipeline; SOURCE is a private, bounded migration experiment."""
     source = precision_policy is PrecisionPolicy.SOURCE
     diagnostic = diagnostic_jaxpr_validator is not None
+    if deployment_target is not None:
+        if not source or type(deployment_target) is not DeploymentTarget:
+            raise ValueError(
+                "Deployment target requires a typed private SOURCE declaration"
+            )
     if diagnostic and not source:
         raise ValueError("Diagnostic validation requires the private SOURCE policy")
     if diagnostic and not callable(diagnostic_jaxpr_validator):
@@ -1255,9 +1388,10 @@ def _to_onnx(
             "jaxpr_validator": (
                 diagnostic_jaxpr_validator
                 if diagnostic_jaxpr_validator is not None
-                else validate_source_jaxpr
+                else partial(validate_source_jaxpr, deployment_target=deployment_target)
             ),
             "trace_observer": observe_trace,
+            "deployment_target": deployment_target,
         }
     config_scope = nullcontext() if source else _temporary_x64(enable_double_precision)
     warning_scope = (
@@ -1390,6 +1524,7 @@ def _to_onnx(
     )
     model_proto: onnx.ModelProto | None = None
     if source:
+        _finalize_source_deployment(result)
         assert trace_result is not None
         source_output_names = tuple(
             cast(str, value.name) for value in result.graph.outputs
@@ -1401,7 +1536,7 @@ def _to_onnx(
         _assert_source_boundaries(result, trace_result, opset, **boundary_names)
         model_proto = ir.to_proto(result)
         _assert_source_boundaries(model_proto, trace_result, opset, **boundary_names)
-        onnx.checker.check_model(model_proto, full_check=True)
+        check_source_schema(model_proto)
         report = _build_source_report(
             result,
             trace_result,

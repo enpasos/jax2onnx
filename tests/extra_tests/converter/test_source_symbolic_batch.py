@@ -24,6 +24,7 @@ from jax2onnx import precision, user_interface as ui
 from jax2onnx._compat.jax import atomic_symbolic_dimension
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.function_scope import FunctionScope
+from jax2onnx.converter.source_deployment import DeploymentTarget
 from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.source_profile import (
     SourcePrecisionError,
@@ -173,7 +174,11 @@ def test_one_audited_add_artifact_runs_two_batches_without_specialization(
     assert hashlib.sha256(model.SerializeToString()).hexdigest() == digest
 
 
-@pytest.mark.parametrize("tail", [(), (3, 2, 2)], ids=["rank-one", "rank-four"])
+@pytest.mark.parametrize(
+    "tail",
+    [(), (3, 2, 2), (3, 2, 2, 2), (3, 2, 2, 2, 2)],
+    ids=["rank-one", "rank-four", "rank-five", "rank-six"],
+)
 def test_shared_batch_rank_one_and_four_keep_one_artifact(
     tail: tuple[int, ...],
 ) -> None:
@@ -273,8 +278,10 @@ def test_actual_named_child_contract_and_source_legacy_native_cache_order(
             scopes.append(self)
         return formals
 
-    def validate(graph: Any, opset: int) -> None:
-        original_validator(graph, opset)
+    def validate(
+        graph: Any, opset: int, *, deployment_target: DeploymentTarget | None = None
+    ) -> None:
+        original_validator(graph, opset, deployment_target=deployment_target)
         validations.append(graph)
 
     monkeypatch.setattr(FunctionScope, "begin", begin)
@@ -654,8 +661,9 @@ def test_finite_declaration_exclusions_fail_before_model_invocation(kind: str) -
         (other,) = export.symbolic_shape("B")
         shapes = [(batch, 3), (other, 3)]
     elif kind == "rank":
-        # Keep the original parameter ID; rank four now has positive coverage.
-        shapes = [("B", 3, 2, 2, 2)] * 2
+        # Retain the original parameter ID. Valid higher ranks have positive
+        # coverage; a repeated symbolic axis remains an invalid declaration.
+        shapes = [("B", 3, 2, "B", 2)] * 2
     elif kind == "K-zero":
         shapes = [("B", 0)] * 2
     else:

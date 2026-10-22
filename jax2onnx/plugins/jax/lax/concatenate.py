@@ -9,6 +9,11 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_profile import _Site, _tensor, _validate_tensor_layout
+from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx._compat.jax import is_unpartitioned_prng_placement
+from jax2onnx.plugins._complex_utils import coerce_dim_values
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._precision_utils import promote_float32_operand
@@ -133,6 +138,9 @@ def _cast_value(
 )
 class ConcatenatePlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            self._lower_source_native(ctx, eqn)
+            return
         params = getattr(eqn, "params", {})
         axis = int(params.get("dimension", 0))
 
@@ -209,4 +217,45 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
                 override = out_axis0
             if override is not None:
                 set_axis0_override(result, override)
+        ctx.bind_value_for_var(out_var, result)
+
+    def _lower_source_native(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        site = _Site("native Concatenate emission", ctx.opset, eqn.primitive.name)
+        site.require(
+            eqn.primitive is jax.lax.concatenate_p and not eqn.effects,
+            "Concatenate emission needs the pure canonical native primitive",
+            "the existing native lax.concatenate owner without a synthetic jnp carrier",
+            category="lowering-defect",
+        )
+        inputs = [_tensor(v, site) for v in eqn.invars]
+        outputs = [_tensor(v, site) for v in eqn.outvars]
+        _validate_tensor_layout(eqn, inputs, outputs, site)
+        for variable in (*eqn.invars, *eqn.outvars):
+            site.require(
+                is_unpartitioned_prng_placement(
+                    variable.aval.sharding, len(variable.aval.shape)
+                ),
+                "native Concatenate placement needs an exact adapter",
+                "ordinary absent/empty unpartitioned native placement",
+            )
+        values = [ctx.require_value_for_var(v) for v in eqn.invars]
+        for variable, value in zip(eqn.invars, values, strict=True):
+            if not representation_for_aval(variable.aval).matches_ir_value(value):
+                raise TypeError(
+                    "SOURCE Concatenate physical input differs from its native declaration"
+                )
+        out_var = eqn.outvars[0]
+        representation = representation_for_aval(out_var.aval)
+        output = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("concat_out")
+        )
+        result = ctx.builder.op(
+            "Concat",
+            values,
+            {"axis": eqn.params["dimension"]},
+            output=output,
+        )
+        result.type = ir.TensorType(representation.ir_dtype)
+        _stamp_type_and_shape(result, coerce_dim_values(representation.physical_shape))
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

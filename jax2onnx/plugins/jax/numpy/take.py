@@ -20,6 +20,10 @@ from jax2onnx._compat.jax import (
 )
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -234,7 +238,7 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.take not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def legacy(
                 arr: ArrayLike,
                 indices: ArrayLike,
                 *,
@@ -250,6 +254,11 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
                     axis=int(axis),
                     mode=None,
                 )
+
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return legacy(*args, **kwargs)
 
             return _patched
 

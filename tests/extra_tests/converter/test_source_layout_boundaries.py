@@ -643,7 +643,7 @@ def test_layout_keeps_x64_conflict_symbolic_normalization_and_primitive_gaps() -
             ],
         )
         assert _proto(artifact).SerializeToString() == payload
-    with pytest.raises(SourcePrecisionError, match="rank-one through rank-four"):
+    with pytest.raises(ValueError, match="rank 5, expected 4"):
         _source(lambda x: x, [("B", 2, 3, 4, 2)], inputs_as_nchw=[0])
     with pytest.raises(SourcePrecisionError):
         _source(

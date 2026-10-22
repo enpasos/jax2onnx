@@ -23,6 +23,7 @@ import onnx_ir as ir
 
 from jax2onnx._compat.jax import JaxprEqn
 from .precision_policy import PrecisionPolicy
+from .source_deployment import DeploymentTarget, MatrixPrecisionRequirement
 
 if TYPE_CHECKING:
     from jax2onnx.utils.debug import RecordedPrimitiveCallLog
@@ -224,6 +225,19 @@ class NativeLoweringContext(SymbolicDimTracker, Protocol):
 
     @property
     def precision_policy(self) -> PrecisionPolicy: ...
+
+    @property
+    def deployment_target(self) -> DeploymentTarget | None: ...
+
+    @property
+    def source_scope(self) -> str: ...
+
+    def record_matrix_precision_requirement(
+        self,
+        requirement: MatrixPrecisionRequirement,
+        output: ir.Value,
+        matrix_output: ir.Value,
+    ) -> None: ...
 
     def fresh_name(self, base: str) -> str: ...
 

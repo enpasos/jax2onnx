@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Callable, ClassVar, Final, TypeAlias
+from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -23,11 +23,14 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 )
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
-
 
 _TRANSPOSE_PRIM: Final = make_jnp_primitive("jax.numpy.transpose")
 AxesArg = Sequence[int] | int | None
@@ -248,10 +251,15 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.transpose not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a: ArrayLike, axes: AxesArg = None) -> jax.Array:
+            def legacy(a: ArrayLike, axes: AxesArg = None) -> jax.Array:
                 arr = jnp.asarray(a)
                 axes_tuple = _normalize_axes(axes, arr.ndim)
                 return cls._PRIM.bind(arr, permutation=axes_tuple)
+
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return legacy(*args, **kwargs)
 
             return _patched
 

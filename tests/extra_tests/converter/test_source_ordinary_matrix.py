@@ -67,6 +67,7 @@ _SUBNORMAL_TARGETS = {
     ("0.11.2", "1.31.0"),
     ("0.10.2", "1.29.0"),
     ("0.12.0", "1.31.0"),
+    ("0.12.0.1", "1.31.0"),
     ("0.10.2", "1.31.0"),
     ("0.8.1", "1.31.0"),
 }
@@ -894,7 +895,8 @@ def test_ordinary_local_boundary_rejects_malformed_and_pending_forms_before_emis
         expected = ValueError
     with pytest.raises(expected, match="SOURCE dot_general"):
         DotGeneralPlugin()._lower_source(
-            SimpleNamespace(builder=SimpleNamespace(opset=23)), eqn
+            SimpleNamespace(deployment_target=None, builder=SimpleNamespace(opset=23)),
+            eqn,
         )
 
 
@@ -927,6 +929,7 @@ def test_ordinary_physical_metadata_is_checked_without_mutating_operands(
         output.shape = ir.Shape((2, 3))
     before = [(copy(value.type), copy(value.shape)) for value in sources]
     ctx = SimpleNamespace(
+        deployment_target=None,
         builder=SimpleNamespace(opset=23),
         require_value_for_var=lambda var: sources[eqn.invars.index(var)],
         allocate_value_for_var=lambda *args, **kwargs: output,

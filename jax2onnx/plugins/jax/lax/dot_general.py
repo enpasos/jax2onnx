@@ -12,6 +12,10 @@ import onnx_ir as ir
 
 from jax2onnx._compat.jax import is_native_precision_pair
 from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_deployment import (
+    MatrixPrecisionRequirement,
+    matrix_precision_contract,
+)
 from jax2onnx.converter.source_profile import (
     _Site,
     _tensor,
@@ -220,7 +224,43 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         if ctx.precision_policy is PrecisionPolicy.SOURCE:
-            self._lower_source(ctx, eqn)
+            matrix_output = self._lower_source(ctx, eqn)
+            contract = matrix_precision_contract(
+                ctx.deployment_target,
+                eqn.params.get("precision"),
+                tuple(
+                    np.dtype(var.aval.dtype).name for var in (*eqn.invars, *eqn.outvars)
+                ),
+                (
+                    None
+                    if eqn.params.get("preferred_element_type") is None
+                    else np.dtype(eqn.params["preferred_element_type"]).name
+                ),
+            )
+            if contract is not None:
+                if matrix_output is None:
+                    raise NotImplementedError(
+                        "SOURCE target precision lowering remains unfinished for a non-MatMul route"
+                    )
+                output = ctx.require_value_for_var(eqn.outvars[0])
+                ctx.record_matrix_precision_requirement(
+                    MatrixPrecisionRequirement(
+                        source_scope=ctx.source_scope,
+                        source_equation=str(eqn),
+                        output=output.name or "pending",
+                        matrix_output=matrix_output.name,
+                        source_precision=("HIGHEST", "HIGHEST"),
+                        dtypes=("float32", "float32", "float32"),
+                        preferred_element_type=(
+                            None
+                            if eqn.params.get("preferred_element_type") is None
+                            else "float32"
+                        ),
+                        kernel_contract=contract,
+                    ),
+                    output,
+                    matrix_output,
+                )
             return
 
         lhs_var, rhs_var = eqn.invars
@@ -297,7 +337,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             rhs_batch,
         )
 
-    def _lower_source(self, ctx: NativeLoweringContext, eqn: Any) -> None:
+    def _lower_source(self, ctx: NativeLoweringContext, eqn: Any) -> ir.Value | None:
         """Preserve native axes and declared widths; numerical evidence is separate.
 
         Finite FP16 operand values and products are exactly representable in
@@ -344,6 +384,13 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             precision is not None
             and precision != default_pair
             and not (native_fp64 and is_native_precision_pair(precision))
+            and matrix_precision_contract(
+                ctx.deployment_target,
+                precision,
+                tuple(dtype.name for dtype in dtypes),
+                None if preferred is None else np.dtype(preferred).name,
+            )
+            is None
         ):
             raise NotImplementedError(
                 "SOURCE dot_general: precision "
@@ -371,7 +418,12 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 "BF16 schema support does not establish its native accumulation/provider contract; "
                 "integer, Boolean and packed-complex arithmetic require their own proof"
             )
-        site = _Site("SOURCE dot_general lowering", ctx.builder.opset, "dot_general")
+        site = _Site(
+            "SOURCE dot_general lowering",
+            ctx.builder.opset,
+            "dot_general",
+            deployment_target=ctx.deployment_target,
+        )
         _validate_dot(
             eqn,
             [_tensor(var, site) for var in eqn.invars],
@@ -388,8 +440,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 native_shapes[0], native_shapes[1], params["dimension_numbers"]
             )
         ):
-            self._lower_source_tensor_matrix(ctx, eqn, dtype)
-            return
+            return self._lower_source_tensor_matrix(ctx, eqn, dtype)
         symbolic = any(contract.symbol is not None for contract in contracts)
         if (
             same_width
@@ -410,15 +461,13 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 and dimensions == (((len(native_shapes[0]) - 1,), (0,)), ((), ()))
             ):
                 # Keep the established one-MatMul tensor-by-static-matrix graph.
-                self._lower_source_tensor_matrix(ctx, eqn, dtype)
-                return
+                return self._lower_source_tensor_matrix(ctx, eqn, dtype)
             if (
                 len(native_shapes[0]) == len(native_shapes[1]) == 3
                 and contracts[0].symbol == contracts[1].symbol
                 and dimensions == (((2,), (1,)), ((0,), (0,)))
             ):
-                self._lower_source_leading_batch(ctx, eqn, dtype)
-                return
+                return self._lower_source_leading_batch(ctx, eqn, dtype)
         plan = _dot_contraction_plan(
             native_shapes[0], native_shapes[1], params["dimension_numbers"]
         )
@@ -506,7 +555,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 output=output,
             )
             ctx.bind_value_for_var(out_var, result)
-            return
+            return None
 
         def normalize(
             value: ir.Value,
@@ -556,6 +605,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         result = ctx.builder.op(
             "Mul" if plan.outer_product else "MatMul", [lhs, rhs], output=matrix_output
         )
+        physical_matrix = None if plan.outer_product else result
         if plan.matrix_output_shape != plan.ungrouped_output_shape:
             result = ctx.builder.op(
                 "Reshape",
@@ -575,10 +625,11 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 output=output,
             )
         ctx.bind_value_for_var(out_var, result)
+        return physical_matrix
 
     def _lower_source_tensor_matrix(
         self, ctx: NativeLoweringContext, eqn: Any, dtype: ir.DataType
-    ) -> None:
+    ) -> ir.Value:
         """Emit one typed MatMul for a proven canonical tensor-matrix call."""
         native_shapes = [tuple(var.aval.shape) for var in (*eqn.invars, *eqn.outvars)]
         contracts = [source_shape_contract(shape) for shape in native_shapes]
@@ -680,10 +731,11 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 )
         result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
         ctx.bind_value_for_var(eqn.outvars[0], result)
+        return result
 
     def _lower_source_leading_batch(
         self, ctx: NativeLoweringContext, eqn: Any, dtype: ir.DataType
-    ) -> None:
+    ) -> ir.Value:
         """Emit one canonical MatMul after proving actual native batch scopes."""
         native_shapes = [tuple(var.aval.shape) for var in (*eqn.invars, *eqn.outvars)]
         validate_source_shapes(native_shapes)
@@ -763,6 +815,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 )
         result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
         ctx.bind_value_for_var(eqn.outvars[0], result)
+        return result
 
     def _maybe_lower_complex(
         self,
