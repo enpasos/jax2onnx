@@ -234,6 +234,151 @@ def _export(
     return proto, eager, compiled
 
 
+def _assert_max_signed_zero_graph(proto: onnx.ModelProto, *, opset: int = 23) -> None:
+    """Bind the complete finite F32 Max selector, including its actual zero words."""
+    graph = proto.graph
+    assert [(item.domain, item.version) for item in proto.opset_import] == [("", opset)]
+    assert not proto.functions and not proto.training_info
+    assert not graph.sparse_initializer and not graph.quantization_annotation
+    assert len(graph.input) == 2 and len(graph.output) == 1
+    inputs = tuple(value.name for value in graph.input)
+    assert all(inputs) and len(set(inputs)) == 2
+    constants = list(graph.initializer)
+    assert len(constants) == 3
+    constant_names = tuple(value.name for value in constants)
+    assert all(constant_names) and len(set(constant_names)) == 3
+    assert set(inputs).isdisjoint(constant_names)
+    for tensor, dtype, shape, words in zip(
+        constants,
+        (onnx.TensorProto.FLOAT, onnx.TensorProto.INT64, onnx.TensorProto.FLOAT),
+        ((), (1,), (2,)),
+        ((0,), (0,), (0, 0x80000000)),
+        strict=True,
+    ):
+        assert tensor.data_type == dtype and tuple(tensor.dims) == shape
+        assert (
+            not tensor.external_data
+            and tensor.data_location == onnx.TensorProto.DEFAULT
+        )
+        assert not tensor.HasField("segment")
+        array = onnx.numpy_helper.to_array(tensor)
+        assert array.shape == shape
+        if dtype == onnx.TensorProto.FLOAT:
+            assert array.dtype == np.dtype(np.float32)
+            actual_words = tuple(
+                int(value) for value in array.reshape(-1).view(np.uint32)
+            )
+        else:
+            assert array.dtype == np.dtype(np.int64)
+            actual_words = tuple(int(value) for value in array.reshape(-1))
+        assert actual_words == words
+    nodes = list(graph.node)
+    assert len(nodes) == 18
+    outputs = tuple(node.output[0] for node in nodes if len(node.output) == 1)
+    assert len(outputs) == 18 and all(outputs) and len(set(outputs)) == 18
+    assert set(outputs).isdisjoint((*inputs, *constant_names))
+    left, right = inputs
+    zero, axes, zero_choices = constant_names
+    expected = (
+        ("Max", (left, right), {}, onnx.TensorProto.FLOAT, (2,)),
+        ("Equal", (left, zero), {}, onnx.TensorProto.BOOL, (2,)),
+        ("Equal", (right, zero), {}, onnx.TensorProto.BOOL, (2,)),
+        ("And", (outputs[1], outputs[2]), {}, onnx.TensorProto.BOOL, (2,)),
+        ("Reciprocal", (left,), {}, onnx.TensorProto.FLOAT, (2,)),
+        ("Reciprocal", (right,), {}, onnx.TensorProto.FLOAT, (2,)),
+        ("Less", (outputs[4], zero), {}, onnx.TensorProto.BOOL, (2,)),
+        ("Less", (outputs[5], zero), {}, onnx.TensorProto.BOOL, (2,)),
+        ("And", (outputs[6], outputs[7]), {}, onnx.TensorProto.BOOL, (2,)),
+        ("Cast", (outputs[8],), {"to": 7}, onnx.TensorProto.INT64, (2,)),
+        (
+            "Gather",
+            (zero_choices, outputs[9]),
+            {"axis": 0},
+            onnx.TensorProto.FLOAT,
+            (2,),
+        ),
+        ("Unsqueeze", (outputs[0], axes), {}, onnx.TensorProto.FLOAT, (1, 2)),
+        ("Unsqueeze", (outputs[10], axes), {}, onnx.TensorProto.FLOAT, (1, 2)),
+        (
+            "Concat",
+            (outputs[11], outputs[12]),
+            {"axis": 0},
+            onnx.TensorProto.FLOAT,
+            (2, 2),
+        ),
+        ("Cast", (outputs[3],), {"to": 7}, onnx.TensorProto.INT64, (2,)),
+        ("Unsqueeze", (outputs[14], axes), {}, onnx.TensorProto.INT64, (1, 2)),
+        (
+            "GatherElements",
+            (outputs[13], outputs[15]),
+            {"axis": 0},
+            onnx.TensorProto.FLOAT,
+            (1, 2),
+        ),
+        ("Squeeze", (outputs[16], axes), {}, onnx.TensorProto.FLOAT, (2,)),
+    )
+    for node, (operation, arguments, attributes, _, _) in zip(
+        nodes, expected, strict=True
+    ):
+        assert node.op_type == operation and tuple(node.input) == arguments
+        assert node.domain == "" and node.overload == ""
+        assert len(node.attribute) == len(attributes)
+        assert len({attribute.name for attribute in node.attribute}) == len(
+            node.attribute
+        )
+        for attribute in node.attribute:
+            assert attribute.name in attributes
+            assert attribute.type == onnx.AttributeProto.INT
+            assert {field.name for field, _ in attribute.ListFields()} <= {
+                "name",
+                "type",
+                "i",
+            }
+            assert attribute.i == attributes[attribute.name]
+    assert graph.output[0].name == outputs[-1]
+    # Exact ordered bindings above also bind every consumer. Explicitly require
+    # every internal result to feed the one live output, with no dead side graph.
+    live = {outputs[-1]}
+    for node in reversed(nodes):
+        assert node.output[0] in live
+        live.update(node.input)
+    assert live == set((*inputs, *constant_names, *outputs))
+    expected_types = {
+        **{name: (onnx.TensorProto.FLOAT, (2,)) for name in inputs},
+        **{
+            name: (dtype, shape)
+            for name, (_, _, _, dtype, shape) in zip(outputs, expected, strict=True)
+        },
+        **{
+            name: (tensor.data_type, tuple(tensor.dims))
+            for name, tensor in zip(constant_names, constants, strict=True)
+        },
+    }
+    for infer in (False, True):
+        model = (
+            onnx.shape_inference.infer_shapes(proto, strict_mode=True, data_prop=True)
+            if infer
+            else proto
+        )
+        records = (*model.graph.input, *model.graph.value_info, *model.graph.output)
+        names = [value.name for value in records]
+        assert len(names) == len(set(names))
+        for value in records:
+            assert value.name in expected_types
+            dtype, shape = expected_types[value.name]
+            assert value.type.WhichOneof("value") == "tensor_type"
+            tensor_type = value.type.tensor_type
+            assert tensor_type.elem_type == dtype and tensor_type.HasField("shape")
+            assert all(
+                dim.HasField("dim_value") and not dim.dim_param
+                for dim in tensor_type.shape.dim
+            )
+            assert tuple(dim.dim_value for dim in tensor_type.shape.dim) == shape
+        if model is not proto:
+            assert set((*inputs, *outputs)) <= set(names)
+    onnx.checker.check_model(proto, full_check=True)
+
+
 def _samples(
     model: onnx.ModelProto,
     values: tuple[Any, ...],
@@ -691,85 +836,7 @@ def test_nonselected_binder_and_existing_profile_exclusions_remain() -> None:
             *report.traced_outputs,
         )
     )
-    nodes = list(proto.graph.node)
-    assert [node.op_type for node in nodes] == [
-        "Max",
-        "Equal",
-        "Equal",
-        "And",
-        "Add",
-        "Unsqueeze",
-        "Unsqueeze",
-        "Concat",
-        "Cast",
-        "Unsqueeze",
-        "GatherElements",
-        "Squeeze",
-    ]
-    assert not proto.functions
-    assert len(proto.graph.input) == 2 and len(proto.graph.output) == 1
-    for value in (*proto.graph.input, *proto.graph.output):
-        tensor = value.type.tensor_type
-        assert tensor.elem_type == onnx.TensorProto.FLOAT
-        assert len(tensor.shape.dim) == 1
-        assert tensor.shape.dim[0].dim_value == 2
-    initializers = {
-        value.name: onnx.numpy_helper.to_array(value)
-        for value in proto.graph.initializer
-    }
-    assert len(initializers) == 2
-    zero = next(
-        name
-        for name, value in initializers.items()
-        if value.dtype == np.dtype(np.float32) and value.shape == ()
-    )
-    axis = next(
-        name
-        for name, value in initializers.items()
-        if value.dtype == np.dtype(np.int64) and value.shape == (1,)
-    )
-    assert initializers[zero].tobytes() == np.asarray(0.0, np.float32).tobytes()
-    assert initializers[axis].tobytes() == np.asarray([0], np.int64).tobytes()
-    assert all(not node.domain and len(node.output) == 1 for node in nodes)
-    outputs = [node.output[0] for node in nodes]
-    assert len(set(outputs)) == len(outputs)
-    left, right = (value.name for value in proto.graph.input)
-    expected_inputs = [
-        (left, right),
-        (left, zero),
-        (right, zero),
-        (outputs[1], outputs[2]),
-        (left, right),
-        (outputs[0], axis),
-        (outputs[4], axis),
-        (outputs[5], outputs[6]),
-        (outputs[3],),
-        (outputs[8], axis),
-        (outputs[7], outputs[9]),
-        (outputs[10], axis),
-    ]
-    expected_attributes = [
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {"axis": 0},
-        {"to": onnx.TensorProto.INT64},
-        {},
-        {"axis": 0},
-        {},
-    ]
-    for node, inputs, attributes in zip(
-        nodes, expected_inputs, expected_attributes, strict=True
-    ):
-        assert tuple(node.input) == inputs
-        assert {
-            attr.name: onnx.helper.get_attribute_value(attr) for attr in node.attribute
-        } == attributes
-    assert proto.graph.output[0].name == outputs[11]
+    _assert_max_signed_zero_graph(proto)
     payload = proto.SerializeToString()
     for reference in (eager, compiled):
         for optimization in ("disabled", "all"):
@@ -807,10 +874,13 @@ def test_where_full_adapters_and_dynamic_arange_compatibility_remain() -> None:
         jnp.asarray([True, True]),
         jnp.asarray([False, False]),
     )
-    _reference(adapters, values)
+    native_adapters, _, _ = _reference(adapters, values)
     with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
         trace = jax.make_jaxpr(adapters)(*map(_spec, values))
-    assert {leaf[0] for leaf in _leaves(trace)} >= {"select_n", "jax.numpy.full"}
+    assert typed_trace_manifest(trace) == typed_trace_manifest(native_adapters)
+    names = {leaf[0] for leaf in _leaves(trace)}
+    assert names >= {"select_n", "broadcast_in_dim"}
+    assert "jax.numpy.full" not in names
     native_where = jax.make_jaxpr(_ORIGINALS["where"])(*map(_spec, values))
     with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
         source_where = jax.make_jaxpr(jnp.where)(*map(_spec, values))
@@ -850,3 +920,85 @@ def test_original_ufunc_keyword_errors_and_nested_restoration() -> None:
                     getattr(jnp, name)(*values, unknown_keyword=True)
             assert getattr(jnp, name) is outer
         assert getattr(jnp, name) is original
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "reciprocal-binding",
+        "predicate-order",
+        "selector-order",
+        "graph-output",
+        "gather-axis",
+        "cast-dtype",
+        "zero-word",
+        "zero-shape",
+        "duplicate-attribute",
+        "unknown-attribute",
+        "reference-attribute",
+        "domain",
+        "overload",
+        "dead-node",
+        "input-dtype",
+        "input-shape",
+        "duplicate-output",
+        "extra-consumer",
+    ],
+)
+def test_current_max_selector_rejects_bound_structure_corruption(
+    corruption: str,
+) -> None:
+    proto, _, _ = _export(_target("maximum"), _values("same"), diagnostic=False)
+    _assert_max_signed_zero_graph(proto)
+    payload = proto.SerializeToString()
+    changed = onnx.load_model_from_string(payload)
+    graph, nodes = changed.graph, changed.graph.node
+    if corruption == "reciprocal-binding":
+        nodes[4].input[0] = graph.input[1].name
+    elif corruption == "predicate-order":
+        nodes[8].input.reverse()
+    elif corruption == "selector-order":
+        nodes[13].input.reverse()
+    elif corruption == "graph-output":
+        graph.output[0].name = nodes[0].output[0]
+    elif corruption == "gather-axis":
+        nodes[16].attribute[0].i = 1
+    elif corruption == "cast-dtype":
+        nodes[9].attribute[0].i = onnx.TensorProto.INT32
+    elif corruption == "zero-word":
+        graph.initializer[2].CopyFrom(
+            onnx.numpy_helper.from_array(
+                np.asarray([0.0, 0.0], np.float32), name=graph.initializer[2].name
+            )
+        )
+    elif corruption == "zero-shape":
+        graph.initializer[2].dims[:] = [1, 2]
+    elif corruption == "duplicate-attribute":
+        nodes[13].attribute.append(nodes[13].attribute[0])
+    elif corruption == "unknown-attribute":
+        nodes[0].attribute.append(onnx.helper.make_attribute("unowned", 0))
+    elif corruption == "reference-attribute":
+        nodes[13].attribute[0].ref_attr_name = "foreign_axis"
+    elif corruption == "domain":
+        nodes[0].domain = "foreign"
+    elif corruption == "overload":
+        nodes[0].overload = "foreign"
+    elif corruption == "dead-node":
+        nodes.append(
+            onnx.helper.make_node(
+                "Identity", [nodes[0].output[0]], ["unowned_dead_output"]
+            )
+        )
+    elif corruption == "input-dtype":
+        graph.input[0].type.tensor_type.elem_type = onnx.TensorProto.INT32
+    elif corruption == "input-shape":
+        graph.input[0].type.tensor_type.shape.dim[0].dim_value = 3
+    elif corruption == "duplicate-output":
+        nodes[4].output[0] = nodes[5].output[0]
+    elif corruption == "extra-consumer":
+        nodes[5].input.append(graph.input[0].name)
+    else:
+        raise AssertionError(corruption)
+    with pytest.raises(AssertionError):
+        _assert_max_signed_zero_graph(changed)
+    assert proto.SerializeToString() == payload

@@ -3,6 +3,10 @@
 """Existing native loop contracts through ordinary private SOURCE admission."""
 
 from copy import copy
+from dataclasses import asdict
+import hashlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -10,9 +14,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
+import onnxruntime as ort
 import pytest
 
 from jax2onnx import user_interface as ui
+from jax2onnx._source_capability import diagnostic_from_detail
+from jax2onnx.converter.conversion_api import _activate_plugin_worlds
 from jax2onnx._compat.jax import (
     ClosedJaxpr,
     ShapedArray,
@@ -23,6 +30,7 @@ from jax2onnx._compat.jax import (
 from jax2onnx.converter.precision_policy import (
     PrecisionPolicy,
     active_precision_policy,
+    precision_policy_scope,
 )
 from jax2onnx.converter.source_profile import (
     SourcePrecisionError,
@@ -30,12 +38,20 @@ from jax2onnx.converter.source_profile import (
 )
 from jax2onnx.precision import (
     CheckStatus,
+    SampleAcceptanceError,
     SampleCriteria,
+    _array_evidence,
     SourceSample,
     get_precision_report,
     validate_source_samples,
 )
 from jax2onnx.plugins.jax.numpy.zeros import JnpZerosPlugin
+from jax2onnx.plugins.jax.numpy.ones import JnpOnesPlugin
+from jax2onnx.plugins.jax.numpy.full import JnpFullPlugin
+from tests.extra_tests.converter.source_precision_diagnostics import (
+    typed_trace_manifest,
+)
+from tests.extra_tests.converter.test_source_jnp_binary_dispatch import _leaves
 from tests.extra_tests.converter import (
     test_source_complex_loop_precision as complex_cases,
 )
@@ -382,7 +398,7 @@ def test_zero_fill_admission_keeps_other_dtype_routes_excluded(dtype: Any) -> No
 def test_zero_fill_admission_keeps_other_opset_routes_excluded(opset: int) -> None:
     with pytest.raises(SourcePrecisionError) as error:
         ui._to_onnx(
-            lambda: jnp.zeros((2,), dtype=np.float32),
+            lambda: JnpZerosPlugin._PRIM.bind(shape=(2,), dtype=np.dtype(np.float32)),
             [],
             opset=opset,
             precision_policy=PrecisionPolicy.SOURCE,
@@ -397,8 +413,8 @@ def test_zero_fill_admission_keeps_other_creation_wrappers_excluded(
 ) -> None:
     def target() -> Any:
         if component == "ones":
-            return jnp.ones((2,), dtype=np.float32)
-        return jnp.full((2,), np.float32(0))
+            return JnpOnesPlugin._PRIM.bind(shape=(2,), dtype=np.dtype(np.float32))
+        return JnpFullPlugin._PRIM.bind(jnp.asarray(np.float32(0)), shape=(2,))
 
     with pytest.raises(SourcePrecisionError) as error:
         ui._to_onnx(target, [], precision_policy=PrecisionPolicy.SOURCE)
@@ -1097,3 +1113,246 @@ def test_closed_scan_native_typed_constant_roles_remain_strict(mutation: str) ->
     assert "constant 0" in str(error.value) and "scan-body" in error.value.location
     _assert_native_typed_constant_state(value, before)
     assert payload.tobytes() == words
+
+
+@pytest.mark.parametrize("opset", [16, 18, 21, 24, 27])
+@pytest.mark.parametrize("component", ["zeros", "ones", "full"])
+def test_original_public_creation_frontends_keep_native_source_artifacts(
+    opset: int,
+    component: str,
+    tmp_path: Path,
+    record_property: Any,
+) -> None:
+    def target() -> Any:
+        if component == "zeros":
+            return jnp.zeros((2,), dtype=np.float32)
+        if component == "ones":
+            return jnp.ones((2,), dtype=np.float32)
+        return jnp.full((2,), np.float32(0))
+
+    before = _globals(), _settings()
+    native = jax.make_jaxpr(target)()
+    with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
+        active = jax.make_jaxpr(target)()
+    assert typed_trace_manifest(active) == typed_trace_manifest(native)
+    names = {leaf[0] for leaf in _leaves(active)}
+    assert "broadcast_in_dim" in names
+    assert names.isdisjoint({"jax.numpy.zeros", "jax.numpy.ones", "jax.numpy.full"})
+    path = tmp_path / "native-creation.onnx"
+    proto = (
+        _creation_runtime27(target, component, path, record_property)
+        if opset == 27
+        else _product(target, [], opset=opset)
+    )
+    payload = proto.SerializeToString()
+    if opset != 27:
+        onnx.save_model(proto, path)
+    restored = onnx.load_model(path)
+    assert path.read_bytes() == payload == restored.SerializeToString()
+    report = get_precision_report(restored)
+    assert (
+        report is not None
+        and report.profile == "source-static-v1"
+        and report.opset == opset
+    )
+    assert {check.category: check.status for check in report.checks} == {
+        "representation": CheckStatus.VALIDATED,
+        "lowering": CheckStatus.VALIDATED,
+        "runtime-execution": CheckStatus.UNVERIFIED,
+        "numerical-acceptance": CheckStatus.UNVERIFIED,
+    }
+    assert (_globals(), _settings()) == before
+
+
+def _creation27_outcome(
+    evidence: Any,
+    *,
+    digest: str,
+    references: Any,
+    optimization: str,
+    runtime_version: str,
+) -> dict[str, Any]:
+    """Recognize only an exact observed27>26 load boundary; retain its failure."""
+    assert optimization in ("disabled", "all")
+    assert evidence.artifact_sha256 == digest
+    target = evidence.target
+    assert target is not None and target.runtime_version == runtime_version
+    assert (
+        target.optimization
+        == {"disabled": "ORT_DISABLE_ALL", "all": "ORT_ENABLE_ALL"}[optimization]
+    )
+    assert target.intra_op_threads == target.inter_op_threads == 1
+    assert target.execution_mode == "ORT_SEQUENTIAL"
+    assert len(evidence.samples) == 1 and len(references) == 1
+    sample = evidence.samples[0]
+    assert sample.index == 0 and sample.inputs == ()
+    assert sample.criteria == _BITWISE and sample.references == references
+    assert references[0].dtype == "float32" and references[0].shape == (2,)
+    top = tuple((item.category, item.status) for item in evidence.checks)
+    checks = tuple((item.category, item.status) for item in sample.checks)
+    outcome = {
+        "artifact_sha256": digest,
+        "runtime_version": runtime_version,
+        "optimization": optimization,
+        "providers_requested": ["CPUExecutionProvider"],
+    }
+    if evidence.status is CheckStatus.VALIDATED:
+        assert top == (
+            ("artifact-load", CheckStatus.VALIDATED),
+            ("onnx-schema", CheckStatus.VALIDATED),
+        )
+        assert checks == (
+            ("runtime-execution", CheckStatus.VALIDATED),
+            ("numerical-acceptance", CheckStatus.VALIDATED),
+        )
+        assert target.providers == ("CPUExecutionProvider",)
+        assert sample.outputs == references
+        evidence.require_sample_acceptance()
+        return {**outcome, "status": "VALIDATED", "numerical": "VALIDATED"}
+    assert evidence.status is CheckStatus.FAILED and sample.status is CheckStatus.FAILED
+    assert top == (
+        ("artifact-load", CheckStatus.VALIDATED),
+        ("onnx-schema", CheckStatus.VALIDATED),
+        ("runtime-load", CheckStatus.FAILED),
+    )
+    assert checks == (
+        ("runtime-load", CheckStatus.FAILED),
+        ("numerical-acceptance", CheckStatus.UNVERIFIED),
+    )
+    assert sample.outputs == () and target.providers == ()
+    assert target.provider_options == () and target.session_config == ()
+    assert target.deployment_observation is None
+    detail = evidence.checks[2].detail
+    assert sample.checks[0].detail == detail
+    diagnostic = diagnostic_from_detail(
+        detail,
+        artifact_sha256=digest,
+        providers_requested=("CPUExecutionProvider",),
+    )
+    assert diagnostic is not None
+    assert type(diagnostic.protocol) is int and diagnostic.protocol == 1
+    assert diagnostic.boundary == "runtime-load"
+    assert diagnostic.artifact_sha256 == digest
+    assert diagnostic.opset_imports == (("", 27),)
+    assert diagnostic.context["domain"] == ""
+    assert diagnostic.context["requested_opset"] == 27
+    assert diagnostic.context["supported_opset"] == 26
+    assert diagnostic.context["requested_opset"] > diagnostic.context["supported_opset"]
+    assert diagnostic.context["runtime_version"] == target.runtime_version
+    assert diagnostic.context["providers_requested"] == ["CPUExecutionProvider"]
+    with pytest.raises(SampleAcceptanceError):
+        evidence.require_sample_acceptance()
+    return {
+        **outcome,
+        "status": "FAILED",
+        "numerical": "UNVERIFIED",
+        "capability": asdict(diagnostic),
+    }
+
+
+def _creation27_modes(outcomes: list[dict[str, Any]]) -> None:
+    assert tuple(item["optimization"] for item in outcomes) == ("disabled", "all")
+
+
+def _creation_runtime27(
+    fn: Any, component: str, path: Path, record_property: Any
+) -> onnx.ModelProto:
+    """Save the original zero-input public artifact before both CPU attempts."""
+    assert component in ("zeros", "ones", "full")
+    before = _globals(), _settings()
+    assert active_precision_policy() is PrecisionPolicy.LEGACY
+    eager = [np.asarray(v) for v in jax.tree.leaves(fn())]
+    compiled = [np.asarray(v) for v in jax.tree.leaves(jax.jit(fn)())]
+    assert len(eager) == len(compiled) == 1
+    for actual, expected in zip(compiled, eager, strict=True):
+        complex_cases._exact(actual, expected)
+    complex_cases._exact(
+        eager[0], np.asarray([1, 1] if component == "ones" else [0, 0], np.float32)
+    )
+    proto = ui._to_onnx(fn, [], precision_policy=PrecisionPolicy.SOURCE, opset=27)
+    assert (_globals(), _settings()) == before
+    assert active_precision_policy() is PrecisionPolicy.LEGACY
+    onnx.checker.check_model(proto, full_check=True)
+    assert [(item.domain, item.version) for item in proto.opset_import] == [("", 27)]
+    assert not proto.graph.input and not proto.functions
+    for tensor in (
+        *proto.graph.initializer,
+        *(
+            attribute.t
+            for node in proto.graph.node
+            for attribute in node.attribute
+            if attribute.type == onnx.AttributeProto.TENSOR
+        ),
+    ):
+        assert (
+            not tensor.external_data
+            and tensor.data_location == onnx.TensorProto.DEFAULT
+        )
+    report = get_precision_report(proto)
+    assert (
+        report is not None
+        and report.profile == "source-static-v1"
+        and report.opset == 27
+    )
+    assert not report.inputs
+    assert tuple(
+        (value.dtype, value.shape, value.weak_type) for value in report.traced_outputs
+    ) == (
+        ("float32", (2,), False),
+    )
+    assert {check.category: check.status for check in report.checks} == {
+        "representation": CheckStatus.VALIDATED,
+        "lowering": CheckStatus.VALIDATED,
+        "runtime-execution": CheckStatus.UNVERIFIED,
+        "numerical-acceptance": CheckStatus.UNVERIFIED,
+    }
+    payload = proto.SerializeToString()
+    digest = hashlib.sha256(payload).hexdigest()
+    onnx.save_model(proto, path)
+    restored = onnx.load_model(path)
+    assert path.read_bytes() == payload == restored.SerializeToString()
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    assert [(item.domain, item.version) for item in restored.opset_import] == [("", 27)]
+    expected = [complex_cases._physical(v) for v in eager]
+    references = tuple(
+        _array_evidence(str(index), value) for index, value in enumerate(expected)
+    )
+    # Finish both real attempts before classifying either result. An unrelated
+    # failure remains a failing test; it cannot suppress the other observation.
+    attempts = [
+        (
+            optimization,
+            validate_source_samples(
+                path,
+                samples=[SourceSample({}, expected, _BITWISE)],
+                optimization=optimization,
+            ),
+        )
+        for optimization in ("disabled", "all")
+    ]
+    outcomes = [
+        _creation27_outcome(
+            evidence,
+            digest=digest,
+            references=references,
+            optimization=optimization,
+            runtime_version=ort.__version__,
+        )
+        for optimization, evidence in attempts
+    ]
+    _creation27_modes(outcomes)
+    for item in outcomes:
+        record_property(
+            "creation27_" + item["optimization"], json.dumps(item, sort_keys=True)
+        )
+    assert get_precision_report(restored) == report
+    assert (
+        restored.SerializeToString()
+        == proto.SerializeToString()
+        == path.read_bytes()
+        == payload
+    )
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    assert (_globals(), _settings()) == before
+    assert active_precision_policy() is PrecisionPolicy.LEGACY
+    return restored

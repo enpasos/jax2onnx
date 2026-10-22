@@ -8,49 +8,43 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 ## Current implementation and next gates
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
-exact source/stack results. `fe214590` remains the completed checkpoint; later
-three-stack directed results include unchanged repeated Function/If and exact
-Constant origins. BF16 portable word semantics and strict native NaN failures
-remain separate. Public behavior remains LEGACY; no new closeout is claimed.
+exact source/stack results and counts. This unfinished LOCAL WIP continues
+`b74d8e93`; `fe214590` remains the last fully green checkpoint. Reviewed
+fixture/expectation and later corpus, CNN/Scan/Gather, Eqx, capture and admission
+repairs are applied with separately source-bound qualification. Current `c875`
+ordinary SimpleLinear callers reach the unchanged raw structural callback, which
+still fails; runtime and numerical acceptance remain UNVERIFIED. Source-reference,
+schema, artifact and lowering checks are VALIDATED. Public behavior stays LEGACY.
 
-1. Retain the actual b90 331-case joint pass, including all 44 new live-branch
-   controls, full unchanged Transformer 52 and repeated Function/If 2. The proof
-   preserves original Cast bytes/artifacts, final precision equality, both
-   endpoint partitions and exact downstream redirects. Prior failed epochs
-   remain intact. Current 9134 adds only the reviewed typing annotations/local
-   rename; fresh typing/RNG and both scoped 279-case SECONDARY/DIRECTMIN
-   selections pass.
-   The terminal full suite remains a b90 result; no 9134 full rerun is claimed.
-2. Retain the terminal FAILED result of the same ordinary PRIMARY full suite
-   and the exact canonical failure ledger. All 54 actual model/state runs plus 2
-   singleton guards pass (44 state+10 native model runs+2 controls); the remaining
-   failures are unresolved and unwaived. No full-suite acceptance is claimed. Do not inherit
-   the historical 19 passes or turn the 37 earlier unfinished cases into current
-   results. Qualify affected supported
-   stacks, direct minima, current typing/RNG and actual schema/runtime outcomes.
-3. Refresh the complete current inventory and map without changing the
-   1,852-row/3,704-caller denominator: all 22 original owners, 50 optional rows and
-   104 registrations without metadata remain obligations. Keep earlier maps
-   and failed receipts in their own epochs.
-4. Complete general fixed-source preparation, scientific FP64/low-precision
-   evidence and all remaining B–F operator/scope/option/model/state gates.
-   Define prepared computations and independent native references explicitly;
-   sample success or implementation exclusions do not reduce the user’s goal.
-   The after-checkpoint audit keeps four packets: full 3,704-cell map/discovery;
-   measured gaps plus 63 opaque/104 metadata-free/752 original manual accounting;
-   complete fixed-source/numerical/installed preparation; coordinated ordinary
-   export/allclose/browser/generator cutover. A standard full suite alone does
-   not complete these implementation and qualification obligations.
-5. Distinguish preservation from acceptance. An explicitly unfinished LOCAL WIP
-   commit may preserve reviewed changes with real failures recorded after the
-   relevant actual checks, strict docs/links, all seven normal hooks and final
-   staged-byte review. It need not repair every current full-suite failure or
-   require another broad full run first. Keep the fixture/expectation candidates
-   external/unapplied in this WIP. An accepted/green checkpoint still needs its
-   complete current qualification; full B–F completion and public cutover need
-   the complete uniform source-preserving acceptance matrix. No green milestone,
-   release or completion follows from preservation. Record actual relevant check,
-   strict-docs, normal-hook and staged-review outcomes in the normal commit body.
+1. Preserve the actual focused results and their original callbacks, criteria
+   and failure epochs. Paired admission tests retain the observed opset27>26
+   target-load evidence as FAILED with numerics UNVERIFIED; passing assertions
+   do not establish numerical acceptance. Resolve the current SimpleLinear
+   callback barrier with exact source/counterpart evidence, preserving the raw
+   callback and `None` criteria.
+2. Retain the failed b90 ordinary full suite and its original model/state
+   positives as historical evidence. Later focused qualifications do not rerun
+   that suite. An accepted green checkpoint requires a fresh complete current
+   suite and applicable supported-stack, minimum-version, typing/RNG and
+   schema/runtime checks; an intermediate unfinished WIP is distinct.
+3. Reconcile a fresh native current inventory/probe and full map, including the
+   seven legitimate Eqx recipe provenance changes, without rewriting frozen
+   inventory or mapping outcomes. All original, optional, opaque, metadata-free
+   and manual obligations keep their complete denominator and acceptance scope.
+   The two current SimpleLinear observations are not extra frozen-map closures.
+4. Complete fixed-source preparation, scientific FP64/low-precision evidence and
+   every remaining B–F operator, scope, option, model and state gate. Keep the
+   four after-checkpoint packets: full map/discovery; measured gaps and separate
+   opaque/metadata-free/manual accounting; fixed-source/numerical preparation;
+   coordinated ordinary export/allclose/browser/generator cutover. A standard
+   full suite alone does not complete those obligations.
+5. A LOCAL WIP may preserve reviewed unfinished progress with real failures
+   recorded after relevant actual checks, strict docs/links, all seven normal
+   hooks and exact staged-byte review. It need not repair every full-suite
+   failure or require another broad full run solely for preservation. Record
+   actual closeout outcomes in the normal commit body. Accepted/green milestones
+   and public cutover still require their complete current qualification; WIP
+   storage does not reduce full B–F or authorize release/completion.
 
 <a id="current-binding-minimum-version-obligation"></a>
 

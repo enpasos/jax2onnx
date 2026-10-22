@@ -2,8 +2,9 @@
 
 """Retain native physical metadata until Scan consumers have finished lowering."""
 
+from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
+from types import FunctionType, SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -27,6 +28,7 @@ from jax2onnx.plugins.jax.lax.scan import _relax_value_for_var
 from jax2onnx.plugins.plugin_system import (
     FunctionPlugin,
     PLUGIN_REGISTRY,
+    _SourceFunctionCall,
     _SourceFunctionTrace,
     apply_monkey_patches,
 )
@@ -93,7 +95,16 @@ def _trace_facts(trace: Any) -> Any:
         "numpy_dtype_promotion",
         "numpy_rank_promotion",
         "debug_key_reuse",
+        "call",
     }
+    call = trace.call
+    assert type(call) is _SourceFunctionCall
+    assert set(vars(call)) == {"original", "identity", "instance", "receiver"}
+    assert type(call.original) is FunctionType
+    assert type(call.identity) is tuple and len(call.identity) == 2
+    assert all(type(item) is int for item in call.identity)
+    assert call.identity == (id(call.original), 0)
+    assert call.instance is False and call.receiver is None
     return {
         "output_avals": _signature(
             [SimpleNamespace(aval=aval) for aval in trace.output_avals]
@@ -103,6 +114,16 @@ def _trace_facts(trace: Any) -> Any:
         "numpy_dtype_promotion": trace.numpy_dtype_promotion,
         "numpy_rank_promotion": trace.numpy_rank_promotion,
         "debug_key_reuse": trace.debug_key_reuse,
+        "call": {
+            "original": (
+                call.original.__module__,
+                call.original.__qualname__,
+                id(call.original),
+            ),
+            "identity": call.identity,
+            "instance": call.instance,
+            "receiver": call.receiver,
+        },
     }
 
 
@@ -164,6 +185,8 @@ def _native_function_references(boundary: Any, originals: Any) -> Any:
         assert equation.primitive is plugin._source_primitive
         index = next(i for i, target in enumerate(originals) if plugin.target is target)
         trace = equation.params["__jax2onnx_source_trace"]
+        _trace_facts(trace)
+        assert trace.call.original is originals[index]
         specs = [
             jax.ShapeDtypeStruct(v.aval.shape, v.aval.dtype, weak_type=v.aval.weak_type)
             for v in equation.invars
@@ -538,3 +561,136 @@ def test_legacy_scan_shape_relaxation_is_unchanged() -> None:
     assert len(value.shape) == 3 and all(
         dimension.value is None for dimension in value.shape
     )
+
+
+def _scan_call_fact_fixture() -> Any:
+    return _SourceFunctionTrace(
+        output_avals=(),
+        x64_enabled=bool(jax.config.x64_enabled),
+        default_matmul_precision=jax.config.jax_default_matmul_precision,
+        numpy_dtype_promotion=str(jax.config.jax_numpy_dtype_promotion),
+        numpy_rank_promotion=str(jax.config.jax_numpy_rank_promotion),
+        debug_key_reuse=bool(jax.config.jax_debug_key_reuse),
+        call=_SourceFunctionCall.capture(_conv, instance=False, receiver=None),
+    )
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "trace-type",
+        "trace-extra",
+        "call-none",
+        "call-type",
+        "call-extra",
+        "original-bound",
+        "original-class",
+        "identity-list",
+        "identity-short",
+        "identity-bool",
+        "identity-wrong-original",
+        "identity-receiver",
+        "instance-true",
+        "instance-zero",
+        "receiver",
+    ],
+)
+def test_scan_trace_call_rejects_malformed_free_function_capsules(defect: str) -> None:
+    trace = _scan_call_fact_fixture()
+    call = trace.call
+    facts = _trace_facts(trace)
+    assert facts["call"] == {
+        "original": (_conv.__module__, _conv.__qualname__, id(_conv)),
+        "identity": (id(_conv), 0),
+        "instance": False,
+        "receiver": None,
+    }
+    assert _trace_facts(trace) == facts
+    if defect == "trace-type":
+        trace = SimpleNamespace(**vars(trace))
+    elif defect == "trace-extra":
+        object.__setattr__(trace, "extra", None)
+    elif defect == "call-none":
+        trace = replace(trace, call=None)
+    elif defect == "call-type":
+        trace = replace(trace, call=SimpleNamespace(**vars(call)))
+    elif defect == "call-extra":
+        object.__setattr__(call, "extra", None)
+    elif defect == "original-bound":
+        original = _conv.__get__(object())
+        trace = replace(
+            trace, call=replace(call, original=original, identity=(id(original), 0))
+        )
+    elif defect == "original-class":
+        trace = replace(
+            trace,
+            call=replace(call, original=FunctionType, identity=(id(FunctionType), 0)),
+        )
+    elif defect == "identity-list":
+        trace = replace(trace, call=replace(call, identity=list(call.identity)))
+    elif defect == "identity-short":
+        trace = replace(trace, call=replace(call, identity=(id(call.original),)))
+    elif defect == "identity-bool":
+        trace = replace(trace, call=replace(call, identity=(id(call.original), False)))
+    elif defect == "identity-wrong-original":
+        trace = replace(trace, call=replace(call, identity=(id(_matrix), 0)))
+    elif defect == "identity-receiver":
+        trace = replace(trace, call=replace(call, identity=(id(call.original), 1)))
+    elif defect == "instance-true":
+        trace = replace(trace, call=replace(call, instance=True))
+    elif defect == "instance-zero":
+        trace = replace(trace, call=replace(call, instance=0))
+    else:
+        assert defect == "receiver"
+        trace = replace(trace, call=replace(call, receiver=object()))
+    with pytest.raises(AssertionError):
+        _trace_facts(trace)
+
+
+@pytest.mark.parametrize("wrong_index", [1, 2])
+def test_scan_rejects_valid_shaped_wrong_native_call_before_reference_tracing(
+    wrong_index: int,
+) -> None:
+    originals = (_conv, _matrix, _channels)
+    before = _globals(), _settings()
+
+    def target(x: Any, kernel: Any) -> Any:
+        return jax.lax.scan(
+            lambda state, unused: (state, _conv(x, kernel)), np.int32(0), None, length=2
+        )
+
+    specs = [
+        jax.ShapeDtypeStruct((1, 1, 4), np.float32),
+        jax.ShapeDtypeStruct((1, 1, 1), np.float32),
+    ]
+    with precision_policy_scope(PrecisionPolicy.SOURCE), apply_monkey_patches():
+        boundary = _trace(target, specs)
+    references = _native_function_references(boundary, originals)
+    assert len(references) == 1
+    (equation,) = boundary.jaxpr.eqns[0].params["jaxpr"].jaxpr.eqns
+    original_trace = equation.params["__jax2onnx_source_trace"]
+    assert original_trace.call.original is originals[0]
+    wrong = originals[wrong_index]
+    changed = replace(
+        original_trace,
+        call=_SourceFunctionCall.capture(wrong, instance=False, receiver=None),
+    )
+    assert _trace_facts(changed)["call"] == {
+        "original": (wrong.__module__, wrong.__qualname__, id(wrong)),
+        "identity": (id(wrong), 0),
+        "instance": False,
+        "receiver": None,
+    }
+    equation.params["__jax2onnx_source_trace"] = changed
+    try:
+        with patch(
+            __name__ + "._trace",
+            side_effect=RuntimeError("wrong native reference must never be traced"),
+        ) as traced:
+            with pytest.raises(AssertionError):
+                _native_function_references(boundary, originals)
+            traced.assert_not_called()
+    finally:
+        equation.params["__jax2onnx_source_trace"] = original_trace
+    assert _native_function_references(boundary, originals) == references
+    assert (_globals(), _settings()) == before

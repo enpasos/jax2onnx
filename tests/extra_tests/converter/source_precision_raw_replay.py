@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields, is_dataclass
+import builtins as _native_builtins
 import dis
 import functools
 import hashlib
@@ -20,6 +21,7 @@ from pathlib import Path
 import types
 import sys
 from typing import Any
+import typing as _native_typing
 
 import jax
 from jax import export as jax_export
@@ -29,6 +31,7 @@ import onnx_ir as ir
 
 from jax2onnx.precision import CheckStatus, PrecisionCheck, get_precision_report
 from jax2onnx._compat.jax import (
+    Array as _NATIVE_UNION_ARRAY,
     canonical_code_fingerprint,
     is_selected_prng_key_dtype,
     selected_prng_key_words,
@@ -955,6 +958,632 @@ def _function_global_state(
     return result
 
 
+def _native_union_class_symbol(value: type[Any]) -> tuple[str, str]:
+    return (
+        vars(type)["__module__"].__get__(value, type(value)),
+        vars(type)["__qualname__"].__get__(value, type(value)),
+    )
+
+
+_NATIVE_UNION_TYPE = types.UnionType
+_NATIVE_UNION_ARGS = vars(_NATIVE_UNION_TYPE)["__args__"]
+_NATIVE_UNION_ARRAY_SYMBOL = _native_union_class_symbol(_NATIVE_UNION_ARRAY)
+_NATIVE_UNION_ARRAY_MODULE = jax
+_NATIVE_UNION_ARRAY_META = type(_NATIVE_UNION_ARRAY)
+_NATIVE_UNION_ARRAY_META_SYMBOL = _native_union_class_symbol(_NATIVE_UNION_ARRAY_META)
+_NATIVE_UNION_ARRAY_META_MODULE = sys.modules[_NATIVE_UNION_ARRAY_META_SYMBOL[0]]
+
+
+def _capture_native_union(
+    value: Any,
+    *,
+    location: tuple[str, ...],
+    witness: _ReplayReferenceWitness | None,
+) -> dict[str, Any]:
+    """Snapshot only the measured native annotation, never construct a union."""
+    if type(value) is not _NATIVE_UNION_TYPE:
+        raise SourcePreparationError(
+            "Union annotation requires the exact native UnionType",
+            category="replay-lane-gap",
+        )
+    arguments = _NATIVE_UNION_ARGS.__get__(value, _NATIVE_UNION_TYPE)
+    if type(arguments) is not tuple or len(arguments) != 2:
+        raise SourcePreparationError(
+            "Native union arguments need a separately measured replay adapter",
+            category="replay-lane-gap",
+        )
+    array_module = _NATIVE_UNION_ARRAY_MODULE
+    meta_module = _NATIVE_UNION_ARRAY_META_MODULE
+    if (
+        type(array_module) is not types.ModuleType
+        or type(meta_module) is not types.ModuleType
+    ):
+        raise SourcePreparationError(
+            "Native union Array module identity changed", category="replay-lane-gap"
+        )
+    namespace = vars(types.ModuleType)["__dict__"]
+    array_namespace = namespace.__get__(array_module, types.ModuleType)
+    meta_namespace = namespace.__get__(meta_module, types.ModuleType)
+    if (
+        jax is not array_module
+        or sys.modules.get("jax") is not array_module
+        or array_namespace.get("Array") is not _NATIVE_UNION_ARRAY
+        or type(_NATIVE_UNION_ARRAY) is not _NATIVE_UNION_ARRAY_META
+        or _NATIVE_UNION_ARRAY_SYMBOL
+        not in (
+            ("jax", "Array"),
+            ("jax", "jaxlib._jax.Array"),
+        )
+        or _native_union_class_symbol(_NATIVE_UNION_ARRAY) != _NATIVE_UNION_ARRAY_SYMBOL
+        or _native_union_class_symbol(_NATIVE_UNION_ARRAY_META)
+        != _NATIVE_UNION_ARRAY_META_SYMBOL
+        or sys.modules.get(_NATIVE_UNION_ARRAY_META_SYMBOL[0]) is not meta_module
+        or meta_namespace.get(_NATIVE_UNION_ARRAY_META_SYMBOL[1])
+        is not _NATIVE_UNION_ARRAY_META
+    ):
+        raise SourcePreparationError(
+            "Native union Array class or metaclass binding changed",
+            category="replay-lane-gap",
+        )
+    leaves = []
+    for index, argument in enumerate(arguments):
+        if argument is _NATIVE_UNION_ARRAY:
+            leaf = {
+                "kind": "native-jax-array-class",
+                "symbol": ["jax", "Array"],
+                "metaclass": list(_NATIVE_UNION_ARRAY_META_SYMBOL),
+            }
+        elif argument is type(None):
+            leaf = {"kind": "native-none-type-class"}
+        else:
+            raise SourcePreparationError(
+                "Native union member needs a separately measured replay adapter",
+                category="replay-lane-gap",
+            )
+        leaves.append(leaf)
+        if witness is not None:
+            witness.take(location + (f"union-arg[{index}]",), argument)
+    if witness is not None:
+        witness.selected[location] = "native-union-annotation"
+        for name, original in (
+            ("union", value),
+            ("union-args", arguments),
+            ("array-module", array_module),
+            ("array-module-dict", array_namespace),
+            ("array-class", _NATIVE_UNION_ARRAY),
+            ("array-metaclass", _NATIVE_UNION_ARRAY_META),
+            ("array-metaclass-module", meta_module),
+            ("array-metaclass-module-dict", meta_namespace),
+        ):
+            witness.take(location + (name,), original)
+    return {"kind": "native-union-type", "args": leaves}
+
+
+class _NativeTypingAnnotationBoundary:
+    """Only the measured native int/Literal annotation and its stdlib storage."""
+
+    def __init__(self) -> None:
+        self.type = type
+        self.module_descriptor = vars(types.ModuleType)["__dict__"]
+        self.type_descriptors = {
+            name: vars(type)[name]
+            for name in ("__dict__", "__mro__", "__module__", "__qualname__")
+        }
+        self.modules = (
+            ("typing", _native_typing),
+            ("builtins", _native_builtins),
+            ("types", types),
+            ("functools", functools),
+        )
+        self.namespaces = {
+            name: self.module_descriptor.__get__(module, types.ModuleType)
+            for name, module in self.modules
+        }
+        self.variant = sys.version_info[:2]
+        if self.variant not in ((3, 11), (3, 12)):
+            # Keep unrelated replay imports usable. Any selected alias on an
+            # unmeasured interpreter still needs its exact storage adapter.
+            self.union_class = self.namespaces["typing"].get("_UnionGenericAlias")
+            self.literal_class = self.namespaces["typing"].get("_LiteralGenericAlias")
+            return
+        self.builtin_types = tuple(
+            (name, self.namespaces["builtins"][name])
+            for name in ("type", "int", "bool", "str", "tuple", "list", "dict")
+        )
+        self.native_int = type(0)
+        self.classes = tuple(
+            (name, self.namespaces["typing"][name])
+            for name in (
+                "_UnionGenericAlias",
+                "_LiteralGenericAlias",
+                "_GenericAlias",
+                "_BaseGenericAlias",
+                "_Final",
+                "_NotIterable",
+                "_SpecialForm",
+                "_LiteralSpecialForm",
+            )
+        )
+        classes = dict(self.classes)
+        self.union_class = classes["_UnionGenericAlias"]
+        self.literal_class = classes["_LiteralGenericAlias"]
+        self.special_class = classes["_SpecialForm"]
+        self.literal_origin_class = classes["_LiteralSpecialForm"]
+        self.alias_dictionaries = (
+            (self.union_class, self.union_class, vars(self.union_class)["__dict__"]),
+            (
+                self.literal_class,
+                classes["_BaseGenericAlias"],
+                vars(classes["_BaseGenericAlias"])["__dict__"],
+            ),
+        )
+        self.literal_dictionary = vars(self.literal_origin_class)["__dict__"]
+        self.origin_slots = {
+            name: vars(self.special_class)[name]
+            for name in ("__doc__", "_name", "_getitem")
+        }
+        self.function_type = types.FunctionType
+        self.function_descriptors = {
+            name: vars(types.FunctionType)[name]
+            for name in (
+                "__name__",
+                "__module__",
+                "__qualname__",
+                "__doc__",
+                "__code__",
+                "__globals__",
+                "__defaults__",
+                "__kwdefaults__",
+                "__closure__",
+                "__dict__",
+                "__annotations__",
+            )
+        }
+        self.cell_type = types.CellType
+        self.cell_contents = vars(types.CellType)["cell_contents"]
+        self.origins = tuple(
+            (name, self.namespaces["typing"][name]) for name in ("Union", "Literal")
+        )
+        self.native_types = tuple(
+            (name, self.namespaces["types"][name])
+            for name in (
+                "ModuleType",
+                "FunctionType",
+                "CodeType",
+                "CellType",
+                "GetSetDescriptorType",
+                "MemberDescriptorType",
+            )
+        )
+        self.cache_type = self.namespaces["functools"]["_lru_cache_wrapper"]
+        self.cache_dictionary = vars(self.cache_type)["__dict__"]
+        self.alias_fields = (
+            (
+                "_inst",
+                "_name",
+                "__origin__",
+                "__slots__",
+                "__args__",
+                "__parameters__",
+            )
+            + (("_paramspec_tvars",) if self.variant == (3, 11) else ())
+            + ("__module__",)
+        )
+        self.baseline_state, self.baseline_edges = self.read_boundary()
+
+    @staticmethod
+    def fail(detail: str) -> Any:
+        raise SourcePreparationError(
+            "Native typing annotation " + detail + " needs an exact adapter",
+            category="replay-lane-gap",
+        )
+
+    def dictionary(self, value: Any, keys: tuple[str, ...]) -> dict[str, Any]:
+        if self.type(value) is not dict:
+            self.fail("dictionary type")
+        actual = tuple(value)
+        if any(self.type(key) is not str for key in actual) or actual != keys:
+            self.fail("ordered storage fields")
+        return value
+
+    def scalar(self, value: Any) -> Any:
+        kind = self.type(value)
+        if value is None:
+            return {"none": True}
+        if kind is bool:
+            return {"bool": value}
+        if kind is self.native_int:
+            return {"int": value}
+        if kind is str:
+            return {"str": value}
+        self.fail("native scalar metadata")
+
+    def read_boundary(self) -> tuple[dict[str, Any], list[tuple[str, object]]]:
+        edges: list[tuple[str, object]] = []
+
+        def take(role: str, value: object) -> None:
+            edges.append((role, value))
+
+        for name, module in self.modules:
+            if sys.modules.get(name) is not module:
+                self.fail("module binding")
+            namespace = self.module_descriptor.__get__(module, self.type(module))
+            if namespace is not self.namespaces[name]:
+                self.fail("module dictionary")
+            take("module:" + name, module)
+            take("namespace:" + name, namespace)
+        if (
+            _native_typing is not self.modules[0][1]
+            or _native_builtins is not self.modules[1][1]
+            or types is not self.modules[2][1]
+            or functools is not self.modules[3][1]
+        ):
+            self.fail("import binding")
+        for name, original in self.builtin_types:
+            if self.namespaces["builtins"].get(name) is not original:
+                self.fail("native builtin binding")
+            take("builtin:" + name, original)
+        if self.namespaces["builtins"].get("int") is not self.native_int:
+            self.fail("native int binding")
+        for name, original in self.native_types:
+            if self.namespaces["types"].get(name) is not original:
+                self.fail("native descriptor class binding")
+            take("types:" + name, original)
+        type_dictionary = self.type_descriptors["__dict__"].__get__(
+            self.type, self.type
+        )
+        for name, descriptor in self.type_descriptors.items():
+            if type_dictionary.get(name) is not descriptor:
+                self.fail("native type descriptor")
+            take("type-descriptor:" + name, descriptor)
+        if vars(types.ModuleType).get("__dict__") is not self.module_descriptor:
+            self.fail("native module descriptor")
+        take("module-dictionary-descriptor", self.module_descriptor)
+        class_state = []
+        for name, original in self.classes:
+            if (
+                self.namespaces["typing"].get(name) is not original
+                or self.type(original) is not self.type
+            ):
+                self.fail("native typing class binding")
+            namespace = self.type_descriptors["__dict__"].__get__(original, self.type)
+            symbol = [
+                self.type_descriptors[field].__get__(original, self.type)
+                for field in ("__module__", "__qualname__")
+            ]
+            if any(self.type(item) is not str for item in symbol) or symbol != [
+                "typing",
+                name,
+            ]:
+                self.fail("native class symbol")
+            take("class:" + name, original)
+            fields = []
+            for key, member in namespace.items():
+                if self.type(key) is not str:
+                    self.fail("native class field")
+                fields.append(key)
+                take("class:" + name + ":" + key, member)
+            mro = self.type_descriptors["__mro__"].__get__(original, self.type)
+            take("class:" + name + ":mro", mro)
+            class_state.append([symbol, fields])
+        for cls, owner, descriptor in self.alias_dictionaries:
+            if (
+                self.type_descriptors["__dict__"]
+                .__get__(owner, self.type)
+                .get("__dict__")
+                is not descriptor
+            ):
+                self.fail("native alias dictionary descriptor")
+            take(
+                "alias-descriptor:"
+                + self.type_descriptors["__qualname__"].__get__(cls, self.type),
+                descriptor,
+            )
+        if (
+            vars(self.literal_origin_class).get("__dict__")
+            is not self.literal_dictionary
+        ):
+            self.fail("native Literal dictionary descriptor")
+        take("literal-dictionary-descriptor", self.literal_dictionary)
+        for name, descriptor in self.origin_slots.items():
+            if vars(self.special_class).get(name) is not descriptor:
+                self.fail("native origin slot descriptor")
+            take("origin-slot:" + name, descriptor)
+        for name, descriptor in self.function_descriptors.items():
+            if vars(self.function_type).get(name) is not descriptor:
+                self.fail("native function descriptor")
+            take("function-descriptor:" + name, descriptor)
+        if vars(self.cell_type).get("cell_contents") is not self.cell_contents:
+            self.fail("native cell descriptor")
+        take("cell-contents-descriptor", self.cell_contents)
+        if (
+            self.namespaces["functools"].get("_lru_cache_wrapper")
+            is not self.cache_type
+        ):
+            self.fail("native Literal cache class")
+        if vars(self.cache_type).get("__dict__") is not self.cache_dictionary:
+            self.fail("native Literal cache descriptor")
+        take("cache-class", self.cache_type)
+        take("cache-dictionary-descriptor", self.cache_dictionary)
+
+        def function(value: Any, role: str, mode: str) -> dict[str, Any]:
+            if self.type(value) is not self.function_type:
+                self.fail("native getitem function")
+            take(role, value)
+            fields = {
+                name: descriptor.__get__(value, self.function_type)
+                for name, descriptor in self.function_descriptors.items()
+            }
+            expected_name = (
+                "<lambda>"
+                if mode == "parameters"
+                else ("Union" if mode == "union" else "Literal")
+            )
+            expected_module = "functools" if mode == "parameters" else "typing"
+            if (
+                self.type(fields["__name__"]) is not str
+                or self.type(fields["__module__"]) is not str
+                or fields["__name__"] != expected_name
+                or fields["__module__"] != expected_module
+            ):
+                self.fail("native getitem symbol")
+            if fields["__globals__"] is not self.namespaces[expected_module]:
+                self.fail("native getitem globals")
+            code = fields["__code__"]
+            if self.type(code) is not types.CodeType:
+                self.fail("native getitem code")
+            metadata = {}
+            for key in ("__name__", "__module__", "__qualname__", "__doc__"):
+                metadata[key] = self.scalar(fields[key])
+            for key in ("__defaults__", "__kwdefaults__"):
+                if fields[key] is not None:
+                    self.fail("native getitem defaults")
+                metadata[key] = {"none": True}
+            self.dictionary(fields["__annotations__"], ())
+            attributes = self.dictionary(
+                fields["__dict__"], ("__wrapped__",) if mode == "literal" else ()
+            )
+            for key, item in fields.items():
+                take(role + ":" + key, item)
+            metadata["code_sha256"] = canonical_code_fingerprint(code)
+            metadata["function_dictionary_keys"] = list(attributes)
+            closure = fields["__closure__"]
+            if mode in ("union", "body"):
+                if closure is not None:
+                    self.fail("native getitem closure")
+                metadata["closure"] = None
+            else:
+                expected_freevars = (
+                    ("maxsize", "typed")
+                    if mode == "parameters"
+                    else (("cached", "func") if self.variant == (3, 11) else ("func",))
+                )
+                if (
+                    self.type(closure) is not tuple
+                    or code.co_freevars != expected_freevars
+                    or len(closure) != len(expected_freevars)
+                ):
+                    self.fail("native getitem closure schema")
+                values = []
+                for index, cell in enumerate(closure):
+                    if self.type(cell) is not self.cell_type:
+                        self.fail("native closure cell")
+                    item = self.cell_contents.__get__(cell, self.cell_type)
+                    take(role + f":cell[{index}]", cell)
+                    take(role + f":cell-value[{index}]", item)
+                    values.append(item)
+                if mode == "parameters":
+                    if (
+                        self.type(values[0]) is not self.native_int
+                        or values[0] != 128
+                        or values[1] is not True
+                    ):
+                        self.fail("native Literal cache parameters")
+                    metadata["closure"] = [self.scalar(item) for item in values]
+                else:
+                    body = values[-1]
+                    if attributes["__wrapped__"] is not body:
+                        self.fail("native Literal wrapped function")
+                    take(role + ":wrapped", body)
+                    metadata["body"] = function(body, role + ":body", "body")
+                    if self.variant == (3, 11):
+                        metadata["cache"] = cache(values[0], body, role + ":cache")
+                    metadata["closure"] = list(expected_freevars)
+            return metadata
+
+        def cache(value: Any, body: Any, role: str) -> dict[str, Any]:
+            if self.type(value) is not self.cache_type:
+                self.fail("native Literal cache wrapper")
+            take(role, value)
+            namespace = self.dictionary(
+                self.cache_dictionary.__get__(value, self.cache_type),
+                (
+                    "cache_parameters",
+                    "__module__",
+                    "__name__",
+                    "__qualname__",
+                    "__doc__",
+                    "__annotations__",
+                    "__wrapped__",
+                ),
+            )
+            take(role + ":dictionary", namespace)
+            if namespace["__wrapped__"] is not body:
+                self.fail("native Literal cache wrapped function")
+            result = {}
+            for key, item in namespace.items():
+                take(role + ":field:" + key, item)
+                if key == "cache_parameters":
+                    result[key] = function(item, role + ":parameters", "parameters")
+                elif key == "__wrapped__":
+                    result[key] = "native-Literal-body"
+                elif key == "__annotations__":
+                    self.dictionary(item, ())
+                    result[key] = []
+                else:
+                    result[key] = self.scalar(item)
+            return result
+
+        origins = []
+        for name, origin in self.origins:
+            expected_class = (
+                self.special_class if name == "Union" else self.literal_origin_class
+            )
+            if (
+                self.namespaces["typing"].get(name) is not origin
+                or self.type(origin) is not expected_class
+            ):
+                self.fail("native public origin binding")
+            take("origin:" + name, origin)
+            native_name = self.origin_slots["_name"].__get__(origin, expected_class)
+            if self.type(native_name) is not str or native_name != name:
+                self.fail("native origin name")
+            take("origin:" + name + ":name", native_name)
+            if name == "Union":
+                doc = self.origin_slots["__doc__"].__get__(origin, expected_class)
+                if self.type(doc) is not str:
+                    self.fail("native Union doc slot")
+                storage = {"doc_slot": self.scalar(doc), "dictionary": "absent"}
+                take("origin:" + name + ":doc", doc)
+            else:
+                try:
+                    self.origin_slots["__doc__"].__get__(origin, expected_class)
+                except AttributeError:
+                    pass
+                else:
+                    self.fail("native Literal inherited doc slot must be absent")
+                namespace = self.dictionary(
+                    self.literal_dictionary.__get__(origin, expected_class),
+                    ("__doc__",),
+                )
+                doc = namespace["__doc__"]
+                if self.type(doc) is not str:
+                    self.fail("native Literal doc dictionary")
+                storage = {
+                    "doc_slot": "absent",
+                    "dictionary": [["__doc__", self.scalar(doc)]],
+                }
+                take("origin:" + name + ":dictionary", namespace)
+                take("origin:" + name + ":doc", doc)
+            getitem = self.origin_slots["_getitem"].__get__(origin, expected_class)
+            storage["getitem"] = function(
+                getitem, "origin:" + name + ":getitem", name.lower()
+            )
+            origins.append([name, storage])
+        return {
+            "python": list(self.variant),
+            "classes": class_state,
+            "origins": origins,
+        }, edges
+
+    def capture(
+        self,
+        value: Any,
+        *,
+        location: tuple[str, ...],
+        witness: _ReplayReferenceWitness | None,
+    ) -> dict[str, Any]:
+        if self.variant not in ((3, 11), (3, 12)):
+            self.fail("unmeasured interpreter alias storage")
+        state, edges = self.read_boundary()
+        if state != self.baseline_state or len(edges) != len(self.baseline_edges):
+            self.fail("native implementation metadata changed")
+        for (role, original), (current_role, current) in zip(
+            self.baseline_edges, edges, strict=True
+        ):
+            if role != current_role or original is not current:
+                self.fail("native implementation identity changed")
+        if witness is not None:
+            witness.selected[location] = "native-typing-annotation"
+            for role, original in edges:
+                witness.take(location + ("native-typing:" + role,), original)
+        return {
+            "kind": "native-typing-annotation",
+            "alias": self.alias(value, location, witness),
+            "native_boundary": state,
+        }
+
+    def alias(
+        self,
+        value: Any,
+        location: tuple[str, ...],
+        witness: _ReplayReferenceWitness | None,
+    ) -> dict[str, Any]:
+        cls = self.type(value)
+        if cls is self.union_class:
+            index, kind, origin = 0, "union", self.origins[0][1]
+        elif cls is self.literal_class:
+            index, kind, origin = 1, "literal", self.origins[1][1]
+        else:
+            self.fail("exact alias class")
+        descriptor = self.alias_dictionaries[index][2]
+        namespace = self.dictionary(descriptor.__get__(value, cls), self.alias_fields)
+        if (
+            namespace["_inst"] is not True
+            or namespace["_name"] is not None
+            or namespace["__slots__"] is not None
+            or namespace["__origin__"] is not origin
+        ):
+            self.fail("alias flags or origin")
+        parameters = namespace["__parameters__"]
+        if self.type(parameters) is not tuple or len(parameters) != 0:
+            self.fail("alias parameters")
+        if self.variant == (3, 11) and namespace["_paramspec_tvars"] is not False:
+            self.fail("native3.11 alias paramspec flag")
+        if (
+            self.type(namespace["__module__"]) is not str
+            or namespace["__module__"] != "typing"
+        ):
+            self.fail("alias module")
+        arguments = namespace["__args__"]
+        if self.type(arguments) is not tuple or len(arguments) != (
+            2 if kind == "union" else 1
+        ):
+            self.fail("ordered alias arguments")
+        if witness is not None:
+            witness.take(location + ("typing-alias",), value)
+            witness.take(location + ("typing-dictionary",), namespace)
+            for key, item in namespace.items():
+                witness.take(location + ("typing-key:" + key,), key)
+                witness.take(location + ("typing-field:" + key,), item)
+        leaves = []
+        for index, argument in enumerate(arguments):
+            if witness is not None:
+                witness.take(location + (f"typing-arg[{index}]",), argument)
+            if kind == "literal":
+                if self.type(argument) is not str or argument != "scalar":
+                    self.fail("measured Literal string")
+                leaves.append({"kind": "literal-string", "value": argument})
+            elif argument is self.native_int:
+                leaves.append({"kind": "native-int-class"})
+            elif self.type(argument) is self.literal_class:
+                leaves.append(
+                    self.alias(argument, location + (f"typing-arg[{index}]",), witness)
+                )
+            else:
+                self.fail("measured Union member")
+        if kind == "union" and [leaf["kind"] for leaf in leaves] not in (
+            ["literal", "native-int-class"],
+            ["native-int-class", "literal"],
+        ):
+            self.fail("exact Union grammar")
+        fields = []
+        for key, item in namespace.items():
+            if key == "__origin__":
+                encoded = {"native-origin": kind}
+            elif key == "__args__":
+                encoded = leaves
+            elif key == "__parameters__":
+                encoded = []
+            else:
+                encoded = self.scalar(item)
+            fields.append([key, encoded])
+        return {"kind": kind, "fields": fields}
+
+
+_NATIVE_TYPING_BOUNDARY = _NativeTypingAnnotationBoundary()
+
+
 def _capture_target_state(
     value: Any,
     *,
@@ -989,6 +1618,17 @@ def _capture_target_state(
             function=function,
             witness=witness if retain else None,
         )
+
+    if (
+        type(value) is _NATIVE_TYPING_BOUNDARY.union_class
+        or type(value) is _NATIVE_TYPING_BOUNDARY.literal_class
+    ):
+        return _NATIVE_TYPING_BOUNDARY.capture(
+            value, location=location, witness=witness
+        )
+
+    if type(value) is _NATIVE_UNION_TYPE:
+        return _capture_native_union(value, location=location, witness=witness)
 
     native = _selected_native_state(value)
     if native is not None:

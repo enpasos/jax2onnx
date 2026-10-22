@@ -7,7 +7,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
+import builtins
 import copy
+import functools
 import gc
 import hashlib
 import json
@@ -15,6 +17,7 @@ from pathlib import Path
 import sys
 import types
 from typing import Any
+import typing
 import weakref
 
 import jax
@@ -29,6 +32,7 @@ from jax2onnx.precision import CheckStatus
 from scripts import source_precision_probe as probe
 from scripts.source_precision_inventory import raw_registrations
 from tests.extra_tests.converter import source_precision_raw_replay as raw
+from tests.extra_tests.converter import source_precision_support as source
 from tests.extra_tests.converter.source_precision_support import SourceProvenance
 
 
@@ -1357,3 +1361,738 @@ def test_native_stdlib_repr_shared_annotation_container_alias_split_is_observed(
     )
     assert baseline.retained[id(shared)] is shared
     assert observed.nodes != baseline.nodes
+
+
+@pytest.mark.parametrize("scenario_index", [0, 1])
+def test_unchanged_simple_linear_union_annotation_capture_keeps_native_work_unattempted(
+    scenario_index: int, tmp_path: Path
+) -> None:
+    payload = probe.DEFAULT_BASELINE.read_bytes()
+    plan = probe.build_probe_plan(
+        json.loads(payload), baseline_sha256=hashlib.sha256(payload).hexdigest()
+    )
+    provenance = SourceProvenance("example::examples.eqx::SimpleLinearExample", 1)
+    row = next(
+        row
+        for row in plan.rows
+        if (row.origin, row.ordinal) == (provenance.origin, provenance.ordinal)
+    )
+    registrations, _ = raw_registrations()
+    registered = {origin: value for origin, _, value in registrations}
+    original_case = registered[provenance.origin]["testcases"][provenance.ordinal]
+    metadata = probe._resolve_case(row, registered)
+    factory = metadata["callable"]
+    callback = metadata["post_check_onnx_graph"]
+    scenario = source.raw_source_scenarios(metadata, provenance, criteria=row.criteria)[
+        scenario_index
+    ]
+    assert scenario.criteria is row.criteria is None
+    assert scenario.model_dtype is source.PRESERVE_FACTORY_DTYPE
+    assert scenario.default_matmul_precision is None
+    assert scenario.caller_x64_enabled is bool(scenario_index)
+    before = source.SourceSettings.observe()
+    with source.source_configuration(scenario):
+        target = factory.instantiate()
+        assert type(target) is types.FunctionType
+        annotations = target.__annotations__
+        capture = _capture(target, tmp_path)
+        assert capture.check_target("unchanged")
+        assert target.__annotations__ is annotations
+        witness = capture.target_witness
+        assert witness is not None
+        unions = [
+            (path, value) for path, value in witness.edges if path[-1:] == ("union",)
+        ]
+        assert unions
+        for path, union in unions:
+            assert type(union) is types.UnionType
+            arguments = raw._NATIVE_UNION_ARGS.__get__(union, types.UnionType)
+            assert len(arguments) == 2
+            assert arguments[0] is compat.Array and arguments[1] is type(None)
+            edges = dict(witness.edges)
+            base = path[:-1]
+            assert edges[base + ("union-args",)] is arguments
+            assert edges[base + ("union-arg[0]",)] is compat.Array
+            assert edges[base + ("union-arg[1]",)] is type(None)
+        assert capture.records["instantiated-target-state"]["status"] == "captured"
+        assert capture.records["native_outcomes"] == {}
+        assert capture.records["product_admission"] == "not-attempted"
+        assert capture.records["raw_callback"]["status"] == "not-executed"
+        assert capture.readiness is CheckStatus.UNVERIFIED
+    assert source.SourceSettings.observe() == before
+    assert metadata["callable"] is factory
+    assert metadata["post_check_onnx_graph"] is callback
+    assert metadata.get("criteria") is None
+    assert (
+        registered[provenance.origin]["testcases"][provenance.ordinal] is original_case
+    )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_native_union_order_none_class_and_strong_original_edges(
+    reverse: bool, tmp_path: Path
+) -> None:
+    union = (None | jax.Array) if reverse else (jax.Array | None)
+    capture = _capture(union, tmp_path)
+    assert capture.check_target("unchanged")
+    assert capture.target_state["kind"] == "native-union-type"
+    kinds = [leaf["kind"] for leaf in capture.target_state["args"]]
+    expected = ["native-jax-array-class", "native-none-type-class"]
+    assert kinds == (list(reversed(expected)) if reverse else expected)
+    assert raw._capture_target_state(None) not in capture.target_state["args"]
+    witness = capture.target_witness
+    assert witness is not None
+    assert witness.selected == {("root",): "native-union-annotation"}
+    arguments = raw._NATIVE_UNION_ARGS.__get__(union, types.UnionType)
+    gc.collect()
+    edges = dict(witness.edges)
+    assert edges[("root", "union")] is union
+    assert edges[("root", "union-args")] is arguments
+    for index, argument in enumerate(arguments):
+        assert edges[("root", f"union-arg[{index}]")] is argument
+    assert edges[("root", "array-module")] is jax
+    assert edges[("root", "array-module-dict")] is vars(jax)
+    assert edges[("root", "array-class")] is compat.Array
+    assert edges[("root", "array-metaclass")] is type(compat.Array)
+
+
+def test_equal_native_union_with_reversed_order_does_not_replace_original(
+    tmp_path: Path,
+) -> None:
+    original = jax.Array | None
+    replacement = None | jax.Array
+    assert original == replacement and original is not replacement
+    capture = _capture(original, tmp_path)
+    capture.target = replacement
+    assert not capture.check_target("replaced-union")
+    assert any(value is original for _, value in capture.target_witness.edges)
+
+
+@pytest.mark.parametrize("mutation", ["container", "shared-alias"])
+def test_union_only_selected_state_retains_annotation_container_aliases(
+    mutation: str,
+    tmp_path: Path,
+) -> None:
+    shared = [jax.Array | None]
+    annotations = {"left": shared, "right": shared}
+    capture = _capture(annotations, tmp_path)
+    assert capture.check_target("unchanged")
+    assert capture.target_witness is not None
+    if mutation == "container":
+        capture.target = dict(annotations)
+    else:
+        annotations["right"] = list(shared)
+        assert annotations["left"] == annotations["right"]
+        assert annotations["left"] is not annotations["right"]
+    assert not capture.check_target("annotation-" + mutation)
+    assert any(value is shared for _, value in capture.target_witness.edges)
+
+
+def test_selected_wrapper_annotation_container_replacement_with_same_union_is_observed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = _mapped()
+    annotations = {"value": jax.Array | None}
+    monkeypatch.setattr(target, "__annotations__", annotations)
+    capture = _capture(target, tmp_path)
+    monkeypatch.setattr(target, "__annotations__", dict(annotations))
+    assert not capture.check_target("replacement-annotations")
+    assert any(value is annotations for _, value in capture.target_witness.edges)
+
+
+@pytest.mark.parametrize("binding", ["public-class", "public-module", "metaclass"])
+def test_native_union_rejects_rebound_array_or_metaclass_binding(
+    binding: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    union = jax.Array | None
+    capture = _capture(union, tmp_path)
+    original = jax.Array
+    with monkeypatch.context() as change:
+        if binding == "public-class":
+            change.setattr(jax, "Array", type("Array", (), {"__module__": "jax"}))
+        elif binding == "public-module":
+            change.setitem(sys.modules, "jax", types.ModuleType("jax"))
+        else:
+            module = raw._NATIVE_UNION_ARRAY_META_MODULE
+            name = raw._NATIVE_UNION_ARRAY_META_SYMBOL[1]
+            change.setattr(module, name, type(name, (), {}))
+        with pytest.raises(source.SourcePreparationError, match="Native union Array"):
+            raw._capture_target_state(union)
+        assert not capture.check_target("binding")
+    assert jax.Array is original and sys.modules["jax"] is jax
+    restored = raw._capture_target_state(union)
+    assert restored == capture.target_state
+
+
+@pytest.mark.parametrize("member", ["class", "generic-alias", "hostile"])
+def test_native_union_unknown_member_is_an_explicit_gap_without_hooks(
+    member: str,
+    tmp_path: Path,
+) -> None:
+    calls = []
+
+    class HostileMeta(type):
+        def __repr__(cls) -> str:
+            calls.append("repr")
+            raise AssertionError("foreign repr must not normalize an annotation")
+
+        def __getattribute__(cls, name: str) -> Any:
+            if name in {"__module__", "__qualname__", "__args__"}:
+                calls.append(name)
+                raise AssertionError("foreign metadata hook must not run")
+            return super().__getattribute__(name)
+
+    class Hostile(metaclass=HostileMeta):
+        pass
+
+    unknown = {"class": int, "generic-alias": list[int], "hostile": Hostile}[member]
+    union = jax.Array | unknown
+    capture = raw.RawReplayCapture(tmp_path / "capture")
+    with pytest.raises(
+        source.SourcePreparationError, match="exact state capture adapter"
+    ):
+        capture.bind_target(union)
+    assert calls == []
+    assert capture.gaps and capture.records["native_outcomes"] == {}
+    assert capture.readiness is CheckStatus.UNVERIFIED
+    with pytest.raises(source.SourcePreparationError, match="member needs"):
+        raw._capture_target_state(union)
+
+
+@pytest.mark.parametrize("mutation", ["kind", "order", "omission"])
+def test_native_union_saved_argument_corruption_is_rejected(
+    mutation: str,
+    tmp_path: Path,
+) -> None:
+    capture = _capture(jax.Array | None, tmp_path)
+    arguments = capture.target_state["args"]
+    if mutation == "kind":
+        arguments[1]["kind"] = "none-singleton"
+    elif mutation == "order":
+        arguments.reverse()
+    else:
+        arguments.pop()
+    assert not capture.check_target("saved-" + mutation)
+
+
+@pytest.mark.parametrize("kind", ["native-array", "foreign-class", "function-state"])
+def test_native_union_leaf_permission_does_not_admit_actual_classes_or_class_state(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    class Foreign:
+        pass
+
+    if kind == "native-array":
+        target = jax.Array
+    elif kind == "foreign-class":
+        target = Foreign
+    else:
+        owned = jax.Array
+
+        def target(value: Any) -> Any:
+            return owned, value
+
+    capture = raw.RawReplayCapture(tmp_path / "capture")
+    with pytest.raises(
+        source.SourcePreparationError, match="exact state capture adapter"
+    ):
+        capture.bind_target(target)
+    assert capture.records["native_outcomes"] == {}
+    assert capture.readiness is CheckStatus.UNVERIFIED
+
+
+def _native_typing_alias(reverse: bool = False) -> Any:
+    literal = typing.Literal["scalar"]
+    return typing.Union[literal, int] if reverse else typing.Union[int, literal]
+
+
+def _native_typing_storage(value: Any) -> tuple[Any, dict[str, Any]]:
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    index = 0 if type(value) is boundary.union_class else 1
+    descriptor = boundary.alias_dictionaries[index][2]
+    return descriptor, descriptor.__get__(value, type(value))
+
+
+def _clone_native_typing_alias(value: Any) -> Any:
+    descriptor, namespace = _native_typing_storage(value)
+    cloned = object.__new__(type(value))
+    descriptor.__set__(cloned, dict(namespace))
+    return cloned
+
+
+@pytest.mark.parametrize("kind", ["union", "reverse", "literal"])
+def test_native_typing_annotation_order_storage_and_strong_selected_edges(
+    kind: str, tmp_path: Path
+) -> None:
+    alias = (
+        typing.Literal["scalar"]
+        if kind == "literal"
+        else _native_typing_alias(kind == "reverse")
+    )
+    descriptor, namespace = _native_typing_storage(alias)
+    original_items = tuple(namespace.items())
+    arguments = namespace["__args__"]
+    capture = _capture(alias, tmp_path)
+    assert capture.check_target("unchanged-typing")
+    assert capture.target_state["kind"] == "native-typing-annotation"
+    assert [key for key, _ in capture.target_state["alias"]["fields"]] == list(
+        namespace
+    )
+    fields = dict(capture.target_state["alias"]["fields"])
+    kinds = [argument["kind"] for argument in fields["__args__"]]
+    expected = (
+        ["literal-string"] if kind == "literal" else ["native-int-class", "literal"]
+    )
+    assert kinds == (expected[::-1] if kind == "reverse" else expected)
+    witness = capture.target_witness
+    assert witness is not None
+    assert witness.selected == {("root",): "native-typing-annotation"}
+    edges = dict(witness.edges)
+    assert edges[("root", "typing-alias")] is alias
+    assert edges[("root", "typing-dictionary")] is namespace
+    assert edges[("root", "typing-field:__args__")] is arguments
+    assert edges[("root", "typing-field:__origin__")] is namespace["__origin__"]
+    for index, argument in enumerate(arguments):
+        assert edges[("root", f"typing-arg[{index}]")] is argument
+    assert any(value is typing for _, value in witness.edges)
+    assert any(type(value) is types.CodeType for _, value in witness.edges)
+    assert descriptor.__get__(alias, type(alias)) is namespace
+    assert tuple(namespace.items()) == original_items
+    assert capture.records["native_outcomes"] == {}
+    assert capture.records["product_admission"] == "not-attempted"
+    assert capture.records["raw_callback"]["status"] == "not-executed"
+    assert capture.readiness is CheckStatus.UNVERIFIED
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "alias",
+        "dictionary",
+        "args",
+        "nested-literal",
+        "container",
+        "shared-alias",
+        "shared-container",
+    ],
+)
+def test_native_typing_equal_replacements_and_shared_alias_splits_are_observed(
+    mutation: str, tmp_path: Path
+) -> None:
+    alias = _native_typing_alias()
+    descriptor, namespace = _native_typing_storage(alias)
+    items = tuple(namespace.items())
+    arguments = namespace["__args__"]
+    shared = [alias]
+    target = (
+        {"left": shared, "right": shared}
+        if mutation == "shared-container"
+        else {"left": alias, "right": alias}
+    )
+    capture = _capture(alias if mutation == "alias" else target, tmp_path)
+    assert capture.check_target("unchanged-typing-container")
+    try:
+        if mutation == "alias":
+            capture.target = _clone_native_typing_alias(alias)
+        elif mutation == "dictionary":
+            descriptor.__set__(alias, dict(namespace))
+        elif mutation == "args":
+            namespace["__args__"] = tuple(list(arguments))
+            assert namespace["__args__"] is not arguments
+        elif mutation == "nested-literal":
+            namespace["__args__"] = (
+                arguments[0],
+                _clone_native_typing_alias(arguments[1]),
+            )
+        elif mutation == "container":
+            capture.target = dict(target)
+        elif mutation == "shared-alias":
+            target["right"] = _clone_native_typing_alias(alias)
+        else:
+            target["right"] = list(shared)
+        assert not capture.check_target("replaced-typing-" + mutation)
+        assert any(value is alias for _, value in capture.target_witness.edges)
+        assert any(value is namespace for _, value in capture.target_witness.edges)
+    finally:
+        descriptor.__set__(alias, namespace)
+        namespace.clear()
+        namespace.update(items)
+    assert descriptor.__get__(alias, type(alias)) is namespace
+    assert namespace["__args__"] is arguments
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "kind",
+        "field-order",
+        "origin",
+        "args-order",
+        "literal-string",
+        "parameters",
+        "omission",
+        "module",
+    ],
+)
+def test_native_typing_saved_snapshot_corruption_reaches_actual_check(
+    mutation: str, tmp_path: Path
+) -> None:
+    capture = _capture(_native_typing_alias(), tmp_path)
+    alias = capture.target_state["alias"]
+    fields = dict(alias["fields"])
+    if mutation == "kind":
+        alias["kind"] = "foreign-alias"
+    elif mutation == "field-order":
+        alias["fields"].reverse()
+    elif mutation == "origin":
+        fields["__origin__"]["native-origin"] = "literal"
+    elif mutation == "args-order":
+        fields["__args__"].reverse()
+    elif mutation == "literal-string":
+        nested = dict(fields["__args__"][1]["fields"])
+        nested["__args__"][0]["value"] = "other"
+    elif mutation == "parameters":
+        fields["__parameters__"].append({"typevar": "T"})
+    elif mutation == "omission":
+        alias["fields"].pop()
+    else:
+        fields["__module__"]["str"] = "foreign"
+    assert not capture.check_target("saved-typing-" + mutation)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "extra",
+        "reorder",
+        "inst",
+        "name",
+        "origin",
+        "slots",
+        "args-type",
+        "parameters",
+        "module",
+        "paramspec",
+    ],
+)
+def test_native_typing_actual_alias_storage_schema_is_exact(
+    mutation: str, tmp_path: Path
+) -> None:
+    alias = _native_typing_alias()
+    descriptor, namespace = _native_typing_storage(alias)
+    original = tuple(namespace.items())
+    capture = _capture(alias, tmp_path)
+    try:
+        if mutation == "missing":
+            namespace.pop("__slots__")
+        elif mutation == "extra":
+            namespace["unknown"] = None
+        elif mutation == "reorder":
+            namespace["_inst"] = namespace.pop("_inst")
+        elif mutation == "inst":
+            namespace["_inst"] = 1
+        elif mutation == "name":
+            namespace["_name"] = "Union"
+        elif mutation == "origin":
+            namespace["__origin__"] = typing.Literal
+        elif mutation == "slots":
+            namespace["__slots__"] = ()
+        elif mutation == "args-type":
+            namespace["__args__"] = list(namespace["__args__"])
+        elif mutation == "parameters":
+            namespace["__parameters__"] = (typing.TypeVar("T"),)
+        elif mutation == "module":
+            namespace["__module__"] = "foreign"
+        else:
+            namespace["_paramspec_tvars"] = True
+        with pytest.raises(
+            source.SourcePreparationError, match="Native typing annotation"
+        ):
+            raw._capture_target_state(alias)
+        assert not capture.check_target("actual-typing-" + mutation)
+    finally:
+        descriptor.__set__(alias, namespace)
+        namespace.clear()
+        namespace.update(original)
+    assert raw._capture_target_state(alias) == capture.target_state
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "literal-other",
+        "literal-int",
+        "bool-as-int",
+        "foreign-class",
+        "generic-alias",
+        "typevar",
+        "forward-ref",
+        "annotated",
+        "subclass",
+    ],
+)
+def test_native_typing_unmeasured_alias_grammar_remains_an_explicit_gap(
+    kind: str, tmp_path: Path
+) -> None:
+    class Foreign:
+        pass
+
+    if kind == "literal-other":
+        target = typing.Literal["other"]
+    elif kind == "literal-int":
+        target = typing.Literal[1]
+    elif kind == "bool-as-int":
+        target = typing.Union[bool, typing.Literal["scalar"]]
+    elif kind == "foreign-class":
+        target = typing.Union[Foreign, typing.Literal["scalar"]]
+    elif kind == "generic-alias":
+        target = list[int]
+    elif kind == "typevar":
+        target = typing.TypeVar("T")
+    elif kind == "forward-ref":
+        target = typing.ForwardRef("T")
+    elif kind == "annotated":
+        target = typing.Annotated[int, "scalar"]
+    else:
+        derived = types.new_class(
+            "ForeignAlias", (type(_native_typing_alias()),), {"_root": True}
+        )
+        target = object.__new__(derived)
+        descriptor, original = _native_typing_storage(_native_typing_alias())
+        descriptor.__set__(target, dict(original))
+    capture = raw.RawReplayCapture(tmp_path / "capture")
+    with pytest.raises(
+        source.SourcePreparationError, match="exact state capture adapter"
+    ):
+        capture.bind_target(target)
+    assert capture.gaps and capture.target_witness is None
+    assert capture.records["native_outcomes"] == {}
+    assert capture.readiness is CheckStatus.UNVERIFIED
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "module",
+        "class",
+        "origin",
+        "int",
+        "descriptor",
+        "getitem",
+        "code",
+        "same-code",
+        "function-dictionary",
+        "defaults",
+        "literal-doc",
+        "literal-slot",
+        "literal-wrapped",
+        "literal-closure",
+        "origin-wrapper-storage",
+    ],
+)
+def test_native_typing_binding_descriptor_and_implementation_changes_reject(
+    mutation: str, tmp_path: Path
+) -> None:
+    alias = _native_typing_alias()
+    capture = _capture(alias, tmp_path)
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    union = boundary.origins[0][1]
+    getitem = boundary.origin_slots["_getitem"].__get__(union, type(union))
+
+    def restore() -> None:
+        return None
+
+    def foreign(*args: Any) -> None:
+        return None
+
+    try:
+        if mutation == "module":
+            original = sys.modules["typing"]
+            sys.modules["typing"] = types.ModuleType("typing")
+            restore = functools.partial(sys.modules.__setitem__, "typing", original)
+        elif mutation == "class":
+            original = typing._UnionGenericAlias
+            typing._UnionGenericAlias = type("Foreign", (), {})
+            restore = functools.partial(setattr, typing, "_UnionGenericAlias", original)
+        elif mutation == "origin":
+            original = typing.Union
+            typing.Union = object()
+            restore = functools.partial(setattr, typing, "Union", original)
+        elif mutation == "int":
+            original = builtins.int
+            builtins.int = type("ForeignInt", (), {})
+            restore = functools.partial(setattr, builtins, "int", original)
+        elif mutation == "descriptor":
+            original = vars(typing._SpecialForm)["_name"]
+            typing._SpecialForm._name = object()
+            restore = functools.partial(setattr, typing._SpecialForm, "_name", original)
+        elif mutation == "getitem":
+            boundary.origin_slots["_getitem"].__set__(union, lambda *args: None)
+            restore = functools.partial(
+                boundary.origin_slots["_getitem"].__set__, union, getitem
+            )
+        elif mutation in ("code", "same-code"):
+            original = getitem.__code__
+            getitem.__code__ = (
+                original.replace(co_name="changed")
+                if mutation == "code"
+                else original.replace()
+            )
+            restore = functools.partial(setattr, getitem, "__code__", original)
+        elif mutation == "function-dictionary":
+            original = getitem.__dict__
+            getitem.__dict__ = dict(original)
+            restore = functools.partial(setattr, getitem, "__dict__", original)
+        elif mutation == "defaults":
+            original = getitem.__defaults__
+            getitem.__defaults__ = (None,)
+            restore = functools.partial(setattr, getitem, "__defaults__", original)
+        elif mutation == "literal-doc":
+            namespace = boundary.literal_dictionary.__get__(
+                typing.Literal, type(typing.Literal)
+            )
+            original = namespace["__doc__"]
+            namespace["__doc__"] = original + "changed"
+            restore = functools.partial(namespace.__setitem__, "__doc__", original)
+        elif mutation == "literal-slot":
+            descriptor = boundary.origin_slots["__doc__"]
+            descriptor.__set__(typing.Literal, "unexpected inherited slot")
+            restore = functools.partial(descriptor.__delete__, typing.Literal)
+        else:
+            literal_getitem = boundary.origin_slots["_getitem"].__get__(
+                typing.Literal, type(typing.Literal)
+            )
+            if mutation == "literal-wrapped":
+                namespace = literal_getitem.__dict__
+                original = namespace["__wrapped__"]
+
+                namespace["__wrapped__"] = foreign
+                restore = functools.partial(
+                    namespace.__setitem__, "__wrapped__", original
+                )
+            elif mutation == "literal-closure":
+                cell = literal_getitem.__closure__[-1]
+                original = cell.cell_contents
+
+                cell.cell_contents = foreign
+                restore = functools.partial(setattr, cell, "cell_contents", original)
+            else:
+                if boundary.variant == (3, 11):
+                    cached = literal_getitem.__closure__[0].cell_contents
+                    namespace = boundary.cache_dictionary.__get__(cached, type(cached))
+                else:
+                    namespace = literal_getitem.__dict__
+                namespace["unknown"] = None
+                restore = functools.partial(namespace.__delitem__, "unknown")
+        # Restore shared builtins before invoking any pytest assertion helpers.
+        rejected = not capture.check_target("typing-binding-" + mutation)
+    finally:
+        restore()
+    assert rejected
+    assert raw._capture_target_state(alias) == capture.target_state
+    assert capture.check_target("restored-typing-binding")
+
+
+@contextmanager
+def _standin_native_array_symbol(
+    symbol: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> Iterator[type[Any]]:
+    array_module = types.ModuleType("jax")
+    meta_module = types.ModuleType("_source_array_symbol_fixture")
+    meta = type("ArrayMeta", (type,), {"__module__": meta_module.__name__})
+    selected = meta("Array", (), {"__module__": symbol[0], "__qualname__": symbol[1]})
+    meta_module.ArrayMeta = meta
+    array_module.Array = selected
+    bindings = {
+        "jax": array_module,
+        "_NATIVE_UNION_ARRAY": selected,
+        "_NATIVE_UNION_ARRAY_SYMBOL": raw._native_union_class_symbol(selected),
+        "_NATIVE_UNION_ARRAY_MODULE": array_module,
+        "_NATIVE_UNION_ARRAY_META": meta,
+        "_NATIVE_UNION_ARRAY_META_SYMBOL": raw._native_union_class_symbol(meta),
+        "_NATIVE_UNION_ARRAY_META_MODULE": meta_module,
+    }
+    with monkeypatch.context() as change:
+        change.setitem(sys.modules, "jax", array_module)
+        change.setitem(sys.modules, meta_module.__name__, meta_module)
+        for name, value in bindings.items():
+            change.setattr(raw, name, value)
+        yield selected
+
+
+@pytest.mark.parametrize("symbol", [("jax", "Array"), ("jax", "jaxlib._jax.Array")])
+def test_native_array_both_measured_symbols_preserve_public_alias_and_original_edges(
+    symbol: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _standin_native_array_symbol(symbol, monkeypatch) as selected:
+        union = selected | None
+        capture = _capture(union, tmp_path)
+        assert capture.check_target("unchanged-array-symbol")
+        assert raw._NATIVE_UNION_ARRAY_SYMBOL == symbol
+        assert raw._native_union_class_symbol(selected) == symbol
+        assert vars(raw.jax)["Array"] is selected
+        assert "jaxlib._jax.Array" not in vars(raw.jax)
+        assert capture.target_state["args"][0] == {
+            "kind": "native-jax-array-class",
+            "symbol": ["jax", "Array"],
+            "metaclass": list(raw._NATIVE_UNION_ARRAY_META_SYMBOL),
+        }
+        witness = capture.target_witness
+        assert witness is not None
+        edges = dict(witness.edges)
+        assert edges[("root", "array-class")] is selected
+        assert edges[("root", "array-module")] is raw.jax
+        assert edges[("root", "array-metaclass")] is type(selected)
+        assert (
+            edges[("root", "array-metaclass-module")]
+            is raw._NATIVE_UNION_ARRAY_META_MODULE
+        )
+        assert capture.records["native_outcomes"] == {}
+        assert capture.records["product_admission"] == "not-attempted"
+        assert capture.readiness is CheckStatus.UNVERIFIED
+
+
+@pytest.mark.parametrize("symbol", [("jax", "Array"), ("jax", "jaxlib._jax.Array")])
+@pytest.mark.parametrize("drift", ["module", "qualname", "other-measured-symbol"])
+def test_native_array_symbol_changes_reject_even_another_measured_spelling(
+    symbol: tuple[str, str], drift: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _standin_native_array_symbol(symbol, monkeypatch) as selected:
+        union = selected | None
+        capture = _capture(union, tmp_path)
+        field = "__module__" if drift == "module" else "__qualname__"
+        replacement = "foreign" if drift == "module" else "OtherArray"
+        if drift == "other-measured-symbol":
+            replacement = "jaxlib._jax.Array" if symbol[1] == "Array" else "Array"
+        with _changed_class_symbol(selected, field, replacement):
+            assert raw._NATIVE_UNION_ARRAY_SYMBOL == symbol
+            with pytest.raises(
+                source.SourcePreparationError, match="Native union Array"
+            ):
+                raw._capture_target_state(union)
+            assert not capture.check_target("changed-array-symbol")
+        assert raw._native_union_class_symbol(selected) == symbol
+        assert capture.check_target("restored-array-symbol")
+
+
+@pytest.mark.parametrize(
+    "symbol", [("foreign", "Array"), ("jax", "OtherArray"), ("jaxlib._jax", "Array")]
+)
+def test_native_array_unmeasured_initial_symbol_is_a_local_explicit_gap(
+    symbol: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _standin_native_array_symbol(symbol, monkeypatch) as selected:
+        capture = raw.RawReplayCapture(tmp_path / "capture")
+        with pytest.raises(
+            source.SourcePreparationError, match="exact state capture adapter"
+        ):
+            capture.bind_target(selected | None)
+        assert capture.gaps
+        assert capture.target_witness is None
+        assert capture.records["native_outcomes"] == {}
+        assert capture.readiness is CheckStatus.UNVERIFIED

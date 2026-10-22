@@ -1242,3 +1242,261 @@ def test_cnn_signed_zero_relu_composite_preserves_exact_owned_selection(
         selections = contract.relu_selections(graph)
         contract.selected_relu(selections["result"], environment, graph)
         contract.scope(graph, list(environment.values()), "graph")
+
+
+def _cnn_current_gather_relu_fixture(
+    layers: int = 1, *, annotations: bool = True
+) -> tuple[Any, Any, dict[str, Any], dict[str, Any]]:
+    """The observed eighteen-node SOURCE form, without model arithmetic."""
+    from types import SimpleNamespace
+
+    graph = SimpleNamespace(node=[], input=[], initializer=[], output=[], value_info=[])
+    environment: dict[str, Any] = {}
+    nodes: dict[str, Any] = {}
+    for index, (stage, shape, layout) in enumerate(
+        (
+            ("conv1", (3, 28, 28, 32), "NHWC"),
+            ("conv2", (3, 14, 14, 64), "NHWC"),
+            ("linear1", (3, 256), "NC"),
+        )[:layers]
+    ):
+        prefix = f"r{index}_"
+        values = {
+            "affine": capture.Data(stage + ".affine", shape, layout),
+            "rhs": np.array(0, np.float32),
+            "zero": np.array(0, np.float32),
+            "axes": np.array([0], np.int64),
+            "table": np.array([0.0, -0.0], np.float32),
+        }
+        for name, value in values.items():
+            environment[prefix + name] = value
+            graph.input.append(SimpleNamespace(name=prefix + name))
+
+        def add(name: str, operator: str, inputs: list[str], **attributes: Any) -> None:
+            node = onnx.helper.make_node(
+                operator,
+                [prefix + name for name in inputs],
+                [prefix + name],
+                **attributes,
+            )
+            nodes[prefix + name] = node
+            graph.node.append(node)
+
+        add("base", "Max", ["affine", "rhs"])
+        add("left_zero", "Equal", ["affine", "zero"])
+        add("right_zero", "Equal", ["rhs", "zero"])
+        add("ties", "And", ["left_zero", "right_zero"])
+        add("left_reciprocal", "Reciprocal", ["affine"])
+        add("right_reciprocal", "Reciprocal", ["rhs"])
+        add("left_negative", "Less", ["left_reciprocal", "zero"])
+        add("right_negative", "Less", ["right_reciprocal", "zero"])
+        add("negative", "And", ["left_negative", "right_negative"])
+        add("zero_indices", "Cast", ["negative"], to=7)
+        add("correction", "Gather", ["table", "zero_indices"], axis=0)
+        add("base_choice", "Unsqueeze", ["base", "axes"])
+        add("correction_choice", "Unsqueeze", ["correction", "axes"])
+        add("choices", "Concat", ["base_choice", "correction_choice"], axis=0)
+        add("indices", "Cast", ["ties"], to=7)
+        add("index_choice", "Unsqueeze", ["indices", "axes"])
+        add("selected", "GatherElements", ["choices", "index_choice"], axis=0)
+        add("result", "Squeeze", ["selected", "axes"])
+        graph.output.append(SimpleNamespace(name=prefix + "result"))
+        if annotations:
+            signatures = {
+                "rhs": (1, ()),
+                "zero": (1, ()),
+                "axes": (7, (1,)),
+                "table": (1, (2,)),
+                "base": (1, shape),
+                "left_zero": (9, shape),
+                "right_zero": (9, ()),
+                "ties": (9, shape),
+                "left_reciprocal": (1, shape),
+                "right_reciprocal": (1, ()),
+                "left_negative": (9, shape),
+                "right_negative": (9, ()),
+                "negative": (9, shape),
+                "zero_indices": (7, shape),
+                "correction": (1, shape),
+                "base_choice": (1, (1, *shape)),
+                "correction_choice": (1, (1, *shape)),
+                "choices": (1, (2, *shape)),
+                "indices": (7, shape),
+                "index_choice": (7, (1, *shape)),
+                "selected": (1, (1, *shape)),
+                "result": (1, shape),
+            }
+            graph.value_info.extend(
+                onnx.helper.make_tensor_value_info(prefix + name, dtype, dims)
+                for name, (dtype, dims) in signatures.items()
+            )
+    contract = capture.ArtifactContract({}, 3, named=False)
+    contract.functions = {}
+    return graph, contract, environment, nodes
+
+
+@pytest.mark.parametrize("layers", [1, 3])
+@pytest.mark.parametrize("annotations", [False, True])
+def test_cnn_current_gather_signed_zero_relu_exact_disjoint_closures(
+    layers: int, annotations: bool
+) -> None:
+    graph, contract, environment, _ = _cnn_current_gather_relu_fixture(
+        layers, annotations=annotations
+    )
+    selections = contract.relu_selections(graph)
+    expected = []
+    for index in range(layers):
+        affine = environment[f"r{index}_affine"]
+        result = capture.Data(
+            affine.stage.replace(".affine", ".relu"), affine.shape, affine.layout
+        )
+        selection = selections[f"r{index}_result"]
+        assert len(selection["nodes"]) == 18
+        assert selection["zero_table"] == f"r{index}_table"
+        assert contract.selected_relu(selection, environment, graph) == result
+        expected.append(result)
+    assert contract.scope(graph, list(environment.values()), "graph") == expected
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "table-signs",
+        "table-reversed",
+        "table-dtype",
+        "table-shape",
+        "rhs-sign",
+        "rhs-dtype",
+        "zero-sign",
+        "zero-dtype",
+        "left-reciprocal-binding",
+        "right-reciprocal-binding",
+        "less-order",
+        "less-zero",
+        "negative-op",
+        "cast-dtype",
+        "cast-reference",
+        "gather-axis",
+        "gather-extra-input",
+        "gather-extra-attribute",
+        "gather-duplicate-attribute",
+        "gather-attribute-type",
+        "gather-domain",
+        "gather-overload",
+        "reciprocal-arity",
+        "tie-arm",
+        "outer-axis",
+        "extra-max-data",
+        "known-reciprocal-dtype",
+        "known-reciprocal-shape",
+        "known-scalar-shape",
+        "known-less-dtype",
+        "known-cast-dtype",
+        "known-gather-shape",
+        "known-table-shape",
+        "known-axes-dtype",
+        "unowned",
+        "graph-output",
+        "overlap-reciprocal",
+        "overlap-less",
+    ],
+)
+def test_cnn_current_gather_signed_zero_relu_rejects_corruptions(
+    corruption: str,
+) -> None:
+    from types import SimpleNamespace
+
+    graph, contract, environment, nodes = _cnn_current_gather_relu_fixture(
+        2 if corruption.startswith("overlap-") else 1
+    )
+    if corruption == "table-signs":
+        environment["r0_table"] = np.array([0.0, 0.0], np.float32)
+    elif corruption == "table-reversed":
+        environment["r0_table"] = np.array([-0.0, 0.0], np.float32)
+    elif corruption == "table-dtype":
+        environment["r0_table"] = np.array([0.0, -0.0], np.float64)
+    elif corruption == "table-shape":
+        environment["r0_table"] = np.array([[0.0, -0.0]], np.float32)
+    elif corruption in ("rhs-sign", "zero-sign"):
+        environment["r0_" + corruption.split("-")[0]] = np.array(-0.0, np.float32)
+    elif corruption in ("rhs-dtype", "zero-dtype"):
+        environment["r0_" + corruption.split("-")[0]] = np.array(0, np.float64)
+    elif corruption == "left-reciprocal-binding":
+        nodes["r0_left_reciprocal"].input[0] = "r0_rhs"
+    elif corruption == "right-reciprocal-binding":
+        nodes["r0_right_reciprocal"].input[0] = "r0_affine"
+    elif corruption == "less-order":
+        nodes["r0_left_negative"].input[:] = ["r0_zero", "r0_left_reciprocal"]
+    elif corruption == "less-zero":
+        nodes["r0_right_negative"].input[1] = "r0_rhs"
+    elif corruption == "negative-op":
+        nodes["r0_negative"].op_type = "Or"
+    elif corruption == "cast-dtype":
+        nodes["r0_zero_indices"].attribute[0].i = 6
+    elif corruption == "cast-reference":
+        nodes["r0_zero_indices"].attribute[0].ref_attr_name = "target_type"
+    elif corruption == "gather-axis":
+        nodes["r0_correction"].attribute[0].i = 1
+    elif corruption == "gather-extra-input":
+        nodes["r0_correction"].input.append("r0_rhs")
+    elif corruption == "gather-extra-attribute":
+        nodes["r0_correction"].attribute.append(
+            onnx.helper.make_attribute("unexpected", 0)
+        )
+    elif corruption == "gather-duplicate-attribute":
+        nodes["r0_correction"].attribute.append(
+            copy.deepcopy(nodes["r0_correction"].attribute[0])
+        )
+    elif corruption == "gather-attribute-type":
+        attribute = nodes["r0_correction"].attribute[0]
+        attribute.type, attribute.f = onnx.AttributeProto.FLOAT, 0.0
+    elif corruption == "gather-domain":
+        nodes["r0_correction"].domain = "private"
+    elif corruption == "gather-overload":
+        nodes["r0_correction"].overload = "private_function"
+    elif corruption == "reciprocal-arity":
+        nodes["r0_right_reciprocal"].input.append("r0_zero")
+    elif corruption == "tie-arm":
+        nodes["r0_ties"].input[:] = ["r0_right_zero", "r0_left_zero"]
+    elif corruption == "outer-axis":
+        nodes["r0_correction_choice"].input[1] = "r0_rhs"
+    elif corruption == "extra-max-data":
+        nodes["r0_base"].input.append("r0_affine")
+    elif corruption.startswith("known-"):
+        name, dtype, dims = {
+            "known-reciprocal-dtype": ("r0_left_reciprocal", 11, (3, 28, 28, 32)),
+            "known-reciprocal-shape": ("r0_left_reciprocal", 1, (3, 32, 28, 28)),
+            "known-scalar-shape": ("r0_right_reciprocal", 1, (1,)),
+            "known-less-dtype": ("r0_left_negative", 1, (3, 28, 28, 32)),
+            "known-cast-dtype": ("r0_zero_indices", 6, (3, 28, 28, 32)),
+            "known-gather-shape": ("r0_correction", 1, (3, 32, 28, 28)),
+            "known-table-shape": ("r0_table", 1, (1, 2)),
+            "known-axes-dtype": ("r0_axes", 6, (1,)),
+        }[corruption]
+        index = next(
+            index for index, value in enumerate(graph.value_info) if value.name == name
+        )
+        graph.value_info[index] = onnx.helper.make_tensor_value_info(name, dtype, dims)
+    elif corruption == "unowned":
+        graph.node.append(
+            onnx.helper.make_node("Identity", ["r0_right_reciprocal"], ["outside"])
+        )
+    elif corruption == "graph-output":
+        graph.output.append(SimpleNamespace(name="r0_right_reciprocal"))
+    else:
+        for node in graph.node:
+            node.input[:] = [
+                {"r1_rhs": "r0_rhs", "r1_zero": "r0_zero"}.get(name, name)
+                for name in node.input
+            ]
+        if corruption == "overlap-reciprocal":
+            nodes["r1_right_negative"].input[0] = "r0_right_reciprocal"
+            graph.node.remove(nodes["r1_right_reciprocal"])
+        else:
+            nodes["r1_negative"].input[1] = "r0_right_negative"
+            graph.node.remove(nodes["r1_right_negative"])
+            graph.node.remove(nodes["r1_right_reciprocal"])
+    with pytest.raises(ValueError, match="signed-zero ReLU"):
+        selections = contract.relu_selections(graph)
+        contract.selected_relu(selections["r0_result"], environment, graph)
+        contract.scope(graph, list(environment.values()), "graph")

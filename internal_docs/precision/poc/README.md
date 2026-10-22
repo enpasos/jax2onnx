@@ -1,15 +1,14 @@
 # Precision Contract Experiments
 
 The [canonical current checkpoint and evidence ledger](source_integration_findings.md#current-checkpoint)
-distinguishes the last fully green **`fe214590`** checkpoint from the latest
-stored LOCAL WIP **`ce87c2e0`**, whose strict docs, seven hooks and exact staged
-review completed. Subsequent reviewed fixture, captured-state and versioned
-Dot/Linear corpus repairs pass their complete affected selections on both
-stacks, with fresh current typing/RNG. Their exact sources and counts belong to
-the ledger. The b90 full-suite failure remains historical and unwaived; no
-later full-suite rerun or complete migration acceptance is claimed. An
-intermediate WIP commit records reviewed unfinished progress. All B–F gates and
-public **LEGACY** behavior remain binding.
+records an unfinished WIP continuing **`b74d8e93`**; **`fe214590`** remains the last
+fully green checkpoint. Later CNN, Scan, Gather, Eqx factory and admission
+selections retain their separate source-bound results. Admission checks pass on
+both stacks while preserving measured runtime-load failures as failed evidence.
+Native Array capture passes both complete selections; ordinary SimpleLinear reaches its still-failed original graph callback.
+The historical failed b90 full suite has not been rerun. The full map, fixed
+sources, numerical obligations and B–F/public transition remain required.
+Public behavior stays **LEGACY**.
 
 The sections in [integration findings](source_integration_findings.md#retained-checkpoint-evidence)
 retain prior checkpoints under their original sources, criteria and actual

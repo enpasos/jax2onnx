@@ -6,14 +6,14 @@ contract across existing functionality and fixed sources, without a permanent
 public precision mode/profile selector or capability loss. The private
 source-static milestone is implementation scaffolding, not completion scope.
 
-Public precision behavior remains LEGACY. The [canonical current ledger](poc/source_integration_findings.md#current-checkpoint)
-separates fully green `fe214590`, stored LOCAL WIP `ce87c2e0` and later
-source-bound directed results. The
-unchanged repeated-Function/If recipe has earlier source-bound passes on all
-three stacks. Portable BF16
-source words and strict native NaN failures remain separate. The Transformer owner retains its earlier
-PRIMARY pass; the historical failed full suite and complete migration remain open. The implementation
-plan retains all coverage obligations; no release version or deadline is set.
+Public precision behavior remains LEGACY. This unfinished WIP continues
+`b74d8e93`; `fe214590` remains the last fully green checkpoint. The
+[canonical ledger](poc/source_integration_findings.md#current-checkpoint) binds
+CNN, Scan, Gather, selected Eqx factory and admission checks to their separate
+sources. Paired admission checks pass while measured runtime loads remain failed
+and numerics unverified. Native Array capture passes both complete selections; ordinary SimpleLinear reaches its still-failed original graph callback. The failed b90 full suite has not been rerun.
+No implementation milestone reduces the complete migration scope, assigns a
+release or sets a deadline.
 
 Read the [user migration plan](precision_migration_plan_user_view.md) for the
 proposed caller experience, the [current analysis](precision_current_state.md)
@@ -100,20 +100,18 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
-The latest stored LOCAL WIP **`ce87c2e0`** completed strict docs, seven normal
-hooks and exact staged review; **`fe214590`** remains the last fully green
-checkpoint. Subsequent reviewed fixture, captured-state and versioned Dot/Linear
-provenance repairs pass their complete affected selections on both tested
-stacks, with fresh current typing/RNG. The canonical ledger owns exact source
-cuts and counts. The historical failed b90 full suite has not been rerun.
+This unfinished LOCAL WIP continues **`b74d8e93`**; **`fe214590`** remains the
+last fully green checkpoint. The canonical ledger owns the paired admission
+results, explicit target-load failures and other source-bound focused checks.
+Native Array capture passes both complete selections; ordinary SimpleLinear reaches its still-failed original graph callback.
+Historical failed receipts remain accounted for; no new full suite has run.
 
-An intermediate WIP commit records reviewed unfinished progress after relevant
-actual checks, strict docs, normal hooks and staged review. It does not accept
-the full suite or complete the migration. The complete map, opaque/metadata-free/
-manual accounting, fixed-source/numerical workflows and coordinated ordinary
-export/allclose/browser/generator cutover remain required. Public behavior stays
-LEGACY. Genuine ONNX/target limits require evidence; implementation gaps remain
-work to complete.
+Complete the map and opaque/metadata-free/manual accounting, reconcile current
+Eqx recipe drift without rewriting frozen evidence, and retain all fixed-source
+and numerical workflows. Coordinated ordinary export, allclose, browser and
+generator cutover remain required through full B–F. Intermediate WIP preservation
+is distinct from acceptance. Public behavior stays LEGACY; only evidenced ONNX
+or target limits may constrain support, and implementation gaps remain work.
 
 The implementation follows these acceptance requirements:
 

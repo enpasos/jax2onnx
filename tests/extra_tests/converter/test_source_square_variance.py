@@ -37,6 +37,9 @@ from jax2onnx.converter.source_profile import (
 from jax2onnx.converter.source_representation import normalized_shape_dimensions
 from jax2onnx.precision import CheckStatus, get_precision_report
 from jax2onnx.plugins.plugin_system import FunctionPlugin
+from tests.extra_tests.converter.test_source_jnp_binary_dispatch import (
+    _assert_max_signed_zero_graph,
+)
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
@@ -1646,8 +1649,8 @@ def test_max_never_falls_through_to_unaudited_legacy_route(
         graph.eqns[0].invars.append(graph.invars[0])
     else:
         graph = jax.make_jaxpr(lambda x: jax.lax.max(x, x))(value)
-    if dtype == "int32":
-        # The unchanged integer case is admitted by the elementary contract.
+    if dtype == "int32" or (dtype == "float32" and opset == 26):
+        # The current floating Max26 and unchanged integer cases are admitted.
         validate_source_jaxpr(graph, opset)
         return
     with pytest.raises(SourcePrecisionError):
@@ -1863,7 +1866,7 @@ def test_symbolic_singleton_reshape_retains_transform_exclusions(
         source.update(shape=shape),
         {"new_sizes": shape, "dimensions": dimensions},
     )
-    if corruption in {"regroup", "permute"}:
+    if corruption in {"regroup", "permute", "rank-five"}:
         # The common shared-B tensor checks retain exact values at B=2/5;
         # only the static tail is regrouped or permuted here.
         validate_source_jaxpr(graph, 23)
@@ -1905,3 +1908,58 @@ def test_symbolic_min_remains_outside_the_reviewed_max_packet(
         validate_source_jaxpr(graph, opset)
     assert caught.value.primitive == "min"
     assert caught.value.category == "profile-exclusion"
+
+
+def test_current_max26_keeps_exact_signed_zero_artifact(
+    tmp_path: Path,
+    record_property: Any,
+) -> None:
+    def target(left: Any, right: Any) -> Any:
+        return jax.lax.max(left, right)
+
+    feeds = [
+        (jnp.asarray([-0.0, -0.0], np.float32), jnp.asarray([0.0, -0.0], np.float32))
+    ]
+    model = _exercise(target, feeds, tmp_path, "exact", record_property, opset=26)
+    _assert_max_signed_zero_graph(model, opset=26)
+    report = get_precision_report(model)
+    assert report is not None
+    assert all(
+        item.status is CheckStatus.VALIDATED
+        for item in report.checks
+        if item.category in {"representation", "lowering"}
+    )
+
+
+def test_current_rank_five_singleton_reshape_keeps_one_shared_batch_artifact(
+    tmp_path: Path,
+    record_property: Any,
+) -> None:
+    def target(value: Any) -> Any:
+        return jax.lax.reshape(value, (value.shape[0], 1, 2, 3, 1))
+
+    (batch,) = export.symbolic_shape("B")
+    specs = [jax.ShapeDtypeStruct((batch, 2, 3), np.float32)]
+    feeds = [
+        (
+            jnp.asarray(
+                np.resize(
+                    np.asarray([-0.0, 0.0, -2.0, 4.0, 1.25, -3.5], np.float32),
+                    (size, 2, 3),
+                )
+            ),
+        )
+        for size in (2, 5)
+    ]
+    model = _exercise(
+        target, feeds, tmp_path, "exact", record_property, declared_specs=specs
+    )
+    report = get_precision_report(model)
+    assert report is not None and report.profile == "source-static-v1"
+    assert report.inputs[0].traced.shape == ("B", 2, 3)
+    assert report.exported_outputs[0].shape == ("B", 1, 2, 3, 1)
+    assert all(
+        item.status is CheckStatus.VALIDATED
+        for item in report.checks
+        if item.category in {"representation", "lowering"}
+    )

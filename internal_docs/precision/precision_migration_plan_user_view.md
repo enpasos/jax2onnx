@@ -5,18 +5,20 @@ normal `to_onnx(...)` call preserves the selected JAX computation through one
 consistent rule across all existing functionality and fixed supplied sources,
 without a permanent selector or capability loss.
 
-Public behavior and `enable_double_precision` remain unchanged. The latest
-stored LOCAL WIP checkpoint is **`ce87c2e0`**; the last fully green checkpoint
-remains **`fe214590`**. Later reviewed validation fixtures, captured-state and
-corpus-provenance repairs pass their affected selections on both tested stacks,
-with fresh current typing/RNG. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
-records exact sources and outcomes, including the historical failed full suite
-that has not been rerun.
+Public behavior and `enable_double_precision` remain unchanged. This unfinished
+WIP continues **`b74d8e93`**; **`fe214590`** remains the last fully green
+checkpoint. CNN, Scan, Gather, selected Eqx factory and admission checks retain
+source-bound results on both tested stacks. Passing admission checks preserve
+observed target-runtime failures with numerics unverified. Native capture passes both complete selections;
+ordinary SimpleLinear reaches its original structure check, which still fails. The
+[technical ledger](poc/source_integration_findings.md#current-checkpoint) records
+exact sources and outcomes, including the failed historical full suite that has
+not been rerun.
 
-An intermediate WIP commit preserves reviewed unfinished progress. It does not
-complete the full inventory, fixed-source or numerical workflows, or authorize
-the public transition. Strict native NaN failures and other unresolved numerical
-failures remain explicit; public options stay LEGACY until complete acceptance.
+An intermediate WIP preserves reviewed unfinished progress. It does not complete
+the full inventory, fixed-source or numerical workflows, or authorize the public
+transition. Failed numerical comparisons remain explicit; public options stay
+LEGACY until complete acceptance.
 
 The plan below describes the completed experience independently of checkpoints.
 Precision choices stay in model configuration, explicit source/preparation and

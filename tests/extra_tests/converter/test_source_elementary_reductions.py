@@ -8,7 +8,7 @@ SOURCE's private tracing carriers. No operator precision is changed for tests.
 """
 
 from collections.abc import Callable, Iterator
-from copy import copy
+from copy import copy, deepcopy
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -46,6 +46,7 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 from tests.extra_tests.converter.source_precision_corpus_oracles import (
+    _GATHER_GRAPH_TEMPLATE_V2,
     _gather_graph_signature,
     fingerprint,
 )
@@ -121,6 +122,87 @@ _GATHER_PRODUCT_GRAPH_SHA256 = (
     "573d12d2c96984c2bcb79af2bfceae7ff7e8b6a59f2b3ace0f037dd646bbc8ba",
     "c5f73dfeb54bcc3fa4567590d9fd0a616ef2a87874b04e37773953a29552b748",
 )
+
+# Current typed witnesses are separate from the unchanged historical tuple.
+# The old ordinal1 graph is not reconstructed from its historical fingerprint.
+_CURRENT_GATHER_PRODUCT_GRAPH_SHA256 = (
+    _GATHER_PRODUCT_GRAPH_SHA256[0],
+    "c941a4e1e7d1648361023d74713429e3b828b4ce1c7e4023ff438d1b86588468",
+)
+
+
+def _current_gather_graph_witness(ordinal: int) -> dict[str, Any]:
+    """Exactly the reviewed V2 graph, with the original ordinal1 I32 indices."""
+    assert type(ordinal) is int and ordinal in (0, 1)
+    template = _GATHER_GRAPH_TEMPLATE_V2
+    assert fingerprint(template) == _GATHER_PRODUCT_GRAPH_SHA256[0]
+    assert template["inputs"] == [[11, [4, 3]], [7, [2]]]
+    assert template["constants"][:2] == [
+        {"dtype": 7, "shape": [], "bytes": "0000000000000000"},
+        {"dtype": 7, "shape": [], "bytes": "0400000000000000"},
+    ]
+    assert template["nodes"][:4] == [
+        {
+            "op": "Less",
+            "inputs": ["input1", "constant0"],
+            "outputs": [[9, [2]]],
+            "attributes": {},
+        },
+        {
+            "op": "Add",
+            "inputs": ["input1", "constant1"],
+            "outputs": [[7, [2]]],
+            "attributes": {},
+        },
+        {
+            "op": "Where",
+            "inputs": ["node0:0", "node1:0", "input1"],
+            "outputs": [[7, [2]]],
+            "attributes": {},
+        },
+        {
+            "op": "Cast",
+            "inputs": ["node2:0"],
+            "outputs": [[6, [2]]],
+            "attributes": {"to": [2, 6]},
+        },
+    ]
+    expected = deepcopy(template)
+    if ordinal == 0:
+        return expected
+    expected["inputs"][1][0] = 6
+    for index, value in enumerate((0, 4)):
+        expected["constants"][index] = {
+            "dtype": 6,
+            "shape": [],
+            "bytes": value.to_bytes(4, "little", signed=True).hex(),
+        }
+    for index in (1, 2):
+        expected["nodes"][index]["outputs"] = [[6, [2]]]
+    # This exact I64-to-I32 Cast becomes an I32 identity in source ordinal1.
+    # All remaining edges and final output roles are remapped together.
+    expected["nodes"].pop(3)
+
+    def role(value: str) -> str:
+        if not value.startswith("node"):
+            return value
+        producer, port = value.split(":")
+        index = int(producer.removeprefix("node"))
+        if index == 3:
+            assert port == "0"
+            return "node2:0"
+        return f"node{index - 1 if index > 3 else index}:{port}"
+
+    for node in expected["nodes"]:
+        node["inputs"] = [role(value) for value in node["inputs"]]
+    for output in expected["outputs"]:
+        output[0] = role(output[0])
+    return expected
+
+
+def _assert_current_gather_graph(signature: dict[str, Any], ordinal: int) -> None:
+    assert signature == _current_gather_graph_witness(ordinal)
+    assert fingerprint(signature) == _CURRENT_GATHER_PRODUCT_GRAPH_SHA256[ordinal]
 
 
 def _assert_raw_contract(metadata: Any, origin: str, ordinal: int) -> None:
@@ -1386,10 +1468,8 @@ def test_original_gather_trigonometric_anchor_preserves_raw_criterion_and_both_n
     # Freeze the complete type/shape/def-use/constant signatures only after
     # inspecting both actual product graphs. The old diagnostic mapping and
     # its historical raw callback failure remain independent evidence.
-    assert (
-        fingerprint(_gather_graph_signature(proto))
-        == _GATHER_PRODUCT_GRAPH_SHA256[ordinal]
-    )
+    current_signature = _gather_graph_signature(proto)
+    _assert_current_gather_graph(current_signature, ordinal)
     # This small typed product witness does not replace the historical frozen
     # diagnostic counterpart or claim that a failing raw callback passed.
     assert proto.graph.input[0].type.tensor_type.elem_type == onnx.TensorProto.DOUBLE
@@ -1585,3 +1665,90 @@ def test_consumed_scalar_and_saved_target_corruption_are_detected(
     np.save(saved, payload)
     assert hashlib.sha256(saved.read_bytes()).hexdigest() != original_digest
     assert _compare(np.load(saved), references[0][0][0], _BITS) is not None
+
+
+def test_current_gather_typed_witness_preserves_templates_and_historical_pins() -> None:
+    assert _GATHER_PRODUCT_GRAPH_SHA256 == (
+        "573d12d2c96984c2bcb79af2bfceae7ff7e8b6a59f2b3ace0f037dd646bbc8ba",
+        "c5f73dfeb54bcc3fa4567590d9fd0a616ef2a87874b04e37773953a29552b748",
+    )
+    original = deepcopy(_GATHER_GRAPH_TEMPLATE_V2)
+    ordinal0 = _current_gather_graph_witness(0)
+    ordinal1 = _current_gather_graph_witness(1)
+    assert ordinal0 == original and ordinal0 is not _GATHER_GRAPH_TEMPLATE_V2
+    _assert_current_gather_graph(ordinal0, 0)
+    _assert_current_gather_graph(ordinal1, 1)
+    assert fingerprint(ordinal0) == _CURRENT_GATHER_PRODUCT_GRAPH_SHA256[0]
+    assert fingerprint(ordinal1) == _CURRENT_GATHER_PRODUCT_GRAPH_SHA256[1]
+    assert _CURRENT_GATHER_PRODUCT_GRAPH_SHA256[1] == (
+        "c941a4e1e7d1648361023d74713429e3b828b4ce1c7e4023ff438d1b86588468"
+    )
+    assert ordinal1["inputs"] == [[11, [4, 3]], [6, [2]]]
+    assert len(ordinal1["nodes"]) == 25 and len(ordinal1["constants"]) == 14
+    assert ordinal1["constants"][2:] == original["constants"][2:]
+    assert ordinal1["nodes"][5]["inputs"] == ["node2:0", "node4:0"]
+    assert ordinal1["outputs"] == [["node24:0", [11, [2, 3]]]]
+    assert _GATHER_GRAPH_TEMPLATE_V2 == original
+    for invalid_ordinal in (-1, 2, True):
+        with pytest.raises(AssertionError):
+            _current_gather_graph_witness(invalid_ordinal)
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "input-type",
+        "integer-literal",
+        "normalization-type",
+        "where-arms",
+        "layout-edge",
+        "gather-axis",
+        "floating-operand",
+        "trigonometric-edge",
+        "copy-arms",
+        "selector-type",
+        "copy-axis",
+        "copy-shape",
+        "zero-fill-word",
+        "extra-node",
+    ],
+)
+def test_current_gather_typed_witness_rejects_whole_signature_corruptions(
+    corruption: str,
+) -> None:
+    original = deepcopy(_GATHER_GRAPH_TEMPLATE_V2)
+    damaged = _current_gather_graph_witness(1)
+    if corruption == "input-type":
+        damaged["inputs"][1][0] = 7
+    elif corruption == "integer-literal":
+        damaged["constants"][1]["bytes"] = "02000000"
+    elif corruption == "normalization-type":
+        damaged["nodes"][2]["outputs"][0][0] = 7
+    elif corruption == "where-arms":
+        damaged["nodes"][2]["inputs"][1:] = list(
+            reversed(damaged["nodes"][2]["inputs"][1:])
+        )
+    elif corruption == "layout-edge":
+        damaged["nodes"][5]["inputs"][0] = "input1"
+    elif corruption == "gather-axis":
+        damaged["nodes"][8]["attributes"]["axis"][1] = 1
+    elif corruption == "floating-operand":
+        damaged["nodes"][11]["inputs"][0] = "node8:0"
+    elif corruption == "trigonometric-edge":
+        damaged["nodes"][12]["inputs"][0] = "node9:0"
+    elif corruption == "copy-arms":
+        damaged["nodes"][21]["inputs"].reverse()
+    elif corruption == "selector-type":
+        damaged["nodes"][18]["attributes"]["to"][1] = 7
+    elif corruption == "copy-axis":
+        damaged["nodes"][23]["attributes"]["axis"][1] = 1
+    elif corruption == "copy-shape":
+        damaged["nodes"][24]["outputs"][0][1] = [3, 2]
+    elif corruption == "zero-fill-word":
+        damaged["constants"][12]["bytes"] = "000000000000f03f" + "0000000000000000" * 5
+    else:
+        damaged["nodes"].append(deepcopy(damaged["nodes"][-1]))
+    with pytest.raises(AssertionError):
+        _assert_current_gather_graph(damaged, 1)
+    assert fingerprint(damaged) != _CURRENT_GATHER_PRODUCT_GRAPH_SHA256[1]
+    assert _GATHER_GRAPH_TEMPLATE_V2 == original

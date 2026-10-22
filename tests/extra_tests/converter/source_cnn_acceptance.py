@@ -688,6 +688,7 @@ class ArtifactContract:
                 if (
                     node is None
                     or node.domain not in ("", "ai.onnx")
+                    or getattr(node, "overload", "")
                     or node.op_type != operator
                     or len(node.input) != arity
                     or list(node.output) != [name]
@@ -695,11 +696,18 @@ class ArtifactContract:
                     raise ValueError(
                         "original CNN signed-zero ReLU selection producer/arity changed"
                     )
+                if len(node.attribute) != len(attributes) or any(
+                    attribute.ref_attr_name or attribute.type != onnx.AttributeProto.INT
+                    for attribute in node.attribute
+                ):
+                    raise ValueError(
+                        "original CNN signed-zero ReLU selection attributes changed"
+                    )
                 actual = {
                     attribute.name: onnx.helper.get_attribute_value(attribute)
                     for attribute in node.attribute
                 }
-                if actual != attributes:
+                if actual != attributes or len(actual) != len(node.attribute):
                     raise ValueError(
                         "original CNN signed-zero ReLU selection attributes changed"
                     )
@@ -713,10 +721,41 @@ class ArtifactContract:
             base_choice = take(choices.input[0], "Unsqueeze", 2, {})
             correction_choice = take(choices.input[1], "Unsqueeze", 2, {})
             base = take(base_choice.input[0], "Max", 2, {})
-            correction = take(correction_choice.input[0], "Add", 2, {})
             lhs, rhs = base.input
-            if list(correction.input) != [lhs, rhs]:
-                raise ValueError("original CNN signed-zero ReLU correction arm changed")
+            correction_node = producers.get(correction_choice.input[0])
+            gather_correction = (
+                correction_node is not None and correction_node.op_type == "Gather"
+            )
+            correction_signatures: dict[str, tuple[int, str]] = {}
+            if gather_correction:
+                correction = take(correction_choice.input[0], "Gather", 2, {"axis": 0})
+                zero_indices = take(correction.input[1], "Cast", 1, {"to": 7})
+                negative = take(zero_indices.input[0], "And", 2, {})
+                left_negative = take(negative.input[0], "Less", 2, {})
+                right_negative = take(negative.input[1], "Less", 2, {})
+                left_reciprocal = take(left_negative.input[0], "Reciprocal", 1, {})
+                right_reciprocal = take(right_negative.input[0], "Reciprocal", 1, {})
+                if list(left_reciprocal.input) != [lhs] or list(
+                    right_reciprocal.input
+                ) != [rhs]:
+                    raise ValueError(
+                        "original CNN signed-zero ReLU reciprocal binding changed"
+                    )
+                correction_signatures = {
+                    left_reciprocal.output[0]: (1, "data"),
+                    right_reciprocal.output[0]: (1, "scalar"),
+                    left_negative.output[0]: (9, "data"),
+                    right_negative.output[0]: (9, "scalar"),
+                    negative.output[0]: (9, "data"),
+                    zero_indices.output[0]: (7, "data"),
+                    correction.input[0]: (1, "zero-table"),
+                }
+            else:
+                correction = take(correction_choice.input[0], "Add", 2, {})
+                if list(correction.input) != [lhs, rhs]:
+                    raise ValueError(
+                        "original CNN signed-zero ReLU correction arm changed"
+                    )
             index_choice = take(selected.input[1], "Unsqueeze", 2, {})
             indices = take(index_choice.input[0], "Cast", 1, {"to": 7})
             ties = take(indices.input[0], "And", 2, {})
@@ -733,6 +772,17 @@ class ArtifactContract:
             ):
                 raise ValueError(
                     "original CNN signed-zero ReLU mask/axis wiring changed"
+                )
+            if gather_correction:
+                if list(left_negative.input) != [
+                    left_reciprocal.output[0],
+                    zero,
+                ] or list(right_negative.input) != [right_reciprocal.output[0], zero]:
+                    raise ValueError(
+                        "original CNN signed-zero ReLU sign comparison changed"
+                    )
+                correction_signatures.update(
+                    {rhs: (1, "scalar"), zero: (1, "scalar"), axes: (7, "axes")}
                 )
             pattern = {
                 "base": base.output[0],
@@ -755,8 +805,11 @@ class ArtifactContract:
                     index_choice.output[0]: (7, "choice"),
                     selected.output[0]: (1, "choice"),
                     squeeze.output[0]: (1, "data"),
+                    **correction_signatures,
                 },
             }
+            if gather_correction:
+                pattern["zero_table"] = correction.input[0]
             patterns.append(pattern)
             for name, node in nodes.items():
                 if name == pattern["final"]:
@@ -803,6 +856,17 @@ class ArtifactContract:
             raise ValueError(
                 "original CNN signed-zero ReLU scalar FP32 positive zero changed"
             )
+        if "zero_table" in selection:
+            table = environment.get(selection["zero_table"])
+            if (
+                not isinstance(table, np.ndarray)
+                or table.dtype != np.dtype("float32")
+                or table.shape != (2,)
+                or table.tobytes() != b"\0\0\0\0\0\0\0\x80"
+            ):
+                raise ValueError(
+                    "original CNN signed-zero ReLU FP32 positive/negative zero table changed"
+                )
         axes = environment[selection["axes"]]
         if (
             not isinstance(axes, np.ndarray)
@@ -816,6 +880,8 @@ class ArtifactContract:
         )
         shapes = {
             "scalar": (),
+            "axes": (1,),
+            "zero-table": (2,),
             "data": result.shape,
             "choice": (1, *result.shape),
             "choices": (2, *result.shape),

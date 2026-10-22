@@ -34,6 +34,11 @@ from jax2onnx.converter.precision_policy import (
 )
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.plugins.plugin_system import _SourceFunctionTrace
+from jax2onnx.plugins.jax.numpy.full import JnpFullPlugin
+from tests.extra_tests.converter.source_precision_diagnostics import (
+    typed_trace_manifest,
+)
+from tests.extra_tests.converter.test_source_jnp_binary_dispatch import _leaves
 from jax2onnx.precision import CheckStatus, get_precision_report
 
 _ORIGINAL_WHERE = jnp.where
@@ -851,12 +856,75 @@ def test_creation_repairs_do_not_widen_product_admission(component: str) -> None
         _cpu(artifact, arguments, expected)
         assert active_precision_policy() is PrecisionPolicy.LEGACY
         return
+    native = _
+    compiled = [
+        np.asarray(value) for value in jax.tree.leaves(jax.jit(target)(*arguments))
+    ]
+    for actual, reference in zip(compiled, expected, strict=True):
+        _assert_exact(actual, reference)
+    before = (
+        jax.config.x64_enabled,
+        jax.config.jax_default_matmul_precision,
+        jax.config.jax_numpy_dtype_promotion,
+        jax.config.jax_numpy_rank_promotion,
+        jnp.where,
+        jnp.full,
+        active_precision_policy(),
+    )
+    spec = _shape_spec(jnp.asarray(arguments[0]))
+    with (
+        precision_policy_scope(PrecisionPolicy.SOURCE),
+        conversion_api._activate_plugin_worlds(),
+    ):
+        active = jax.make_jaxpr(target)(spec)
+    assert typed_trace_manifest(_body(active)) == typed_trace_manifest(native)
+    names = {leaf[0] for leaf in _leaves(active)}
+    assert "broadcast_in_dim" in names and "jax.numpy.full" not in names
+    assert _signature(native.invars) == (("float32", (), False),)
+    assert _signature(native.outvars) == (("float32", (2,), False),)
+    artifact = user_interface._to_onnx(
+        target, [spec], precision_policy=PrecisionPolicy.SOURCE
+    )
+    payload = artifact.SerializeToString()
+    onnx.checker.check_model(artifact, full_check=True)
+    report = get_precision_report(artifact)
+    assert report is not None and report.profile == "source-static-v1"
+    assert {item.category: item.status for item in report.checks} == {
+        "representation": CheckStatus.VALIDATED,
+        "lowering": CheckStatus.VALIDATED,
+        "runtime-execution": CheckStatus.UNVERIFIED,
+        "numerical-acceptance": CheckStatus.UNVERIFIED,
+    }
+    assert (
+        report.inputs[0].traced.dtype,
+        report.inputs[0].traced.shape,
+        report.inputs[0].traced.weak_type,
+    ) == ("float32", (), False)
+    assert expected[0].dtype == np.dtype(np.float32)
+    assert expected[0].tobytes() == np.asarray([0.25, 0.25], np.float32).tobytes()
+    for optimized in (False, True):
+        _cpu(artifact, arguments, expected, optimized=optimized)
+    assert artifact.SerializeToString() == payload
+    assert (
+        jax.config.x64_enabled,
+        jax.config.jax_default_matmul_precision,
+        jax.config.jax_numpy_dtype_promotion,
+        jax.config.jax_numpy_rank_promotion,
+        jnp.where,
+        jnp.full,
+        active_precision_policy(),
+    ) == before
+    assert active_precision_policy() is PrecisionPolicy.LEGACY
+
+
+def test_direct_full_carrier_remains_an_explicit_product_exclusion() -> None:
+    value = np.asarray(0.25, np.float32)
     with pytest.raises(SourcePrecisionError) as caught:
         user_interface._to_onnx(
-            target,
-            [_shape_spec(jnp.asarray(arguments[0]))],
+            lambda scalar: JnpFullPlugin._PRIM.bind(scalar, shape=(2,)),
+            [_shape_spec(jnp.asarray(value))],
             precision_policy=PrecisionPolicy.SOURCE,
         )
     assert caught.value.category == "profile-exclusion"
-    assert caught.value.primitive == f"jax.numpy.{component}"
+    assert caught.value.primitive == "jax.numpy.full"
     assert active_precision_policy() is PrecisionPolicy.LEGACY

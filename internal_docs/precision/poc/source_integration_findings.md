@@ -2,6 +2,92 @@
 
 ## Current checkpoint
 
+Snapshot: 2026-10-22. This unfinished LOCAL WIP continues
+**`b74d8e937e7dc6557b788fcef6fc7dbf736cbaaf`**, whose normal local commit
+completed all seven hooks and exact staged review with a clean worktree and no
+push. **`fe214590`** remains the last fully green checkpoint. Results below keep
+their own source epochs. The applied code cut at this snapshot is **c875**
+(**1,157 input pins**). Native Array capture passes both complete selections;
+ordinary SimpleLinear reaches its still-failed original graph callback. These
+focused checks establish neither new full-suite nor migration acceptance.
+
+| Follow-through gate | Actual source-bound result | Scope and remaining work |
+| --- | --- | --- |
+| CNN counterparts, source `645e`, PRIMARY and SECONDARY | **223 PASS each**, three complete owners; all **14** former failed identities PASS, source/Git held | Historical Add and current typed Gather correction proofs retain unchanged CNN sources, raw callbacks and numerical criteria. |
+| Scan call metadata, source `172d`, PRIMARY and SECONDARY | **33 PASS each**; all **10** former failed identities PASS, source/Git held | Original physical carry/sliced-input, FP64 and packed-complex Function metadata remain strict. |
+| Gather typed expectation, source `41a7`, PRIMARY and SECONDARY | **194 PASS each**; former ordinal1 failure PASS, source/Git held | Complete typed graph equality retains historical pins and strict native/runtime conjunction. |
+| Requested-dtype Eqx factories, source `c7` | **30 PASS in each of four serial combinations**, PRIMARY/SECONDARY with outer x64 on/off: **8 original cases plus 22 construction guards**, source/Git held | Finite construction/generated-test qualification; not full SOURCE product or general numerical acceptance. |
+| Historical Eqx typing, source `c7` | **FAILED**, two `no-any-return` errors in **572 checked files**; **RNG NOT RUN** | Later identity-only casts preserve the original native vmap results. This failed attempt is not relabeled. |
+| Prior typing/RNG report, source `da58` | **PASS**, **572 source files** and **17 registered factory trace entries**, **48.941 s**, source/Git held | The 17 entries are reported RNG traces, not seventeen tests. Later code cuts require their own actual quality gates. |
+| Admission/native dispatch, source `9ebd`, PRIMARY and SECONDARY | **556 PASS each**, identical complete four-owner selections; all **12 historical admission failure IDs PASS** on both stacks, source/Git held | Original custom-carrier exclusions, native frontend positives, Max18/26 structure and shared-B rank-five reshape remain strict. See the failed target-load evidence below. |
+| Native Array capture, source `c875`, three complete owners | **525 PASS PRIMARY / 521 PASS SECONDARY**, source/Git held; all **17** former SECONDARY failed identities PASS on both stacks | The four PRIMARY-only AxisData controls reflect interpreter dataclass fields. Exact original-state capture is qualified; product/runtime/numerical acceptance is separate. |
+| Ordinary unchanged SimpleLinear ordinal1, source `c875`, PRIMARY | **Two caller runs exit 0**, source/Git held; source-reference/schema/artifact/lowering **VALIDATED**, original raw callback **FAILED**, runtime/numerics **UNVERIFIED** | The callback expects `Gemm:12x3`; actual `Add`/`MatMul`/`Transpose` does not satisfy it. Original `None` criteria and callback remain unchanged; CLI exit is not product or numerical acceptance. |
+
+The two current SimpleLinear observations retain FP32 inputs in both caller
+scenarios and native/export outputs FP32 with x64 off, FP64 with x64 on. Native
+eager/fresh-JIT calls and declared/concrete traces returned; all recorded state
+checks report unchanged. They are separate current observations, not two additional frozen map
+closures or accepted products. The original callback barrier remains work.
+
+The admission pair records **12 actual CPU runtime-load observations** for the
+three public creation opset27 cases, both CPU optimization modes and both stacks.
+Each preserves its saved **opset27** artifact and exact structured **27 > 26**
+target boundary: runtime evidence stays **FAILED**, numerical acceptance stays
+**UNVERIFIED**, and `require_sample_acceptance` still raises. Passing test
+assertions do not turn those target observations into numerical successes.
+Prior capture source `7080` retains PRIMARY **514 PASS** and SECONDARY
+**493 PASS / 17 FAIL** of **510**. Those failed receipts remain historical.
+The earlier source `7080` PRIMARY combined selection remains **1,067 PASS /
+3 FAIL** of **1,070**; its three new runtime27 test failures are retained as that
+historical epoch. These scoped results do not rerun or subtract from the b90
+ordinary full suite: **13,735 PASS / 116 FAIL / 0 ERROR / 0 SKIP** of **13,851**.
+Its **54 actual model/state executions plus two guards** remain PASS under the
+original source. All earlier failed receipts, callbacks and criteria stay visible.
+
+The frozen **1,852-row / 3,704-caller** map retains **58 terminal mapping records
+and 3,646 not-started cells**; mapping closure is not runtime or numerical
+acceptance. The **63 opaque**, **104 metadata-free**, **three supplemental** and
+**752 manual** obligations remain open. Seven Eqx raw rows now legitimately bind
+deferred requested-dtype recipes with retained seeds, shapes and native call
+order. Their callable provenance changed. Reconcile a fresh current native
+inventory/probe explicitly; do not rewrite frozen **b875**, **ce87** or prior
+**3,704-caller** outcomes, infer a current fingerprint, or assume an unchanged
+discovery count from the safe projection digests.
+
+Public options/defaults remain **LEGACY** and the ONNX IR floor remains
+**>=1.0.0**. All existing functionality, fixed supplied sources, original owners,
+numerical contracts and full **B–F** remain required through one ordinary
+source-preserving export experience, without a permanent selector or capability
+loss. Only demonstrated ONNX/target limits constrain support; implementation gaps
+remain work. Public preparation namespace and coordinated cutover stay held.
+
+This LOCAL WIP preserves reviewed unfinished progress. Relevant current quality
+checks, strict docs/rendered links, all seven normal hooks and exact staged-byte
+review are required closeout gates; their actual outcomes belong to the commit
+record. They do not establish full-suite or migration acceptance.
+
+Current receipts, relative to the external restart evidence directory:
+`root-normal-followup-wip-commit-v1/receipt.json`;
+`root-current-cnn-paired-qualification-identity-check-v1/receipt.json`;
+`root-scan-source-call-metadata-paired-identity-check-v1/receipt.json`;
+`root-current-gather-paired-identity-check-v1/receipt.json`;
+`root-eqx-requested-dtype-four-way-identity-check-v1/receipt.json`;
+`source-eqx-requested-dtype-current-typing-rng-v1/receipt.json`;
+`source-eqx-vmap-typing-alias-current-typing-rng-v1/receipt.json`;
+`root-runtime27-current-admission-paired-identity-check-v1/receipt.json`;
+`root-secondary-native-array-binding-capture-safe-failures-v1/summary.json`;
+`root-native-array-symbol-capture-paired-identity-check-v1/receipt.json`;
+`root-current-simplelinear-ordinary-product-safe-summary-v1/summary.json`;
+`root-current-simplelinear-next-callback-static-inputs-v1/inputs.json`
+(`actual_callback_failure`);
+`sol-eqx7-recipe-drift-static-accounting-v1/analysis.json`.
+
+### Retained ce87-to-b74 follow-through record
+
+The following earlier checkpoint cut is preserved verbatim with its original
+source and then-current wording. The current section above supersedes its
+pending/current claims; historical results and receipts are not relabeled.
+
 Snapshot: 2026-10-22. The last **fully green** checkpoint remains
 **`fe2145902d9231f21b9c867bf04d7fd2a9d0dddd`**. The latest stored **LOCAL WIP** is
 **`ce87c2e090b71ed895cb806b2e627506e6ce266b`**: normal commit, strict docs, all

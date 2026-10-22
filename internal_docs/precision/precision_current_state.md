@@ -10,30 +10,25 @@ Framework-floor and all-direct-minimum evidence remain separate.
 
 ## Current private implementation
 
-The last fully green checkpoint remains **`fe214590`**. The latest stored
-LOCAL WIP checkpoint, **`ce87c2e0`**, completed strict docs, all seven normal
-hooks and exact staged review, with a clean worktree at commit. The
-[canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
-current code epochs, actual focused results and retained failures.
+This unfinished LOCAL WIP continues **`b74d8e93`**, whose normal hooks and
+staged review completed; **`fe214590`** remains the last fully green checkpoint.
+The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
+records exact source epochs, focused outcomes and retained failures.
 
-Later reviewed changes correct fixture identities/current expectations,
-restore equal captured-state Function reuse without merging weak/strong state
-or distinct native bodies, and version Dot/Linear counterpart provenance while
-preserving the proof algorithms and numerical criteria. Complete affected
-owners pass on both tested stacks, and fresh current typing/RNG passes. Those
-separate epochs provide bounded evidence; the failed b90 full suite remains
-historical and has not been rerun. The earlier model/state and Transformer
-positives retain their own sources.
+CNN, Scan, Gather, selected Eqx factory and admission checks have separately
+qualified selections. The admission owners pass on both stacks, including the
+original failure identities; measured target loads remain failed with numerics
+unverified. Native Array capture passes both complete selections. Ordinary SimpleLinear reaches its still-failed original graph callback, with runtime
+and numerics unverified. Earlier typing and RNG reporting retain their own source epoch;
+registered RNG trace entries are not tests. The failed b90 full suite has not
+been rerun, and earlier model/state and Transformer positives keep their scope.
 
-An intermediate LOCAL WIP commit preserves reviewed unfinished changes after
-relevant checks, strict docs, all seven hooks and exact staged review. It does
-not establish fully green full-suite acceptance or finish the current inventory,
-fixed-source/numerical workflows or coordinated public transition.
-
-Public precision policy/defaults remain **LEGACY**. All existing functionality,
-fixed supplied JAX sources, the unchanged inventory, original owners and phases
-B–F remain required through one uniform source-preserving contract. The public
-analysis below retains its baseline and does not announce a cutover.
+Public options/defaults remain **LEGACY**. All existing functionality, fixed
+supplied JAX sources, original owners, numerical contracts and phases B–F remain
+required through one source-preserving experience. Reconcile the seven changed
+Eqx callable recipes without rewriting the frozen inventory. An intermediate
+WIP records reviewed unfinished progress after its actual closeout checks;
+it does not establish full-suite acceptance or a public cutover.
 
 ## One Argument Controls Several Decisions
 
