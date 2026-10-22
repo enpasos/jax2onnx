@@ -10,39 +10,25 @@ Framework-floor and all-direct-minimum evidence remain separate.
 
 ## Current private implementation
 
-The last completed checkpoint remains **`fe214590`**. The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
-owns current source/dependency epochs, exact directed counts and remaining
-gates. Three-stack results now include lexical bindings, exact Constant origins
-and the unchanged repeated-Function/If recipe with both CPU modes and three
-native comparisons. These qualify their recipe and owner selection only.
+The last fully green checkpoint remains **`fe214590`**. The latest stored
+LOCAL WIP checkpoint, **`ce87c2e0`**, completed strict docs, all seven normal
+hooks and exact staged review, with a clean worktree at commit. The
+[canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
+current code epochs, actual focused results and retained failures.
 
-Private work preserves original callable/state preparation, deliberate cast
-rounding, more layouts and typed TopK widths/empty results. BF16 portable
-original-word checks pass on both capable stacks; strict native NaN word/index
-comparisons retain their independent FAILED outcomes. Previous model samples
-do not qualify changed code or dependency epochs.
+Later reviewed changes correct fixture identities/current expectations,
+restore equal captured-state Function reuse without merging weak/strong state
+or distinct native bodies, and version Dot/Linear counterpart provenance while
+preserving the proof algorithms and numerical criteria. Complete affected
+owners pass on both tested stacks, and fresh current typing/RNG passes. Those
+separate epochs provide bounded evidence; the failed b90 full suite remains
+historical and has not been rerun. The earlier model/state and Transformer
+positives retain their own sources.
 
-Current code 9134 adds only reviewed local typing annotations/key rename and
-passes fresh typing/RNG and both scoped 279-case paired selections. The actual full-suite and focused
-results below remain source-bound to b90. Its reviewed live integer-CSE branch
-restoration has an actual
-PRIMARY joint gate of 331 PASS, including 197 engine cases with 44 new controls,
-unchanged Transformer 52 and repeated Function/If 2. The exact proof covers both
-Gather-index and floating-Where-mask branches and actual downstream redirects.
-Original Cast bytes/artifacts, final precision equality, bridge/math helpers
-and numerical criteria remain unchanged. This resolves the prior two selected
-Transformer 26 failures prospectively; e6 and earlier failed runs remain history.
-
-The single ordinary PRIMARY full suite is terminal and failed at b90. All 54 model/state runs plus 2 guard controls pass, as do Transformer 52
-and MAIN If 2; the other failures remain unresolved. Their exact counts, IDs and
-owner accounting appear only in the canonical ledger. No full-suite acceptance
-is claimed. A local WIP commit may preserve unfinished changes
-after relevant checks, all seven normal hooks and staged review; acceptance
-requires the separate complete gates. Fresh 9134 typing/RNG and both scoped
-SECONDARY/DIRECTMIN selections pass; earlier e6 results remain source-scoped. A full standard pass would not
-complete the current 3,704-cell map, opaque/metadata-free/manual accounting, all
-fixed-source/numerical workflows or coordinated public cutover. The canonical
-ledger owns exact gates and the corrected earlier ROOT attribution.
+An intermediate LOCAL WIP commit preserves reviewed unfinished changes after
+relevant checks, strict docs, all seven hooks and exact staged review. It does
+not establish fully green full-suite acceptance or finish the current inventory,
+fixed-source/numerical workflows or coordinated public transition.
 
 Public precision policy/defaults remain **LEGACY**. All existing functionality,
 fixed supplied JAX sources, the unchanged inventory, original owners and phases

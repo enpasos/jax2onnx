@@ -779,7 +779,11 @@ def _leaf_graph(name: str, inputs: Any, output: Any, params: Any = None) -> Any:
     ]
     outvar = Var(jax.core.ShapedArray(output[1], output[0], weak_type=output[2]))
     eqn = SimpleNamespace(
-        primitive=SimpleNamespace(name=name),
+        primitive=(
+            jax.lax.convert_element_type_p
+            if name == "convert_element_type"
+            else SimpleNamespace(name=name)
+        ),
         invars=invars,
         outvars=[outvar],
         params=params or {},

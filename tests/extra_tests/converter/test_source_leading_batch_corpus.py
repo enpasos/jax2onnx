@@ -366,14 +366,15 @@ def test_only_explicit_counterpart_types_can_supply_structure() -> None:
     )
     assert result.model is None and result.audit.status is CheckStatus.FAILED
     assert (
-        "actual reviewed DotCounterpart, LinearCounterpart, GatherCounterpart or NormalizationCounterpart"
-        in result.audit.detail
+        "Corpus structure requires an actual reviewed semantic-family counterpart"
+        == result.audit.detail
     )
 
 
 def test_v2_dot_descriptors_preserve_raw_mappings_and_change_archived_fingerprints() -> (
     None
 ):
+    """Current v3 preserves the exact archived v1 and v2 mappings/descriptors."""
     expected = [
         ((3, 4), (4, 2), (3, 2), 0),
         ((3, 4), (2, 4), (3, 2), 1),
@@ -400,7 +401,23 @@ def test_v2_dot_descriptors_preserve_raw_mappings_and_change_archived_fingerprin
                 archived
                 == "6a8f289e93735fe3e8f927a002c61b66fd90646df308d9133228286f12b2c5ea"
             )
-        assert counterpart.identifier.startswith("static-dot-source-counterpart-v2:")
+        archived_v2 = oracles.HISTORICAL_DOT_DESCRIPTORS_V2[counterpart.case.ordinal]
+        assert {key: archived_v2[key] for key in asdict(counterpart)} == asdict(
+            counterpart
+        )
+        assert archived_v2["identifier"] == (
+            f"static-dot-source-counterpart-v2:{counterpart.case.origin}:{counterpart.case.ordinal}"
+        )
+        assert archived_v2["sha256"] == oracles.fingerprint(
+            {
+                "identifier": archived_v2["identifier"],
+                "mapping": asdict(counterpart),
+                "source_sha256": oracles.HISTORICAL_DOT_SOURCE_SHA256_V2,
+                "oracle_file_sha256": oracles.HISTORICAL_ORACLE_FILE_SHA256_DOT_V2_LINEAR_V1,
+            }
+        )
+        assert counterpart.sha256 != archived_v2["sha256"]
+        assert counterpart.identifier.startswith("static-dot-source-counterpart-v3:")
         assert counterpart.sha256 != archived
         assert (
             oracles.counterpart_for(
@@ -412,13 +429,19 @@ def test_v2_dot_descriptors_preserve_raw_mappings_and_change_archived_fingerprin
         )
 
 
-@pytest.mark.parametrize("defect", ["module-hash", "other-checkout"])
+@pytest.mark.parametrize(
+    "defect", ["module-hash", "other-checkout", "archived-v2-source-pin"]
+)
 def test_current_counterpart_rejects_stale_or_other_checkout_source(
     defect: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     metadata, scenario, prepared = _dot()
     if defect == "module-hash":
         monkeypatch.setattr(oracles, "DOT_SOURCE_SHA256", "0" * 64)
+    elif defect == "archived-v2-source-pin":
+        monkeypatch.setattr(
+            oracles, "DOT_SOURCE_SHA256", oracles.HISTORICAL_DOT_SOURCE_SHA256_V2
+        )
     else:
         original_path = Path(inspect.getsourcefile(prepared.fn))
         copied = tmp_path / "another-checkout" / oracles.DOT_SOURCE_PATH
@@ -441,7 +464,7 @@ def test_current_counterpart_rejects_stale_or_other_checkout_source(
 
 
 def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
-    """Current v6 controls keep the historical test and all v1/v2/v3/v4/v5 rejects."""
+    """Current v7 retains all v1-v6 rejection and archived descriptor controls."""
     registrations, _ = raw_registrations()
     blob = probe.DEFAULT_BASELINE.read_bytes()
     plan = probe.build_probe_plan(
@@ -450,7 +473,7 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
     controls = probe._corpus_product_controls(plan, registrations)
     assert (
         len(controls) == 4
-        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v6"
+        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v7"
     )
     assert probe._corpus_controls_admitted(controls)
     for defect in (
@@ -463,6 +486,10 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
         "v4",
         "v5",
         "v5-digest",
+        "v6",
+        "v6-identifier",
+        "v6-digest",
+        "v2-snapshot-digest",
     ):
         broken = deepcopy(controls)
         if defect == "identifier":
@@ -482,6 +509,18 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
             broken[2]["corpus_structure"][
                 "counterpart_sha256"
             ] = "e7e629c9c9506ec0d77049f7ff34e78959041a2a2b70d35af3c9264078e35b11"
+        elif defect == "v6-identifier":
+            broken[2]["corpus_structure"]["counterpart_identifier"] = (
+                probe.HISTORICAL_CORPUS_DOT_DESCRIPTOR_V6["counterpart_identifier"]
+            )
+        elif defect == "v6-digest":
+            broken[2]["corpus_structure"]["counterpart_sha256"] = (
+                probe.HISTORICAL_CORPUS_DOT_DESCRIPTOR_V6["counterpart_sha256"]
+            )
+        elif defect == "v2-snapshot-digest":
+            broken[2]["corpus_structure"]["counterpart_sha256"] = (
+                oracles.HISTORICAL_DOT_DESCRIPTORS_V2[0]["sha256"]
+            )
         else:
             broken[2]["control_revision"] = "source-static-add-ordinary-dot-" + defect
         assert not probe._corpus_controls_admitted(broken)
@@ -526,3 +565,37 @@ def test_native_linear_counterpart_rejects_parameter_and_wiring_corruption(
         del model.graph.node[1]
     evidence = counterpart.check(prepared, model)
     assert evidence.source_structure is CheckStatus.FAILED
+
+
+def test_current_linear_v2_preserves_archived_v1_source_and_descriptors() -> None:
+    assert oracles.DOT_SOURCE_SHA256 == (
+        "96a458f4294fde2f3ec3c596d80a4188b36c422b4b19f22181f305ee59c8d4b3"
+    )
+    assert oracles.HISTORICAL_DOT_SOURCE_SHA256_V2 == (
+        "82098b7ecc569eef6bfbd54577b681dc151f026ea9fcbc11b35da00070fc5d45"
+    )
+    assert oracles.LINEAR_SOURCE_SHA256 == oracles.HISTORICAL_LINEAR_SOURCE_SHA256_V1
+    for counterpart, archived in zip(
+        oracles.LINEAR_COUNTERPARTS,
+        oracles.HISTORICAL_LINEAR_DESCRIPTORS_V1,
+        strict=True,
+    ):
+        assert {key: archived[key] for key in asdict(counterpart)} == asdict(
+            counterpart
+        )
+        assert archived["identifier"] == (
+            f"leading-b-linear-source-counterpart-v1:{counterpart.case.origin}:{counterpart.case.ordinal}"
+        )
+        assert archived["sha256"] == oracles.fingerprint(
+            {
+                "identifier": archived["identifier"],
+                "mapping": asdict(counterpart),
+                "source_sha256": oracles.HISTORICAL_LINEAR_SOURCE_SHA256_V1,
+                "dot_source_sha256": oracles.HISTORICAL_DOT_SOURCE_SHA256_V2,
+                "oracle_file_sha256": oracles.HISTORICAL_ORACLE_FILE_SHA256_DOT_V2_LINEAR_V1,
+            }
+        )
+        assert counterpart.identifier.startswith(
+            "leading-b-linear-source-counterpart-v2:"
+        )
+        assert counterpart.sha256 != archived["sha256"]

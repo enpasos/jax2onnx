@@ -7,13 +7,10 @@ F16/F32/F64 exports remain separate; native BF16 product rejection is retained.
 """
 
 from collections.abc import Iterator
-from contextlib import nullcontext
-from functools import partial
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
 
 import jax
 import jax.numpy as jnp
@@ -34,7 +31,6 @@ from jax2onnx.converter.source_profile import (
     validate_source_jaxpr,
 )
 from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr
-from jax2onnx.plugins._patching import MonkeyPatchSpec
 from jax2onnx.plugins.jax.nn.relu6 import Relu6Plugin
 
 
@@ -403,7 +399,7 @@ def _relu6_nested(x: jax.Array) -> jax.Array:
 
 @onnx_function
 def _relu6_initializer_owning_inner(x: jax.Array) -> jax.Array:
-    return jax.nn.relu6(x)
+    return Relu6Plugin._PRIM.bind(x)
 
 
 @onnx_function
@@ -415,19 +411,24 @@ def _relu6_initializer_owning_nested(x: jax.Array) -> jax.Array:
     return _relu6_initializer_owning_outer(x)
 
 
+def _relu6_initializer_owning_inline(x: jax.Array) -> jax.Array:
+    return Relu6Plugin._PRIM.bind(x)
+
+
 def _relu6_export(fn: Any, dtype: Any, *, owning_diagnostic: bool = False) -> ir.Model:
     # The initializer regression explicitly exercises the existing owning
     # plugin. Ordinary native SOURCE exports retain their unchanged default.
     descriptor = vars(Relu6Plugin)["binding_specs"]
     missing = object()
     bindings = []
-    context: Any = nullcontext()
     observed_owning: list[Any] = []
     validator = _validate_relu6_test_extension
     if owning_diagnostic:
         if fn is _relu6_nested:
             # A distinct target identity cannot reuse an earlier native body.
             fn = _relu6_initializer_owning_nested
+        else:
+            fn = _relu6_initializer_owning_inline
 
         def validate_owning(jaxpr: Any, opset: int) -> None:
             observed_owning.extend(
@@ -440,28 +441,24 @@ def _relu6_export(fn: Any, dtype: Any, *, owning_diagnostic: bool = False) -> ir
         for spec in specs:
             module = import_module(spec.target)
             bindings.append((module, spec.attr, getattr(module, spec.attr, missing)))
-            if isinstance(spec, MonkeyPatchSpec):
-                spec.make_value = lambda original: partial(Relu6Plugin._PRIM.bind)
-        context = patch.object(Relu6Plugin, "binding_specs", return_value=specs)
     try:
-        with context:
-            model: ir.Model = conversion_api._convert_to_ir(
-                fn=fn,
-                inputs=[jax.ShapeDtypeStruct((5,), dtype)],
-                input_params=None,
-                model_name="source_initializer_relu6",
-                opset=23,
-                enable_double_precision=False,
-                record_primitive_calls_file=None,
-                strict_optimizer_failures=True,
-                precision_policy=PrecisionPolicy.SOURCE,
-                jaxpr_validator=validator,
-            )
-            if owning_diagnostic:
-                assert (
-                    observed_owning
-                ), "The initializer diagnostic must reach the owning primitive"
-            return model
+        model: ir.Model = conversion_api._convert_to_ir(
+            fn=fn,
+            inputs=[jax.ShapeDtypeStruct((5,), dtype)],
+            input_params=None,
+            model_name="source_initializer_relu6",
+            opset=23,
+            enable_double_precision=False,
+            record_primitive_calls_file=None,
+            strict_optimizer_failures=True,
+            precision_policy=PrecisionPolicy.SOURCE,
+            jaxpr_validator=validator,
+        )
+        if owning_diagnostic:
+            assert (
+                observed_owning
+            ), "The initializer diagnostic must reach the owning primitive"
+        return model
     finally:
         assert vars(Relu6Plugin)["binding_specs"] is descriptor
         for module, attr, original in bindings:

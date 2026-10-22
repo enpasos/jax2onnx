@@ -23,20 +23,16 @@ The supported floor is **Python >=3.11, JAX/JAXLIB >=0.10.2 and Flax >=0.12.8**.
 The exact framework-floor stack and the all-direct-dependency-minimum stack
 are separate validation targets; ORT 1.24.1 remains the declared runtime floor.
 
-The last completed local checkpoint remains **`fe214590`**. Later private work
-has source-bound directed results across PRIMARY, SECONDARY and DIRECTMIN,
-including the unchanged repeated-Function/If recipe, exact static origins and
-portable BF16 word semantics. Strict native BF16 NaN failures remain explicit.
-The b90 live-branch repair passes 331 directed cases, including the
-unchanged full Transformer 52 owner and all 44 new controls. The current ordinary
-PRIMARY full suite is terminal and failed; its 54 model/state runs and 2 guard
-controls all pass, with the remaining failures recorded only in the ledger. The next local commit would preserve
-explicitly unfinished LOCAL WIP after relevant checks, all seven hooks and
-final staged review. Current code 9134 adds only the reviewed typing annotations/local rename;
-fresh typing/RNG and both scoped paired selections pass. The terminal full suite remains a b90 result.
-The Transformer owner’s current PRIMARY gate is qualified; the broader fresh
-current suite and complete migration still require their own acceptance. No new
-accepted checkpoint or public precision transition is implied; options/defaults remain **LEGACY**.
+The last fully green checkpoint remains **`fe214590`**; the latest stored
+LOCAL WIP checkpoint is **`ce87c2e0`**. That normal local commit completed strict
+docs, all seven hooks and exact staged review, with a clean worktree at commit.
+Later reviewed fixture, captured-state and corpus-provenance repairs pass their
+complete affected selections on both tested stacks; current typing/RNG passes.
+These are source-bound focused results. The historical b90 full-suite failure
+remains retained, and the full suite has not been rerun. An intermediate WIP
+commit preserves reviewed unfinished work after the required checks; it does
+not establish a fully green milestone or complete B–F. Public options/defaults
+remain **LEGACY**.
 
 The [canonical current status and evidence ledger](poc/source_integration_findings.md#current-checkpoint)
 owns exact source/dependency epochs, result scopes and next gates. The

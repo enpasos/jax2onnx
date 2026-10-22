@@ -2,6 +2,75 @@
 
 ## Current checkpoint
 
+Snapshot: 2026-10-22. The last **fully green** checkpoint remains
+**`fe2145902d9231f21b9c867bf04d7fd2a9d0dddd`**. The latest stored **LOCAL WIP** is
+**`ce87c2e090b71ed895cb806b2e627506e6ce266b`**: normal commit, strict docs, all
+seven hooks, exact staged review and a clean worktree at commit. Its unfinished
+status and retained failures are explicit; it is not a fully green milestone.
+
+The prior qualified code cut is **`8603c9b588da755750099ae32c29b148396c1624fa80bd3793904f246a0e697e`**.
+The formatted/rebound successor is **`2edc4a820273df105dae12309cad50c716350a49fe2f29ffeecd02f628109911`**;
+its actual paired qualification is recorded separately below.
+This intermediate checkpoint scope contains only ten reviewed follow-through
+paths (five fixture/expectation, two Function-cache and three corpus-provenance
+paths) plus these seven status documents. CNN and UnionType implementation are
+outside this checkpoint. Existing criteria, raw callbacks, historical source
+pins and approvals remain binding.
+
+| Follow-through gate | Actual source-bound result | Scope |
+| --- | --- | --- |
+| Fixture/expectation five owners, c832 | **450 PASS each**, PRIMARY **64.459 s**, SECONDARY **75.608 s**, zero failures/errors/skips, source/Git held | All **28** exact formerly failed IDs are present and PASS in each selection. |
+| Captured-state Function reuse, 094f | **310 PASS each**, PRIMARY **42.307 s**, SECONDARY **38.505 s**, zero failures/errors/skips, source/Git held | Complete captured-precision/context/NNX-state/native-capture owners; all **5** former failed IDs PASS, with original criteria and body/state distinctions retained. |
+| Prior versioned Dot/Linear corpus, 8603 | **147 PASS each**, PRIMARY **17.351 s**, SECONDARY **18.819 s**, zero failures/errors/skips, source/Git held | Complete replay/numerics/leading-batch owners; all **38** former failed IDs PASS. Dot v3/Linear v2/control v7 retain historical descriptors and exact proof algorithms. |
+| Prior typing/RNG, 8603 | **572 source files and 17 RNG factories PASS** in **57.396 s**, source/Git held | Run at 8603; earlier typing receipts keep their own epochs. |
+| Formatted/rebound Dot/Linear corpus, 2edc | **147 PASS each**, PRIMARY **77.308 s**, SECONDARY **54.636 s**, zero failures/errors/skips, source/Git held | Fresh complete replay/numerics/leading-batch owners after normal Black formatting and the exact current descriptor rebind; prior 8603 receipts remain separate. |
+
+The first follow-through normal-hook attempt exited **1** because Black
+reformatted only the oracle; the other six hooks passed. Its AST stayed exact,
+but whole-file descriptor provenance changed, requiring the current v7 literal
+to be rebound from **add2fa9c** to **0ca2b0c8**. That failed hook attempt remains
+history. Fresh strict-docs/seven-hook, staged-review and commit outcomes belong
+to the normal commit body.
+
+These selections retain separate source epochs and are not additive migration
+coverage. The historical b90 ordinary full suite remains **13,735 PASS /
+116 FAIL / 0 ERROR / 0 SKIP**; it has not been rerun. Its exact failed IDs and
+bounded model/state positives remain below, without a new current full-suite
+total or failure waiver. The complete **1,852-row / 3,704-caller** product map,
+opaque/metadata-free/manual accounting, fixed supplied sources, numerical
+contracts and full B–F/public transition remain open. Partial mapping outcomes
+retain runtime/numerics **UNVERIFIED**. Public behavior stays **LEGACY**, and the
+ONNX IR floor remains **>=1.0.0**.
+
+The next intermediate LOCAL WIP preserves reviewed unfinished progress after
+relevant actual checks, strict docs/rendered links, all seven normal hooks and
+exact staged review. Its normal commit body records the actual closeout
+outcomes. Those gates do not convert focused results into full-suite or
+migration acceptance.
+
+Current evidence: `source-ce87-followup-formatted-corpus-qualification-v1-primary/receipt.json`;
+`source-ce87-followup-formatted-corpus-qualification-v1-secondary/receipt.json`;
+`source-ce87-followup-all-seven-hooks-v1/receipt.json`;
+`root-normal-local-wip-commit-v1/receipt.json`;
+`source-local-wip-strict-docs-v1/receipt.json`;
+`source-local-wip-all-seven-hooks-v2/receipt.json`;
+`astra-final-local-wip-staged-review-v1/review.json`;
+`source-ce87-fixture-expectation-paired-v1-primary/receipt.json`;
+`source-ce87-fixture-expectation-paired-v1-secondary/receipt.json`;
+`source-captured-state-function-reuse-qualification-v1-primary/receipt.json`;
+`source-captured-state-function-reuse-qualification-v1-secondary/receipt.json`;
+`source-current-dot-linear-counterpart-qualification-v1-primary/receipt.json`;
+`source-current-dot-linear-counterpart-qualification-v1-secondary/receipt.json`;
+`source-ce87-followup-current-typing-rng-v1/receipt.json`;
+`root-ce87-followup-former-failures-qualified-v1/summary.json`.
+
+### Retained pre-ce87 qualification cut
+
+The following records the earlier source cuts and then-pending WIP gates.
+The completed ce87 commit and later actual follow-through results above
+supersede its present/future status wording; all evidence and failures remain
+unchanged under their original sources.
+
 Snapshot: 2026-10-22. The last completed local checkpoint remains
 **`fe2145902d9231f21b9c867bf04d7fd2a9d0dddd`**: full PRIMARY **12,762 unique
 cases**, SECONDARY and DIRECTMIN affected selections **919 cases each**,

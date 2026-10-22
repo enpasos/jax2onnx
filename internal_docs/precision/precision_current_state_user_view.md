@@ -26,22 +26,19 @@ tested stacks. Portable BF16 TopK source-word checks also pass; compiled JAX
 NaN words and ordering keep their separate failed native comparisons. These
 samples establish neither all-model support nor a general numerical guarantee.
 
-The b90 shared repair passes the complete Transformer example with its
-original comparisons. It preserves the type-conversion dataflow through proved
-repeated-expression branches. That result qualifies the tested example and
-directed regression selection; it is not a guarantee for every model.
+The latest stored local WIP checkpoint is **`ce87c2e0`**; **`fe214590`** remains
+the last fully green checkpoint. The WIP commit completed its normal checks
+while explicitly retaining unresolved failures. Later reviewed validation fixtures,
+captured-state and corpus-provenance repairs pass their affected selections on
+both tested stacks, and fresh current typing/RNG passes. The
+[technical ledger](poc/source_integration_findings.md#current-checkpoint) owns
+the exact sources, counts and preserved outcomes.
 
-The b90 full suite has finished with unresolved failures. Current code adds
-only a reviewed typing correction whose fresh typing/RNG and scoped checks on
-both older-runtime stacks pass. The b90 full suite’s 54 model/state runs
-and 2 guard controls all pass; that bounded result does not accept the remaining
-failures or establish every numerical contract. A local WIP
-commit would preserve unfinished work; it would not mark the converter or this
-migration accepted. Supported-stack checks, the full inventory,
-fixed-source and numerical workflows, and the public transition remain open.
-The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
-owns exact epochs and preserved failures. Only its stated historical checkpoint
-completed full qualification; there is no public cutover.
+The historical b90 full suite remains failed and has not been rerun. The tested
+model/state and Transformer successes retain their original scope. Another
+intermediate WIP checkpoint preserves unfinished progress; full inventory,
+fixed-source and numerical workflows and the public transition still require
+complete acceptance. Public settings remain LEGACY.
 
 Ordinary file exports retain inline Function constants and external storage for
 large root initializers. Actual runtime support and numerical acceptance require

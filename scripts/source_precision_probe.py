@@ -27,7 +27,6 @@ from typing import Any, Final, Literal
 
 import numpy as np
 
-
 REPOSITORY_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -70,9 +69,14 @@ from tests.extra_tests.converter.source_precision_corpus_oracles import (  # noq
     criterion_proposal_ledger,
 )
 
-
 SCENARIOS: Final[tuple[str, str]] = ("raw-x64-off", "raw-x64-on")
-CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v6"
+CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v7"
+# Prior control acceptance is historical evidence, never a current admission.
+HISTORICAL_CORPUS_CONTROL_REVISION_V6: Final = "source-static-add-ordinary-dot-v6"
+HISTORICAL_CORPUS_DOT_DESCRIPTOR_V6: Final = {
+    "counterpart_identifier": "static-dot-source-counterpart-v2:plugin::dot_general:0",
+    "counterpart_sha256": "de011545a97be9d6aecc1bdf16df0a452665a84f485058ea2b5ce23cd6b89d71",
+}
 _CONTROL_CONTRACTS: Final = {
     "plugin::jax.numpy.add": "39f16c5258b9354829fd94c8825deb0e8a389215d0be1fcced026de8ae82a922",
     "plugin::dot_general": "6957d2d4640c79d15f46c7e930fcbd67467e3b278929165cf8619e6f88c7f8d4",
@@ -1222,10 +1226,10 @@ def _corpus_controls_admitted(controls: Sequence[Mapping[str, Any]]) -> bool:
         elif (
             not isinstance(structure, Mapping)
             or structure.get("counterpart_identifier")
-            != "static-dot-source-counterpart-v2:plugin::dot_general:0"
+            != "static-dot-source-counterpart-v3:plugin::dot_general:0"
             or structure.get("counterpart_sha256")
             # The descriptor also binds the reviewed whole oracle module.
-            != "de011545a97be9d6aecc1bdf16df0a452665a84f485058ea2b5ce23cd6b89d71"
+            != "0ca2b0c8aebbf923bb083fa6b658e4f18c5d4c04bbc2265645c4056e36c31307"
             or structure.get("source_structure") != CheckStatus.VALIDATED
             or structure.get("raw_callback_status") != "failed"
             or control.get("raw_callback_status") != "failed"

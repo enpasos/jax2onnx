@@ -149,12 +149,23 @@ _CONTRACTS = (
 )
 
 
-# Only this exact immutable raw contract now has an artifact-only expectation.
+# Historical sole artifact-only positive; current advancements are listed separately.
 # Its None criterion and runtime/numerical UNVERIFIED statuses remain unchanged.
 _EXPECTED_ARTIFACT_CONTRACT = (
     "example::examples.gpt::GPT_MLP",
     0,
     "faf258485b7a1bf4a97e1a56b87e9fb472ad8eba84b973b8e303dd925c69e21a",
+)
+
+
+# Closed current ledgers advance exactly these five full raw identities.
+# Historical expectations and all independent acceptance statuses stay separate.
+_CURRENT_ARTIFACT_ADVANCEMENTS = (
+    _CONTRACTS[0],
+    _CONTRACTS[1],
+    _CONTRACTS[3],
+    _CONTRACTS[4],
+    _CONTRACTS[20],
 )
 
 
@@ -240,6 +251,15 @@ def test_exact_original_parameter_model_first_barrier(
         ordinal,
         expected_digest,
     ) == _EXPECTED_ARTIFACT_CONTRACT
+    current_expected_artifact = (
+        expected_artifact
+        or (
+            origin,
+            ordinal,
+            expected_digest,
+        )
+        in _CURRENT_ARTIFACT_ADVANCEMENTS
+    )
     registrations, _ = raw_registrations()
     metadata = next(item for name, _, item in registrations if name == origin)
     case = metadata["testcases"][ordinal]
@@ -270,6 +290,9 @@ def test_exact_original_parameter_model_first_barrier(
         "criterion": None,
         "expected_export_outcome": (
             "artifact-checked" if expected_artifact else "first-barrier"
+        ),
+        "current_expected_export_outcome": (
+            "artifact-checked" if current_expected_artifact else "first-barrier"
         ),
         "native_reference_acceptance": "UNVERIFIED",
         "runtime": "UNVERIFIED",
@@ -533,12 +556,14 @@ def test_exact_original_parameter_model_first_barrier(
             "product_support",
         )
     )
-    assert record["export"]["status"] == record["expected_export_outcome"]
+    assert record["export"]["status"] == record["current_expected_export_outcome"]
     if expected_artifact:
         assert record["export"]["inputs"] == ["in_0", "deterministic"]
         assert "error" not in record["export"]
+    elif current_expected_artifact:
+        assert "error" not in record["export"]
     else:
-        # Every other original contract retains its required first barrier.
+        # The remaining sixteen current contracts retain their first barrier.
         assert record["export"]["error"]["type"] in {
             "SourcePrecisionError",
             "TracerBoolConversionError",

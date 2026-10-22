@@ -1,20 +1,15 @@
 # Precision Contract Experiments
 
 The [canonical current checkpoint and evidence ledger](source_integration_findings.md#current-checkpoint)
-separates completed `fe214590` qualification from later source-bound results.
-The b90 live-branch restoration passes 331 directed cases, including
-all 44 new controls, unchanged Transformer 52 and repeated Function/If 2. The
-earlier two Transformer 26 failures are closed in that exact PRIMARY scope;
-their historical failed receipts remain intact. The one ordinary full PRIMARY
-suite is terminal and failed; all 54 model/state runs plus 2 guards pass, while
-the other failures remain unresolved in the canonical ledger. Fresh current 9134
-SECONDARY and DIRECTMIN selections each pass 279 cases; fresh typing/RNG passes
-after the applied typing-only correction. The full suite remains a b90 result. The next
-local commit would preserve explicitly unfinished LOCAL WIP after relevant
-checks, all seven hooks and staged review; it would not accept a green milestone. Portable BF16
-success and strict native NaN failures retain separate evidence. Neither 331
-PASS nor a future green standard suite completes the full B–F migration.
-Public precision behavior remains **LEGACY**.
+distinguishes the last fully green **`fe214590`** checkpoint from the latest
+stored LOCAL WIP **`ce87c2e0`**, whose strict docs, seven hooks and exact staged
+review completed. Subsequent reviewed fixture, captured-state and versioned
+Dot/Linear corpus repairs pass their complete affected selections on both
+stacks, with fresh current typing/RNG. Their exact sources and counts belong to
+the ledger. The b90 full-suite failure remains historical and unwaived; no
+later full-suite rerun or complete migration acceptance is claimed. An
+intermediate WIP commit records reviewed unfinished progress. All B–F gates and
+public **LEGACY** behavior remain binding.
 
 The sections in [integration findings](source_integration_findings.md#retained-checkpoint-evidence)
 retain prior checkpoints under their original sources, criteria and actual

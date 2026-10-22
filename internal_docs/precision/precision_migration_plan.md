@@ -7,10 +7,12 @@ public precision mode/profile selector or capability loss. The private
 source-static milestone is implementation scaffolding, not completion scope.
 
 Public precision behavior remains LEGACY. The [canonical current ledger](poc/source_integration_findings.md#current-checkpoint)
-separates completed `fe214590` qualification from later directed results. The
-unchanged repeated-Function/If recipe now passes all three stacks. Portable BF16
-source words and strict native NaN failures remain separate. The current PRIMARY
-Transformer owner passes; the fresh current suite and full migration remain open. The implementation
+separates fully green `fe214590`, stored LOCAL WIP `ce87c2e0` and later
+source-bound directed results. The
+unchanged repeated-Function/If recipe has earlier source-bound passes on all
+three stacks. Portable BF16
+source words and strict native NaN failures remain separate. The Transformer owner retains its earlier
+PRIMARY pass; the historical failed full suite and complete migration remain open. The implementation
 plan retains all coverage obligations; no release version or deadline is set.
 
 Read the [user migration plan](precision_migration_plan_user_view.md) for the
@@ -98,42 +100,20 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
-Current 9134 adds only reviewed local typing annotations/key rename; fresh
-typing/RNG and both scoped 279-case SECONDARY/DIRECTMIN selections pass. The reviewed b90 live-branch restoration passes the 331-case PRIMARY
-joint gate, including all 44 new controls, unchanged Transformer 52 and repeated
-Function/If 2. Original Cast bytes/artifacts, endpoint bindings, mathematics and
-final precision equality remain unchanged. The earlier two Transformer 26
-failures are closed in this scope, while historical receipts remain intact.
+The latest stored LOCAL WIP **`ce87c2e0`** completed strict docs, seven normal
+hooks and exact staged review; **`fe214590`** remains the last fully green
+checkpoint. Subsequent reviewed fixture, captured-state and versioned Dot/Linear
+provenance repairs pass their complete affected selections on both tested
+stacks, with fresh current typing/RNG. The canonical ledger owns exact source
+cuts and counts. The historical failed b90 full suite has not been rerun.
 
-The same ordinary full suite is terminal and failed. All 54 model/state runs
-plus 2 guards pass, while remaining failures stay unresolved in the canonical
-ledger. These positives do not complete full-suite or migration acceptance. Do not inherit the
-historical 19 PASS/37 unfinished result. Fresh current 9134
-SECONDARY and DIRECTMIN each pass 279 cases, and typing/RNG passes. The proposed LOCAL
-WIP commit may preserve unfinished changes after relevant actual checks, all
-seven hooks and exact staged review; it is separate from an accepted checkpoint
-and need not repair every full-suite failure or require another broad run first.
-A green full standard
-suite would close this checkpoint gate, not the full migration. The complete
-map, 63 opaque originals, 104 metadata-free registrations, 752 original manual
-anchors, fixed-source/numerical workflows and coordinated ordinary export/
-allclose/browser/generator cutover remain required. Public behavior stays LEGACY
-until that complete uniform transition is qualified.
-
-Preserve original factories/configuration, parameters, source casts, RNG, state,
-aliases, callbacks, frozen criteria and actual target evidence. Prepared and
-original computations keep separate native references and retained outcomes.
-Current three-stack recipe success does not complete every model or scope.
-Installed-capability diagnostics retain actual failed schema/load outcomes;
-passing diagnostic assertions never makes the failed capability available.
-
-Complete all22 original owners, the unchanged1,852-row/3,704-caller inventory,
-optional environments, broader operators/scopes/options, fixed supplied JAX
-sources and scientific/low-precision contracts before the public transition.
-Only demonstrated representation and target limits define support boundaries.
-Temporary missing implementation is unfinished work, and the final experience
-remains one uniform source-preserving converter contract across the full B–F
-acceptance matrix.
+An intermediate WIP commit records reviewed unfinished progress after relevant
+actual checks, strict docs, normal hooks and staged review. It does not accept
+the full suite or complete the migration. The complete map, opaque/metadata-free/
+manual accounting, fixed-source/numerical workflows and coordinated ordinary
+export/allclose/browser/generator cutover remain required. Public behavior stays
+LEGACY. Genuine ONNX/target limits require evidence; implementation gaps remain
+work to complete.
 
 The implementation follows these acceptance requirements:
 

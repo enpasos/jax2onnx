@@ -1493,9 +1493,17 @@ class FunctionPlugin(PrimitivePlugin):
                 tuple(capture.spec.weak_type for capture in captures.dynamic),
             )
             if source_trace.call is not None:
-                # One receiver can retain distinct native methods at separate
-                # call sites. Keep their exact bodies distinct in the registry.
-                tracing_signature += (source_trace.call.identity,)
+                call_identity: tuple[int, ...] = source_trace.call.identity
+                if (
+                    self.unique
+                    and inspect.isclass(self.target)
+                    and source_trace.call.instance
+                    and not isinstance(callee, FunctionStateCall)
+                ):
+                    # The existing unique signature owns complete instance state;
+                    # retain the native method body while reusing equal receivers.
+                    call_identity = call_identity[:1]
+                tracing_signature += (call_identity,)
         return FunctionKey(
             self.name, input_signature, capture_signature, tracing_signature
         )

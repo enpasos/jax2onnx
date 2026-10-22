@@ -67,7 +67,11 @@ def _graph(
     invars = [SimpleNamespace(aval=spec) for spec in inputs]
     outvars = [SimpleNamespace(aval=spec) for spec in outputs]
     eqn = SimpleNamespace(
-        primitive=SimpleNamespace(name=name),
+        primitive=(
+            jax.lax.convert_element_type_p
+            if name == "convert_element_type"
+            else SimpleNamespace(name=name)
+        ),
         invars=invars,
         outvars=outvars,
         params=dict(params or {}),

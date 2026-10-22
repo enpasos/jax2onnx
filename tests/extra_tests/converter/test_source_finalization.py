@@ -3,12 +3,9 @@
 """Required SOURCE finalization fails before metadata or file publication."""
 
 from collections.abc import Iterator
-from contextlib import nullcontext
-from functools import partial
 from importlib import import_module
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import jax
 import numpy as np
@@ -26,7 +23,6 @@ from jax2onnx.converter.source_profile import (
     validate_source_jaxpr,
 )
 from jax2onnx.precision import get_precision_report
-from jax2onnx.plugins._patching import MonkeyPatchSpec
 from jax2onnx.plugins.jax.nn.leaky_relu import LeakyReluPlugin
 
 
@@ -242,7 +238,7 @@ def _leaky_outer(value: Any) -> Any:
 
 @onnx_function
 def _leaky_alpha_owning_inner(value: Any) -> Any:
-    return jax.nn.leaky_relu(value, negative_slope=0.5)
+    return LeakyReluPlugin._PRIM.bind(value, negative_slope=0.5)
 
 
 @onnx_function
@@ -312,35 +308,36 @@ def _stage_alpha_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(conversion_api, "_apply_late_ir_attr_overrides", stage)
 
 
+def _leaky_alpha_owning_inline(value: Any) -> Any:
+    return LeakyReluPlugin._PRIM.bind(value, negative_slope=0.5)
+
+
 def _alpha_export(
     scope: str, *, owning_diagnostic: bool = False, **options: Any
 ) -> Any:
     descriptor = vars(LeakyReluPlugin)["binding_specs"]
     missing = object()
     bindings = []
-    context: Any = nullcontext()
     target = _leaky_model(scope)
     if owning_diagnostic:
         if scope == "nested":
             # Dedicated diagnostic Functions keep native cached bodies intact.
             target = _leaky_alpha_owning_nested
+        else:
+            target = _leaky_alpha_owning_inline
         specs = LeakyReluPlugin.binding_specs()
         for spec in specs:
             module = import_module(spec.target)
             bindings.append((module, spec.attr, getattr(module, spec.attr, missing)))
-            if isinstance(spec, MonkeyPatchSpec):
-                spec.make_value = lambda original: partial(LeakyReluPlugin._PRIM.bind)
-        context = patch.object(LeakyReluPlugin, "binding_specs", return_value=specs)
     try:
-        with context:
-            return user_interface._to_onnx(
-                target,
-                [jax.ShapeDtypeStruct((2,), np.float32)],
-                model_name="strict_finalization",
-                precision_policy=PrecisionPolicy.SOURCE,
-                diagnostic_jaxpr_validator=_validate_alpha_trace,
-                **options,
-            )
+        return user_interface._to_onnx(
+            target,
+            [jax.ShapeDtypeStruct((2,), np.float32)],
+            model_name="strict_finalization",
+            precision_policy=PrecisionPolicy.SOURCE,
+            diagnostic_jaxpr_validator=_validate_alpha_trace,
+            **options,
+        )
     finally:
         assert vars(LeakyReluPlugin)["binding_specs"] is descriptor
         for module, attr, original in bindings:

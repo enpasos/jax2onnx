@@ -39,14 +39,111 @@ APPROVED_SELECTOR_SHA256: Final = (
 )
 DOT_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/dot_general.py"
 DOT_SOURCE_SHA256: Final = (
-    "82098b7ecc569eef6bfbd54577b681dc151f026ea9fcbc11b35da00070fc5d45"
+    "96a458f4294fde2f3ec3c596d80a4188b36c422b4b19f22181f305ee59c8d4b3"
 )
-ORACLE_VERSION: Final = "static-dot-source-counterpart-v2"
+ORACLE_VERSION: Final = "static-dot-source-counterpart-v3"
 LINEAR_SOURCE_PATH: Final = "jax2onnx/plugins/flax/nnx/linear.py"
 LINEAR_SOURCE_SHA256: Final = (
     "3a3e17bd6d3ad1e259f0ebe293d8b303fec58e37569d5271515eef5b433660ba"
 )
-LINEAR_ORACLE_VERSION: Final = "leading-b-linear-source-counterpart-v1"
+LINEAR_ORACLE_VERSION: Final = "leading-b-linear-source-counterpart-v2"
+# Historical descriptors retain their own complete module/source provenance.
+# They are evidence only; current checks below bind the new source and versions.
+HISTORICAL_DOT_SOURCE_PATH_V2: Final = "jax2onnx/plugins/jax/lax/dot_general.py"
+HISTORICAL_DOT_SOURCE_SHA256_V2: Final = (
+    "82098b7ecc569eef6bfbd54577b681dc151f026ea9fcbc11b35da00070fc5d45"
+)
+HISTORICAL_DOT_ORACLE_VERSION_V2: Final = "static-dot-source-counterpart-v2"
+HISTORICAL_LINEAR_SOURCE_SHA256_V1: Final = (
+    "3a3e17bd6d3ad1e259f0ebe293d8b303fec58e37569d5271515eef5b433660ba"
+)
+HISTORICAL_LINEAR_ORACLE_VERSION_V1: Final = "leading-b-linear-source-counterpart-v1"
+HISTORICAL_ORACLE_FILE_SHA256_DOT_V2_LINEAR_V1: Final = (
+    "d2d629683540ca5748a97c7ee6491eeee6f4e688a084772fbc8151a7fac58814"
+)
+HISTORICAL_DOT_DESCRIPTORS_V2: Final[tuple[dict[str, Any], ...]] = (
+    {
+        "identifier": "static-dot-source-counterpart-v2:plugin::dot_general:0",
+        "sha256": "b3b92a7d119f7f588e6a84fd444a6c7c6bc15282c8a9afc5a6a4fb679e138dc1",
+        "case": {
+            "origin": "plugin::dot_general",
+            "ordinal": 0,
+            "testcase": "dot_contract_nm",
+            "contract_sha256": "6957d2d4640c79d15f46c7e930fcbd67467e3b278929165cf8619e6f88c7f8d4",
+        },
+        "lhs_shape": (3, 4),
+        "rhs_shape": (4, 2),
+        "output_shape": (3, 2),
+        "rhs_contract_axis": 0,
+    },
+    {
+        "identifier": "static-dot-source-counterpart-v2:plugin::dot_general:1",
+        "sha256": "3cad1249d237ca602511bfd27e986be814e3b74864946c3e83f1e8ddb71286d0",
+        "case": {
+            "origin": "plugin::dot_general",
+            "ordinal": 1,
+            "testcase": "dot_contract_min",
+            "contract_sha256": "b3da3ae21dc080cb6acf7f35b9641292804557f024c77bc7bd7058d3487df0a7",
+        },
+        "lhs_shape": (3, 4),
+        "rhs_shape": (2, 4),
+        "output_shape": (3, 2),
+        "rhs_contract_axis": 1,
+    },
+    {
+        "identifier": "static-dot-source-counterpart-v2:plugin::dot_general:2",
+        "sha256": "e058a9f9f349d6662e124f64b055d744a3ff30e8aa9ff5c90c8daf188ad6bd4a",
+        "case": {
+            "origin": "plugin::dot_general",
+            "ordinal": 2,
+            "testcase": "dot_general",
+            "contract_sha256": "1f34685812f3e38d4c6f48c426bb9e4622802dc95dd0045e3c28b3b5fe1a4762",
+        },
+        "lhs_shape": (3, 3),
+        "rhs_shape": (3, 3),
+        "output_shape": (3, 3),
+        "rhs_contract_axis": 0,
+    },
+    {
+        "identifier": "static-dot-source-counterpart-v2:plugin::dot_general:3",
+        "sha256": "c1c81ccf25c574d2fe3c758ee5d78bce8abc0b0f7355101f664746d1685e7037",
+        "case": {
+            "origin": "plugin::dot_general",
+            "ordinal": 3,
+            "testcase": "dot_general_lhs1_rhs1",
+            "contract_sha256": "1f34685812f3e38d4c6f48c426bb9e4622802dc95dd0045e3c28b3b5fe1a4762",
+        },
+        "lhs_shape": (3, 3),
+        "rhs_shape": (3, 3),
+        "output_shape": (3, 3),
+        "rhs_contract_axis": 1,
+    },
+)
+HISTORICAL_LINEAR_DESCRIPTORS_V1: Final[tuple[dict[str, Any], ...]] = (
+    {
+        "identifier": "leading-b-linear-source-counterpart-v1:plugin::nnx.linear:0",
+        "sha256": "b16e8e24ce038fb9d15ec4030f5c03095ebbd25adc15186049080be17f8906ed",
+        "case": {
+            "origin": "plugin::nnx.linear",
+            "ordinal": 0,
+            "testcase": "linear_symbolic_batch",
+            "contract_sha256": "8c70628910c9d9bc30737e3bb959dafc3dea41c24eecfd7cc1853f076519a515",
+        },
+        "use_bias": True,
+    },
+    {
+        "identifier": "leading-b-linear-source-counterpart-v1:plugin::nnx.linear:3",
+        "sha256": "06632624eaa4086e92f2c9ea0e52d07ffa4541d9799b5e0f96c1d1ade47569d4",
+        "case": {
+            "origin": "plugin::nnx.linear",
+            "ordinal": 3,
+            "testcase": "linear_no_bias",
+            "contract_sha256": "06c91c76e73a3daced2f70b65cb56d9e59797008354dababdcb3d4d2bebc77ef",
+        },
+        "use_bias": False,
+    },
+)
+
 GATHER_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/gather.py"
 GATHER_SOURCE_SHA256: Final = (
     "b999da7239abf9dff0d1e19df611f3a79ad9434da5f2c7547091a00f2a68f907"

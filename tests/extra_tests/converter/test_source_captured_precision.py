@@ -3,7 +3,9 @@
 """Source function reuse preserves promotion metadata in captured JAX values."""
 
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -13,10 +15,13 @@ from onnx.reference import ReferenceEvaluator
 import pytest
 
 from jax2onnx import onnx_function, to_onnx
+from jax2onnx.converter.conversion_api import _activate_plugin_worlds
 from jax2onnx.converter.precision_policy import (
     PrecisionPolicy,
     active_precision_policy,
+    precision_policy_scope,
 )
+from jax2onnx.plugins import plugin_system as ps
 from jax2onnx.plugins._function_keys import (
     snapshot_static_value,
     source_static_value_key,
@@ -252,3 +257,91 @@ def test_source_legacy_source_captures_leave_ordinary_jax_behavior_intact(
             np.testing.assert_array_equal(value, reference, strict=True)
     assert jax.config.x64_enabled
     assert active_precision_policy() is PrecisionPolicy.LEGACY
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["first", "reversed"])
+def test_source_equal_instance_state_reuses_bodies_but_changed_values_do_not(
+    reverse: bool, tmp_path: Path
+) -> None:
+    biases = tuple(jnp.asarray(value, dtype=jnp.float32) for value in (1, 2, 1, 2))
+    assert all(not bias.weak_type for bias in biases)
+    x = np.asarray(4, dtype=np.float32)
+    model = _model(biases, capture_kind="instance", reverse=reverse)
+    expected = tuple(np.asarray(value) for value in model(jnp.asarray(x)))
+    assert expected[0] != expected[1]
+    for value, reference in zip(jax.jit(model)(jnp.asarray(x)), expected, strict=True):
+        np.testing.assert_array_equal(value, reference, strict=True)
+    exported = export_source_dtypes(model, [jax.ShapeDtypeStruct(x.shape, x.dtype)])
+    _assert_saved_artifact(exported, x, expected, tmp_path / "state_values.onnx")
+
+
+def test_source_nonunique_equal_instance_states_keep_separate_exported_bodies(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    plugin = next(
+        plugin
+        for plugin in ps.ONNX_FUNCTION_PLUGIN_REGISTRY.values()
+        if plugin.target is _CapturedBias
+    )
+    monkeypatch.setattr(plugin, "unique", False)
+    biases = tuple(jnp.asarray(1, dtype=jnp.float32) for _ in range(4))
+    model = _model(biases, capture_kind="instance", reverse=False)
+    x = np.asarray(4, dtype=np.float32)
+    expected = tuple(np.asarray(value) for value in model(jnp.asarray(x)))
+    exported = export_source_dtypes(model, [jax.ShapeDtypeStruct(x.shape, x.dtype)])
+    path = tmp_path / "nonunique.onnx"
+    onnx.save_model(exported, path)
+    reloaded = onnx.load_model(path)
+    onnx.checker.check_model(reloaded, full_check=True)
+    calls = [node for node in reloaded.graph.node if node.domain.startswith("custom.")]
+    assert len(reloaded.functions) == len(calls) == 4
+    assert len({node.domain for node in calls}) == 4
+    actual = ReferenceEvaluator(reloaded).run(None, {reloaded.graph.input[0].name: x})
+    for value, reference in zip(actual, expected, strict=True):
+        np.testing.assert_array_equal(value, reference, strict=True)
+    for optimize in (False, True):
+        require_sample_acceptance(
+            check_cpu_sample(reloaded, [x], expected, optimize=optimize)
+        )
+
+
+def test_source_reusable_instance_state_keeps_distinct_native_method_bodies() -> None:
+    plugin = next(
+        plugin
+        for plugin in ps.ONNX_FUNCTION_PLUGIN_REGISTRY.values()
+        if plugin.target is _CapturedBias
+    )
+    owner = _CapturedBias(jnp.asarray(2, dtype=jnp.float32))
+    spec = jax.ShapeDtypeStruct((), np.float32)
+    with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
+        closed = jax.make_jaxpr(lambda x: owner(x))(spec)
+    equation = next(
+        equation
+        for equation in closed.eqns
+        if equation.primitive is plugin._source_primitive
+    )
+    original_trace = equation.params[ps._SOURCE_TRACE]
+    assert original_trace.call.receiver is owner
+
+    def alternate(self: _CapturedBias, x: jax.Array) -> jax.Array:
+        return _scaled_add(x, -self.bias)
+
+    alternate_call = ps._SourceFunctionCall.capture(
+        alternate.__get__(owner, type(owner)), instance=True, receiver=owner
+    )
+    alternate_trace = replace(original_trace, call=alternate_call)
+    context = SimpleNamespace(
+        precision_policy=PrecisionPolicy.SOURCE, deployment_target=None
+    )
+    captures = ps.FunctionCaptures((), {}, ())
+    keys = [
+        plugin._function_key(owner, equation, captures, ctx=context, source_trace=trace)
+        for trace in (original_trace, alternate_trace, original_trace)
+    ]
+    assert keys[0] == keys[2]
+    assert keys[0] != keys[1]
+    x = jnp.asarray(4, dtype=jnp.float32)
+    first = np.asarray(original_trace.call.original(x))
+    second = np.asarray(alternate_call.original(x))
+    assert first.dtype == second.dtype and first.shape == second.shape
+    assert first != second

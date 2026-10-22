@@ -5,21 +5,18 @@ normal `to_onnx(...)` call preserves the selected JAX computation through one
 consistent rule across all existing functionality and fixed supplied sources,
 without a permanent selector or capability loss.
 
-Public behavior and `enable_double_precision` remain unchanged. Private results
-now include the same repeated nested-Function recipe on three stacks and
-portable BF16 word checks. Strict native NaN failures remain explicit.
-The latest shared repair passes the complete Transformer example under its
-original comparisons. The b90 full suite is terminal and failed; all 54 model/state
-runs plus 2 guard controls pass, while the other failures remain unresolved in
-the technical ledger. A local
-WIP commit would preserve unfinished work without accepting the migration.
-Current code adds only a reviewed typing correction; fresh typing/RNG passes
-and both scoped older-runtime selections pass.
-This progress does not
-complete the full inventory, fixed-source and numerical workflows or public
-transition. The [current snapshot](precision_current_state_user_view.md#local-branch-snapshot)
-and [technical ledger](poc/source_integration_findings.md#current-checkpoint)
-own exact evidence, preserved historical results and remaining gates.
+Public behavior and `enable_double_precision` remain unchanged. The latest
+stored LOCAL WIP checkpoint is **`ce87c2e0`**; the last fully green checkpoint
+remains **`fe214590`**. Later reviewed validation fixtures, captured-state and
+corpus-provenance repairs pass their affected selections on both tested stacks,
+with fresh current typing/RNG. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
+records exact sources and outcomes, including the historical failed full suite
+that has not been rerun.
+
+An intermediate WIP commit preserves reviewed unfinished progress. It does not
+complete the full inventory, fixed-source or numerical workflows, or authorize
+the public transition. Strict native NaN failures and other unresolved numerical
+failures remain explicit; public options stay LEGACY until complete acceptance.
 
 The plan below describes the completed experience independently of checkpoints.
 Precision choices stay in model configuration, explicit source/preparation and
