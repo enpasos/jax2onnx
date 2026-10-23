@@ -4050,3 +4050,51 @@ __all__ = [
     "new_jaxpr_eqn",
     "scan_arity",
 ]
+
+
+@contextmanager
+def preserve_caller_configuration() -> Iterator[None]:
+    """Restore four caller settings without hiding updates during the call.
+
+    Retain native global and local/unset separately. In particular, installing
+    a local snapshot at entry would mask a model's legitimate global update.
+    """
+    states = (
+        _native_config.enable_x64,
+        _native_config.default_matmul_precision,
+        _native_config.numpy_dtype_promotion,
+        _native_config.numpy_rank_promotion,
+    )
+    saved = tuple((state, state.get_global(), state.get_local()) for state in states)
+    unset = _native_config.config_ext.unset
+    body_error: BaseException | None = None
+    try:
+        yield
+    except BaseException as error:
+        body_error = error
+        raise
+    finally:
+        errors: list[BaseException] = []
+        for state, global_value, local_value in saved:
+            # State._set performs native set_global and its native global hook.
+            try:
+                state._set(global_value)
+            except BaseException as error:
+                errors.append(error)
+            # Match native StateContextManager exit, including exact unset.
+            try:
+                state.set_local(local_value)
+            except BaseException as error:
+                errors.append(error)
+            try:
+                hook = state._update_thread_local_hook
+                if hook is not None:
+                    hook(None if local_value is unset else local_value)
+            except BaseException as error:
+                errors.append(error)
+        if errors:
+            if body_error is not None:
+                errors.insert(0, body_error)
+            raise builtins.BaseExceptionGroup(
+                "Caller configuration restoration failed", errors
+            ) from None

@@ -82,6 +82,7 @@ import onnx_ir as ir
 from onnx_ir.traversal import RecursiveGraphIterator
 from jax import core
 
+from jax2onnx._compat.jax import preserve_caller_configuration
 from jax2onnx._source_capability import check_source_schema
 from jax2onnx.converter.conversion_api import (
     InputSpec,
@@ -1393,7 +1394,11 @@ def _to_onnx(
             "trace_observer": observe_trace,
             "deployment_target": deployment_target,
         }
-    config_scope = nullcontext() if source else _temporary_x64(enable_double_precision)
+    config_scope = (
+        preserve_caller_configuration()
+        if source
+        else _temporary_x64(enable_double_precision)
+    )
     warning_scope = (
         _capture_source_warnings(captured_warnings) if source else nullcontext()
     )

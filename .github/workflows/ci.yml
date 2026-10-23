@@ -222,7 +222,7 @@ jobs:
 
         from packaging.version import Version
 
-        expected_version = Version("0.12.0")
+        expected_version = Version("0.12.0.1")
         resolved = {
             package: Version(version(package))
             for package in ("jax", "jaxlib")

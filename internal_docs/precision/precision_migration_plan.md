@@ -1,19 +1,20 @@
 # Computation Precision Migration Plan
 
-Status: accepted plan for the complete migration, updated 2026-10-22. The final
+Status: accepted plan for the complete migration, updated 2026-10-23. The final
 normal `to_onnx(...)` call preserves the JAX computation through one consistent
 contract across existing functionality and fixed sources, without a permanent
 public precision mode/profile selector or capability loss. The private
 source-static milestone is implementation scaffolding, not completion scope.
 
 Public precision behavior remains LEGACY. This unfinished WIP continues
-`b74d8e93`; `fe214590` remains the last fully green checkpoint. The
-[canonical ledger](poc/source_integration_findings.md#current-checkpoint) binds
-CNN, Scan, Gather, selected Eqx factory and admission checks to their separate
-sources. Paired admission checks pass while measured runtime loads remain failed
-and numerics unverified. Native Array capture passes both complete selections; ordinary SimpleLinear reaches its still-failed original graph callback. The failed b90 full suite has not been rerun.
-No implementation milestone reduces the complete migration scope, assigns a
-release or sets a deadline.
+`e22ebcaa`; `fe214590` remains the last fully green checkpoint. The
+[canonical ledger](poc/source_integration_findings.md#current-checkpoint) retains
+the interrupted full run, historical failures and separately source-bound
+focused checks. The private caller-configuration repair covers the late
+conversion/model-callback boundary; whole-wrapper preservation remains pending.
+The CI version guard and single-worker invocation are checkpoint corrections,
+not full-suite or stability acceptance. No milestone reduces complete B–F,
+assigns a release or sets a deadline.
 
 Read the [user migration plan](precision_migration_plan_user_view.md) for the
 proposed caller experience, the [current analysis](precision_current_state.md)
@@ -100,18 +101,20 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
-This unfinished LOCAL WIP continues **`b74d8e93`**; **`fe214590`** remains the
-last fully green checkpoint. The canonical ledger owns the paired admission
-results, explicit target-load failures and other source-bound focused checks.
-Native Array capture passes both complete selections; ordinary SimpleLinear reaches its still-failed original graph callback.
-Historical failed receipts remain accounted for; no new full suite has run.
+This unfinished LOCAL WIP continues **`e22ebcaa`**; **`fe214590`** remains the
+last fully green checkpoint. Retain the interrupted full outcome and all
+historical failures. Relevant current paired checks, strict docs, normal hooks
+and exact staged review govern this WIP closeout; their terminal outcomes must
+be recorded before claiming them. The configuration repair remains late-scope,
+and the software execution guard does not establish whole-machine safety.
 
-Complete the map and opaque/metadata-free/manual accounting, reconcile current
-Eqx recipe drift without rewriting frozen evidence, and retain all fixed-source
-and numerical workflows. Coordinated ordinary export, allclose, browser and
-generator cutover remain required through full B–F. Intermediate WIP preservation
-is distinct from acceptance. Public behavior stays LEGACY; only evidenced ONNX
-or target limits may constrain support, and implementation gaps remain work.
+Complete current native inventory/probe reconciliation, opaque/metadata-free/
+manual accounting, fixed-source and numerical workflows, and the remaining
+whole-wrapper behavior. Ordinary SimpleLinear's raw callback remains failed;
+capture or CLI success does not replace that criterion. Coordinated ordinary
+export, allclose, browser and generator cutover remains held through full B–F.
+Public behavior stays LEGACY. Only demonstrated ONNX or target limits constrain
+support; implementation gaps remain work.
 
 The implementation follows these acceptance requirements:
 

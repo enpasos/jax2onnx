@@ -2,6 +2,64 @@
 
 ## Current checkpoint
 
+Snapshot: 2026-10-23. This unfinished LOCAL WIP follows **`e22ebcaa`**;
+**`fe214590`** remains the last fully green checkpoint. The applied code cut for
+this draft is **64ed** (**1,158 source pins**): the reviewed late SOURCE caller
+configuration repair, CI/Gather corrections and LEGACY test-only expectation
+correction are applied. No public
+precision route or default has changed.
+
+| Checkpoint gate | Actual source-bound result | Scope and next gate |
+| --- | --- | --- |
+| Ordinary full attempt, e22 epoch | **INTERRUPTED: 14,053 PASS / 2 FAIL / 18 unexecuted** of **14,073 selected** | All **116** historical b90 failure identities passed in this epoch. The failures and unexecuted cases remain; this is neither a completed green suite nor B–F acceptance. The earlier b90 **13,735 PASS / 116 FAIL** receipt remains historical, unchanged. |
+| Initial guarded focused check, source `23df`, PRIMARY | **121 selected: 119 PASS / 2 FAIL**, **10.56 s**, source held; peak owned RSS **501,202,944 bytes**, no guard stop, process-group cleanup complete | Both failures are the new LEGACY False/True test's incorrect effective-x64 expectation. Production LEGACY remains unchanged; the test-only correction checks temporary global flag, overriding local/effective value and restoration. The corrected paired results are recorded below. |
+| CI and Gather checkpoint corrections, source `23df` | Modern resolved-version guard expects **JAX/JAXLIB 0.12.0.1**; normal xdist invocation deliberately uses **one worker**; Gather asserts current **v7** and separately retains historical **v6** | Locks, support floors, original selectors, singleton/ordinal1 negatives, proof algorithms and raw criteria are unchanged. Static checks are not native-suite acceptance. |
+| Corrected complete focused selection, source `64ed`, PRIMARY and SECONDARY | **121 PASS each**, same identities; PRIMARY **8.555 s**, SECONDARY **9.312 s**, zero failures/errors/skips, source held | Both runs completed cleanup with no guard stop; peak owned RSS **499,593,216 / 572,313,600 bytes**. This qualifies only the selected config/Gather checks, not the interrupted full suite or general resource safety. |
+
+Strict docs, all seven normal hooks and exact staged-byte review remain required
+checkpoint closeout gates. Their actual outcomes belong to the commit record;
+the focused pair does not imply those later checks have passed.
+
+The applied configuration helper snapshots global and local/unset values for
+x64, matrix precision, dtype promotion and rank promotion, without installing a
+local overlay. Its reviewed scope is the existing **late private SOURCE
+conversion/model-callback boundary**. Earlier input/name/protocol evaluation and
+the whole public-wrapper guarantee remain pending. LEGACY's temporary global
+flag does not override an enclosing native local value. The test correction
+retains the SOURCE-scope must-not-run guard and all six passing SOURCE/reentry
+cases; it changes no production behavior.
+
+The software runner guard observes owned-process resources and cleans up its
+process group. Sampled limits and successful cleanup are not a hard cgroup/system
+memory limit, an OOM/leak diagnosis, a bound on every single-case peak or a
+machine-wide stability guarantee. The optional test cache/GC fixture, held public
+validation draft and preparation namespace are excluded from this checkpoint.
+
+Prior CNN, Scan, Gather, Eqx, admission and capture results retain their separate
+source epochs below. Ordinary unchanged SimpleLinear still has a **FAILED raw
+callback** with **UNVERIFIED runtime/numerics**. New focused observations do not
+add closures to the frozen **3,704-caller** map, reconcile the changed Eqx recipe
+provenance or close opaque/metadata-free/manual obligations. All existing
+functionality, fixed supplied sources, original numerical criteria and full
+**B–F** remain required through one coherent ordinary export experience. Public
+behavior stays **LEGACY** and the ONNX IR floor stays **>=1.0.0**.
+
+Current frozen checkpoint inputs: `root-ci-gather-pr-checkpoint-frozen-inputs-v1`;
+`root-legacy-local-config-test-frozen-inputs-v1` (source `23df`, actual guarded
+receipt `1649d872`);
+`root-pr-config-gather-corrected-paired-result-v1.json`;
+`source-pr-config-gather-corrected-checkpoint-v1-primary/receipt.json`;
+`source-pr-config-gather-corrected-checkpoint-v1-secondary/receipt.json`;
+`source-legacy-local-config-test-expectation-root-application-v1/source-inputs.json`; `source-source-caller-configuration-restoration-root-application-v1`;
+`source-ci-gather-pr-checkpoint-sealed-v1`;
+`source-legacy-local-config-test-expectation-sealed-v1`.
+
+### Retained c875 follow-through record
+
+The entire previous current record below is preserved verbatim at its original
+source cut. The current checkpoint above supersedes its then-current wording;
+no historical receipt or acceptance criterion is relabeled.
+
 Snapshot: 2026-10-22. This unfinished LOCAL WIP continues
 **`b74d8e937e7dc6557b788fcef6fc7dbf736cbaaf`**, whose normal local commit
 completed all seven hooks and exact staged review with a clean worktree and no

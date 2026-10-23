@@ -23,15 +23,14 @@ The supported floor is **Python >=3.11, JAX/JAXLIB >=0.10.2 and Flax >=0.12.8**.
 The exact framework-floor stack and the all-direct-dependency-minimum stack
 are separate validation targets; ORT 1.24.1 remains the declared runtime floor.
 
-This unfinished LOCAL WIP continues **`b74d8e93`**, whose normal local commit
-completed all seven hooks and exact staged review with a clean worktree.
-**`fe214590`** remains the last fully green checkpoint. CNN, Scan and Gather
-owners, selected Eqx factories and the four admission owners have separately
-source-bound results on both tested stacks. The admission checks retain failed
-target-runtime observations as failures, with numerics unverified. Native Array
-capture now passes both complete selections. Ordinary SimpleLinear reaches its original graph callback, which still fails. The historical failed b90 full suite has not been rerun. Intermediate
-WIP preservation does not establish a green checkpoint or complete B–F. Public
-options/defaults remain **LEGACY**.
+This unfinished LOCAL WIP continues **`e22ebcaa`**; **`fe214590`** remains the
+last fully green checkpoint. The later complete-suite attempt was interrupted,
+with failures and unexecuted cases retained. Focused repairs and a software
+resource guard do not establish full-suite acceptance or machine-wide stability.
+The applied configuration helper covers the late private SOURCE conversion and
+model-callback scope; the whole public wrapper remains open work. CI now checks
+the actual modern locked version and deliberately selects one pytest worker.
+Public options/defaults remain **LEGACY**; full B–F remains required.
 
 The [canonical current status and evidence ledger](poc/source_integration_findings.md#current-checkpoint)
 owns exact source/dependency epochs, result scopes and next gates. The

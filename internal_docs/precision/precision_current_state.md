@@ -10,25 +10,25 @@ Framework-floor and all-direct-minimum evidence remain separate.
 
 ## Current private implementation
 
-This unfinished LOCAL WIP continues **`b74d8e93`**, whose normal hooks and
-staged review completed; **`fe214590`** remains the last fully green checkpoint.
-The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
-records exact source epochs, focused outcomes and retained failures.
+This unfinished LOCAL WIP continues **`e22ebcaa`**; **`fe214590`** remains the
+last fully green checkpoint. The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
+records the interrupted full run, retained failures, actual focused epochs and
+pending checkpoint gates. It records separately that all historical b90 failure
+identities passed during the interrupted run; that is not a green full suite.
 
-CNN, Scan, Gather, selected Eqx factory and admission checks have separately
-qualified selections. The admission owners pass on both stacks, including the
-original failure identities; measured target loads remain failed with numerics
-unverified. Native Array capture passes both complete selections. Ordinary SimpleLinear reaches its still-failed original graph callback, with runtime
-and numerics unverified. Earlier typing and RNG reporting retain their own source epoch;
-registered RNG trace entries are not tests. The failed b90 full suite has not
-been rerun, and earlier model/state and Transformer positives keep their scope.
+The applied private SOURCE helper restores four caller settings only around the
+existing late conversion/model-callback boundary. Earlier input/name/protocol
+handling and the whole public wrapper remain pending. LEGACY production is
+unchanged: its flag changes the global x64 setting, while an enclosing native
+local context takes precedence. The new branch test now distinguishes those
+facts without changing the source-scope exclusion.
 
-Public options/defaults remain **LEGACY**. All existing functionality, fixed
-supplied JAX sources, original owners, numerical contracts and phases B–F remain
-required through one source-preserving experience. Reconcile the seven changed
-Eqx callable recipes without rewriting the frozen inventory. An intermediate
-WIP records reviewed unfinished progress after its actual closeout checks;
-it does not establish full-suite acceptance or a public cutover.
+CI's modern guard follows locked JAX/JAXLIB 0.12.0.1, and the normal runner uses
+one xdist worker. The software guard observes owned-process resources and
+cleans up its process group; it is not a hard system memory limit or proof of
+stability. Public defaults remain **LEGACY**. All existing functionality, fixed
+sources, numerical contracts, current inventory reconciliation and full B–F
+remain required through one coherent source-preserving experience.
 
 ## One Argument Controls Several Decisions
 

@@ -2,7 +2,7 @@
 
 Public precision-policy reference: `main` at `fae17822`, 2026-10-17, after the
 merged double-consumer repair. The local-branch snapshot below is dated
-2026-10-22; it does not change the public export options or defaults.
+2026-10-23; it does not change the public export options or defaults.
 
 This document explains the precision behavior available to JAX model exporters.
 See the [technical details](precision_current_state.md) for implementation and
@@ -26,18 +26,20 @@ tested stacks. Portable BF16 TopK source-word checks also pass; compiled JAX
 NaN words and ordering keep their separate failed native comparisons. These
 samples establish neither all-model support nor a general numerical guarantee.
 
-This unfinished local WIP continues **`b74d8e93`**; **`fe214590`** remains the
-last fully green checkpoint. Later CNN, Scan, Gather, selected Eqx factory and
-admission checks have source-bound results on both tested stacks. Passing
-admission checks retain the observed target-runtime failures and unverified
-numerics. Native capture now passes both complete selections; ordinary SimpleLinear reaches its original structure check, which still fails. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
-owns exact counts, sources and preserved outcomes.
+This unfinished local WIP continues **`e22ebcaa`**; **`fe214590`** remains the
+last fully green checkpoint. The later complete-suite attempt was interrupted,
+with failed and unexecuted cases retained. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
+owns exact counts, source epochs and checkpoint checks; focused passes do not
+establish full-suite or migration acceptance.
 
-The historical b90 full suite remains failed and has not been rerun. Its
-model/state and Transformer successes retain their original scope. The full
-inventory, fixed-source and numerical workflows and public transition still
-require complete acceptance. Public settings remain LEGACY; a focused pass or
-intermediate WIP commit does not change that boundary.
+The private configuration repair covers the late conversion/model-callback
+scope; it does not yet cover the whole public call. Existing LEGACY behavior is
+unchanged: an enclosing local JAX setting takes precedence over the flag's
+temporary global setting. The software resource guard and a single-worker CI
+invocation reduce execution risk without proving machine-wide stability.
+The flag discussion below assumes no enclosing local override. Public settings
+remain LEGACY. The full inventory, fixed-source and numerical workflows and
+coordinated public transition remain open.
 
 Ordinary file exports retain inline Function constants and external storage for
 large root initializers. Actual runtime support and numerical acceptance require
