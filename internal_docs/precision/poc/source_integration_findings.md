@@ -2,6 +2,51 @@
 
 ## Current checkpoint
 
+Snapshot: 2026-10-23. This unfinished LOCAL WIP follows **`79353cf6`**;
+**`fe214590`** remains the last fully green checkpoint. The applied shared
+opset-21 code cut is **`12ee5c05`** (**1,159 source pins**). Public routes and
+defaults remain **LEGACY**; the full **B–F** goal remains open.
+
+| Current gate | Actual source-bound result | Scope and remaining work |
+| --- | --- | --- |
+| Shared opset-21 support, source `12ee5c05`, local Python 3.12 and 3.11 | **520 PASS each**, identical unique selections across six complete owners, zero failures/errors/skips; PRIMARY **90.448 s**, SECONDARY **93.671 s**, source/Git held | Includes **65 new cases** using real private SOURCE export, saved opset-21 artifacts/full checker, native eager/fresh-JIT references and both CPU optimization modes. This qualifies the finite samples and unchanged guards; deliberately failed subnormal target diagnostics remain failed-target evidence. |
+| Four unchanged original AttentionCore cells, source `12ee5c05` | Both raw-x64 caller settings on both local stacks: source reference, artifact, schema and lowering audit **VALIDATED**; original raw callback **FAILED**; structure/runtime/numerics **UNVERIFIED** | These cells progressed past admission. Original callback, `None` criteria and row contract `ea6d8f6c7fab785a98941d54722b2926789b2edd59d74e81b40992e64d304e9d` remain unchanged. CLI completion and the small attention fixtures do not establish original-model acceptance. |
+| Remote CI run `39908291998`, head `d0835d02` | Four support jobs **PASS**, including minimum Python 3.11 **465 tests** and normalization Python 3.12 **102 tests**; full Python 3.11 **FAILED/incomplete**, exit **143**, with **21 earlier failure markers whose identities remain unknown** | Executed merge `859c266` into `fae178`. Python 3.13 aborted with exit **143** and **54 unidentified failure markers**; full Python 3.12/3.14 jobs were still running at ROOT's recorded observation. These failed/incomplete jobs are not attributed solely to infrastructure. Support-job passes are not a green full matrix or current-source qualification. |
+| Current local closeout | **PENDING actual quality/docs/hooks/staged review** | Record terminal current-cut outcomes in the normal commit record. No local complete-suite green result is claimed. |
+
+The shared change admits only FP32/FP64 `dot_general`, transpose, `reduce_max`,
+exp and `stop_gradient` in the existing opset-21 operation/type intersection,
+and extends Max21 to FP32/FP64. Max21 FP32 reuses the existing signed-zero
+selection algorithm; Min21 FP64 and all owning native type/result, dimension,
+symbolic-scope, precision and placement checks remain unchanged. Opset18,
+unsupported contraction dtypes and HIGH/HIGHEST/algorithm gates retain their
+existing contracts. This is shared implementation, without a row allowlist or
+changes to the original probe, inventory, callbacks or numerical criteria.
+
+Python **3.11 and 3.12** are primary user cohorts and each requires its actual CI
+stack. Local PRIMARY Python 3.12/JAX 0.12.0.1 and SECONDARY Python 3.11/JAX 0.10.2
+passes do not replace the locked Python 3.12/JAX 0.10.2 CI cohort or the separate
+minimum stack. Resolve the original AttentionCore structural contract and then
+qualify its runtime/numerical behavior; retain the interrupted **14,053 PASS /
+2 FAIL / 18 unexecuted** full attempt and every older failure epoch below.
+Current inventory/probe reconciliation, fixed-source and opaque/metadata-free/
+manual obligations, scientific FP64/low-precision workflows and coherent public
+validation/preparation/export cutover remain open. The four new observations do
+not add closures to the frozen caller map.
+
+Current evidence: `source-opset21-shared-attention-root-application-v2/source-inputs.json`;
+`root-opset21-shared-attention-paired-result-v2.json`;
+`source-opset21-shared-attention-v2-primary/receipt.json`;
+`source-opset21-shared-attention-v2-secondary/receipt.json`;
+`root-attentioncore-after-shared-opset21-summary-v2.json`;
+`root-pr277-ci311-terminal-v1/receipt.json`.
+
+### Retained 793 whole-entry checkpoint record
+
+The entire previous current record below is preserved verbatim at its original
+source cut. The new record above supersedes its then-current and pending wording
+without relabeling historical outcomes, criteria or receipts.
+
 Snapshot: 2026-10-23. This unfinished LOCAL WIP follows **`d0835d02`**;
 **`fe214590`** remains the last fully green checkpoint. The applied whole-entry
 SOURCE extension is source **0e9190da** (**1,158 source pins**). Public routes,

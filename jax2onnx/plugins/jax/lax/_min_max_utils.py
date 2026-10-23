@@ -1,10 +1,10 @@
 # jax2onnx/plugins/jax/lax/_min_max_utils.py
 
-"""Finite SOURCE zero-tie signs for Max16/23/26, Min23/26 and scientific FP64 at21.
+"""Finite SOURCE zero-tie signs for Max16/21/23/26 and Min21/23/26.
 
 Typed table selection retains exact zero words without arithmetic identities that
 CPU optimization can remove. GatherElements preserves the selected words.
-The original scientific21 route reuses this selection with separate target
+At21 Max admits FP32/FP64 and Min admits FP64, with separate target
 qualification. This representation does not settle other opsets, BF16, subnormal
 differences or whole-family numerical admission. LEGACY keeps its existing path.
 """
@@ -36,7 +36,11 @@ def lower_source_min_max(
         or operation == "Max"
         and ctx.opset == 16
         or ctx.opset == 21
-        and dtype == np.dtype(np.float64)
+        and (
+            dtype == np.dtype(np.float64)
+            or operation == "Max"
+            and dtype == np.dtype(np.float32)
+        )
     ):
         return False
     if dtype not in (np.dtype(np.float16), np.dtype(np.float32), np.dtype(np.float64)):

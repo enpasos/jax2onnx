@@ -9,34 +9,39 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
-continues `d0835d02`; `fe214590` remains the last fully green checkpoint. The
-private SOURCE facade now preserves exactly four caller settings across early
-protocols, conversion and final naming/report/save work; complete paired native
-checks pass within their recorded scope. Public LEGACY behavior and defaults remain unchanged.
+follows `79353cf6`; `fe214590` remains the last fully green checkpoint. Shared
+opset-21 real contractions and the existing FP32 Max signed-zero route pass the
+paired finite regression selection. All four unchanged original AttentionCore
+cells now produce validated artifacts/schema/lowering audits, but their original
+raw callback fails and structure/runtime/numerics remain unverified. Public
+LEGACY behavior and defaults remain unchanged.
 
-1. Preserve the completed paired boundary checks, including success/error,
-   global/local/unset, all return formats and LEGACY controls on both stacks.
-   Retain the separate CI typing repair's source-bound evidence and all prior
-   failed attempts; record actual local closeout gates before claiming them.
-2. Retain the interrupted full outcome and every historical failure epoch. A
-   fresh complete current suite and applicable stack/minimum/schema/runtime/
-   numerical gates remain required for accepted/green milestones. Software
-   resource guards are not hard kernel quotas or general stability evidence.
-3. Reconcile a fresh current inventory/probe and full map, including seven changed
-   Eqx recipe provenances, without rewriting frozen inventory/map outcomes.
-   Original, optional, opaque, metadata-free and manual obligations retain their
-   complete denominator and acceptance scope. SimpleLinear's original raw
-   callback remains failed; CLI/capture success does not replace its criterion.
-4. Complete fixed-source/scientific-FP64/low-precision work and every B–F operator,
-   scope, option, model and state gate. Integrate shared validation, installed
-   preparation, ordinary export/allclose/browser/generator and migration docs
-   coherently before public cutover. No permanent selector or capability loss is
-   permitted; only demonstrated ONNX/target limits constrain support.
-5. A reviewed LOCAL WIP may preserve unfinished progress after its relevant actual
-   checks, strict docs/links, all seven normal hooks and exact staged review.
-   Record those outcomes in the commit body; WIP storage does not establish
-   full-suite acceptance, release or completion and needs no extra broad run
-   solely for preservation.
+1. Retain the source-bound six-owner pair and unchanged semantic/type/precision/
+   placement guards. Complete the original AttentionCore structural contract,
+   then its runtime/numerical qualification with the original callback and
+   `None` criteria intact; small fixtures do not accept the original model.
+2. Require actual full CI for the primary user cohorts Python 3.11 **and** 3.12.
+   The local modern Python 3.12 stack does not substitute for locked older-JAX
+   Python 3.12 CI or minimum-version evidence. Keep the failed/incomplete
+   3.11 and aborted 3.13 full jobs, their unidentified failure markers and the
+   still-running 3.12/3.14 jobs distinct from support-job passes.
+   Retain the interrupted local full result and all historical failures; fresh
+   complete current-suite and applicable target/numerical gates remain open.
+3. Reconcile current inventory/probe and the full map, including changed Eqx
+   recipes, without rewriting frozen outcomes or reducing original, optional,
+   opaque, metadata-free or manual obligations. SimpleLinear and AttentionCore
+   original raw callbacks remain unresolved; CLI/capture progress is not their
+   structural or numerical acceptance.
+4. Complete every fixed-source/scientific-FP64/low-precision and B–F operator,
+   scope, option, model and state gate. Preserve the four-setting whole private
+   SOURCE facade restoration. Integrate shared validation, installed preparation,
+   ordinary export/allclose/browser/generator and docs coherently before public
+   cutover, with no permanent selector or capability loss.
+5. A reviewed LOCAL WIP may preserve unfinished progress after current relevant
+   quality checks, strict docs/links, all seven normal hooks and exact staged
+   review; record their actual outcomes in the commit body. Those gates remain
+   pending for this code cut. WIP storage does not establish a green full suite,
+   release, resource-safety guarantee or migration completion.
 
 <a id="current-binding-minimum-version-obligation"></a>
 

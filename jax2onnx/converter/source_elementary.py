@@ -78,9 +78,10 @@ def validate_original_elementary_opset(
 ) -> None:
     """Operation/type intersections at the unchanged original opsets18/21.
 
-    The scientific21 intersection adds native FP64 field/window operations.
+    The scientific21 intersection includes native FP32/FP64 contractions and
+    field/window operations, with each owning semantic validator retained.
     Exact GELU18 still reaches the owning Erfc gate. There is no implicit
-    upgrade, matrix/PRNG eligibility, or BF16 support at these old opsets.
+    upgrade, PRNG eligibility, or BF16 support at these old opsets.
     """
     if site.opset not in (18, 21):
         return
@@ -106,7 +107,12 @@ def validate_original_elementary_opset(
                 ),
                 real | {"int32", "int64"},
             ),
-            **dict.fromkeys(("min", "max"), {"float64"}),
+            "min": {"float64"},
+            "max": real,
+            **dict.fromkeys(
+                ("dot_general", "transpose", "reduce_max", "exp", "stop_gradient"),
+                real,
+            ),
             **dict.fromkeys(
                 (
                     "reshape",
@@ -335,10 +341,10 @@ def validate_elementary_equation(
                     or name == "max"
                     and site.opset == 16
                     or site.opset == 21
-                    and dtype == "float64"
+                    and (dtype == "float64" or name == "max" and dtype == "float32")
                 ),
                 "floating minimum/maximum requires the scoped signed-zero lowering",
-                "FP16/FP32/FP64 Min at23/26 or Max at16/23/26, or the scientific FP64 signed-zero selection at21",
+                "FP16/FP32/FP64 Min at23/26 or Max at16/23/26, or FP64 Min/Max and FP32 Max signed-zero selection at21",
             )
     else:
         site.require(
