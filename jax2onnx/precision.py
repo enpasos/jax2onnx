@@ -654,7 +654,10 @@ def _bfloat16_cpu_array(value: Any) -> np.ndarray[Any, Any]:
     else:
         raw = b""  # Empty tensors need neither a pointer query nor a memory read.
     dtype = onnx.helper.tensor_dtype_to_np_dtype(onnx.TensorProto.BFLOAT16)
-    return np.frombuffer(raw, dtype=dtype).reshape(shape).copy(order="C")
+    copied: np.ndarray[Any, Any] = (
+        np.frombuffer(raw, dtype=dtype).reshape(shape).copy(order="C")
+    )
+    return copied
 
 
 def _run_cpu_samples(

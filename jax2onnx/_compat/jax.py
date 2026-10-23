@@ -2069,7 +2069,7 @@ def native_scan_flat_tree_partitions(
     """
     if "ft_in" not in params:
         return None
-    from jax._src.flattree import FlatTree
+    FlatTree = cast(type[Any], import_module("jax._src.flattree").FlatTree)
 
     descriptors = (params["ft_in"], params["ft_out"])
     result = []
