@@ -7,14 +7,13 @@ public precision mode/profile selector or capability loss. The private
 source-static milestone is implementation scaffolding, not completion scope.
 
 Public precision behavior remains LEGACY. This unfinished WIP continues
-`e22ebcaa`; `fe214590` remains the last fully green checkpoint. The
-[canonical ledger](poc/source_integration_findings.md#current-checkpoint) retains
-the interrupted full run, historical failures and separately source-bound
-focused checks. The private caller-configuration repair covers the late
-conversion/model-callback boundary; whole-wrapper preservation remains pending.
-The CI version guard and single-worker invocation are checkpoint corrections,
-not full-suite or stability acceptance. No milestone reduces complete B–F,
-assigns a release or sets a deadline.
+`d0835d02`; `fe214590` remains the last fully green checkpoint. The
+[canonical ledger](poc/source_integration_findings.md#current-checkpoint) records
+the separate dual-stack CI typing repair and the new private whole-facade
+four-setting preservation. Complete paired checks for that extension pass within their recorded
+scope. It changes no public flag, route or default and does not cover arbitrary
+JAX configuration. The interrupted full run and all historical failure epochs
+remain binding; no checkpoint reduces full B–F, assigns a release or deadline.
 
 Read the [user migration plan](precision_migration_plan_user_view.md) for the
 proposed caller experience, the [current analysis](precision_current_state.md)
@@ -101,20 +100,20 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
-This unfinished LOCAL WIP continues **`e22ebcaa`**; **`fe214590`** remains the
-last fully green checkpoint. Retain the interrupted full outcome and all
-historical failures. Relevant current paired checks, strict docs, normal hooks
-and exact staged review govern this WIP closeout; their terminal outcomes must
-be recorded before claiming them. The configuration repair remains late-scope,
-and the software execution guard does not establish whole-machine safety.
+This unfinished LOCAL WIP continues **`d0835d02`**; **`fe214590`** remains the
+last fully green checkpoint. The private four-setting scope now encloses early
+user protocols and finalization as well as conversion, retaining its earlier
+late restoration boundary. Complete paired checks pass within their scope; actual source/results and the
+separate CI repair remain in the canonical ledger.
 
-Complete current native inventory/probe reconciliation, opaque/metadata-free/
-manual accounting, fixed-source and numerical workflows, and the remaining
-whole-wrapper behavior. Ordinary SimpleLinear's raw callback remains failed;
-capture or CLI success does not replace that criterion. Coordinated ordinary
-export, allclose, browser and generator cutover remains held through full B–F.
-Public behavior stays LEGACY. Only demonstrated ONNX or target limits constrain
-support; implementation gaps remain work.
+Complete current inventory/probe reconciliation, opaque/metadata-free/manual
+accounting, fixed-source and numerical workflows and every remaining B–F gate.
+Ordinary SimpleLinear's raw callback remains failed. Held shared CPU/browser
+validation, installed preparation exports and ordinary export/allclose/browser/
+generator cutover still require coherent implementation and qualification;
+private configuration restoration does not complete them. Public behavior stays
+LEGACY. Local WIP closeout requires its actual quality checks, docs, normal hooks
+and staged review, distinct from accepted/green or migration completion.
 
 The implementation follows these acceptance requirements:
 

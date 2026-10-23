@@ -1268,323 +1268,336 @@ def _to_onnx(
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """One facade pipeline; SOURCE is a private, bounded migration experiment."""
     source = precision_policy is PrecisionPolicy.SOURCE
-    diagnostic = diagnostic_jaxpr_validator is not None
-    if deployment_target is not None:
-        if not source or type(deployment_target) is not DeploymentTarget:
-            raise ValueError(
-                "Deployment target requires a typed private SOURCE declaration"
-            )
-    if diagnostic and not source:
-        raise ValueError("Diagnostic validation requires the private SOURCE policy")
-    if diagnostic and not callable(diagnostic_jaxpr_validator):
-        raise TypeError("diagnostic_jaxpr_validator must be callable")
-    caller_x64 = bool(jax.config.x64_enabled)
-    caller_precision = jax.config.jax_default_matmul_precision
-    caller_dtype_promotion = str(jax.config.jax_numpy_dtype_promotion)
-    caller_rank_promotion = str(jax.config.jax_numpy_rank_promotion)
-    captured_warnings: list[PrecisionWarning] = []
-    supplied: tuple[TensorProperties, ...] = ()
-    trace_result: _TraceResult | None = None
-
-    def observe_trace(trace: _TraceResult) -> None:
-        nonlocal trace_result
-        trace_result = trace
-
-    _LOGGER.info(
-        f"Converting JAX function to ONNX model with parameters: "
-        f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
-        f"input_params={input_params}, "
-        f"enable_double_precision={enable_double_precision}, "
-        f"record_primitive_calls_file={record_primitive_calls_file}, "
-        f"return_mode={return_mode}, output_path={output_path}, "
-        f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}, "
-        f"input_names={input_names}, output_names={output_names}, "
-        f"export_mode={export_mode}, normalization_mode={normalization_mode}"
-    )
-
-    # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
-    normalized_mode = _normalize_return_mode(return_mode)
-    normalized_export_mode = _normalize_export_mode(export_mode)
-    normalized_normalization_mode = _normalize_normalization_mode(normalization_mode)
-    if source:
-        if enable_double_precision:
-            _source_migration_gap("enable_double_precision", opset)
-        for item in inputs:
-            if not isinstance(item, (_SupportsShapeAndDtype, tuple, list)):
-                _source_migration_gap(
-                    f"array-like input type {type(item).__name__}", opset
+    with preserve_caller_configuration() if source else nullcontext():
+        diagnostic = diagnostic_jaxpr_validator is not None
+        if deployment_target is not None:
+            if not source or type(deployment_target) is not DeploymentTarget:
+                raise ValueError(
+                    "Deployment target requires a typed private SOURCE declaration"
                 )
-        supplied = tuple(
-            _source_input_properties(item, index=index, opset=opset)
-            for index, item in enumerate(inputs)
+        if diagnostic and not source:
+            raise ValueError("Diagnostic validation requires the private SOURCE policy")
+        if diagnostic and not callable(diagnostic_jaxpr_validator):
+            raise TypeError("diagnostic_jaxpr_validator must be callable")
+        caller_x64 = bool(jax.config.x64_enabled)
+        caller_precision = jax.config.jax_default_matmul_precision
+        caller_dtype_promotion = str(jax.config.jax_numpy_dtype_promotion)
+        caller_rank_promotion = str(jax.config.jax_numpy_rank_promotion)
+        captured_warnings: list[PrecisionWarning] = []
+        supplied: tuple[TensorProperties, ...] = ()
+        trace_result: _TraceResult | None = None
+
+        def observe_trace(trace: _TraceResult) -> None:
+            nonlocal trace_result
+            trace_result = trace
+
+        _LOGGER.info(
+            f"Converting JAX function to ONNX model with parameters: "
+            f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
+            f"input_params={input_params}, "
+            f"enable_double_precision={enable_double_precision}, "
+            f"record_primitive_calls_file={record_primitive_calls_file}, "
+            f"return_mode={return_mode}, output_path={output_path}, "
+            f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}, "
+            f"input_names={input_names}, output_names={output_names}, "
+            f"export_mode={export_mode}, normalization_mode={normalization_mode}"
         )
 
-    file_path: Optional[str] = None
-    if normalized_mode == "file":
-        if output_path is None:
-            raise ValueError(
-                "`output_path` must be provided when return_mode is 'file'."
-            )
-        file_path = os.fspath(output_path)
-
-    normalized_inputs: List[InputSpec] = []
-    if inputs:
-        normalized_inputs = _normalize_input_specs(
-            inputs, precision_policy=precision_policy
-        )
-    if source:
-        _validate_source_inputs(normalized_inputs, opset, diagnostic=diagnostic)
-
-    normalized_input_names = _normalize_io_names(input_names, kind="input_names")
-    normalized_output_names = _normalize_io_names(output_names, kind="output_names")
-
-    if normalized_input_names is not None and len(normalized_input_names) != len(
-        normalized_inputs
-    ):
-        raise ValueError(
-            f"input_names length ({len(normalized_input_names)}) must match "
-            f"the number of positional inputs ({len(normalized_inputs)})."
-        )
-
-    param_map: Dict[str, object] = {}
-    if input_params:
-        for key, value in input_params.items():
-            if not isinstance(key, str):
-                raise TypeError(
-                    "input_params must use string keys; "
-                    f"received key of type {type(key)}."
-                )
-            param_map[key] = value
-
-    if source:
-        named_specs = [
-            _source_named_input_spec(name, value, opset=opset)
-            for name, value in param_map.items()
-        ]
-        _validate_source_inputs(
-            [*normalized_inputs, *named_specs], opset, diagnostic=diagnostic
-        )
-
-    if normalized_input_names is not None:
-        collisions = sorted(set(normalized_input_names).intersection(param_map.keys()))
-        if collisions:
-            names = ", ".join(collisions)
-            raise ValueError(
-                f"input_names collide with names reserved by input_params: {names}."
-            )
-
-    if normalized_output_names is not None:
-        collisions = sorted(set(normalized_output_names).intersection(param_map.keys()))
-        if collisions:
-            names = ", ".join(collisions)
-            raise ValueError(
-                f"output_names collide with names reserved by input_params: {names}."
-            )
-
-    conversion = _convert_to_ir if source else to_onnx_impl
-    policy_options: dict[str, Any] = {}
-    if source:
-        policy_options = {
-            "precision_policy": precision_policy,
-            "jaxpr_validator": (
-                diagnostic_jaxpr_validator
-                if diagnostic_jaxpr_validator is not None
-                else partial(validate_source_jaxpr, deployment_target=deployment_target)
-            ),
-            "trace_observer": observe_trace,
-            "deployment_target": deployment_target,
-        }
-    config_scope = (
-        preserve_caller_configuration()
-        if source
-        else _temporary_x64(enable_double_precision)
-    )
-    warning_scope = (
-        _capture_source_warnings(captured_warnings) if source else nullcontext()
-    )
-    with config_scope, warning_scope:
-        result = conversion(
-            fn=fn,
-            inputs=normalized_inputs,
-            input_params=param_map,
-            model_name=model_name,
-            opset=opset,
-            enable_double_precision=enable_double_precision,
-            record_primitive_calls_file=record_primitive_calls_file,
-            protective_clone=(normalized_mode == "ir"),
-            inputs_as_nchw=inputs_as_nchw,
-            outputs_as_nchw=outputs_as_nchw,
-            input_names=normalized_input_names,
-            output_names=normalized_output_names,
-            normalization_mode=normalized_normalization_mode,
-            **policy_options,
-        )
-
-        postprocess_ir_model(
-            result,
-            promote_to_double=enable_double_precision,
-        )
-
-    def _save_model_proto(
-        model_proto: onnx.ModelProto,
-        dest: str,
-        *,
-        mode: ExportMode,
-        external_threshold: int = 1_048_576,  # 1 MB default before spilling to .data
-    ) -> str:
-        dest_dir = os.path.dirname(dest)
-        if dest_dir:
-            os.makedirs(dest_dir, exist_ok=True)
-        data_location = os.path.basename(dest) + ".data"
-        data_path = os.path.join(dest_dir or ".", data_location)
-
-        if mode == "web":
-            onnx.save_model(model_proto, dest, save_as_external_data=False)
-            # A previous standard export to the same path may have left a sidecar.
-            try:
-                if os.path.exists(data_path):
-                    os.remove(data_path)
-            except OSError:
-                pass
-            return dest
-
-        # Function tensor attributes stay inline across supported ONNX versions.
-        # Some versions include them even when convert_attribute is False.
-        function_snapshots: list[tuple[onnx.FunctionProto, onnx.FunctionProto]] = []
-        for function in model_proto.functions:
-            snapshot = onnx.FunctionProto()
-            snapshot.CopyFrom(function)
-            function_snapshots.append((function, snapshot))
-        try:
-            onnx.convert_model_to_external_data(
-                model_proto,
-                all_tensors_to_one_file=True,
-                location=data_location,
-                size_threshold=external_threshold,
-                convert_attribute=False,
-            )
-        finally:
-            for function, snapshot in function_snapshots:
-                function.CopyFrom(snapshot)
-        onnx.save_model(model_proto, dest, save_as_external_data=False)
-        # Only keep the .data sidecar if the export actually referenced external data.
-        if not any(init.external_data for init in model_proto.graph.initializer):
-            # No external payloads; remove an empty sidecar if one was produced.
-            try:
-                if os.path.exists(data_path) and os.path.getsize(data_path) == 0:
-                    os.remove(data_path)
-            except OSError:
-                pass
-        return dest
-
-    source_values: tuple[ir.Value, ...] | None = None
-    final_input_names = normalized_input_names
-    named_supplied: dict[str, TensorProperties] = {}
-    if source:
-        assert trace_result is not None
-        expected_roles = [
-            *((index, None) for index in range(len(normalized_inputs))),
-            *((None, name) for name in param_map),
-        ]
-        if [
-            (binding.positional_index, binding.keyword_name)
-            for binding in trace_result.source_inputs
-        ] != expected_roles:
-            raise RuntimeError(
-                "SOURCE input roles/names/order differ from the real call bindings"
-            )
-        source_values = _source_input_values(
-            trace_result, result.graph.inputs, require_internal_names=True
-        )
-        final_input_names = []
-        for binding, value in zip(
-            trace_result.source_inputs, source_values, strict=True
-        ):
-            if binding.positional_index is not None:
-                final_input_names.append(
-                    normalized_input_names[binding.positional_index]
-                    if normalized_input_names is not None
-                    else cast(str, value.name)
-                )
-            else:
-                name = cast(str, binding.keyword_name)
-                final_input_names.append(name)
-                named_supplied[name] = TensorProperties(
-                    name,
-                    normalized_shape_dimensions(binding.spec.shape),
-                    np.dtype(binding.spec.dtype).name,
-                    bool(binding.spec.weak_type),
-                )
-        _separate_source_output_aliases(
-            result, final_input_names, normalized_output_names
-        )
-    else:
-        _materialize_input_params_on_ir(result, param_map)
-    _apply_custom_io_names_on_ir(
-        result,
-        input_names=final_input_names,
-        output_names=normalized_output_names,
-        positional_input_count=len(normalized_inputs),
-        input_values=source_values,
-    )
-    model_proto: onnx.ModelProto | None = None
-    if source:
-        _finalize_source_deployment(result)
-        assert trace_result is not None
-        source_output_names = tuple(
-            cast(str, value.name) for value in result.graph.outputs
-        )
-        boundary_names = {
-            "input_names": final_input_names,
-            "output_names": source_output_names,
-        }
-        _assert_source_boundaries(result, trace_result, opset, **boundary_names)
-        model_proto = ir.to_proto(result)
-        _assert_source_boundaries(model_proto, trace_result, opset, **boundary_names)
-        check_source_schema(model_proto)
-        report = _build_source_report(
-            result,
-            trace_result,
-            supplied,
-            captured_warnings,
-            caller_x64=caller_x64,
-            caller_precision=(
-                str(caller_precision) if caller_precision is not None else None
-            ),
-            caller_dtype_promotion=caller_dtype_promotion,
-            caller_rank_promotion=caller_rank_promotion,
-            opset=opset,
-            diagnostic=diagnostic,
-            named_supplied=named_supplied,
-            normalization_mode=normalized_normalization_mode,
-        )
-        attach_precision_report(result, report)
-        attach_precision_report(model_proto, report)
-        if get_precision_report(model_proto) != report:
-            raise RuntimeError(
-                "Source precision metadata failed its serialization roundtrip"
-            )
-    if normalized_mode == "ir":
-        return result
-
-    if model_proto is None:
-        model_proto = ir.to_proto(result)
-    if normalized_mode == "file":
-        assert file_path is not None
-        saved_path = _save_model_proto(
-            model_proto, file_path, mode=normalized_export_mode
+        # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
+        normalized_mode = _normalize_return_mode(return_mode)
+        normalized_export_mode = _normalize_export_mode(export_mode)
+        normalized_normalization_mode = _normalize_normalization_mode(
+            normalization_mode
         )
         if source:
-            assert trace_result is not None
-            reloaded = onnx.load_model(saved_path, load_external_data=False)
-            _assert_source_boundaries(reloaded, trace_result, opset, **boundary_names)
-            onnx.checker.check_model(saved_path, full_check=True)
-            if get_precision_report(reloaded) != report:
-                raise RuntimeError(
-                    "Saved source precision metadata failed its roundtrip"
+            if enable_double_precision:
+                _source_migration_gap("enable_double_precision", opset)
+            for item in inputs:
+                if not isinstance(item, (_SupportsShapeAndDtype, tuple, list)):
+                    _source_migration_gap(
+                        f"array-like input type {type(item).__name__}", opset
+                    )
+            supplied = tuple(
+                _source_input_properties(item, index=index, opset=opset)
+                for index, item in enumerate(inputs)
+            )
+
+        file_path: Optional[str] = None
+        if normalized_mode == "file":
+            if output_path is None:
+                raise ValueError(
+                    "`output_path` must be provided when return_mode is 'file'."
                 )
-        return saved_path
-    return model_proto
+            file_path = os.fspath(output_path)
+
+        normalized_inputs: List[InputSpec] = []
+        if inputs:
+            normalized_inputs = _normalize_input_specs(
+                inputs, precision_policy=precision_policy
+            )
+        if source:
+            _validate_source_inputs(normalized_inputs, opset, diagnostic=diagnostic)
+
+        normalized_input_names = _normalize_io_names(input_names, kind="input_names")
+        normalized_output_names = _normalize_io_names(output_names, kind="output_names")
+
+        if normalized_input_names is not None and len(normalized_input_names) != len(
+            normalized_inputs
+        ):
+            raise ValueError(
+                f"input_names length ({len(normalized_input_names)}) must match "
+                f"the number of positional inputs ({len(normalized_inputs)})."
+            )
+
+        param_map: Dict[str, object] = {}
+        if input_params:
+            for key, value in input_params.items():
+                if not isinstance(key, str):
+                    raise TypeError(
+                        "input_params must use string keys; "
+                        f"received key of type {type(key)}."
+                    )
+                param_map[key] = value
+
+        if source:
+            named_specs = [
+                _source_named_input_spec(name, value, opset=opset)
+                for name, value in param_map.items()
+            ]
+            _validate_source_inputs(
+                [*normalized_inputs, *named_specs], opset, diagnostic=diagnostic
+            )
+
+        if normalized_input_names is not None:
+            collisions = sorted(
+                set(normalized_input_names).intersection(param_map.keys())
+            )
+            if collisions:
+                names = ", ".join(collisions)
+                raise ValueError(
+                    f"input_names collide with names reserved by input_params: {names}."
+                )
+
+        if normalized_output_names is not None:
+            collisions = sorted(
+                set(normalized_output_names).intersection(param_map.keys())
+            )
+            if collisions:
+                names = ", ".join(collisions)
+                raise ValueError(
+                    f"output_names collide with names reserved by input_params: {names}."
+                )
+
+        conversion = _convert_to_ir if source else to_onnx_impl
+        policy_options: dict[str, Any] = {}
+        if source:
+            policy_options = {
+                "precision_policy": precision_policy,
+                "jaxpr_validator": (
+                    diagnostic_jaxpr_validator
+                    if diagnostic_jaxpr_validator is not None
+                    else partial(
+                        validate_source_jaxpr, deployment_target=deployment_target
+                    )
+                ),
+                "trace_observer": observe_trace,
+                "deployment_target": deployment_target,
+            }
+        config_scope = (
+            preserve_caller_configuration()
+            if source
+            else _temporary_x64(enable_double_precision)
+        )
+        warning_scope = (
+            _capture_source_warnings(captured_warnings) if source else nullcontext()
+        )
+        with config_scope, warning_scope:
+            result = conversion(
+                fn=fn,
+                inputs=normalized_inputs,
+                input_params=param_map,
+                model_name=model_name,
+                opset=opset,
+                enable_double_precision=enable_double_precision,
+                record_primitive_calls_file=record_primitive_calls_file,
+                protective_clone=(normalized_mode == "ir"),
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
+                input_names=normalized_input_names,
+                output_names=normalized_output_names,
+                normalization_mode=normalized_normalization_mode,
+                **policy_options,
+            )
+
+            postprocess_ir_model(
+                result,
+                promote_to_double=enable_double_precision,
+            )
+
+        def _save_model_proto(
+            model_proto: onnx.ModelProto,
+            dest: str,
+            *,
+            mode: ExportMode,
+            external_threshold: int = 1_048_576,  # 1 MB default before spilling to .data
+        ) -> str:
+            dest_dir = os.path.dirname(dest)
+            if dest_dir:
+                os.makedirs(dest_dir, exist_ok=True)
+            data_location = os.path.basename(dest) + ".data"
+            data_path = os.path.join(dest_dir or ".", data_location)
+
+            if mode == "web":
+                onnx.save_model(model_proto, dest, save_as_external_data=False)
+                # A previous standard export to the same path may have left a sidecar.
+                try:
+                    if os.path.exists(data_path):
+                        os.remove(data_path)
+                except OSError:
+                    pass
+                return dest
+
+            # Function tensor attributes stay inline across supported ONNX versions.
+            # Some versions include them even when convert_attribute is False.
+            function_snapshots: list[tuple[onnx.FunctionProto, onnx.FunctionProto]] = []
+            for function in model_proto.functions:
+                snapshot = onnx.FunctionProto()
+                snapshot.CopyFrom(function)
+                function_snapshots.append((function, snapshot))
+            try:
+                onnx.convert_model_to_external_data(
+                    model_proto,
+                    all_tensors_to_one_file=True,
+                    location=data_location,
+                    size_threshold=external_threshold,
+                    convert_attribute=False,
+                )
+            finally:
+                for function, snapshot in function_snapshots:
+                    function.CopyFrom(snapshot)
+            onnx.save_model(model_proto, dest, save_as_external_data=False)
+            # Only keep the .data sidecar if the export actually referenced external data.
+            if not any(init.external_data for init in model_proto.graph.initializer):
+                # No external payloads; remove an empty sidecar if one was produced.
+                try:
+                    if os.path.exists(data_path) and os.path.getsize(data_path) == 0:
+                        os.remove(data_path)
+                except OSError:
+                    pass
+            return dest
+
+        source_values: tuple[ir.Value, ...] | None = None
+        final_input_names = normalized_input_names
+        named_supplied: dict[str, TensorProperties] = {}
+        if source:
+            assert trace_result is not None
+            expected_roles = [
+                *((index, None) for index in range(len(normalized_inputs))),
+                *((None, name) for name in param_map),
+            ]
+            if [
+                (binding.positional_index, binding.keyword_name)
+                for binding in trace_result.source_inputs
+            ] != expected_roles:
+                raise RuntimeError(
+                    "SOURCE input roles/names/order differ from the real call bindings"
+                )
+            source_values = _source_input_values(
+                trace_result, result.graph.inputs, require_internal_names=True
+            )
+            final_input_names = []
+            for binding, value in zip(
+                trace_result.source_inputs, source_values, strict=True
+            ):
+                if binding.positional_index is not None:
+                    final_input_names.append(
+                        normalized_input_names[binding.positional_index]
+                        if normalized_input_names is not None
+                        else cast(str, value.name)
+                    )
+                else:
+                    name = cast(str, binding.keyword_name)
+                    final_input_names.append(name)
+                    named_supplied[name] = TensorProperties(
+                        name,
+                        normalized_shape_dimensions(binding.spec.shape),
+                        np.dtype(binding.spec.dtype).name,
+                        bool(binding.spec.weak_type),
+                    )
+            _separate_source_output_aliases(
+                result, final_input_names, normalized_output_names
+            )
+        else:
+            _materialize_input_params_on_ir(result, param_map)
+        _apply_custom_io_names_on_ir(
+            result,
+            input_names=final_input_names,
+            output_names=normalized_output_names,
+            positional_input_count=len(normalized_inputs),
+            input_values=source_values,
+        )
+        model_proto: onnx.ModelProto | None = None
+        if source:
+            _finalize_source_deployment(result)
+            assert trace_result is not None
+            source_output_names = tuple(
+                cast(str, value.name) for value in result.graph.outputs
+            )
+            boundary_names = {
+                "input_names": final_input_names,
+                "output_names": source_output_names,
+            }
+            _assert_source_boundaries(result, trace_result, opset, **boundary_names)
+            model_proto = ir.to_proto(result)
+            _assert_source_boundaries(
+                model_proto, trace_result, opset, **boundary_names
+            )
+            check_source_schema(model_proto)
+            report = _build_source_report(
+                result,
+                trace_result,
+                supplied,
+                captured_warnings,
+                caller_x64=caller_x64,
+                caller_precision=(
+                    str(caller_precision) if caller_precision is not None else None
+                ),
+                caller_dtype_promotion=caller_dtype_promotion,
+                caller_rank_promotion=caller_rank_promotion,
+                opset=opset,
+                diagnostic=diagnostic,
+                named_supplied=named_supplied,
+                normalization_mode=normalized_normalization_mode,
+            )
+            attach_precision_report(result, report)
+            attach_precision_report(model_proto, report)
+            if get_precision_report(model_proto) != report:
+                raise RuntimeError(
+                    "Source precision metadata failed its serialization roundtrip"
+                )
+        if normalized_mode == "ir":
+            return result
+
+        if model_proto is None:
+            model_proto = ir.to_proto(result)
+        if normalized_mode == "file":
+            assert file_path is not None
+            saved_path = _save_model_proto(
+                model_proto, file_path, mode=normalized_export_mode
+            )
+            if source:
+                assert trace_result is not None
+                reloaded = onnx.load_model(saved_path, load_external_data=False)
+                _assert_source_boundaries(
+                    reloaded, trace_result, opset, **boundary_names
+                )
+                onnx.checker.check_model(saved_path, full_check=True)
+                if get_precision_report(reloaded) != report:
+                    raise RuntimeError(
+                        "Saved source precision metadata failed its roundtrip"
+                    )
+            return saved_path
+        return model_proto
 
 
 @overload

@@ -6,18 +6,18 @@ consistent rule across all existing functionality and fixed supplied sources,
 without a permanent selector or capability loss.
 
 Public behavior and `enable_double_precision` remain unchanged. This unfinished
-WIP continues **`e22ebcaa`**; **`fe214590`** remains the last fully green
-checkpoint. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
-retains the interrupted full run and separates actual focused checks from
-pending checkpoint work. The private configuration repair covers the late
-conversion/model-callback scope, not the entire public wrapper. LEGACY's global
-flag continues to respect an enclosing local JAX setting.
+WIP continues **`d0835d02`**; **`fe214590`** remains the last fully green
+checkpoint. The private export path now restores four caller settings across
+early argument handling and final naming, reports and saving, with complete
+paired checks passing within their recorded scope. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
+keeps exact sources and outcomes. This private repair does not promise arbitrary
+JAX configuration restoration or change public flag behavior.
 
-An intermediate WIP preserves reviewed unfinished progress. The software guard
-and single-worker CI invocation do not prove full stability or numerical
-acceptance. Full inventory, fixed-source and numerical workflows, including
-SimpleLinear's original failed structure check, remain required before the
-coordinated public transition. Public options stay LEGACY; full B–F is unchanged.
+An intermediate WIP does not complete the full inventory, fixed-source,
+numerical or public transition work. The interrupted full run remains incomplete;
+software resource guards do not prove general stability. SimpleLinear's original
+failed structure check remains binding, and public options stay LEGACY until
+complete acceptance of the coordinated B–F transition.
 
 The plan below describes the completed experience independently of checkpoints.
 Precision choices stay in model configuration, explicit source/preparation and

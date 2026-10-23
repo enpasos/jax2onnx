@@ -8,43 +8,35 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 ## Current implementation and next gates
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
-exact source/stack results and counts. This unfinished LOCAL WIP continues
-`b74d8e93`; `fe214590` remains the last fully green checkpoint. Reviewed
-fixture/expectation and later corpus, CNN/Scan/Gather, Eqx, capture and admission
-repairs are applied with separately source-bound qualification. Current `c875`
-ordinary SimpleLinear callers reach the unchanged raw structural callback, which
-still fails; runtime and numerical acceptance remain UNVERIFIED. Source-reference,
-schema, artifact and lowering checks are VALIDATED. Public behavior stays LEGACY.
+exact source/stack counts and historical failures. This unfinished LOCAL WIP
+continues `d0835d02`; `fe214590` remains the last fully green checkpoint. The
+private SOURCE facade now preserves exactly four caller settings across early
+protocols, conversion and final naming/report/save work; complete paired native
+checks pass within their recorded scope. Public LEGACY behavior and defaults remain unchanged.
 
-1. Preserve the actual focused results and their original callbacks, criteria
-   and failure epochs. Paired admission tests retain the observed opset27>26
-   target-load evidence as FAILED with numerics UNVERIFIED; passing assertions
-   do not establish numerical acceptance. Resolve the current SimpleLinear
-   callback barrier with exact source/counterpart evidence, preserving the raw
-   callback and `None` criteria.
-2. Retain the failed b90 ordinary full suite and its original model/state
-   positives as historical evidence. Later focused qualifications do not rerun
-   that suite. An accepted green checkpoint requires a fresh complete current
-   suite and applicable supported-stack, minimum-version, typing/RNG and
-   schema/runtime checks; an intermediate unfinished WIP is distinct.
-3. Reconcile a fresh native current inventory/probe and full map, including the
-   seven legitimate Eqx recipe provenance changes, without rewriting frozen
-   inventory or mapping outcomes. All original, optional, opaque, metadata-free
-   and manual obligations keep their complete denominator and acceptance scope.
-   The two current SimpleLinear observations are not extra frozen-map closures.
-4. Complete fixed-source preparation, scientific FP64/low-precision evidence and
-   every remaining B–F operator, scope, option, model and state gate. Keep the
-   four after-checkpoint packets: full map/discovery; measured gaps and separate
-   opaque/metadata-free/manual accounting; fixed-source/numerical preparation;
-   coordinated ordinary export/allclose/browser/generator cutover. A standard
-   full suite alone does not complete those obligations.
-5. A LOCAL WIP may preserve reviewed unfinished progress with real failures
-   recorded after relevant actual checks, strict docs/links, all seven normal
-   hooks and exact staged-byte review. It need not repair every full-suite
-   failure or require another broad full run solely for preservation. Record
-   actual closeout outcomes in the normal commit body. Accepted/green milestones
-   and public cutover still require their complete current qualification; WIP
-   storage does not reduce full B–F or authorize release/completion.
+1. Preserve the completed paired boundary checks, including success/error,
+   global/local/unset, all return formats and LEGACY controls on both stacks.
+   Retain the separate CI typing repair's source-bound evidence and all prior
+   failed attempts; record actual local closeout gates before claiming them.
+2. Retain the interrupted full outcome and every historical failure epoch. A
+   fresh complete current suite and applicable stack/minimum/schema/runtime/
+   numerical gates remain required for accepted/green milestones. Software
+   resource guards are not hard kernel quotas or general stability evidence.
+3. Reconcile a fresh current inventory/probe and full map, including seven changed
+   Eqx recipe provenances, without rewriting frozen inventory/map outcomes.
+   Original, optional, opaque, metadata-free and manual obligations retain their
+   complete denominator and acceptance scope. SimpleLinear's original raw
+   callback remains failed; CLI/capture success does not replace its criterion.
+4. Complete fixed-source/scientific-FP64/low-precision work and every B–F operator,
+   scope, option, model and state gate. Integrate shared validation, installed
+   preparation, ordinary export/allclose/browser/generator and migration docs
+   coherently before public cutover. No permanent selector or capability loss is
+   permitted; only demonstrated ONNX/target limits constrain support.
+5. A reviewed LOCAL WIP may preserve unfinished progress after its relevant actual
+   checks, strict docs/links, all seven normal hooks and exact staged review.
+   Record those outcomes in the commit body; WIP storage does not establish
+   full-suite acceptance, release or completion and needs no extra broad run
+   solely for preservation.
 
 <a id="current-binding-minimum-version-obligation"></a>
 

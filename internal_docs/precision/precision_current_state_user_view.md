@@ -26,20 +26,19 @@ tested stacks. Portable BF16 TopK source-word checks also pass; compiled JAX
 NaN words and ordering keep their separate failed native comparisons. These
 samples establish neither all-model support nor a general numerical guarantee.
 
-This unfinished local WIP continues **`e22ebcaa`**; **`fe214590`** remains the
-last fully green checkpoint. The later complete-suite attempt was interrupted,
-with failed and unexecuted cases retained. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
-owns exact counts, source epochs and checkpoint checks; focused passes do not
-establish full-suite or migration acceptance.
+This unfinished local WIP continues **`d0835d02`**; **`fe214590`** remains the
+last fully green checkpoint. The private export path now restores four caller
+settings even when early argument handling or final naming, reporting or saving
+changes them or fails. This covers x64, matrix precision and the two NumPy
+promotion settings; it is not a promise about every JAX setting. Complete paired
+checks pass within the scope recorded in the [technical ledger](poc/source_integration_findings.md#current-checkpoint).
 
-The private configuration repair covers the late conversion/model-callback
-scope; it does not yet cover the whole public call. Existing LEGACY behavior is
-unchanged: an enclosing local JAX setting takes precedence over the flag's
-temporary global setting. The software resource guard and a single-worker CI
-invocation reduce execution risk without proving machine-wide stability.
-The flag discussion below assumes no enclosing local override. Public settings
-remain LEGACY. The full inventory, fixed-source and numerical workflows and
-coordinated public transition remain open.
+Public options remain LEGACY, including the enclosing-local setting's precedence
+over the flag's temporary global value. The flag discussion below assumes no
+local override. The interrupted full run remains incomplete, and focused passes
+or software resource guards do not establish full support or general stability.
+The full inventory, fixed-source and numerical workflows and public transition
+remain required.
 
 Ordinary file exports retain inline Function constants and external storage for
 large root initializers. Actual runtime support and numerical acceptance require

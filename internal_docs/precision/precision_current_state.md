@@ -10,25 +10,27 @@ Framework-floor and all-direct-minimum evidence remain separate.
 
 ## Current private implementation
 
-This unfinished LOCAL WIP continues **`e22ebcaa`**; **`fe214590`** remains the
+This unfinished LOCAL WIP continues **`d0835d02`**; **`fe214590`** remains the
 last fully green checkpoint. The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
-records the interrupted full run, retained failures, actual focused epochs and
-pending checkpoint gates. It records separately that all historical b90 failure
-identities passed during the interrupted run; that is not a green full suite.
+keeps exact source epochs, interrupted/full failure history and current gates.
 
-The applied private SOURCE helper restores four caller settings only around the
-existing late conversion/model-callback boundary. Earlier input/name/protocol
-handling and the whole public wrapper remain pending. LEGACY production is
-unchanged: its flag changes the global x64 setting, while an enclosing native
-local context takes precedence. The new branch test now distinguishes those
-facts without changing the source-scope exclusion.
+Private SOURCE now preserves x64, matrix precision, dtype promotion and rank
+promotion across the entire in-function facade: early logging and input/name/
+parameter/path protocols, conversion, final naming, reports and file handling.
+The existing late scope remains, so its restoration before finalization is
+preserved. Both global and local/unset values are restored on success or error;
+updates remain visible inside the call. This covers exactly four settings, not
+arbitrary JAX configuration or evaluation performed before function entry.
+Complete paired native checks pass for this private boundary; their exact scope
+and source remain in the ledger.
 
-CI's modern guard follows locked JAX/JAXLIB 0.12.0.1, and the normal runner uses
-one xdist worker. The software guard observes owned-process resources and
-cleans up its process group; it is not a hard system memory limit or proof of
-stability. Public defaults remain **LEGACY**. All existing functionality, fixed
-sources, numerical contracts, current inventory reconciliation and full B–F
-remain required through one coherent source-preserving experience.
+The separate CI repair retains the older-stack early Scan return, lazily loads
+the native flat-tree class only when requested and makes the unchanged BF16
+storage copy's ndarray type explicit. Actual typing and focused tests pass on
+both stacks. Public LEGACY routes, defaults and enclosing-local flag precedence
+are unchanged. Full existing-functionality, fixed-source, numerical, inventory
+and B–F obligations remain open. Software execution guards are not hard system
+memory quotas or proof of general stability.
 
 ## One Argument Controls Several Decisions
 

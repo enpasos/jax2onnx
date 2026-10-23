@@ -2,6 +2,62 @@
 
 ## Current checkpoint
 
+Snapshot: 2026-10-23. This unfinished LOCAL WIP follows **`d0835d02`**;
+**`fe214590`** remains the last fully green checkpoint. The applied whole-entry
+SOURCE extension is source **0e9190da** (**1,158 source pins**). Public routes,
+defaults and `enable_double_precision` remain **LEGACY**.
+
+| Current gate | Actual source-bound result | Scope and remaining work |
+| --- | --- | --- |
+| CI failure at `d52`, Python 3.11 and 3.12 | **FAILED typing**: optional `jax._src.flattree` static import and BF16 `no-any-return` | Historical failures remain. The first cast successor passed SECONDARY typing but failed PRIMARY with `redundant-cast`; it is not relabeled. |
+| Separate CI repair preceding `d083` | **572 mypy files PASS on each stack**; **173 tests PASS each**, zero failures/errors/skips | The three complete owners cover BF16 samples, Scan metadata and JAX compatibility. The final ndarray local retains the exact BF16 copy; typed lazy FlatTree loading preserves old-stack early return and native ownership/error checks. Runner-input snapshot `37802360` is distinct from application/commit source snapshots. These typing logs contain no new RNG-trace claim. |
+| Stored CI repair `d0835d02` | Actual normal commit completed its guarded command and all seven normal hooks; source files held | CI run **39908291998** at the last ROOT observation had browser, both normalization and minimum-Python-3.11 jobs PASS; four full jobs were still running. No complete green matrix is claimed, and these jobs do not complete the interrupted local suite. |
+| Whole-entry four-setting SOURCE facade, source `0e9190da` | **315 PASS each**, identical unique selections; PRIMARY **18.601 s**, SECONDARY **16.065 s**, zero failures/errors/skips, source/Git held | Six complete owners include the original eight tests and 36 new early/final cases, LEGACY controls, global/local/unset checks and proto/IR/file returns. Cleanup completed without guard stops; peak owned RSS **540,049,408 / 697,696,256 bytes**. This is private-boundary qualification, not full-suite or numerical acceptance. |
+| This WIP's final closeout | **PENDING actual current quality/docs/hooks/staged review** | Record terminal outcomes in the normal commit record. Prior commit checks do not establish this later cut's quality or full migration acceptance. |
+
+The existing caller-preservation helper now encloses all in-function SOURCE
+facade work after the pure policy identity check: logging/repr, input shape/dtype
+protocols and iteration, names, mappings and paths, conversion, final naming,
+report construction and saving/return. The original late preservation scope is
+retained, preserving restoration before finalization. Exactly **x64, matrix
+precision, dtype promotion and rank promotion** restore both global and
+local/unset values after success or exceptions, without hiding updates during
+the call. This is not arbitrary JAX-state restoration or protection of argument
+evaluation before Python enters the function. The public LEGACY branch and its
+native local-over-global flag precedence are unchanged.
+
+The prior full attempt remains **INTERRUPTED: 14,053 PASS / 2 FAIL /
+18 unexecuted** of **14,073 selected**. All **116** historical b90 failure IDs
+passed during that old epoch; it is not a green completed suite. The original
+b90 failed full, initial guarded `119 PASS / 2 FAIL`, corrected `121 PASS` pair
+and all older source-bound results remain verbatim below. Software polling and
+cleanup are not a hard system memory quota, OOM diagnosis or general stability
+guarantee.
+
+The entire **B–F** goal, existing functionality, fixed supplied sources,
+scientific FP64/low-precision workflows, current inventory/probe reconciliation
+and opaque/metadata-free/manual obligations remain open. Ordinary SimpleLinear's
+raw callback is still **FAILED**, with runtime/numerics **UNVERIFIED**. Held
+shared validation and preparation namespace work is separate; no public
+cutover, permanent selector, capability loss or full-model acceptance follows.
+
+Current evidence: `root-pr277-ci-typing-final-staged-v1/manifest.json`;
+`source-pr277-typing-final-primary-v1/receipt.json`;
+`source-pr277-typing-final-secondary-v1/receipt.json`;
+`source-pr277-scan-bf16-compat-final-v1-primary/receipt.json`;
+`source-pr277-scan-bf16-compat-final-v1-secondary/receipt.json`;
+`source-pr277-ci-typing-commit-v1-guard/receipt.json`;
+`source-source-whole-entry-configuration-root-application-v1/source-inputs.json`;
+`source-whole-entry-boundaries-v1-primary/receipt.json`;
+`source-whole-entry-boundaries-v1-secondary/receipt.json`;
+`root-whole-entry-paired-native-result-v1.json`.
+
+### Retained d52 checkpoint record
+
+The entire previous current record below is preserved verbatim at its original
+source cut. This new section supersedes then-current and pending wording without
+relabelling historical outcomes, criteria or receipts.
+
 Snapshot: 2026-10-23. This unfinished LOCAL WIP follows **`e22ebcaa`**;
 **`fe214590`** remains the last fully green checkpoint. The applied code cut for
 this draft is **64ed** (**1,158 source pins**): the reviewed late SOURCE caller

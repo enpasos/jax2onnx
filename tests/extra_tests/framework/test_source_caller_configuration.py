@@ -186,3 +186,209 @@ def test_existing_public_legacy_flag_does_not_enter_new_source_scope(
         and effective_value is (not old_flag)
         for global_value, local_value, effective_value in seen
     )
+
+
+def _observe_boundary_update(before, seen, failure):
+    _update(_CHANGED)
+    observed = _snapshot()
+    seen.append(observed)
+    for initial, current, changed in zip(before, observed, _CHANGED, strict=True):
+        assert current[0] == changed
+        assert current[1] is initial[1]
+        if current[1] is compat._native_config.config_ext.unset:
+            assert current[2] is current[0]
+        else:
+            assert current[2] is initial[2]
+    if failure is not None:
+        raise failure
+
+
+@pytest.mark.parametrize(
+    "stage", ["input", "protocol", "name", "path", "mapping", "log-repr"]
+)
+@pytest.mark.parametrize("boundary_fails", [False, True])
+@pytest.mark.parametrize("enclosing_locals", [False, True])
+def test_source_whole_entry_restores_early_user_protocol_settings(
+    stage,
+    boundary_fails,
+    enclosing_locals,
+    tmp_path,
+):
+    outside = _snapshot()
+    with ExitStack() as stack:
+        if enclosing_locals:
+            for state, value in zip(
+                _states(), (True, "high", "strict", "warn"), strict=True
+            ):
+                stack.enter_context(state(value))
+        before = _snapshot()
+        seen = []
+        failure = (
+            _CallbackFailure("early source boundary failed") if boundary_fails else None
+        )
+
+        def touch():
+            _observe_boundary_update(before, seen, failure)
+
+        spec = jax.ShapeDtypeStruct((2,), jnp.float32)
+
+        class Inputs(list):
+            def __iter__(self):
+                touch()
+                return super().__iter__()
+
+        class Names(list):
+            def __iter__(self):
+                touch()
+                return super().__iter__()
+
+        class Declaration:
+            dtype = jnp.float32
+            weak_type = False
+
+            @property
+            def shape(self):
+                touch()
+                return (2,)
+
+        class Destination:
+            def __fspath__(self):
+                touch()
+                return str(tmp_path / "early-config.onnx")
+
+        class Parameters(dict):
+            def items(self):
+                touch()
+                return super().items()
+
+        def model(x, *, bias):
+            return x + bias
+
+        class LoggedInputs(list):
+            def __repr__(self):
+                touch()
+                return "SourceBoundaryInputs"
+
+        inputs = [Declaration() if stage == "protocol" else spec]
+        if stage == "input":
+            inputs = Inputs(inputs)
+        elif stage == "log-repr":
+            inputs = LoggedInputs(inputs)
+        names = Names(["data"]) if stage == "name" else ["data"]
+        params = {"bias": spec}
+        if stage == "mapping":
+            params = Parameters(params)
+        options = {}
+        if stage == "path":
+            options = {"return_mode": "file", "output_path": Destination()}
+        if boundary_fails:
+            with pytest.raises(_CallbackFailure) as caught:
+                ui._to_onnx(
+                    model,
+                    inputs,
+                    input_params=params,
+                    input_names=names,
+                    output_names=["result"],
+                    precision_policy=PrecisionPolicy.SOURCE,
+                    **options,
+                )
+            assert caught.value is failure
+        else:
+            result = ui._to_onnx(
+                model,
+                inputs,
+                input_params=params,
+                input_names=names,
+                output_names=["result"],
+                precision_policy=PrecisionPolicy.SOURCE,
+                **options,
+            )
+            if stage == "path":
+                assert result == str(tmp_path / "early-config.onnx")
+                assert (tmp_path / "early-config.onnx").is_file()
+            else:
+                assert result.graph.input and result.graph.output
+        assert seen, "the selected real early protocol was not reached"
+        _assert_exact(before)
+    _assert_exact(outside)
+
+
+@pytest.mark.parametrize("stage", ["naming", "report", "save"])
+@pytest.mark.parametrize("boundary_fails", [False, True])
+@pytest.mark.parametrize("enclosing_locals", [False, True])
+def test_source_whole_entry_restores_finalization_settings_after_late_scope(
+    stage,
+    boundary_fails,
+    enclosing_locals,
+    monkeypatch,
+    tmp_path,
+):
+    outside = _snapshot()
+    with ExitStack() as stack:
+        if enclosing_locals:
+            for state, value in zip(
+                _states(), (True, "high", "strict", "warn"), strict=True
+            ):
+                stack.enter_context(state(value))
+        before = _snapshot()
+        seen = []
+        failure = (
+            _CallbackFailure("source finalization failed") if boundary_fails else None
+        )
+        if stage == "naming":
+            owner, attribute = ui, "_apply_custom_io_names_on_ir"
+        elif stage == "report":
+            owner, attribute = ui, "_build_source_report"
+        else:
+            owner, attribute = ui.onnx, "save_model"
+        original = getattr(owner, attribute)
+
+        def observed_stage(*args, **kwargs):
+            # A real successful stage still runs on the actual export. The
+            # failure case raises the original exception after its setting update.
+            _observe_boundary_update(before, seen, failure)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(owner, attribute, observed_stage)
+        model_calls = []
+
+        def model(x):
+            model_calls.append(_snapshot())
+            return x + jnp.asarray(1, dtype=x.dtype)
+
+        options = {"return_mode": "ir"} if stage == "report" else {}
+        if stage == "save":
+            options = {
+                "return_mode": "file",
+                "output_path": tmp_path / "final-config.onnx",
+            }
+        if boundary_fails:
+            with pytest.raises(_CallbackFailure) as caught:
+                ui._to_onnx(
+                    model,
+                    [jax.ShapeDtypeStruct((2,), jnp.float32)],
+                    input_names=["data"],
+                    output_names=["result"],
+                    precision_policy=PrecisionPolicy.SOURCE,
+                    **options,
+                )
+            assert caught.value is failure
+        else:
+            result = ui._to_onnx(
+                model,
+                [jax.ShapeDtypeStruct((2,), jnp.float32)],
+                input_names=["data"],
+                output_names=["result"],
+                precision_policy=PrecisionPolicy.SOURCE,
+                **options,
+            )
+            if stage == "save":
+                assert result == str(tmp_path / "final-config.onnx")
+                assert (tmp_path / "final-config.onnx").is_file()
+            elif stage == "report":
+                assert result.graph.inputs and result.graph.outputs
+            else:
+                assert result.graph.input and result.graph.output
+        assert seen and model_calls
+        _assert_exact(before)
+    _assert_exact(outside)
