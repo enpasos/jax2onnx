@@ -47,17 +47,17 @@ jobs:
       run: scripts/run_onnxruntime_web_smoke.sh
 
   minimum-dependencies:
-    name: minimum dependency versions
+    name: minimum dependency versions (Python 3.11)
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Set up Python 3.12
+    - name: Set up Python 3.11
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       with:
-        python-version: '3.12'
+        python-version: '3.11'
 
     - name: Install Poetry
       run: pip install "poetry>=2.0,<3.0"
@@ -71,14 +71,31 @@ jobs:
     - name: Report dependency versions
       run: |
         poetry run python - <<'PY'
+        import platform
+        import sys
+
         import flax
         import jax
+        import jaxlib
         import onnx
         import onnx_ir
         import onnxruntime
 
-        print(f"jax=={jax.__version__}")
-        print(f"flax=={flax.__version__}")
+        expected = {"jax": "0.10.2", "jaxlib": "0.10.2", "flax": "0.12.8"}
+        actual = {
+            "jax": jax.__version__,
+            "jaxlib": jaxlib.__version__,
+            "flax": flax.__version__,
+        }
+        print(f"python=={platform.python_version()}")
+        for package, version in actual.items():
+            print(f"{package}=={version}")
+        if sys.version_info[:2] != (3, 11):
+            raise SystemExit("Minimum-dependency CI requires Python 3.11")
+        if actual != expected:
+            raise SystemExit(
+                f"Expected declared framework minimums {expected}; resolved {actual}"
+            )
         print(f"onnx=={onnx.__version__}")
         print(f"onnx-ir=={onnx_ir.__version__}")
         print(f"onnxruntime=={onnxruntime.__version__}")
@@ -117,7 +134,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Python 3.12 resolves the JAX 0.10 stack, 3.13 the JAX 0.11 stack.
+        # Python 3.12 resolves the JAX 0.10 stack, 3.13 the JAX 0.12 stack.
         python-version: ['3.12', '3.13']
 
     steps:
@@ -196,7 +213,7 @@ jobs:
         poetry install --no-interaction
         poetry run pip install pytest-xdist
 
-    - name: Verify locked JAX 0.11 stack
+    - name: Verify locked JAX 0.12 stack
       if: matrix.python-version == '3.13' || matrix.python-version == '3.14'
       run: |
         poetry run python - <<'PY'
@@ -205,7 +222,7 @@ jobs:
 
         from packaging.version import Version
 
-        expected_series = (0, 11)
+        expected_version = Version("0.12.0.1")
         resolved = {
             package: Version(version(package))
             for package in ("jax", "jaxlib")
@@ -213,13 +230,13 @@ jobs:
         wrong = {
             package: str(package_version)
             for package, package_version in resolved.items()
-            if package_version.release[:2] != expected_series
+            if package_version != expected_version
         }
 
         if wrong:
             raise SystemExit(
                 "The locked modern test stack must resolve jax and jaxlib "
-                f"to 0.11.x on Python {sys.version_info.major}."
+                f"to {expected_version} on Python {sys.version_info.major}."
                 f"{sys.version_info.minor}; resolved {wrong}. "
                 "If this is an intentional JAX upgrade, update this guard "
                 "and the compatibility coverage in the same PR."

@@ -7,6 +7,7 @@ from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
@@ -19,6 +20,10 @@ from jax2onnx._compat.jax import (
 )
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -36,7 +41,6 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-
 _TAKE_PRIM: Final = make_jnp_primitive("jax.numpy.take")
 
 
@@ -46,7 +50,7 @@ class _ArangeTakeModule(nnx.Module):
         num_embeddings: int,
         features: int,
         *,
-        dtype: jnp.dtype | type = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.embedding = nnx.Param(
@@ -234,7 +238,7 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.take not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def legacy(
                 arr: ArrayLike,
                 indices: ArrayLike,
                 *,
@@ -250,6 +254,11 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
                     axis=int(axis),
                     mode=None,
                 )
+
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return legacy(*args, **kwargs)
 
             return _patched
 

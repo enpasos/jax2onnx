@@ -167,6 +167,22 @@ class PadPlugin(PrimitiveLeafPlugin):
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pad_out"))
 
+        bool_bridge = (
+            int(getattr(ctx.builder, "opset", 0)) < 19
+            and data_val.dtype == ir.DataType.BOOL
+        )
+        if bool_bridge:
+            # Pad11's numeric type set excludes BOOL. A local 0/1 integer
+            # representation copies Boolean values exactly and does not alter
+            # the canonical input or its other consumers.
+            bridged = ctx.builder.op(
+                "Cast", [data_val], {"to": int(ir.DataType.INT32.value)}
+            )
+            bridged.type = ir.TensorType(ir.DataType.INT32)
+            _stamp_type_and_shape(bridged, tuple(data_var.aval.shape))
+            _ensure_value_metadata(ctx, bridged)
+            data_val = bridged
+
         data_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
         pad_dtype = getattr(getattr(pad_raw, "type", None), "dtype", None)
 
@@ -204,7 +220,7 @@ class PadPlugin(PrimitiveLeafPlugin):
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Pad")
         producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
+        if bool_bridge or callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("Pad")
 
         result = cast(
@@ -228,7 +244,13 @@ class PadPlugin(PrimitiveLeafPlugin):
         if result_dtype is None:
             raise TypeError("lax.pad could not infer an ONNX output dtype")
         result.type = ir.TensorType(result_dtype)
-        result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
+        if bool_bridge:
+            result = ctx.builder.op(
+                "Cast", [result], {"to": int(ir.DataType.BOOL.value)}, output=out_spec
+            )
+            result.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(result, out_shape)
+            _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

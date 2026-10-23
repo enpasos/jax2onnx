@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -11,6 +11,7 @@ import onnx_ir as ir
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -19,6 +20,7 @@ from jax2onnx._compat.jax import (
     JaxprEqn,
     Primitive,
     ShapedArray,
+    is_unpartitioned_prng_placement,
 )
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -202,7 +204,7 @@ class RandomBernoulliPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jax.random.bernoulli not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def _legacy(
                 key: ArrayLike,
                 p: ArrayLike = 0.5,
                 shape: tuple[int, ...] | list[int] | None = None,
@@ -212,6 +214,19 @@ class RandomBernoulliPlugin(PrimitiveLeafPlugin):
                 else:
                     shape_param = tuple(int(dim) for dim in shape)
                 return cls._PRIM.bind(key, jnp.asarray(p), shape=shape_param)
+
+            def _patched(*args: Any, **kwargs: Any) -> Any:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    result = orig(*args, **kwargs)
+                    placement = kwargs.get("out_sharding")
+                    if placement is not None and not is_unpartitioned_prng_placement(
+                        placement, len(result.shape)
+                    ):
+                        raise ValueError(
+                            "SOURCE Bernoulli requires absent placement or the actual empty unpartitioned native sharding"
+                        )
+                    return result
+                return _legacy(*args, **kwargs)
 
             return _patched
 

@@ -16,7 +16,12 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
 )
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _cast_to_i64
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _const_i64,
+    _scalar_i64,
+    _index_to_i64,
+    _clamp_dynamic_start,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -177,6 +182,19 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             raise ValueError(
                 f"dynamic_update_slice expects {rank} start indices but got {len(start_vars)}"
             )
+        if any(
+            isinstance(dim, (int, np.integer)) and int(dim) == 0
+            for dim in upd_var.aval.shape
+        ):
+            # An empty native update writes no elements, including when a zero
+            # occurs on a nonleading axis. Do not reshape it with copy-zero rules.
+            result = ctx.builder.op("Identity", [ref_val], output=out_spec)
+            ctx.bind_value_for_var(out_var, result)
+            return
+        if rank == 0:
+            result = ctx.builder.op("Identity", [upd_val], output=out_spec)
+            ctx.bind_value_for_var(out_var, result)
+            return
         opset = int(getattr(ctx.builder, "opset", 21))
 
         ref_shape_static: tuple[DimInput, ...] = tuple(
@@ -218,7 +236,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                         start_var, name_hint=ctx.fresh_name("dus_start")
                     )
                     start_const = _const_scalar_i64(start_val)
-                    start_i64 = _cast_to_i64(ctx, start_val, f"dus_start_{axis}_i64")
+                    start_i64 = _index_to_i64(ctx, start_val, f"dus_start_{axis}_i64")
                     starts_i64.append(start_i64)
                     if axis != seq_axis and start_const != 0:
                         non_axis_starts_are_zero = False
@@ -230,8 +248,6 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                     if ax != seq_axis
                 ):
                     seq_start = starts_i64[seq_axis]
-                    zero_i64 = _scalar_i64(ctx, 0, "dus_tensorscatter_zero")
-                    one_i64 = _scalar_i64(ctx, 1, "dus_tensorscatter_one")
 
                     ref_shape = cast(
                         ir.Value,
@@ -284,50 +300,11 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                     _stamp_type_and_shape(upd_dim, ())
                     _ensure_value_metadata(ctx, upd_dim)
 
-                    cond_neg = cast(
-                        ir.Value,
-                        ctx.builder.Less(
-                            seq_start,
-                            zero_i64,
-                            _outputs=[ctx.fresh_name("dus_tensorscatter_start_neg")],
-                        ),
-                    )
-                    cond_neg.type = ir.TensorType(ir.DataType.BOOL)
-                    _stamp_type_and_shape(cond_neg, ())
-                    _ensure_value_metadata(ctx, cond_neg)
-
-                    start_plus_ref = _binary_scalar(
-                        ctx,
-                        "Add",
-                        seq_start,
-                        ref_dim,
-                        "dus_tensorscatter_start_plus_ref",
-                    )
-                    start_norm = cast(
-                        ir.Value,
-                        ctx.builder.Where(
-                            cond_neg,
-                            start_plus_ref,
-                            seq_start,
-                            _outputs=[ctx.fresh_name("dus_tensorscatter_start_norm")],
-                        ),
-                    )
-                    start_norm.type = ir.TensorType(ir.DataType.INT64)
-                    _stamp_type_and_shape(start_norm, ())
-                    _ensure_value_metadata(ctx, start_norm)
-
                     max_start = _binary_scalar(
                         ctx, "Sub", ref_dim, upd_dim, "dus_tensorscatter_max_start"
                     )
-                    start_ge0 = _binary_scalar(
-                        ctx, "Max", start_norm, zero_i64, "dus_tensorscatter_start_ge0"
-                    )
-                    start_clamped_scalar = _binary_scalar(
-                        ctx,
-                        "Min",
-                        start_ge0,
-                        max_start,
-                        "dus_tensorscatter_start_clamped",
+                    start_clamped_scalar = _clamp_dynamic_start(
+                        ctx, seq_start, max_start, "dus_tensorscatter_start"
                     )
 
                     batch_axis_idx = _const_i64(
@@ -399,7 +376,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                             upd_val,
                             write_indices,
                             axis=seq_axis,
-                            mode="none",
+                            mode="linear",
                             _outputs=[out_name],
                         ),
                     )
@@ -442,7 +419,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             start_val = ctx.get_value_for_var(
                 start_var, name_hint=ctx.fresh_name("dus_start")
             )
-            start_i64 = _cast_to_i64(ctx, start_val, f"dus_start_{axis}_i64")
+            start_i64 = _index_to_i64(ctx, start_val, f"dus_start_{axis}_i64")
 
             axis_idx = _const_i64(
                 ctx, np.asarray(axis, dtype=np.int64), f"dus_axis_{axis}"
@@ -475,41 +452,8 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(ref_dim, ())
             _ensure_value_metadata(ctx, ref_dim)
 
-            cond_neg = cast(
-                ir.Value,
-                ctx.builder.Less(
-                    start_i64,
-                    zero_i64,
-                    _outputs=[ctx.fresh_name("dus_start_neg")],
-                ),
-            )
-            cond_neg.type = ir.TensorType(ir.DataType.BOOL)
-            _stamp_type_and_shape(cond_neg, ())
-            _ensure_value_metadata(ctx, cond_neg)
-
-            start_plus_ref = _binary_scalar(
-                ctx, "Add", start_i64, ref_dim, "dus_start_plus_ref"
-            )
-            start_norm = cast(
-                ir.Value,
-                ctx.builder.Where(
-                    cond_neg,
-                    start_plus_ref,
-                    start_i64,
-                    _outputs=[ctx.fresh_name("dus_start_norm")],
-                ),
-            )
-            start_norm.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(start_norm, ())
-            _ensure_value_metadata(ctx, start_norm)
-
             max_start = _binary_scalar(ctx, "Sub", ref_dim, upd_dim, "dus_max_start")
-            start_ge0 = _binary_scalar(
-                ctx, "Max", start_norm, zero_i64, "dus_start_ge0"
-            )
-            clamped = _binary_scalar(
-                ctx, "Min", start_ge0, max_start, "dus_start_clamped"
-            )
+            clamped = _clamp_dynamic_start(ctx, start_i64, max_start, "dus_start")
             start_clamped.append(clamped)
 
         # Total number of update elements: ReduceProd(upd_shape)

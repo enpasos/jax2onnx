@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import equinox as eqx
 import jax
@@ -11,6 +11,9 @@ from jax.extend.core import Primitive
 
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
+    with_requested_dtype,
+    with_prng_key,
     register_native_primitive,
 )
 
@@ -25,15 +28,34 @@ _RECURRENT_ONNX: Final[list[dict[str, str]]] = [
     {"component": "Tanh", "doc": "https://onnx.ai/onnx/operators/onnx__Tanh.html"},
 ]
 
-_EQX_GRU_CELL: Final[eqx.nn.GRUCell] = eqx.nn.GRUCell(
-    input_size=3,
-    hidden_size=4,
-    key=jax.random.PRNGKey(0),
+
+def _make_eqx_gru_cell(dtype: Any, key: jax.Array) -> Callable[..., Any]:
+    cell = eqx.nn.GRUCell(input_size=3, hidden_size=4, dtype=dtype, key=key)
+
+    def call(h: jax.Array, x: jax.Array) -> jax.Array:
+        return cell(x, h)
+
+    return call
+
+
+def _make_eqx_lstm_cell(dtype: Any, key: jax.Array) -> Callable[..., Any]:
+    cell = eqx.nn.LSTMCell(input_size=3, hidden_size=4, dtype=dtype, key=key)
+
+    def call(h: jax.Array, c: jax.Array, x: jax.Array) -> Any:
+        return cell(x, (h, c))
+
+    return call
+
+
+_EQX_GRU_CELL: Final = construct_and_call(
+    _make_eqx_gru_cell,
+    dtype=with_requested_dtype(),
+    key=with_prng_key(0),
 )
-_EQX_LSTM_CELL: Final[eqx.nn.LSTMCell] = eqx.nn.LSTMCell(
-    input_size=3,
-    hidden_size=4,
-    key=jax.random.PRNGKey(1),
+_EQX_LSTM_CELL: Final = construct_and_call(
+    _make_eqx_lstm_cell,
+    dtype=with_requested_dtype(),
+    key=with_prng_key(1),
 )
 
 
@@ -47,7 +69,7 @@ _EQX_LSTM_CELL: Final[eqx.nn.LSTMCell] = eqx.nn.LSTMCell(
     testcases=[
         {
             "testcase": "eqx_gru_cell_basic",
-            "callable": lambda h, x, _cell=_EQX_GRU_CELL: _cell(x, h),
+            "callable": _EQX_GRU_CELL,
             "input_shapes": [(4,), (3,)],
             "expected_output_shapes": [(4,)],
             "run_only_f32_variant": True,
@@ -82,7 +104,7 @@ class GRUCellPlugin(PrimitiveLeafPlugin):
     testcases=[
         {
             "testcase": "eqx_lstm_cell_basic",
-            "callable": lambda h, c, x, _cell=_EQX_LSTM_CELL: _cell(x, (h, c)),
+            "callable": _EQX_LSTM_CELL,
             "input_shapes": [(4,), (4,), (3,)],
             "expected_output_shapes": [(4,), (4,)],
             "run_only_f32_variant": True,

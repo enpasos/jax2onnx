@@ -4,6 +4,14 @@ from __future__ import annotations
 from typing import Any, List
 
 from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_profile import (
+    _Site,
+    _tensor,
+    _extended_symbolic_shape,
+    _validate_tensor_layout,
+)
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax import lax
 
 import onnx_ir as ir
@@ -103,6 +111,31 @@ class TransposePlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: Any, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
+
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            site = _Site("SOURCE transpose lowering", ctx.builder.opset, "transpose")
+            inputs = [_tensor(var, site) for var in eqn.invars]
+            outputs = [_tensor(var, site) for var in eqn.outvars]
+            if any(_extended_symbolic_shape(value) for value in (*inputs, *outputs)):
+                _validate_tensor_layout(eqn, inputs, outputs, site)
+                source = ctx.require_value_for_var(x_var)
+                if not representation_for_aval(x_var.aval).matches_ir_value(source):
+                    raise ValueError(
+                        "SOURCE Transpose operand differs from its native representation"
+                    )
+                output = ctx.allocate_value_for_var(y_var, name_hint="transpose_out")
+                if not representation_for_aval(y_var.aval).matches_ir_value(output):
+                    raise ValueError(
+                        "SOURCE Transpose output differs from its native representation"
+                    )
+                result = ctx.builder.op(
+                    "Transpose",
+                    [source],
+                    {"perm": ir.AttrInt64s("perm", eqn.params["permutation"])},
+                    output=output,
+                )
+                ctx.bind_value_for_var(y_var, result)
+                return
 
         # JAX params may be named "permutation" (current) or "dimensions" (older).
         perm = eqn.params.get("permutation", None)

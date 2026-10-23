@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final, Sequence, Tuple
+from typing import Any, Callable, ClassVar, Final, cast, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -29,6 +29,9 @@ from jax2onnx.plugins._complex_utils import cast_real_tensor
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
+    with_requested_dtype,
+    with_prng_key,
     register_native_primitive,
 )
 
@@ -124,13 +127,31 @@ def _conv_shape(
     return ShapedArray(out_spec.shape, out_spec.dtype)
 
 
-_EQX_CONV_EXAMPLE: Final[eqx.nn.Conv2d] = eqx.nn.Conv2d(
-    in_channels=3,
-    out_channels=8,
-    kernel_size=3,
-    stride=2,
-    padding=1,
-    key=jax.random.PRNGKey(0),
+def _make_eqx_conv_example(
+    dtype: Any, key: jax.Array, *, batched: bool = False
+) -> Callable[..., Any]:
+    layer = eqx.nn.Conv2d(
+        in_channels=3,
+        out_channels=8,
+        kernel_size=3,
+        stride=2,
+        padding=1,
+        dtype=dtype,
+        key=key,
+    )
+    return cast(Callable[..., Any], jax.vmap(layer)) if batched else layer
+
+
+_EQX_CONV_EXAMPLE: Final = construct_and_call(
+    _make_eqx_conv_example,
+    dtype=with_requested_dtype(),
+    key=with_prng_key(0),
+)
+_EQX_CONV_BATCHED_EXAMPLE: Final = construct_and_call(
+    _make_eqx_conv_example,
+    dtype=with_requested_dtype(),
+    key=with_prng_key(0),
+    batched=True,
 )
 
 
@@ -159,7 +180,7 @@ _EQX_CONV_EXAMPLE: Final[eqx.nn.Conv2d] = eqx.nn.Conv2d(
         },
         {
             "testcase": "eqx_conv2d_batched_nchw",
-            "callable": jax.vmap(_EQX_CONV_EXAMPLE),
+            "callable": _EQX_CONV_BATCHED_EXAMPLE,
             "input_shapes": [(5, 3, 32, 32)],
             "post_check_onnx_graph": expect_graph(
                 ["Conv:5x8x16x16"],

@@ -14,6 +14,7 @@ from flax import nnx
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -121,11 +122,17 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
     def _make_patch(
         orig_fn: Callable[..., ArrayLike] | None,
     ) -> Callable[..., ArrayLike]:
-        del orig_fn
         prim = LogSoftmaxPlugin._PRIM
 
-        def patched_log_softmax(x: ArrayLike, axis: int = -1) -> ArrayLike:
+        def _legacy(x: ArrayLike, axis: int = -1) -> ArrayLike:
             return cast(ArrayLike, prim.bind(x, axis=axis))
+
+        def patched_log_softmax(*args: Any, **kwargs: Any) -> ArrayLike:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError("Original nnx.log_softmax not found")
+                return orig_fn(*args, **kwargs)
+            return _legacy(*args, **kwargs)
 
         return patched_log_softmax
 

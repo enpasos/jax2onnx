@@ -171,8 +171,8 @@ if [[ -n "${ONNXRUNTIME_WEB_RUNNER}" ]]; then
 fi
 
 if poetry run python -c "import xdist" >/dev/null 2>&1; then
-  echo "Using pytest-xdist: -n auto --dist=loadscope"
-  poetry run pytest -n auto --dist=loadscope "${PYTEST_DURATION_ARGS[@]}"
+  echo "Using pytest-xdist: -n 1 --dist=loadscope"
+  poetry run pytest -n 1 --dist=loadscope "${PYTEST_DURATION_ARGS[@]}"
 else
   echo "pytest-xdist is not installed in the Poetry environment."
   echo "Falling back to serial pytest."

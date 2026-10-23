@@ -12,6 +12,7 @@ import onnx_ir as ir
 
 from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -423,9 +424,10 @@ class PoolPlugin(PrimitiveLeafPlugin):
     # ---------------- monkey patch & binding ----------------
     @staticmethod
     def get_monkey_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
-        PoolPlugin._ORIG_CALL = orig_fn
+        original = getattr(orig_fn, "__j2o_linen_pool_original__", orig_fn)
+        PoolPlugin._ORIG_CALL = original
 
-        def patched_pool(
+        def legacy(
             inputs: Any,
             init: object,
             reduce_fn: object,
@@ -450,6 +452,12 @@ class PoolPlugin(PrimitiveLeafPlugin):
                 padding=str(padding),
             )
 
+        def patched_pool(*args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return original(*args, **kwargs)
+            return legacy(*args, **kwargs)
+
+        setattr(patched_pool, "__j2o_linen_pool_original__", original)
         return patched_pool
 
     @classmethod

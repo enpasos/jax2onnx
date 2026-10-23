@@ -9,6 +9,7 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins.plugin_system import (
@@ -768,7 +769,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         LinearGeneralPlugin._ORIGINAL_CALL = orig_fn
         prim = LinearGeneralPlugin._PRIM
 
-        def patched(self: nnx.LinearGeneral, x: Any, out_sharding: Any = None) -> Any:
+        def legacy(self: nnx.LinearGeneral, x: Any, out_sharding: Any = None) -> Any:
             # ``out_sharding`` (flax >=0.12.8) is a device-placement hint with no
             # ONNX equivalent, so it is accepted and ignored during export.
             del out_sharding
@@ -783,6 +784,13 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             kernel = self.kernel.value
             bias = self.bias.value if self.bias is not None else None
             return prim.bind(x, kernel, bias, dimension_numbers=dn)
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError("Original native module call is unavailable")
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 

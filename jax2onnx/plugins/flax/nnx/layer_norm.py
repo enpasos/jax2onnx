@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Any, Callable, ClassVar, Final, List, Optional, Sequence, cast
 import jax.numpy as jnp
 from flax import nnx
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -567,7 +572,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _patch_call(orig: Callable[..., Any]) -> Callable[..., Any]:
-        def wrapped(self: nnx.LayerNorm, x: Any) -> Any:
+        def legacy(self: nnx.LayerNorm, x: Any) -> Any:
             # Prefer explicit reduction_axes, then feature_axes, else last dim
             if getattr(self, "reduction_axes", None) is not None:
                 axes = self.reduction_axes
@@ -641,6 +646,12 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
                 use_fast_variance=fast,
             )
             return jnp.reshape(y_flat, orig_shape)
+
+        @wraps(orig)
+        def wrapped(self: nnx.LayerNorm, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return wrapped
 

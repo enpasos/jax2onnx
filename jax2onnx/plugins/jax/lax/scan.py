@@ -11,6 +11,8 @@ import numpy as np
 import onnx_ir as ir
 from jax import lax
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -92,13 +94,17 @@ def _static_scatter_extent(jpr_like: Any) -> int | None:
     return None
 
 
-def _dtype_enum_for_var(var: Any, enable_double: bool) -> ir.DataType | None:
+def _dtype_enum_for_var(
+    ctx: LoweringContextProtocol, var: Any, enable_double: bool
+) -> ir.DataType | None:
     aval = getattr(var, "aval", None)
     if aval is None:
         return None
     aval_dtype = getattr(aval, "dtype", None)
     if aval_dtype is None:
         return None
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        return representation_for_aval(aval).ir_dtype
     try:
         np_dtype = np.dtype(aval_dtype)
     except TypeError:
@@ -117,6 +123,18 @@ def _set_value_dtype_from_var(
     aval_dtype = getattr(aval, "dtype", None)
     if aval_dtype is None:
         return
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        representation = representation_for_aval(aval)
+        if value.dtype is not None and value.dtype != representation.ir_dtype:
+            raise TypeError(
+                f"SOURCE scan value requires {representation.ir_dtype}, received {value.dtype}"
+            )
+        value.type = ir.TensorType(representation.ir_dtype)
+        _stamp_type_and_shape(
+            value, cast(tuple[DimInput, ...], representation.physical_shape)
+        )
+        _ensure_value_metadata(ctx, value)
+        return
     try:
         np_dtype = np.dtype(aval_dtype)
     except TypeError:
@@ -129,6 +147,17 @@ def _set_value_dtype_from_var(
     _ensure_value_metadata(ctx, value)
 
 
+def _relax_value_for_var(
+    ctx: LoweringContextProtocol, value: ir.Value, var: Any
+) -> None:
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        # Keep the stamped physical contract while child operations/Functions
+        # are lowered. Rank-only Loop metadata belongs to ir_postprocess, after
+        # consumers have checked native shapes and packed complex channels.
+        return
+    relax_value_to_rank_only(value)
+
+
 def _maybe_cast_value(
     ctx: LoweringContextProtocol,
     value: ir.Value,
@@ -139,6 +168,12 @@ def _maybe_cast_value(
     if target_enum is None:
         return value
     current_enum = getattr(getattr(value, "type", None), "dtype", None)
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        if current_enum != target_enum:
+            raise TypeError(
+                f"SOURCE scan storage requires {target_enum}, received {current_enum}"
+            )
+        return value
     if not force and (current_enum is None or current_enum == target_enum):
         return value
     cast_val = builder_cast(
@@ -729,7 +764,25 @@ class ScanPlugin(PrimitiveLeafPlugin):
             aval = getattr(var, "aval", None)
             if aval is not None:
                 aval_shape = tuple(getattr(aval, "shape", ()))
-                if idx >= num_carry and aval_shape:
+                if (
+                    ctx.precision_policy is PrecisionPolicy.SOURCE
+                    and idx >= num_carry
+                    and length == 0
+                    and all(isinstance(dim, (int, np.integer)) for dim in aval_shape)
+                ):
+                    # A zero-trip Loop cannot recover relaxed body dimensions:
+                    # runtimes may return (0, 0) for a required (0, N) result.
+                    # Its scan result is exactly the typed, statically empty
+                    # tensor. Keep lowering/validating the body and carries.
+                    val = ctx.bind_const_for_var(
+                        var, np.empty(aval_shape, dtype=aval.dtype)
+                    )
+                    node_outputs[out_idx] = val
+                if (
+                    ctx.precision_policy is PrecisionPolicy.LEGACY
+                    and idx >= num_carry
+                    and aval_shape
+                ):
                     first_dim = aval_shape[0]
                     first_dim_resolved: Union[int, str]
                     builder_stacktrace_enabled = False
@@ -762,10 +815,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     desired_shape = (first_dim_resolved,) + aval_shape[1:]
                 else:
                     desired_shape = aval_shape
+                if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                    desired_shape = representation_for_aval(aval).physical_shape
                 desired_np_dtype: np.dtype[Any] = np.dtype(
                     getattr(aval, "dtype", np.float32)
                 )
-                if np.issubdtype(desired_np_dtype, np.integer):
+                if ctx.precision_policy is PrecisionPolicy.LEGACY and np.issubdtype(
+                    desired_np_dtype, np.integer
+                ):
                     target_enum = (
                         ir.DataType.INT64
                         if ctx.builder.enable_double_precision
@@ -848,47 +905,53 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for idx, var in enumerate(jaxpr.invars):
             state_input = loop_ctx.add_input_for_invar(var, idx + 2)
             if idx < num_consts:
-                target_enum = _dtype_enum_for_var(var, allow_double_consts)
+                target_enum = _dtype_enum_for_var(loop_ctx, var, allow_double_consts)
                 casted = _maybe_cast_value(loop_ctx, state_input, target_enum)
                 if casted is not state_input:
                     loop_ctx.bind_value_for_var(var, casted)
                     state_input = casted
             _set_value_dtype_from_var(loop_ctx, state_input, var)
-            relax_value_to_rank_only(state_input)
+            _relax_value_for_var(loop_ctx, state_input, var)
             state_inputs.append(state_input)
 
-        loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
-        loop_extent_vec = _unsqueeze_scalar(
-            loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
-        )
         trip_count_val: ir.Value | None = None
-        extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
-        if not isinstance(extent_hints, dict):
-            extent_hints = {}
-            setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-        extent_hints.setdefault(0, []).append(loop_extent_vec)
-        scatter_static_extent = _static_scatter_extent(jaxpr) if has_scatter else None
-        if has_scatter:
-            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
-        if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
-            print("[loop_hint_static]", scatter_static_extent, flush=True)
-        if scatter_static_extent is not None:
-            setattr(loop_ctx, "_force_loop_extent_axis0", True)
-            setattr(loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent))
-            override_scalar = _scalar_i64(
-                loop_ctx,
-                int(scatter_static_extent),
-                "scan_loop_extent_override",
+        scatter_static_extent = None
+        if ctx.precision_policy is PrecisionPolicy.LEGACY:
+            loop_extent_scalar = _scalar_i64(loop_ctx, int(length), "scan_loop_extent")
+            loop_extent_vec = _unsqueeze_scalar(
+                loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
             )
-            override_vec = _unsqueeze_scalar(
-                loop_ctx,
-                override_scalar,
-                0,
-                "scan_loop_extent_override_vec",
+            extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+            if not isinstance(extent_hints, dict):
+                extent_hints = {}
+                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+            extent_hints.setdefault(0, []).append(loop_extent_vec)
+            scatter_static_extent = (
+                _static_scatter_extent(jaxpr) if has_scatter else None
             )
-            axis_hints = extent_hints.setdefault(0, [])
-            axis_hints.clear()
-            axis_hints.append(override_vec)
+            if has_scatter:
+                setattr(loop_ctx, "_loop_extent_hints_enabled", True)
+            if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
+                print("[loop_hint_static]", scatter_static_extent, flush=True)
+            if scatter_static_extent is not None:
+                setattr(loop_ctx, "_force_loop_extent_axis0", True)
+                setattr(
+                    loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent)
+                )
+                override_scalar = _scalar_i64(
+                    loop_ctx,
+                    int(scatter_static_extent),
+                    "scan_loop_extent_override",
+                )
+                override_vec = _unsqueeze_scalar(
+                    loop_ctx,
+                    override_scalar,
+                    0,
+                    "scan_loop_extent_override_vec",
+                )
+                axis_hints = extent_hints.setdefault(0, [])
+                axis_hints.clear()
+                axis_hints.append(override_vec)
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
             print(
                 "[scan_no_xs_state]",
@@ -927,7 +990,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 inp_val,
                 name_hint="loop_const_out",
             )
-            relax_value_to_rank_only(out_val)
+            _relax_value_for_var(loop_ctx, out_val, jaxpr.invars[i])
             body_outputs.append(out_val)
 
         for out_var in jaxpr.outvars[:num_carry]:
@@ -939,13 +1002,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     flush=True,
                 )
             _set_value_dtype_from_var(loop_ctx, out_val, out_var)
-            relax_value_to_rank_only(out_val)
+            _relax_value_for_var(loop_ctx, out_val, out_var)
             body_outputs.append(out_val)
 
         carry_outputs_start = 1 + num_consts
         for rel_idx, out_var in enumerate(jaxpr.outvars[:num_carry]):
             value = body_outputs[carry_outputs_start + rel_idx]
-            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            target_enum = _dtype_enum_for_var(loop_ctx, out_var, allow_double_outputs)
             if target_enum is None:
                 continue
             casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
@@ -962,14 +1025,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     flush=True,
                 )
             _set_value_dtype_from_var(loop_ctx, out_val, out_var)
-            relax_value_to_rank_only(out_val)
+            _relax_value_for_var(loop_ctx, out_val, out_var)
             body_outputs.append(out_val)
 
         outputs_start_no_xs = 1 + num_consts + num_carry
         for rel_idx, out_var in enumerate(jaxpr.outvars[num_carry:]):
             value = body_outputs[outputs_start_no_xs + rel_idx]
             _set_value_dtype_from_var(loop_ctx, value, out_var)
-            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            target_enum = _dtype_enum_for_var(loop_ctx, out_var, allow_double_outputs)
             casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
             if casted is not value:
                 body_outputs[outputs_start_no_xs + rel_idx] = casted
@@ -1016,7 +1079,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 state_enum = getattr(
                     getattr(state_inputs[idx], "type", None), "dtype", None
                 )
-                expected_enum = _dtype_enum_for_var(v, allow_double_consts)
+                expected_enum = _dtype_enum_for_var(ctx, v, allow_double_consts)
                 if expected_enum is None:
                     expected_enum = state_enum
                 else:
@@ -1068,7 +1131,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
             out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
             if out_var is not None and not _is_dropvar(out_var):
                 top_val = ctx.get_value_for_var(out_var)
-                expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+                expected_enum = _dtype_enum_for_var(
+                    loop_ctx, out_var, allow_double_outputs
+                )
                 if expected_enum is None:
                     expected_enum = getattr(
                         getattr(body_out, "type", None), "dtype", None
@@ -1100,7 +1165,17 @@ class ScanPlugin(PrimitiveLeafPlugin):
         body_seq_outvars = list(jaxpr.outvars[num_carry:])
         seq_axis_overrides: list[int | None] = []
         ctx_override_extent = getattr(loop_ctx, "_static_loop_extent_axis0", None)
-        for body_out_var in body_seq_outvars:
+        for index, body_out_var in enumerate(body_seq_outvars):
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                representation = representation_for_aval(
+                    eqn.outvars[num_carry + index].aval
+                )
+                # The stacked axis is the scan length, not the per-step
+                # tensor's first logical dimension or complex channel count.
+                seq_axis_overrides.append(
+                    int(cast(int, representation.physical_shape[0]))
+                )
+                continue
             aval = getattr(body_out_var, "aval", None)
             axis0_extent = None
             if aval is not None:
@@ -1141,7 +1216,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 else:
                     aval_shape_tuple = None
                 _restamp_axis0(top_val, override_int, aval_shape_tuple)
-            expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            expected_enum = _dtype_enum_for_var(loop_ctx, out_var, allow_double_outputs)
             if expected_enum is None:
                 expected_enum = getattr(
                     getattr(
@@ -1200,7 +1275,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_override_extent = getattr(loop_ctx, "_static_loop_extent_axis0", None)
         if (
-            getattr(loop_ctx, "_force_loop_extent_axis0", False)
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and getattr(loop_ctx, "_force_loop_extent_axis0", False)
             and isinstance(loop_override_extent, (int, np.integer))
             and int(loop_override_extent) > 1
         ):
@@ -1335,13 +1411,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry]):
             state_input = loop_ctx.add_input_for_invar(var, idx + 2)
             if idx < num_consts:
-                target_enum = _dtype_enum_for_var(var, allow_double_consts)
+                target_enum = _dtype_enum_for_var(loop_ctx, var, allow_double_consts)
                 casted = _maybe_cast_value(loop_ctx, state_input, target_enum)
                 if casted is not state_input:
                     loop_ctx.bind_value_for_var(var, casted)
                     state_input = casted
             _set_value_dtype_from_var(loop_ctx, state_input, var)
-            relax_value_to_rank_only(state_input)
+            _relax_value_for_var(loop_ctx, state_input, var)
             state_inputs.append(state_input)
 
         if os.environ.get("J2O_DEBUG_LOOP_DTYPES") == "1":
@@ -1370,47 +1446,53 @@ class ScanPlugin(PrimitiveLeafPlugin):
             )
             sequence_states.append(seq_state)
 
-        extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
-        if has_scatter and sequence_states:
-            seq_state = sequence_states[0]
-            seq_shape = _shape_of(loop_ctx, seq_state, "scan_seq_state_shape")
-            loop_extent_scalar = _gather_int_scalar(
-                loop_ctx, seq_shape, 0, "scan_loop_extent_seq"
+        scatter_static_extent = None
+        if ctx.precision_policy is PrecisionPolicy.LEGACY:
+            extent_hints = getattr(loop_ctx, "_loop_extent_hints", None)
+            if has_scatter and sequence_states:
+                seq_state = sequence_states[0]
+                seq_shape = _shape_of(loop_ctx, seq_state, "scan_seq_state_shape")
+                loop_extent_scalar = _gather_int_scalar(
+                    loop_ctx, seq_shape, 0, "scan_loop_extent_seq"
+                )
+                loop_extent_vec = _unsqueeze_scalar(
+                    loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
+                )
+                if not isinstance(extent_hints, dict):
+                    extent_hints = {}
+                    setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+                extent_hints.setdefault(0, []).append(loop_extent_vec)
+                setattr(loop_ctx, "_loop_extent_hints_enabled", True)
+            scatter_static_extent = (
+                _static_scatter_extent(jaxpr) if has_scatter else None
             )
-            loop_extent_vec = _unsqueeze_scalar(
-                loop_ctx, loop_extent_scalar, 0, "scan_loop_extent_vec"
-            )
-            if not isinstance(extent_hints, dict):
-                extent_hints = {}
-                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-            extent_hints.setdefault(0, []).append(loop_extent_vec)
-            setattr(loop_ctx, "_loop_extent_hints_enabled", True)
-        scatter_static_extent = _static_scatter_extent(jaxpr) if has_scatter else None
-        if scatter_static_extent is not None:
-            setattr(loop_ctx, "_force_loop_extent_axis0", True)
-            setattr(loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent))
-            if not isinstance(extent_hints, dict):
-                extent_hints = {}
-                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
-            override_scalar = _scalar_i64(
-                loop_ctx,
-                int(scatter_static_extent),
-                "scan_loop_extent_override",
-            )
-            override_vec = _unsqueeze_scalar(
-                loop_ctx,
-                override_scalar,
-                0,
-                "scan_loop_extent_override_vec",
-            )
-            axis_hints = extent_hints.setdefault(0, [])
-            axis_hints.clear()
-            axis_hints.append(override_vec)
-            trip_count_val = _scalar_i64(
-                ctx,
-                int(scatter_static_extent),
-                "scan_trip_extent_static",
-            )
+            if scatter_static_extent is not None:
+                setattr(loop_ctx, "_force_loop_extent_axis0", True)
+                setattr(
+                    loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent)
+                )
+                if not isinstance(extent_hints, dict):
+                    extent_hints = {}
+                    setattr(loop_ctx, "_loop_extent_hints", extent_hints)
+                override_scalar = _scalar_i64(
+                    loop_ctx,
+                    int(scatter_static_extent),
+                    "scan_loop_extent_override",
+                )
+                override_vec = _unsqueeze_scalar(
+                    loop_ctx,
+                    override_scalar,
+                    0,
+                    "scan_loop_extent_override_vec",
+                )
+                axis_hints = extent_hints.setdefault(0, [])
+                axis_hints.clear()
+                axis_hints.append(override_vec)
+                trip_count_val = _scalar_i64(
+                    ctx,
+                    int(scatter_static_extent),
+                    "scan_trip_extent_static",
+                )
         scan_input_vars = jaxpr.invars[
             num_consts + num_carry : num_consts + num_carry + num_scan
         ]
@@ -1427,8 +1509,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 _outputs=[loop_ctx.fresh_name("GatherScanInput")],
             )
             loop_ctx.bind_value_for_var(per_step_var, per_step_val)
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                _set_value_dtype_from_var(loop_ctx, per_step_val, per_step_var)
             aval_dtype = getattr(getattr(per_step_var, "aval", None), "dtype", None)
-            if aval_dtype is not None:
+            if (
+                ctx.precision_policy is PrecisionPolicy.LEGACY
+                and aval_dtype is not None
+            ):
                 try:
                     np_dtype = np.dtype(aval_dtype)
                 except TypeError:
@@ -1519,7 +1606,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 inp_val,
                 name_hint="loop_const_out",
             )
-            relax_value_to_rank_only(out_val)
+            _relax_value_for_var(loop_ctx, out_val, jaxpr.invars[i])
             body_outputs.append(out_val)
 
         for out_var in jaxpr.outvars[:num_carry]:
@@ -1531,13 +1618,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     flush=True,
                 )
             _set_value_dtype_from_var(loop_ctx, out_val, out_var)
-            relax_value_to_rank_only(out_val)
+            _relax_value_for_var(loop_ctx, out_val, out_var)
             body_outputs.append(out_val)
 
         carry_outputs_start = 1 + num_consts
         for rel_idx, out_var in enumerate(jaxpr.outvars[:num_carry]):
             value = body_outputs[carry_outputs_start + rel_idx]
-            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            target_enum = _dtype_enum_for_var(loop_ctx, out_var, allow_double_outputs)
             if target_enum is None:
                 continue
             casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
@@ -1562,14 +1649,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     flush=True,
                 )
             _set_value_dtype_from_var(loop_ctx, out_val, out_var)
-            relax_value_to_rank_only(out_val)
+            _relax_value_for_var(loop_ctx, out_val, out_var)
             body_outputs.append(out_val)
 
         outputs_start_with_seq = 1 + num_consts + num_carry + len(sequence_states)
         for rel_idx, out_var in enumerate(jaxpr.outvars[num_carry:]):
             value = body_outputs[outputs_start_with_seq + rel_idx]
             _set_value_dtype_from_var(loop_ctx, value, out_var)
-            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            target_enum = _dtype_enum_for_var(loop_ctx, out_var, allow_double_outputs)
             casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
             if casted is not value:
                 body_outputs[outputs_start_with_seq + rel_idx] = casted
@@ -1612,7 +1699,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 state_enum = getattr(
                     getattr(state_inputs[idx], "type", None), "dtype", None
                 )
-                expected_enum = _dtype_enum_for_var(v, allow_double_consts)
+                expected_enum = _dtype_enum_for_var(ctx, v, allow_double_consts)
                 if expected_enum is None:
                     expected_enum = state_enum
                 else:
@@ -1666,7 +1753,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             if out_var is not None and not _is_dropvar(out_var):
                 top_val = ctx.get_value_for_var(out_var)
                 expected_enum = _dtype_enum_for_var(
-                    out_var, ctx.builder.enable_double_precision
+                    ctx, out_var, ctx.builder.enable_double_precision
                 )
                 if expected_enum is None:
                     expected_enum = getattr(
@@ -1700,7 +1787,17 @@ class ScanPlugin(PrimitiveLeafPlugin):
         body_seq_outvars = list(jaxpr.outvars[num_carry:])
         seq_axis_overrides: list[int | None] = []
         ctx_override_extent = getattr(loop_ctx, "_static_loop_extent_axis0", None)
-        for body_out_var in body_seq_outvars:
+        for index, body_out_var in enumerate(body_seq_outvars):
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                representation = representation_for_aval(
+                    eqn.outvars[num_carry + index].aval
+                )
+                # The stacked axis is the scan length, not the per-step
+                # tensor's first logical dimension or complex channel count.
+                seq_axis_overrides.append(
+                    int(cast(int, representation.physical_shape[0]))
+                )
+                continue
             aval = getattr(body_out_var, "aval", None)
             axis0_extent = None
             if aval is not None:
@@ -1756,7 +1853,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 aval_shape_tuple = aval_shape if isinstance(aval_shape, tuple) else None
                 _restamp_axis0(top_val, override_int, aval_shape_tuple)
             expected_enum = _dtype_enum_for_var(
-                out_var, ctx.builder.enable_double_precision
+                ctx, out_var, ctx.builder.enable_double_precision
             )
             if expected_enum is None:
                 expected_enum = getattr(getattr(body_out, "type", None), "dtype", None)
@@ -1808,7 +1905,8 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_override_extent = getattr(loop_ctx, "_static_loop_extent_axis0", None)
         if (
-            getattr(loop_ctx, "_force_loop_extent_axis0", False)
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and getattr(loop_ctx, "_force_loop_extent_axis0", False)
             and isinstance(loop_override_extent, (int, np.integer))
             and int(loop_override_extent) > 1
         ):

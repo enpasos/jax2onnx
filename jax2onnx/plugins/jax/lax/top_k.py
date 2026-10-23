@@ -11,6 +11,13 @@ import onnx_ir as ir
 
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.typing_support import NativeLoweringContext
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx.converter.source_top_k import (
+    native_top_k_result_is_empty,
+    require_native_top_k_emission,
+)
+from jax2onnx.plugins._complex_utils import coerce_dim_values
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -49,6 +56,9 @@ from jax2onnx.plugins.plugin_system import (
 )
 class TopKPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            self._lower_source_native(ctx, eqn)
+            return
         (arr_var,) = eqn.invars
         values_var, indices_var = eqn.outvars
 
@@ -107,3 +117,163 @@ class TopKPlugin(PrimitiveLeafPlugin):
 
         ctx.bind_value_for_var(values_var, values)
         ctx.bind_value_for_var(indices_var, result_indices)
+
+    def _lower_source_native(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
+        require_native_top_k_emission(eqn, ctx)
+        source_var = eqn.invars[0]
+        source = representation_for_aval(source_var.aval)
+        data = ctx.require_value_for_var(source_var)
+        if not source.matches_ir_value(data):
+            raise TypeError(
+                "SOURCE TopK physical input differs from its native declaration"
+            )
+        values_var, indices_var = eqn.outvars
+        values_output = ctx.allocate_value_for_var(
+            values_var, name_hint=ctx.fresh_name("topk_values")
+        )
+        indices_output = ctx.allocate_value_for_var(
+            indices_var, name_hint=ctx.fresh_name("topk_indices")
+        )
+        axis, k = eqn.params["axis"], eqn.params["k"]
+
+        def emit(
+            name: str,
+            operands: list[ir.Value],
+            dtype: ir.DataType,
+            shape: tuple[object, ...],
+            attributes: dict[str, Any] | None = None,
+            output: ir.Value | None = None,
+        ) -> ir.Value:
+            result = ctx.builder.op(name, operands, attributes, output=output)
+            result.type = ir.TensorType(dtype)
+            _stamp_type_and_shape(result, coerce_dim_values(shape))
+            _ensure_value_metadata(ctx, result)
+            return result
+
+        if native_top_k_result_is_empty(source_var.aval.shape, k):
+            # Slice preserves the exact selected dimension even when another
+            # extent proves the result empty. No sorting or word keys are needed.
+            zero = _const_i64(ctx, [0], "topk_empty_zero")
+            end = zero if k == 0 else _const_i64(ctx, [k], "topk_empty_end")
+            axis_value = _const_i64(ctx, [axis], "topk_empty_axis")
+            values = emit(
+                "Slice",
+                [data, zero, end, axis_value],
+                source.ir_dtype,
+                tuple(values_var.aval.shape),
+                output=values_output,
+            )
+            indices = emit(
+                "Cast",
+                [values],
+                ir.DataType.INT32,
+                tuple(indices_var.aval.shape),
+                {"to": int(ir.DataType.INT32.value)},
+                indices_output,
+            )
+        else:
+            shape = tuple(source_var.aval.shape)
+            if source.ir_dtype in (
+                ir.DataType.FLOAT16,
+                ir.DataType.BFLOAT16,
+                ir.DataType.FLOAT,
+                ir.DataType.DOUBLE,
+            ):
+                width = {
+                    ir.DataType.FLOAT16: 16,
+                    ir.DataType.BFLOAT16: 16,
+                    ir.DataType.FLOAT: 32,
+                    ir.DataType.DOUBLE: 64,
+                }[source.ir_dtype]
+                word_type = {
+                    16: ir.DataType.INT16,
+                    32: ir.DataType.INT32,
+                    64: ir.DataType.INT64,
+                }[width]
+                word_dtype = {16: np.int16, 32: np.int32, 64: np.int64}[width]
+                words = emit(
+                    "BitCast",
+                    [data],
+                    word_type,
+                    shape,
+                    {"to": int(word_type.value)},
+                )
+                if width == 16:
+                    # Signed-word widening is exact; selected FP16/BF16 values stay
+                    # untouched. INT64 comparison/Xor avoids narrow kernels.
+                    words = emit(
+                        "Cast",
+                        [words],
+                        ir.DataType.INT64,
+                        shape,
+                        {"to": int(ir.DataType.INT64.value)},
+                    )
+                    word_type, word_dtype = ir.DataType.INT64, np.int64
+                zero = ctx.builder.add_initializer_from_array(
+                    name=ctx.fresh_name("topk_word_zero"),
+                    array=np.asarray(0, dtype=word_dtype),
+                )
+                signless = ctx.builder.add_initializer_from_array(
+                    name=ctx.fresh_name("topk_word_signless_max"),
+                    array=np.asarray((1 << (width - 1)) - 1, dtype=word_dtype),
+                )
+                negative = emit("Less", [words, zero], ir.DataType.BOOL, shape)
+                reversed_word = emit("BitwiseXor", [words, signless], word_type, shape)
+                keys = emit("Where", [negative, reversed_word, words], word_type, shape)
+            elif source.ir_dtype is ir.DataType.UINT64:
+                words = emit(
+                    "BitCast",
+                    [data],
+                    ir.DataType.INT64,
+                    shape,
+                    {"to": int(ir.DataType.INT64.value)},
+                )
+                sign = ctx.builder.add_initializer_from_array(
+                    name=ctx.fresh_name("topk_unsigned_sign"),
+                    array=np.asarray(-(1 << 63), dtype=np.int64),
+                )
+                keys = emit("BitwiseXor", [words, sign], ir.DataType.INT64, shape)
+            else:
+                keys = data
+            if keys.dtype != ir.DataType.INT64:
+                keys = emit(
+                    "Cast",
+                    [keys],
+                    ir.DataType.INT64,
+                    shape,
+                    {"to": int(ir.DataType.INT64.value)},
+                )
+            k_value = _const_i64(ctx, [k], "topk_k")
+            ranked = ctx.builder.op_multi_out(
+                "TopK",
+                [keys, k_value],
+                {"axis": axis, "largest": 1, "sorted": 1},
+                outputs=[
+                    ir.Value(name=ctx.fresh_name("topk_order_keys")),
+                    ir.Value(name=ctx.fresh_name("topk_order_indices")),
+                ],
+            )
+            for result in ranked:
+                result.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(
+                    result, coerce_dim_values(tuple(values_var.aval.shape))
+                )
+                _ensure_value_metadata(ctx, result)
+            values = emit(
+                "GatherElements",
+                [data, ranked[1]],
+                source.ir_dtype,
+                tuple(values_var.aval.shape),
+                {"axis": axis},
+                values_output,
+            )
+            indices = emit(
+                "Cast",
+                [ranked[1]],
+                ir.DataType.INT32,
+                tuple(indices_var.aval.shape),
+                {"to": int(ir.DataType.INT32.value)},
+                indices_output,
+            )
+        ctx.bind_value_for_var(values_var, values)
+        ctx.bind_value_for_var(indices_var, indices)

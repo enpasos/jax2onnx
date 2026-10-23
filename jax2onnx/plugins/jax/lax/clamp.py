@@ -9,6 +9,9 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx._compat.jax import fresh_var_like
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.plugins.jax.lax._min_max_utils import lower_source_min_max
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import (
@@ -138,6 +141,20 @@ class ClampPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         min_var, x_var, max_var = eqn.invars
         out_var = eqn.outvars[0]
+        if ctx.precision_policy is PrecisionPolicy.SOURCE and np.issubdtype(
+            np.dtype(out_var.aval.dtype), np.floating
+        ):
+            # Compose the already measured typed zero-tie selections. Fresh
+            # lowering variables retain the supported JAX aval/quantization
+            # metadata; the original traced primitive DAG stays intact.
+            intermediate = fresh_var_like(out_var)
+            maximum = eqn.replace(invars=[x_var, min_var], outvars=[intermediate])
+            minimum = eqn.replace(invars=[intermediate, max_var], outvars=[out_var])
+            if not lower_source_min_max(ctx, maximum, operation="Max"):
+                raise ValueError("SOURCE clamp maximum has no scoped zero-tie lowering")
+            if not lower_source_min_max(ctx, minimum, operation="Min"):
+                raise ValueError("SOURCE clamp minimum has no scoped zero-tie lowering")
+            return
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("clamp_x"))
         min_val = ctx.get_value_for_var(

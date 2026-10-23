@@ -18,6 +18,7 @@ from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
 )
@@ -299,7 +300,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.concatenate not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(*args: object, **kwargs: object) -> jax.Array:
+            def _legacy(*args: object, **kwargs: object) -> jax.Array:
                 arrays, axis, dtype = cls._canonicalize_call(*args, **kwargs)
                 axis_int = int(axis)
                 arrays_for_bind = arrays
@@ -311,6 +312,11 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
                 rank = jnp.asarray(arrays_for_bind[0]).ndim
                 norm_axis = _normalize_axis(axis_int, rank)
                 return cls._PRIM.bind(*arrays_for_bind, dimension=norm_axis)
+
+            def _patched(*args: object, **kwargs: object) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 

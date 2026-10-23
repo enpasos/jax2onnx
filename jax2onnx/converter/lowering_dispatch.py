@@ -309,6 +309,8 @@ def lower_jaxpr_with_plugins(
     missing_plugin_detail: str | None = None,
 ) -> None:
     """Lower equations through prepared ``(ctx, eqn) -> None`` plugins."""
+    if ctx._jaxpr_validator is not None:
+        ctx._jaxpr_validator(jaxpr, ctx.opset)
     lowerings = prepared_lowerings(registry, converter)
     with primitive_recording_scope(ctx), ctx._const_folder.producer_scope(jaxpr):
         for eqn_index, eqn in enumerate(jaxpr.eqns):

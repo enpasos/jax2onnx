@@ -9,6 +9,7 @@ from flax import linen as nn
 from flax.linen import linear as linen_linear
 
 from jax2onnx._compat.jax import Primitive
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import conv as nnx_conv
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
@@ -131,7 +132,7 @@ class ConvPlugin(nnx_conv.ConvPlugin):
                 raise RuntimeError("flax.linen.Conv.__call__ is not available.")
             return real_orig(self, inputs)
 
-        def patched(self: Any, inputs: Any) -> Any:
+        def legacy(self: Any, inputs: Any) -> Any:
             kernel_size = (
                 (self.kernel_size,)
                 if isinstance(self.kernel_size, int)
@@ -233,6 +234,13 @@ class ConvPlugin(nnx_conv.ConvPlugin):
                     )
 
             return call_orig(self, inputs)
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if real_orig is None:
+                    raise RuntimeError("flax.linen.Conv.__call__ is not available.")
+                return real_orig(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         patched_any: Any = patched
         setattr(patched_any, "__j2o_linen_conv_shim__", True)

@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -148,7 +149,7 @@ class JnpEyePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.eye not found for monkey patching")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def legacy(
                 N: Any,
                 M: Any | None = None,
                 k: int = 0,
@@ -168,6 +169,11 @@ class JnpEyePlugin(PrimitiveLeafPlugin):
                 except Exception:
                     return orig(N, M=M, k=k, dtype=dtype)
                 return cls._PRIM.bind(n=n_i, m=m_i, k=k_i, dtype=resolved_dtype)
+
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return legacy(*args, **kwargs)
 
             return _patched
 

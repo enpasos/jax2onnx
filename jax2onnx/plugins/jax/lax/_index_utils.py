@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import SymbolicDimOrigin
-from jax2onnx.ir_utils import tensor_attr
+from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
     _ensure_value_metadata,
@@ -119,6 +119,74 @@ def _cast_to_i64(ctx: Any, tensor_val: ir.Value, name_hint: str) -> ir.Value:
     )
 
 
+def _index_to_i64(ctx: Any, value: ir.Value, name_hint: str) -> ir.Value:
+    """Represent an index without wrapping uint64 values across the sign bit.
+
+    A value beyond INT64_MAX is above every representable tensor extent. Keep
+    that upper-out-of-bounds class before signed clipping or fill-mask creation.
+    Ordinary value conversions continue to use their native cast semantics.
+    """
+    if value.dtype == ir.DataType.INT64:
+        return value
+    if value.dtype == ir.DataType.UINT64:
+        limit = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name(f"{name_hint}_limit"),
+            array=np.asarray(np.iinfo(np.int64).max, dtype=np.uint64),
+        )
+        high = _builder_op(
+            ctx,
+            "Greater",
+            [value, limit],
+            name_hint=f"{name_hint}_high",
+            dtype=ir.DataType.BOOL,
+            shape=tuple(value.shape or ()),
+        )
+        # Cast only this index consumer. High unsigned values may wrap in
+        # this discarded branch; low values remain exactly representable.
+        signed = _cast_to_i64(ctx, value, name_hint)
+        signed_limit = _scalar_i64(
+            ctx, np.iinfo(np.int64).max, f"{name_hint}_signed_limit"
+        )
+        return _builder_op(
+            ctx,
+            "Where",
+            [high, signed_limit, signed],
+            name_hint=f"{name_hint}_bounded",
+            dtype=ir.DataType.INT64,
+            shape=tuple(value.shape or ()),
+        )
+    return _cast_to_i64(ctx, value, name_hint)
+
+
+def _clamp_dynamic_start(
+    ctx: Any, value: ir.Value, upper: ir.Value, name_hint: str
+) -> ir.Value:
+    """Clamp a primitive start; native wrappers already normalize negatives.
+
+    XLA dynamic-slice/update-slice clip each actual primitive index to
+    [0, operand_extent - window_extent]. Wrapping again here changes starts
+    below minus one operand extent and allow_negative_indices=False.
+    """
+    index = _index_to_i64(ctx, value, f"{name_hint}_i64")
+    zero = _scalar_i64(ctx, 0, f"{name_hint}_zero")
+    low = _builder_op(
+        ctx,
+        "Max",
+        [index, zero],
+        name_hint=f"{name_hint}_low",
+        dtype=ir.DataType.INT64,
+        shape=(),
+    )
+    return _builder_op(
+        ctx,
+        "Min",
+        [low, upper],
+        name_hint=f"{name_hint}_clamped",
+        dtype=ir.DataType.INT64,
+        shape=(),
+    )
+
+
 def _infer_rank(value: ir.Value, axis_hint: int) -> int:
     """Best-effort rank extraction with a fallback using the axis hint."""
     rank = None
@@ -172,6 +240,21 @@ def _builder_op(
         raise AttributeError("IR build context missing builder")
 
     attrs = dict(attributes or {})
+    if op_type in {"Squeeze", "Unsqueeze"} and int(builder.opset) < 13:
+        if len(inputs) > 1:
+            if len(inputs) != 2 or "axes" in attrs:
+                raise ValueError(f"{op_type} has ambiguous legacy axes arguments")
+            axes_input = inputs[1]
+            if axes_input is not None:
+                axes = const_value_to_numpy(axes_input)
+                if axes is None or axes.ndim != 1 or axes.dtype != np.dtype(np.int64):
+                    raise ValueError(
+                        f"{op_type} before opset 13 requires constant INT64 axes"
+                    )
+                attrs["axes"] = tuple(int(axis) for axis in axes)
+            inputs = inputs[:1]
+        if op_type == "Unsqueeze" and "axes" not in attrs:
+            raise ValueError("Unsqueeze before opset 13 requires explicit axes")
     method = getattr(builder, op_type, None)
 
     if output is not None:

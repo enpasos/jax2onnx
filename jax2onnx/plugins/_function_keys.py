@@ -129,7 +129,18 @@ def static_value_key(value: object) -> tuple[object, ...]:
     return _value_key(value, set())
 
 
-def _value_key(value: object, active: set[int]) -> tuple[object, ...]:
+def source_static_value_key(value: object) -> tuple[object, ...]:
+    """Include JAX promotion metadata when specializing source-preserving bodies.
+
+    Equal array bytes can trace different arithmetic when one array is weakly
+    typed. Retain that distinction recursively without changing legacy keys.
+    """
+    return _value_key(value, set(), preserve_weak_type=True)
+
+
+def _value_key(
+    value: object, active: set[int], *, preserve_weak_type: bool = False
+) -> tuple[object, ...]:
     value_type = type(value)
     if value is None or value_type in (bool, int, str, bytes):
         return (value_type, value)
@@ -155,7 +166,9 @@ def _value_key(value: object, active: set[int]) -> tuple[object, ...]:
         if is_array:
             array = np.asarray(value)
             if array.dtype.hasobject:
-                contents: object = _value_key(array.tolist(), active)
+                contents: object = _value_key(
+                    array.tolist(), active, preserve_weak_type=preserve_weak_type
+                )
             else:
                 storage = (
                     value
@@ -163,14 +176,26 @@ def _value_key(value: object, active: set[int]) -> tuple[object, ...]:
                     else _immutable_numpy_array(array)
                 )
                 contents = _ArrayContents(_array_digest(storage), storage)
-            return (value_type, _dtype_key(array.dtype), tuple(array.shape), contents)
+            key = (value_type, _dtype_key(array.dtype), tuple(array.shape), contents)
+            if preserve_weak_type and isinstance(value, jax.Array):
+                return (*key, ("weak_type", bool(value.weak_type)))
+            return key
         if isinstance(value, dict):
             entries = tuple(
-                (_value_key(key, active), _value_key(item, active))
+                (
+                    _value_key(key, active, preserve_weak_type=preserve_weak_type),
+                    _value_key(item, active, preserve_weak_type=preserve_weak_type),
+                )
                 for key, item in value.items()
             )
             return (value_type, entries)
         assert isinstance(value, (tuple, list, set, frozenset))
-        return (value_type, tuple(_value_key(item, active) for item in value))
+        return (
+            value_type,
+            tuple(
+                _value_key(item, active, preserve_weak_type=preserve_weak_type)
+                for item in value
+            ),
+        )
     finally:
         active.remove(identity)

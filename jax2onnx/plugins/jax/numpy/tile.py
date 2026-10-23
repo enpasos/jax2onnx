@@ -6,13 +6,13 @@ from collections.abc import Callable, Sequence
 from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import lax
 from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,
     Tracer,
     batching,
+    native_tile_primitive,
 )
 import jax.numpy as jnp
 import numpy as np
@@ -20,6 +20,10 @@ from numpy.typing import ArrayLike
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
+from jax2onnx.converter.source_tile import require_native_tile_emission
+from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx.plugins._complex_utils import coerce_dim_values
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
     SymbolicDimOrigin,
@@ -27,6 +31,7 @@ from jax2onnx.converter.typing_support import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
+    register_jvp_via_jax_jvp,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -46,6 +51,7 @@ from jax2onnx.utils.shape_poly import is_dim_expr
 
 _ORIG_TILE: Final = jnp.tile
 _TILE_PRIM: Final = make_jnp_primitive("jax.numpy.tile")
+_NATIVE_TILE_PRIMITIVE: Final = native_tile_primitive()
 
 
 def _tile_param(a: jax.Array) -> jax.Array:
@@ -253,6 +259,9 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         return ShapedArray(out.shape, out.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            self._lower_source_native(ctx, eqn)
+            return
         input_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         repeats_var = eqn.invars[1] if len(eqn.invars) > 1 else None
@@ -331,6 +340,37 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
+    def _lower_source_native(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        require_native_tile_emission(eqn, ctx)
+        input_var, out_var = eqn.invars[0], eqn.outvars[0]
+        input_val = ctx.require_value_for_var(input_var)
+        source = representation_for_aval(input_var.aval)
+        target = representation_for_aval(out_var.aval)
+        if not source.matches_ir_value(input_val):
+            raise TypeError(
+                "SOURCE Tile physical input differs from its native declaration"
+            )
+        # Tile transports existing storage. A declared complex pair, when its
+        # owner admits it, must keep the trailing component axis unrepeated.
+        repeats = eqn.params["reps"]
+        if source.encoding == "complex-real-pair":
+            repeats = (*repeats, 1)
+        if repeats:
+            repeats_val, _ = self._build_static_repeats(ctx, repeats)
+        else:
+            repeats_val = _const_i64(ctx, [], "tile_scalar_repeats")
+        output = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("tile_out")
+        )
+        result = ctx.builder.op("Tile", [input_val, repeats_val], output=output)
+        # Derive physical metadata from the logical aval, never LEGACY's model
+        # promotion flag or a guess based on the last physical dimension.
+        for value in (output, result):
+            value.type = ir.TensorType(target.ir_dtype)
+            _stamp_type_and_shape(value, coerce_dim_values(target.physical_shape))
+            _ensure_value_metadata(ctx, value)
+        ctx.bind_value_for_var(out_var, result)
+
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
@@ -342,7 +382,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.tile not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a: ArrayLike, reps: ArrayLike) -> jax.Array:
+            def _legacy(a: ArrayLike, reps: ArrayLike) -> jax.Array:
                 if isinstance(reps, jax.Array) and not isinstance(reps, Tracer):
                     reps = np.asarray(reps)
                 if isinstance(reps, np.ndarray):
@@ -356,6 +396,11 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                 if isinstance(reps, (tuple, list)):
                     return cls._PRIM.bind(a, reps=tuple(reps))
                 return cls._PRIM.bind(a, reps)
+
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 
@@ -402,6 +447,8 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         origin_getter = getattr(ctx, "get_symbolic_dim_origin", None)
 
         def _origin(dim: object) -> SymbolicDimOrigin | None:
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                return ctx.get_symbolic_dim_origin(dim)
             return SymbolicDimOrigin.resolve(origin_getter, dim)
 
         shape_cache: dict[ir.Value, ir.Value] = {}
@@ -515,7 +562,10 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
 
 # Forwarded AD for jnp.tile can emit raw lax primitive "tile" equations.
 # Reuse this lowering for both names until a dedicated lax.tile plugin exists.
-PLUGIN_REGISTRY.setdefault(lax.tile_p.name, PLUGIN_REGISTRY[JnpTilePlugin._PRIM.name])
+if _NATIVE_TILE_PRIMITIVE is not None:
+    PLUGIN_REGISTRY.setdefault(
+        _NATIVE_TILE_PRIMITIVE.name, PLUGIN_REGISTRY[JnpTilePlugin._PRIM.name]
+    )
 
 
 @JnpTilePlugin._PRIM.def_impl
@@ -584,8 +634,13 @@ def _tile_batch_rule(
 batching.primitive_batchers[JnpTilePlugin._PRIM] = _tile_batch_rule
 
 
-register_allowlisted_original_rule_forwarding(
-    orig_prim=lax.tile_p,
-    new_prim=JnpTilePlugin._PRIM,
-    forward_batching=False,
-)
+if _NATIVE_TILE_PRIMITIVE is None:
+    # Older native jnp.tile decomposes into reshape/broadcast/reshape. Delegate
+    # differentiation to that captured implementation and its existing rules.
+    register_jvp_via_jax_jvp(JnpTilePlugin._PRIM, _tile_impl)
+else:
+    register_allowlisted_original_rule_forwarding(
+        orig_prim=_NATIVE_TILE_PRIMITIVE,
+        new_prim=JnpTilePlugin._PRIM,
+        forward_batching=False,
+    )

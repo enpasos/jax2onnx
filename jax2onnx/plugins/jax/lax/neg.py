@@ -5,6 +5,7 @@ from jax2onnx._compat.jax import JaxprEqn
 import jax
 
 from jax2onnx.converter.typing_support import NativeLoweringContext
+from jax2onnx.plugins.jax.lax._source_elementary import lower_source_elementary
 from jax2onnx.plugins._precision_utils import promote_float32_operand
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -35,6 +36,9 @@ from jax2onnx.plugins.plugin_system import (
 )
 class NegPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
+        if lower_source_elementary(ctx, eqn, operation="neg"):
+            return
+
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

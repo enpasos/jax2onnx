@@ -17,6 +17,7 @@ from jax2onnx._compat.jax import (
 )
 from numpy.typing import ArrayLike
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
@@ -32,7 +33,6 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
-
 
 _LINSPACE_PRIM: Final = make_jnp_primitive("jax.numpy.linspace")
 
@@ -481,7 +481,7 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.linspace not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def _legacy(
                 start: ArrayLike,
                 stop: ArrayLike,
                 num: int = 50,
@@ -536,6 +536,11 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
                     dtype=dtype,
                     axis=axis_int,
                 )
+
+            def _patched(*args: Any, **kwargs: Any) -> Any:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 

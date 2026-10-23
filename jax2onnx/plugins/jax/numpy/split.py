@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import ClassVar, Final, TypeAlias, cast
+from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
@@ -16,6 +16,7 @@ from jax2onnx._compat.jax import (
 )
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -324,7 +325,7 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.split not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def _legacy(
                 a: ArrayLike,
                 indices_or_sections: int | Sequence[int] | np.ndarray,
                 axis: int = 0,
@@ -348,6 +349,11 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
                         axis=axis_norm,
                     ),
                 )
+
+            def _patched(*args: Any, **kwargs: Any) -> Sequence[jax.Array]:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 

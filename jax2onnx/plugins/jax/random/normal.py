@@ -6,6 +6,7 @@ from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
@@ -24,7 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
-
 
 _RANDOM_NORMAL_PRIM: Final[Primitive] = Primitive("jax.random.normal")
 _RANDOM_NORMAL_PRIM.multiple_results = False
@@ -154,7 +154,7 @@ class RandomNormalPlugin(PrimitiveLeafPlugin):
             def _patched(
                 key: ArrayLike,
                 shape: tuple[int, ...] | list[int] = (),
-                dtype: np.dtype | type = jnp.float32,
+                dtype: DTypeLike = jnp.float32,
             ) -> ArrayLike:
                 shape_tuple = tuple(int(dim) for dim in shape)
                 return cls._PRIM.bind(

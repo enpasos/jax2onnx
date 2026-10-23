@@ -24,7 +24,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
-    _cast_to_i64,
+    _clamp_dynamic_start,
     _infer_rank,
 )
 
@@ -149,34 +149,6 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                 f"dynamic_slice expected {rank} start indices but got {len(start_vars)}"
             )
 
-        starts_vec_parts = []
-        axes_const = _const_i64(ctx, [0], "dyn_slice_unsq_axis")
-
-        for start_var in start_vars:
-            start_val = ctx.get_value_for_var(
-                start_var, name_hint=ctx.fresh_name("dyn_slice_start")
-            )
-            cast_scalar = _cast_to_i64(ctx, start_val, "dyn_slice_start_i64")
-
-            unsqueezed = ctx.builder.Unsqueeze(
-                cast_scalar,
-                axes_const,
-                _outputs=[ctx.fresh_name("dyn_slice_unsq")],
-            )
-            unsqueezed.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(unsqueezed, (1,))
-            _ensure_value_metadata(ctx, unsqueezed)
-            starts_vec_parts.append(unsqueezed)
-
-        starts_concat = ctx.builder.Concat(
-            *starts_vec_parts,
-            axis=0,
-            _outputs=[ctx.fresh_name("dyn_slice_starts")],
-        )
-        starts_concat.type = ir.TensorType(ir.DataType.INT64)
-        _stamp_type_and_shape(starts_concat, (rank,))
-        _ensure_value_metadata(ctx, starts_concat)
-
         slice_sizes = eqn.params.get("slice_sizes", ())
         try:
             const_sizes = [int(v) for v in slice_sizes]
@@ -214,6 +186,37 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                     slice_sizes_val.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(slice_sizes_val, (len(slice_sizes),))
                     _ensure_value_metadata(ctx, slice_sizes_val)
+
+        if rank == 0:
+            result = ctx.builder.op("Identity", [operand_val], output=out_spec)
+            ctx.bind_value_for_var(out_var, result)
+            return
+
+        operand_shape = _shape_vec_for(operand_val, 0)
+        starts_vec_parts = []
+        axes_const = _const_i64(ctx, [0], "dyn_slice_unsq_axis")
+        for axis, start_var in enumerate(start_vars):
+            start_val = ctx.require_value_for_var(start_var)
+            axis_value = _const_i64(
+                ctx, np.asarray(axis, dtype=np.int64), "dyn_slice_axis"
+            )
+            extent = ctx.builder.op("Gather", [operand_shape, axis_value], {"axis": 0})
+            size = ctx.builder.op("Gather", [slice_sizes_val, axis_value], {"axis": 0})
+            upper = ctx.builder.op("Sub", [extent, size])
+            for value in (extent, size, upper):
+                value.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(value, ())
+                _ensure_value_metadata(ctx, value)
+            clamped = _clamp_dynamic_start(ctx, start_val, upper, "dyn_slice_start")
+            unsqueezed = ctx.builder.op("Unsqueeze", [clamped, axes_const])
+            unsqueezed.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(unsqueezed, (1,))
+            _ensure_value_metadata(ctx, unsqueezed)
+            starts_vec_parts.append(unsqueezed)
+        starts_concat = ctx.builder.op("Concat", starts_vec_parts, {"axis": 0})
+        starts_concat.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(starts_concat, (rank,))
+        _ensure_value_metadata(ctx, starts_concat)
 
         ends_val = ctx.builder.Add(
             starts_concat,

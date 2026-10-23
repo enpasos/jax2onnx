@@ -12,6 +12,7 @@ from jax2onnx.converter.typing_support import (
     IRBuilderProtocol,
     LoweringContextProtocol,
 )
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
@@ -455,9 +456,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
     # ---------------- monkey-patch & bindings ----------------
     @staticmethod
     def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
-        del orig_fn  # not used; kept for symmetry with other plugins
-
-        def patched(
+        def legacy(
             self: nnx.BatchNorm,
             x: Any,
             use_running_average: Any | None = None,
@@ -500,6 +499,11 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
                 scale_is_default=scale_is_default,
                 bias_is_default=bias_is_default,
             )
+
+        def patched(self: nnx.BatchNorm, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import equinox as eqx
 import jax
@@ -13,14 +13,32 @@ from jax.extend.core import Primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
+    with_requested_dtype,
+    with_prng_key,
     register_native_primitive,
 )
 
-_EQX_WEIGHT_NORM_LINEAR: Final[eqx.nn.WeightNorm] = eqx.nn.WeightNorm(
-    eqx.nn.Linear(8, 4, key=jax.random.PRNGKey(0))
+
+def _make_eqx_weight_norm_linear(dtype: Any, key: jax.Array) -> Callable[..., Any]:
+    layer = eqx.nn.Linear(8, 4, dtype=dtype, key=key)
+    return cast(Callable[..., Any], jax.vmap(eqx.nn.WeightNorm(layer)))
+
+
+def _make_eqx_weight_norm_conv2d(dtype: Any, key: jax.Array) -> eqx.nn.WeightNorm:
+    layer = eqx.nn.Conv2d(3, 5, kernel_size=3, dtype=dtype, key=key)
+    return eqx.nn.WeightNorm(layer)
+
+
+_EQX_WEIGHT_NORM_LINEAR: Final = construct_and_call(
+    _make_eqx_weight_norm_linear,
+    dtype=with_requested_dtype(),
+    key=with_prng_key(0),
 )
-_EQX_WEIGHT_NORM_CONV2D: Final[eqx.nn.WeightNorm] = eqx.nn.WeightNorm(
-    eqx.nn.Conv2d(3, 5, kernel_size=3, key=jax.random.PRNGKey(1))
+_EQX_WEIGHT_NORM_CONV2D: Final = construct_and_call(
+    _make_eqx_weight_norm_conv2d,
+    dtype=with_requested_dtype(),
+    key=with_prng_key(1),
 )
 
 
@@ -37,7 +55,7 @@ _EQX_WEIGHT_NORM_CONV2D: Final[eqx.nn.WeightNorm] = eqx.nn.WeightNorm(
     testcases=[
         {
             "testcase": "eqx_weight_norm_linear",
-            "callable": lambda x, _mod=_EQX_WEIGHT_NORM_LINEAR: jax.vmap(_mod)(x),
+            "callable": _EQX_WEIGHT_NORM_LINEAR,
             "input_shapes": [("B", 8)],
             "expected_output_shapes": [("B", 4)],
             "run_only_f32_variant": True,

@@ -9,6 +9,8 @@ from jax import lax
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -155,6 +157,24 @@ class SqueezePlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
+
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            source = ctx.require_value_for_var(x_var)
+            if not representation_for_aval(x_var.aval).matches_ir_value(source):
+                raise ValueError(
+                    "SOURCE Squeeze operand differs from its native representation"
+                )
+            output = ctx.allocate_value_for_var(
+                y_var, name_hint=ctx.fresh_name("squeeze_out")
+            )
+            source_axes = _const_i64(
+                ctx,
+                np.asarray(eqn.params["dimensions"], dtype=np.int64),
+                "squeeze_axes",
+            )
+            result = ctx.builder.op("Squeeze", [source, source_axes], output=output)
+            ctx.bind_value_for_var(y_var, result)
+            return
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("squeeze_in"))
         out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("squeeze_out"))

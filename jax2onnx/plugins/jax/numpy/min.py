@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
+
 from collections.abc import Sequence as _Seq
 from typing import Callable, ClassVar, Final
 
@@ -121,6 +123,8 @@ class JnpMinPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.min not found for monkey patching")
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(

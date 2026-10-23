@@ -19,6 +19,7 @@ import onnx_ir as ir
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -29,7 +30,6 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
-
 
 _FULL_PRIM: Final = make_jnp_primitive("jax.numpy.full")
 
@@ -98,7 +98,12 @@ class JnpFullPlugin(PrimitiveLeafPlugin):
         shape: tuple[int, ...],
     ) -> ShapedArray:
         dims = _normalize_shape(shape)
-        return ShapedArray(dims, fill_value.dtype)
+        weak_type = (
+            bool(fill_value.weak_type)
+            if active_precision_policy() is PrecisionPolicy.SOURCE
+            else False
+        )
+        return ShapedArray(dims, fill_value.dtype, weak_type=weak_type)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (fill_var,) = eqn.invars

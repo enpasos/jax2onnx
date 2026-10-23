@@ -22,6 +22,8 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx._compat.jax import JaxprEqn
+from .precision_policy import PrecisionPolicy
+from .source_deployment import DeploymentTarget, MatrixPrecisionRequirement
 
 if TYPE_CHECKING:
     from jax2onnx.utils.debug import RecordedPrimitiveCallLog
@@ -221,6 +223,22 @@ class NativeLoweringContext(SymbolicDimTracker, Protocol):
     @property
     def normalization_mode(self) -> str: ...
 
+    @property
+    def precision_policy(self) -> PrecisionPolicy: ...
+
+    @property
+    def deployment_target(self) -> DeploymentTarget | None: ...
+
+    @property
+    def source_scope(self) -> str: ...
+
+    def record_matrix_precision_requirement(
+        self,
+        requirement: MatrixPrecisionRequirement,
+        output: ir.Value,
+        matrix_output: ir.Value,
+    ) -> None: ...
+
     def fresh_name(self, base: str) -> str: ...
 
     def add_node(
@@ -278,6 +296,7 @@ class ConverterContext(NativeLoweringContext, Protocol):
     _lowering_record_depth: int
     _lowering_record_owner: ConverterContext
     _func_name_counters: dict[tuple[str, str, str], int]
+    _jaxpr_validator: Callable[[Any, int], None] | None
     _call_input_param_literals: dict[str, object]
     _call_param_value_by_name: dict[str, ir.Value]
 
@@ -332,6 +351,8 @@ class ConverterContext(NativeLoweringContext, Protocol):
     ) -> ir.Value: ...
 
     def ensure_external_flag(self, name: str, var: object | None) -> ir.Value: ...
+
+    def ensure_training_mode(self, flag_name: str, var: Any) -> ir.Value: ...
 
     def set_external_flag_resolver(
         self, resolver: Callable[[str], ir.Value] | None

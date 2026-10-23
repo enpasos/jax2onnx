@@ -485,9 +485,11 @@ def _sanitize_params(params: Any) -> Any:
         sanitized = dict(params.items())
     else:
         return params
-    # Payloads can contain control-flow params from older JAX releases.
+    # Preserve recorded scan flags where the exact native schema requires them.
     # JAX 0.10 removed these keywords from scan's abstract eval path.
     sanitized.pop("copy_semantics", None)
-    sanitized.pop("linear", None)
-    sanitized.pop("_split_transpose", None)
+    scan_parameters = jax_compat.native_scan_parameter_names()
+    for name in ("linear", "_split_transpose"):
+        if name not in scan_parameters:
+            sanitized.pop(name, None)
     return sanitized

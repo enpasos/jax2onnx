@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Any, Callable, ClassVar, List, Optional, Sequence, Tuple, cast
 
 import jax.numpy as jnp
@@ -18,6 +19,10 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._normalization_utils import (
@@ -406,7 +411,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("flax.linen.LayerNorm.__call__ is not available.")
             return orig(self, x, mask=mask)
 
-        def patched(self: Any, x: Any, *, mask: Any | None = None) -> Any:
+        def legacy(self: Any, x: Any, *, mask: Any | None = None) -> Any:
             if mask is not None:
                 return call_orig(self, x, mask=mask)
             if getattr(self, "axis_name", None) is not None:
@@ -485,7 +490,16 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
                 axis=axis0,
             )
 
-        return patched
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig is None:
+                    raise RuntimeError(
+                        "flax.linen.LayerNorm.__call__ is not available."
+                    )
+                return orig(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
+
+        return wraps(orig)(patched) if orig is not None else patched
 
 
 @LayerNormPlugin._PRIM.def_impl
