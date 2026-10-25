@@ -741,6 +741,7 @@ def test_symbolic_matmul_checks_canonical_physical_values_before_emission(
 
     context = SimpleNamespace(
         deployment_target=None,
+        fresh_name=lambda hint: hint,
         require_value_for_var=lambda var: values[
             "lhs" if var is equation.invars[0] else "rhs"
         ],

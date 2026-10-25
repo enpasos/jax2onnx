@@ -735,6 +735,7 @@ def test_new_fp64_precision_path_still_checks_physical_storage_before_emission(
 
     context = SimpleNamespace(
         deployment_target=None,
+        fresh_name=lambda hint: hint,
         require_value_for_var=lambda var: values[
             "lhs" if var is equation.invars[0] else "rhs"
         ],

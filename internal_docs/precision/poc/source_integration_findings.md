@@ -2,17 +2,24 @@
 
 ## Current checkpoint
 
-Snapshot: 2026-10-25. This unfinished LOCAL WIP continues stored atomic-symbol
-checkpoint **`038dc9eb`**. Its paired 1,017-case regression and 574-file typing
-results retain source snapshot **`7604c11a`**. The generalized-dot structural
-follow-through remains local WIP. The read-only remote refresh confirms
-Draft PR #277 at **`73f4a7a5`**. **`fe214590`** remains the last fully green checkpoint. The retained
+Snapshot: 2026-10-26; earlier observations retain their own 2026-10-25 source epochs. This unfinished LOCAL WIP continues stored generalized-dot
+checkpoint **`8393cb84`**. Its earlier **1,065-case pair and 575-file typing**
+retain source snapshot **`4845b6cb`**. The atomic-symbol evidence remains bound
+to **`7604c11a`** and stored checkpoint **`038dc9eb`**. The read-only remote refresh
+confirms Draft PR #277 at **`73f4a7a5`**. **`fe214590`** remains the last fully green checkpoint. The retained
 deployment-test and inventory-test snapshots are **`c9f5812b`** and **`b7eceac8`**;
 results below retain their own source epochs.
 Public routes and defaults remain **LEGACY**; the full **B–F** goal remains open.
 
 | Current gate | Actual source-bound result | Scope and remaining work |
 | --- | --- | --- |
+| Current six-file fixture/Dot-fingerprint follow-through, source-files snapshot `f0afb9f17ae13312c6ecfee49e2cb385aeb64f1e9371cce8e8369d351d0654c9` | **758 PASS each**, identical unique cases across six complete owners, zero failures/errors/skips, complete consistent JUnit; PRIMARY **87.212 s**, peak **787,058,688 bytes**; SECONDARY **84.749 s**, peak **1,355,759,616 bytes**; source/Git held | Fixture-owned pure stubs and strict current Dot fingerprint, control **v8**, same reviewed oracle **v3**. Paired proof `d8af0013d24c8e791f434b9e7276d83ef008a2dce825cddcdc81b06934a5ce50`. Finite qualification; no full-suite, original-model or public-transition acceptance. |
+| Current six-file normal hooks | **All seven PASS, unskipped**, **139.493 s**, peak **1,064,837,120 bytes**; source/Git/index held, cleanup complete | Includes actual pinned Black/Ruff, full mypy and policy hooks. Actual documentation/link and closeout outcomes belong to the local commit record. |
+| Ordinary PRIMARY full run at stored `8393cb84` | **Resource-guard STOP at 63%**, **8,989 passed markers / 52 failed markers** from **14,319 collected**, zero skip/error markers; no JUnit or terminal pytest summary; peak **4,426,104,832 bytes**, above unchanged **4 GiB** budget | Source/Git and ignored generated state held; descendant cleanup complete. Marker counts are an interrupted observation. Full resource/suite closure remains open; no OOM or cache cause is inferred. |
+| Exact 52-case reproduction, unchanged full-run source before fixes | **52 FAIL**, complete JUnit, **25.526 s**, source held | Confirms fixture/fingerprint causes before the exact six-file repairs. This terminal focused failure does not relabel the interrupted full run or its marker counts. |
+| Isolated original-22 owner | **Resource-guard STOP** during first **raw-x64-off-0**, **215.44 s**, peak **4,600,295,424 bytes**, **zero of 44 collected test terminals**, no JUnit | Separate from the full suite and later observer diagnostic; no model/runtime/numerical acceptance or demonstrated cache/OOM cause. |
+| First-case observer diagnostic | **238.213 s**, peak **3,889,733,632 bytes**, below unchanged 4 GiB budget, no resource-guard stop; complete JUnit **1 ERROR**, pytest exit **1**, xdist worker crash; source/observer pins held and cleanup complete | Matching WSL kernel record: worker **2563300**, **SIG11**, no new OOM record. Eight complete stack samples reached native/preparation paths; ninth sample ends mid-frame while printing inspect frames. Cause and resource closure remain unverified; no acceptance follows. |
+| Observer-free exact first-case diagnostic, 2026-10-26 | **Controlled RSS STOP**, **209.574764 s**, peak **4,356,943,872 bytes**, above unchanged **4 GiB**; host MemAvailable **12,332,810,240 bytes**, disk free **9,188,364,288 bytes** at stop; source/Git and diagnostic inputs held, cleanup left no owned processes, no JUnit | Periodic observer disabled; recorded controller/worker fd2 both point to `pytest.log`. No SIG11/fatal text was observed before the guard censored execution. Differential outcome remains unverified and cannot establish that the earlier observer caused SIG11. No 6 GiB budget, cache operation or source/data sample change was applied. |
 | Generalized-dot structure, source snapshot `a3d3e01e`, local Python 3.12 and 3.11 | **112 PASS each**, zero failures/errors/skips; source/Git held, clean terminal completion in both v2 receipts | Actual native plans, supplied axes, widths and reviewed precision parameters anchor final direct/general MatMul chains and exact immutable shape programs. Same-typed edge/operator/axis/storage mutations fail; unknown legal routes remain unverified. No original-model, serialized-artifact or numerical acceptance. |
 | Initial generalized-dot PRIMARY focus, v1 | **109 PASS / 3 FAIL**, preserved separately | The three two-dot compositions with optimization disabled reused `dot_contraction`, `dot_tensor_matrix` or `dot_batch_matrix` as SSA names. Exactly those SOURCE allocations now request fresh names; tests, full checker and optimizer remain unchanged. |
 | Generalized-dot typing, source snapshot `4845b6cb` | **575 files PASS on each stack**, PRIMARY v2 and SECONDARY v1; source/Git held, clean terminal completion | The initial PRIMARY typing v1 failed on one missing local NumPy vector annotation. Its annotation-only successor retains runtime behavior and the failed receipt. |
@@ -144,7 +151,14 @@ changes to the original probe, inventory, callbacks or numerical criteria.
 Python **3.11 and 3.12** are primary user cohorts and each requires its actual CI
 stack. Local PRIMARY Python 3.12/JAX 0.12.0.1 and SECONDARY Python 3.11/JAX 0.10.2
 passes do not replace the locked Python 3.12/JAX 0.10.2 CI cohort or the separate
-minimum stack. The next model gate connects shared structural validation to
+minimum stack. First review the controlled observer-free stop together with
+the unexplained earlier SIG11, then assess one explicit isolated resource
+envelope before a full restart. No further identical 4 GiB retry is planned;
+no 6 GiB budget, cache operation or source/data sample change has been applied.
+Resource and crash causes remain unverified. ROOT can then qualify
+the reviewed reduction, shape-carrier, artifact-bridge v2, AxisData v2 and
+metadata-lane candidates in order. These remain external drafts, not applied or
+natively qualified by their text review. The next model gate connects shared structural validation to
 the exact returned artifact and completes the original-model and explicit
 sample/numerical-criteria contracts beyond the fresh AttentionCore observations.
 Resolve raw callback mismatches with shared source-semantic checks; legacy fusion/operator-count
@@ -159,7 +173,12 @@ metadata extraction and supplementary retained runtime add no closures to the
 frozen caller map. Neither the fresh four-cell exports/default-sample runtime nor
 the finite literal extension closes the full map.
 
-Current evidence: `source-dot-structure-focused-20261025-v2-primary/receipt.json`;
+Current evidence: `root-source-dot-full-followthrough-paired-qualification-20261025-v1.json`;
+`source-dot-full-followthrough-hooks-20261025-v1-guard/receipt.json`;
+`source-original22-stack-diagnostic-20261025-v1/receipt.json`;
+`source-original22-observer-free-crash-diagnostic-20261026-v1/receipt.json`;
+`source-original22-observer-free-crash-diagnostic-20261026-v1/root-observed-stderr-fds.json`;
+`source-dot-structure-focused-20261025-v2-primary/receipt.json`;
 `source-dot-structure-focused-20261025-v2-secondary/receipt.json`;
 `source-dot-structure-focused-20261025-v1-primary/receipt.json`;
 `source-dot-structure-typing-primary-20261025-v1/receipt.json`;

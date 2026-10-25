@@ -7,16 +7,64 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 
 ## Current implementation and next gates
 
+Current status snapshot: **2026-10-26**. Earlier observations retain their own
+2026-10-25 source epochs.
+
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
-continues stored atomic-symbol checkpoint `038dc9eb`. Its paired 1,017-case
-regression and 574-file typing results remain bound to source snapshot
-`7604c11a`. The new generalized-dot structural follow-through remains local WIP.
-The read-only remote
-refresh confirms Draft PR #277 at `73f4a7a5`; `fe214590` remains the last fully green
-checkpoint. The retained portability selection passes **142** cases on each
-local stack; the separate invalid-source environment result remains
-**48 PASS / 1 FAIL**.
+continues stored generalized-dot checkpoint `8393cb84`. Its earlier **1,065-case
+pair and 575-file typing** retain their own source snapshot `4845b6cb`; the
+atomic-symbol pair and typing retain `7604c11a` and stored checkpoint `038dc9eb`.
+The read-only remote refresh confirms Draft PR #277 at `73f4a7a5`;
+`fe214590` remains the last fully green checkpoint. Public routes/defaults stay
+LEGACY and the full B–F contract remains open. The retained portability selection
+passes **142** cases on each local stack; the separate invalid-source environment
+result remains **48 PASS / 1 FAIL**.
+
+The current six-file follow-through changes fixture-owned pure stubs and the
+strict current Dot source fingerprint: control revision **v8** retains the same
+reviewed oracle **v3**. Its exact source-files snapshot is
+`f0afb9f17ae13312c6ecfee49e2cb385aeb64f1e9371cce8e8369d351d0654c9`.
+The six complete affected owners pass **758 identical unique cases on each
+local stack**, zero failures/errors/skips, complete consistent JUnit and
+source/Git held: PRIMARY **87.212 s**, peak **787,058,688 bytes**; SECONDARY
+**84.749 s**, peak **1,355,759,616 bytes**. Paired proof
+`d8af0013d24c8e791f434b9e7276d83ef008a2dce825cddcdc81b06934a5ce50`
+binds this finite result. All **seven normal hooks passed unskipped** in
+**139.493 s**, peak **1,064,837,120 bytes**; source/Git/index held and descendant
+cleanup completed. Actual documentation/link and closeout outcomes belong to the local commit record.
+
+The ordinary PRIMARY full run at stored `8393cb84` stopped under its resource
+guard at **63%**, with **8,989 passed markers / 52 failed markers** from
+**14,319 collected**, zero skip/error markers and **no JUnit or terminal pytest
+summary**. Peak descendant RSS was **4,426,104,832 bytes**, above the unchanged
+**4 GiB** guard budget; source/Git and ignored generated state held and cleanup
+completed. A separate unchanged-source reproduction of those exact **52 cases**
+completed with **52 FAIL**, complete JUnit, source held and **25.526 s**, confirming
+the fixture/fingerprint causes before the exact repairs above. The full-run
+marker counts remain an interrupted observation, not a completed suite result.
+
+The isolated original-22 owner stopped during its first **raw-x64-off-0** case:
+**215.44 s**, peak **4,600,295,424 bytes**, **zero of 44 collected test terminals**
+and no JUnit. A separate first-case observer diagnostic then completed in
+**238.213 s**, peak **3,889,733,632 bytes**, below 4 GiB, with no resource-guard
+stop, source/observer pins held and cleanup complete. Its JUnit records **one
+ERROR** and pytest exits **1** after an xdist worker crash. The matching WSL
+kernel record identifies worker **2563300**, **SIG11**, with no new OOM record.
+Eight complete stack samples reached native/preparation paths; the ninth sample
+ends mid-frame while printing inspect frames. These are separate diagnostic observations: no
+cache cause, OOM cause, numerical acceptance or full resource closure is inferred.
+
+On **2026-10-26**, the exact first case ran separately with the periodic
+observer disabled. The controlled trial stopped at the unchanged **4 GiB** RSS
+guard after **209.574764 s**, peak **4,356,943,872 bytes**; at the stop, host
+MemAvailable was **12,332,810,240 bytes** and disk free was **9,188,364,288 bytes**.
+Source/Git and diagnostic inputs held, cleanup left no owned processes, and no
+JUnit was produced. Recorded controller and worker fd2 destinations both point
+to the trial's `pytest.log`. No SIG11 or fatal text was observed before the guard
+censored execution. This does not establish that the earlier periodic observer
+caused the SIG11; the differential outcome and resource closure remain unverified.
+No 6 GiB budget, cache operation or source/data sample change was applied.
 
 The shared structure foundation and its follow-through check finite flat SOURCE IR graphs
 through ordinary dispatch and final facade validation. Typed source equations,
@@ -126,7 +174,14 @@ remains unverified, the original raw callback remains failed, and original
 `None` criteria leave numerical acceptance unverified. This older retained-sample
 runtime feasibility remains separate from the fresh source-`366a4d08` exports.
 
-1. Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
+1. Review the controlled observer-free stop together with the unexplained
+   earlier SIG11, then assess one explicit isolated resource envelope before a
+   full restart. No further identical 4 GiB retry is planned; no 6 GiB budget,
+   cache operation or source/data sample change has been applied.
+   Then ROOT can qualify the reviewed reduction, shape-carrier, artifact-bridge
+   v2, AxisData v2 and metadata-lane candidates in order. These are external
+   drafts, not applied or natively qualified by their text review.
+   Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
    deployment pair with their unchanged semantic/type/precision/placement guards.
    Continue shared reduction and shape-carrier rules, with authoring kept
    external until review and ROOT application. Continue the broader symbolic,

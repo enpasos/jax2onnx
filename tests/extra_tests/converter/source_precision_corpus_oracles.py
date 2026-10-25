@@ -39,7 +39,7 @@ APPROVED_SELECTOR_SHA256: Final = (
 )
 DOT_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/dot_general.py"
 DOT_SOURCE_SHA256: Final = (
-    "96a458f4294fde2f3ec3c596d80a4188b36c422b4b19f22181f305ee59c8d4b3"
+    "6433dfb3292cb8966e4b11d2f5f677f78a86dc50311298eb41cd236cabd4ec0b"
 )
 ORACLE_VERSION: Final = "static-dot-source-counterpart-v3"
 LINEAR_SOURCE_PATH: Final = "jax2onnx/plugins/flax/nnx/linear.py"
@@ -49,6 +49,14 @@ LINEAR_SOURCE_SHA256: Final = (
 LINEAR_ORACLE_VERSION: Final = "leading-b-linear-source-counterpart-v2"
 # Historical descriptors retain their own complete module/source provenance.
 # They are evidence only; current checks below bind the new source and versions.
+# The name-only emitter refresh keeps the same semantic oracle. Its predecessor
+# source/module fences remain historical and never admit current artifacts.
+HISTORICAL_DOT_SOURCE_SHA256_BEFORE_FRESH_NAMES: Final = (
+    "96a458f4294fde2f3ec3c596d80a4188b36c422b4b19f22181f305ee59c8d4b3"
+)
+HISTORICAL_ORACLE_FILE_SHA256_BEFORE_FRESH_NAMES: Final = (
+    "f9ed94b8417bc4ab5fa5442e108e87b01f138e38be56136806e8b10796b8f014"
+)
 HISTORICAL_DOT_SOURCE_PATH_V2: Final = "jax2onnx/plugins/jax/lax/dot_general.py"
 HISTORICAL_DOT_SOURCE_SHA256_V2: Final = (
     "82098b7ecc569eef6bfbd54577b681dc151f026ea9fcbc11b35da00070fc5d45"

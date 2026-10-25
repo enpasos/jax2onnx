@@ -1138,7 +1138,8 @@ def test_generalized_output_descriptor_rejects_before_emission(fault: str) -> No
         require_value_for_var=lambda var: sources[eqn.invars.index(var)],
         allocate_value_for_var=lambda *args, **kwargs: output,
         bind_value_for_var=forbidden,
-        fresh_name=forbidden,
+        # Pure name generation may precede validation; emission/binding may not.
+        fresh_name=lambda hint: hint,
     )
     with pytest.raises(ValueError, match="physical matrix dtype/shape"):
         DotGeneralPlugin()._lower_source(ctx, eqn)

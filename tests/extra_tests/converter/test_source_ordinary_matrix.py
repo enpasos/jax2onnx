@@ -933,6 +933,8 @@ def test_ordinary_physical_metadata_is_checked_without_mutating_operands(
         builder=SimpleNamespace(opset=23),
         require_value_for_var=lambda var: sources[eqn.invars.index(var)],
         allocate_value_for_var=lambda *args, **kwargs: output,
+        # Pure name generation may precede the physical metadata guards.
+        fresh_name=lambda hint: hint,
     )
     with pytest.raises(ValueError, match="physical matrix dtype/shape"):
         DotGeneralPlugin()._lower_source(ctx, eqn)
