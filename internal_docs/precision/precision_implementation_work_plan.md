@@ -8,31 +8,48 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 ## Current implementation and next gates
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
-exact source/stack counts and historical failures. This unfinished LOCAL WIP is
-based on stored shared-opset-21 checkpoint `b4f8b16e`; `fe214590` remains the last
-fully green checkpoint. The later test-only deployment portability cut passes
-142 cases on each local stack; the separate normal inventory selection passes
-49 cases on each. The **48 PASS / 1 FAIL** invalid-source environment check is
-retained separately. These finite results preserve the prior shared-opset-21
-qualification. Public LEGACY behavior and defaults remain unchanged.
+exact source/stack counts and historical failures. This unfinished LOCAL WIP
+continues stored checkpoint `73f4a7a5`, whose quality/docs checks, exact staged
+review and all seven normal hooks completed. ROOT's later read-only observation
+also found Draft PR #277 at `73f4a7a5`; `fe214590` remains the last fully green
+checkpoint. The retained portability selection passes **142** cases on each
+local stack; the separate invalid-source environment result remains
+**48 PASS / 1 FAIL**.
 
-The portability fixtures use explicit reviewed export declarations and unchanged
-actual runtime observations. Matching targets retain every numerical assertion,
-including the expected failed subnormal diagnostic. Other targets must reject
-before sample execution, with numerical acceptance unverified. Production target
-registration, observation and criteria are unchanged; the CI change only adds
-`PYTEST_ADDOPTS='-v --tb=short'` to the test job.
+The new shared structure foundation checks finite flat, static SOURCE IR graphs
+through ordinary dispatch and final facade validation. Typed source equations,
+actual value/producer ports and plugin-owned rules must cover the whole graph.
+When a structural rule or check for scopes, symbolic dimensions or literals is
+not yet implemented, or an optimizer witness is lost, validation remains
+unverified. These verifier gaps remain part of the B–F work. Its result is private
+IR metadata, with no proto/file structural acceptance or runtime/numerical claim.
+Source snapshot `c8add0e6` passes **169 identical cases on each local stack**:
+30 structure, 36 layout, 54 finalization and 49 inventory cases. NCHW boundaries,
+empty-output branches and FP64 cosine decompositions remain explicitly unverified
+until their structural rules exist; existing exports and baseline guards remain
+intact. Final typing passes **574 files on each stack** at `c8add0e6`.
+The earlier **893-case pair** remains tied to
+`42efea8b`, with its own **574-file** typing evidence. The ledger also retains
+the initial 25-case pair, typing failure and **892 PASS / 1 FAIL** fixture
+predecessor. Actual quality/docs, exact staged-review
+and normal-hook outcomes belong to the local commit record. Public LEGACY
+behavior and defaults are unchanged; the full B–F migration remains open.
 
 1. Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
    deployment pair with their unchanged semantic/type/precision/placement guards.
-   Complete the original AttentionCore structural contract, then runtime/numerical
-   qualification with the original raw callback and `None` criteria intact.
-   The callback still fails; small fixtures do not accept the original model.
+   Check actual CPU runtime feasibility of the retained original AttentionCore
+   artifacts with their captured physical feeds, independently of structural and
+   numerical acceptance. Extend shared structural rules while preserving the
+   original raw callback and `None` criteria.
+   Metadata report `efa6eeab` extracts all four retained source-`12ee5c05` cells
+   under execution context `73f4a7a5`/`d9c59125`; it is no new export or acceptance.
+   The original callback still fails and structure/runtime/numerics remain
+   unverified. Neither metadata extraction nor finite fixtures accept the model.
 2. Require actual full CI for the primary user cohorts Python 3.11 **and** 3.12.
    The local modern Python 3.12 stack does not substitute for locked older-JAX
-   Python 3.12 CI or minimum-version evidence. Remote run `40210233250` tests
-   stored `b4f8b16e`, without these later uncommitted test fixes; four support jobs
-   passed and four full jobs were running at ROOT's recorded observation. Keep
+   Python 3.12 CI or minimum-version evidence. Remote run `40215501332` tests
+   stored `73f4a7a5`; four support jobs passed and four full jobs were running at
+   ROOT's recorded observation. This is not completed full CI acceptance. Keep
    older interrupted Python 3.11/3.12/3.13 failures and completed Python 3.14
    compatibility failures, the interrupted local full attempt and all historical
    failure epochs distinct. Fresh full current-suite acceptance remains open.
@@ -49,9 +66,10 @@ registration, observation and criteria are unchanged; the CI change only adds
    cutover, with no permanent selector or capability loss.
 5. A reviewed LOCAL WIP may preserve unfinished progress after current relevant
    quality checks, strict docs/links, all seven normal hooks and exact staged
-   review; record their actual outcomes in the commit body. Those gates remain
-   pending for this code cut. WIP storage does not establish a green full suite,
-   release, resource-safety guarantee or migration completion.
+   review. Record their actual commands and terminal outcomes in the local
+   commit body; finite test results do not preclaim those checks. The stored
+   `73f4a7a5` closeout is complete. WIP storage does not establish a green full
+   suite, release, resource-safety guarantee or migration completion.
 
 <a id="current-binding-minimum-version-obligation"></a>
 

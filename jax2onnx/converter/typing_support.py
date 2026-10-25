@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from .function_scope import FunctionRegistry
     from .ir_context import IRContext
     from .ir_constants import ConstantFolder
+    from .source_structure import SourceStructureLedger
 
 ResolverFn = Callable[[object], object | None]
 
@@ -297,6 +298,7 @@ class ConverterContext(NativeLoweringContext, Protocol):
     _lowering_record_owner: ConverterContext
     _func_name_counters: dict[tuple[str, str, str], int]
     _jaxpr_validator: Callable[[Any, int], None] | None
+    _source_structure: SourceStructureLedger | None
     _call_input_param_literals: dict[str, object]
     _call_param_value_by_name: dict[str, ir.Value]
 

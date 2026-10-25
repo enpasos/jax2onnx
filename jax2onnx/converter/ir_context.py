@@ -35,6 +35,7 @@ from .precision_policy import PrecisionPolicy
 from .source_deployment import DeploymentTarget, MatrixPrecisionRequirement
 from .source_deployment_bindings import MatrixSiteBinding, record_matrix_site
 from .source_representation import representation_for_aval
+from .source_structure import SourceStructureLedger
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
@@ -197,6 +198,11 @@ class IRContext:
         self._deployment_target = deployment_target
         self._matrix_precision_requirements: list[MatrixSiteBinding] = []
         self._precision_policy = precision_policy
+        self._source_structure = (
+            SourceStructureLedger()
+            if precision_policy is PrecisionPolicy.SOURCE
+            else None
+        )
         self._jaxpr_validator = jaxpr_validator
         if stacktrace_metadata is None:
             env_flag = os.getenv(_STACKTRACE_METADATA_ENV)
@@ -364,6 +370,7 @@ class IRContext:
             deployment_target=self.deployment_target,
         )
         child._matrix_precision_requirements = self._matrix_precision_requirements
+        child._source_structure = self._source_structure
         child.record_primitive_calls_file = self.record_primitive_calls_file
         child._lowering_record_owner = self._lowering_record_owner
         child._primitive_call_records = (
@@ -697,6 +704,11 @@ class IRContext:
             )
         else:
             self.builder.initializers.append(value)
+
+        if self._source_structure is not None:
+            # `array` is the exact storage encoded directly from the original
+            # source constant/literal above, before any lowering can rewrite it.
+            self._source_structure.constant(value, array)
 
         try:
             self.builder._var2val[var] = value

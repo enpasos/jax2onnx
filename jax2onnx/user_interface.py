@@ -130,6 +130,7 @@ from jax2onnx.converter.source_representation import (
     validate_source_shapes,
 )
 from jax2onnx.ir_utils import iter_ir_functions
+from jax2onnx.converter.source_structure import validate_source_structure
 from jax2onnx.precision import (
     CheckStatus,
     PrecisionCheck,
@@ -1553,6 +1554,10 @@ def _to_onnx(
                 model_proto, trace_result, opset, **boundary_names
             )
             check_source_schema(model_proto)
+            # Final IR only: after optimizer, postprocessing, output aliases and
+            # IO names. The private result neither changes export admission nor
+            # claims that a serialized proto/file has been structurally audited.
+            validate_source_structure(result)
             report = _build_source_report(
                 result,
                 trace_result,
