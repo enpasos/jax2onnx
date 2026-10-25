@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import hashlib
-from typing import Any, Final, Literal, Protocol, TYPE_CHECKING
+from typing import Any, Final, Literal, Protocol, TYPE_CHECKING, TypeAlias
 
 import numpy as np
 import onnx_ir as ir
@@ -103,11 +103,26 @@ class ConstantContract:
 
 
 @dataclass(frozen=True)
+class LiteralOperand:
+    """Original typed literal storage, without an emitted-definition claim."""
+
+    tensor: TensorContract
+    storage: ConstantContract
+
+
+RuleOperand: TypeAlias = ir.Value | LiteralOperand
+LiteralMatcher: TypeAlias = Callable[[ir.Value | None, LiteralOperand], None]
+
+
+@dataclass(frozen=True)
 class _ValueWitness:
     owner: object
     origin: object
     role: Literal["input", "initializer", "producer"]
     port: int
+
+
+_Binding: TypeAlias = _ValueWitness | LiteralOperand
 
 
 def _location(
@@ -162,8 +177,9 @@ class EquationRule(Protocol):
     def check(
         self,
         graph: ir.Graph,
-        inputs: tuple[ir.Value, ...],
+        inputs: tuple[RuleOperand, ...],
         outputs: tuple[ir.Value, ...],
+        match_literal: LiteralMatcher,
     ) -> tuple[ir.Node, ...]: ...
 
 
@@ -177,10 +193,13 @@ class _Use:
 def _use(var: Any) -> _Use:
     literal = None
     if isinstance(var, JaxLiteral):
-        array = np.asarray(var.val, dtype=var.aval.dtype)
-        literal = ConstantContract.from_array(
-            representation_for_aval(var.aval).encode_array(array)
-        )
+        # These conversions observe already-traced storage. Production binding
+        # retains ownership of any cast warning; observation must not duplicate it.
+        with np.errstate(over="ignore", invalid="ignore"):
+            array = np.asarray(var.val, dtype=var.aval.dtype)
+            literal = ConstantContract.from_array(
+                representation_for_aval(var.aval).encode_array(array)
+            )
     return _Use(id(var), TensorContract.from_aval(var.aval), literal)
 
 
@@ -194,7 +213,7 @@ class _Equation:
 
 @dataclass(frozen=True)
 class _Receipt:
-    inputs: tuple[_ValueWitness, ...]
+    inputs: tuple[_Binding, ...]
     outputs: tuple[_ValueWitness, ...]
 
 
@@ -207,9 +226,9 @@ class _Scope:
     outputs: tuple[_Use, ...]
     input_values: tuple[_ValueWitness, ...]
     variables: dict[int, _ValueWitness]
-    pending: dict[int, tuple[_ValueWitness, ...]] = field(default_factory=dict)
+    pending: dict[int, tuple[_Binding, ...]] = field(default_factory=dict)
     receipts: dict[int, _Receipt] = field(default_factory=dict)
-    result_values: tuple[_ValueWitness, ...] | None = None
+    result_values: tuple[_Binding, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -281,14 +300,6 @@ class SourceStructureLedger:
             )
             inputs = tuple(_use(var) for var in jaxpr.invars)
             outputs = tuple(_use(var) for var in jaxpr.outvars)
-            if any(
-                use.literal is not None
-                for use in (*outputs, *(use for eqn in equations for use in eqn.inputs))
-            ):
-                # require_value_for_var materializes a new literal each call.
-                # Actual literal port capture is a future rule; never allocate
-                # new IR merely to observe a source use.
-                raise StructureUnavailable("literal-use-contract-unavailable")
             values = tuple(_witness(_lookup(ctx, var)) for var in jaxpr.invars)
             variables = {
                 id(var): _witness(_lookup(ctx, var))
@@ -317,7 +328,12 @@ class SourceStructureLedger:
             if scope is not None:
 
                 def finish() -> None:
-                    actual = tuple(_witness(_lookup(ctx, var)) for var in jaxpr.outvars)
+                    # Literal root results need not have an IR definition yet:
+                    # ordinary output binding materializes them after this scope.
+                    actual = tuple(
+                        _capture_binding(ctx, use, var)
+                        for use, var in zip(scope.outputs, jaxpr.outvars, strict=True)
+                    )
                     for use, value in zip(scope.outputs, actual, strict=True):
                         self._check_source_use(scope, use, value)
                     scope.result_values = actual
@@ -325,9 +341,9 @@ class SourceStructureLedger:
                 self._observe("scope-results", finish)
             self.active.pop()
 
-    def _check_source_use(self, scope: _Scope, use: _Use, value: _ValueWitness) -> None:
+    def _check_source_use(self, scope: _Scope, use: _Use, value: _Binding) -> None:
         if use.literal is not None:
-            if self.constants.get(value) != use.literal:
+            if value != LiteralOperand(use.tensor, use.literal):
                 raise StructureMismatch("literal-source-binding-differs")
         elif scope.variables.get(use.variable_id) != value:
             raise StructureMismatch("source-ssa-binding-differs")
@@ -337,9 +353,12 @@ class SourceStructureLedger:
             scope, expected = self._expected(eqn, index)
             if index in scope.pending or index in scope.receipts:
                 raise StructureUnavailable("equation-identity-unavailable")
-            inputs = tuple(_witness(_lookup(ctx, var)) for var in eqn.invars)
-            if len(inputs) != len(expected.inputs):
+            if len(eqn.invars) != len(expected.inputs):
                 raise StructureMismatch("source-input-arity-differs")
+            inputs = tuple(
+                _capture_binding(ctx, use, var)
+                for use, var in zip(expected.inputs, eqn.invars, strict=True)
+            )
             for use, var, value in zip(
                 expected.inputs, eqn.invars, inputs, strict=True
             ):
@@ -387,6 +406,16 @@ class SourceStructureLedger:
         self._observe("equation-capture", record)
 
 
+def _capture_binding(ctx: ConverterContext, use: _Use, var: object) -> _Binding:
+    if id(var) != use.variable_id:
+        raise StructureMismatch("source-use-identity-differs")
+    if use.literal is not None:
+        # Observation must never call require_value_for_var for a literal: it
+        # would create another initializer, unrelated to the actual consumer.
+        return LiteralOperand(use.tensor, use.literal)
+    return _witness(_lookup(ctx, var))
+
+
 def _lookup(ctx: ConverterContext, var: object) -> ir.Value:
     if isinstance(var, JaxLiteral):
         raise StructureUnavailable("literal-use-contract-unavailable")
@@ -412,20 +441,28 @@ def _resolve(model: ir.Model, scope: _Scope) -> dict[_ValueWitness, ir.Value]:
     graph = model.graph
     if graph.meta.get(_OWNER) is not scope.owner:
         raise StructureUnavailable("final-graph-owner-unavailable")
-    wanted = (
-        {
-            witness
-            for receipt in scope.receipts.values()
-            for witness in (*receipt.inputs, *receipt.outputs)
-        }
-        | set(scope.input_values)
-        | set(scope.result_values or ())
+    wanted = {
+        binding
+        for receipt in scope.receipts.values()
+        for binding in (*receipt.inputs, *receipt.outputs)
+        if isinstance(binding, _ValueWitness)
+    }
+    wanted.update(scope.input_values)
+    wanted.update(
+        binding
+        for binding in scope.result_values or ()
+        if isinstance(binding, _ValueWitness)
     )
     found: dict[_ValueWitness, ir.Value] = {}
     values = [*graph.inputs, *graph.initializers.values()]
     for node in graph:
         values.extend(node.outputs)
+    seen_values: set[int] = set()
     for value in values:
+        # Overridable inputs are one actual definition listed in both containers.
+        if id(value) in seen_values:
+            continue
+        seen_values.add(id(value))
         for witness in value.meta.get(_VALUES, ()):
             if witness not in wanted:
                 continue
@@ -476,6 +513,52 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         raise StructureMismatch("source-input-interface-differs")
     checked: set[ir.Node] = set()
     constant_cache: dict[int, ConstantContract] = {}
+    literal_cache: dict[int, ConstantContract] = {}
+    literal_initializers: set[ir.Value] = set()
+
+    def match_literal(value: ir.Value | None, expected: LiteralOperand) -> None:
+        if value is None:
+            raise StructureMismatch("literal-input-missing")
+        if value.is_graph_input() or any(item is value for item in model.graph.inputs):
+            raise StructureMismatch("literal-runtime-input-substitute")
+        if value.graph is not model.graph:
+            raise StructureUnavailable("literal-owner-unavailable")
+        producer = value.producer()
+        if producer is None:
+            if not any(item is value for item in model.graph.initializers.values()):
+                raise StructureUnavailable("literal-definition-unavailable")
+            tensor = value.const_value
+        elif (
+            producer.graph is model.graph
+            and any(node is producer for node in model.graph)
+            and not producer.domain
+            and not producer.overload
+            and producer.op_type == "Constant"
+        ):
+            if (
+                producer.inputs
+                or len(producer.outputs) != 1
+                or producer.outputs[0] is not value
+                or set(producer.attributes) != {"value"}
+                or producer.attributes["value"].type is not ir.AttributeType.TENSOR
+            ):
+                raise StructureUnavailable("literal-constant-contract-unavailable")
+            # A cached output.const_value can be stale after an attribute edit.
+            tensor = producer.attributes["value"].as_tensor()
+        else:
+            raise StructureUnavailable("literal-producer-contract-unavailable")
+        if value.dtype is None or value.shape is None or tensor is None:
+            raise StructureUnavailable("literal-storage-unavailable")
+        if not expected.tensor.matches(value):
+            raise StructureMismatch("literal-type-or-shape-differs")
+        if id(value) not in literal_cache:
+            literal_cache[id(value)] = ConstantContract.from_array(tensor.numpy())
+        if literal_cache[id(value)] != expected.storage:
+            raise StructureMismatch("literal-storage-differs")
+        if producer is None:
+            literal_initializers.add(value)
+        else:
+            checked.add(producer)
 
     def check_value(use: _Use, witness: _ValueWitness) -> ir.Value:
         value = values[witness]
@@ -495,13 +578,24 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
                 raise StructureMismatch("source-constant-storage-differs")
         return value
 
+    def check_operand(use: _Use, binding: _Binding) -> RuleOperand:
+        if isinstance(binding, LiteralOperand):
+            if use.literal is None or binding != LiteralOperand(
+                use.tensor, use.literal
+            ):
+                raise StructureMismatch("literal-source-binding-differs")
+            return binding
+        if use.literal is not None:
+            raise StructureMismatch("literal-source-binding-differs")
+        return check_value(use, binding)
+
     count = 0
     reasons: list[str] = []
     for index, expected in enumerate(scope.equations):
         receipt = scope.receipts[index]
         inputs = tuple(
-            check_value(use, witness)
-            for use, witness in zip(expected.inputs, receipt.inputs, strict=True)
+            check_operand(use, binding)
+            for use, binding in zip(expected.inputs, receipt.inputs, strict=True)
         )
         outputs = tuple(
             check_value(use, witness)
@@ -510,15 +604,35 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         if expected.rule is None:
             reasons.append("equation-" + str(index) + ":rule-unavailable")
             continue
-        checked.update(expected.rule.check(model.graph, inputs, outputs))
+        checked.update(expected.rule.check(model.graph, inputs, outputs, match_literal))
         count += 1
     if len(model.graph.outputs) != len(scope.outputs):
         raise StructureMismatch("source-output-arity-differs")
     for actual, use, witness in zip(
         model.graph.outputs, scope.outputs, scope.result_values, strict=True
     ):
-        expected_value = check_value(use, witness)
-        if actual is not expected_value:
+        expected_value = check_operand(use, witness)
+        if isinstance(expected_value, LiteralOperand):
+            producer = actual.producer()
+            if producer is not None and producer.op_type == "Identity":
+                if (
+                    producer.graph is not model.graph
+                    or not any(node is producer for node in model.graph)
+                    or producer.domain
+                    or producer.overload
+                    or producer.attributes
+                    or len(producer.inputs) != 1
+                    or len(producer.outputs) != 1
+                    or producer.outputs[0] is not actual
+                ):
+                    raise StructureMismatch("literal-output-alias-differs")
+                if not use.tensor.matches(actual):
+                    raise StructureMismatch("literal-type-or-shape-differs")
+                match_literal(producer.inputs[0], expected_value)
+                checked.add(producer)
+            else:
+                match_literal(actual, expected_value)
+        elif actual is not expected_value:
             # Only facade Identity aliases are approved at the final boundary.
             producer = actual.producer()
             if (
@@ -548,7 +662,7 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     recorded_constants = {
         values[witness] for witness in ledger.constants if witness in values
     }
-    if used_constants - recorded_constants:
+    if used_constants - recorded_constants - literal_initializers:
         reasons.append("artifact-constant-coverage-incomplete")
     return StructureResult(
         "unverified" if reasons else "validated", total, count, tuple(reasons[:16])

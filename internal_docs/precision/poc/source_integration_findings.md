@@ -3,19 +3,27 @@
 ## Current checkpoint
 
 Snapshot: 2026-10-25. This unfinished LOCAL WIP continues stored checkpoint
-**`1ecb06b2`**, whose quality/docs checks, exact staged review and all seven normal
-hooks completed. The retained read-only remote observation found Draft PR #277
-at **`73f4a7a5`**. **`fe214590`** remains the last fully green checkpoint. The retained
+**`366a4d08`**, which contains the **`1ecb06b2`** structure foundation and later
+retained-runtime documentation. The foundation's quality/docs checks, exact
+staged review and all seven normal hooks completed. The three-file literal
+follow-through remains local WIP. The read-only remote refresh confirms
+Draft PR #277 at **`73f4a7a5`**. **`fe214590`** remains the last fully green checkpoint. The retained
 deployment-test and inventory-test snapshots are **`c9f5812b`** and **`b7eceac8`**;
 results below retain their own source epochs.
 Public routes and defaults remain **LEGACY**; the full **B–F** goal remains open.
 
 | Current gate | Actual source-bound result | Scope and remaining work |
 | --- | --- | --- |
-| Final structure follow-through, source snapshot `c8add0e6`, local Python 3.12 and 3.11 | **169 PASS each**, identical unique selections across four complete owners, zero failures/errors/skips; PRIMARY **16.370 s**, SECONDARY **19.488 s**, source/Git held, clean completion | Exactly 30 structure, 36 layout, 54 finalization and 49 inventory cases. Legal NCHW boundaries, empty-result operation lowerings and FP64 cosine decompositions remain **UNVERIFIED** until their structural checks are implemented. Existing exports remain valid. No proto/file structural, original-model or full-suite acceptance follows. |
-| Final structure typing, source snapshot `c8add0e6` | **574 files PASS on each stack**, PRIMARY **66.329 s**, SECONDARY **41.243 s**; source/Git held, clean completion | Current code qualification is separate from the earlier typing stages and their retained failure. Actual quality/docs/hooks/staged-review closeout outcomes belong to the local commit record. |
+| Focused literal structure, source snapshot `8f3f6a15`, local Python 3.12 and 3.11 | **49 PASS each**, zero failures/errors/skips; source/Git held, clean terminal completion in both v2 receipts | Frozen typed literal tokens match actual final consumer/output storage without extra IR allocation. Witness lookup deduplicates references to the exact same IR value; overridable defaults remain rejected. The original tests remain strict. This finite selection does not establish symbolic/scope/decomposition, proto/file, original-model or full-suite structural acceptance. |
+| Initial literal-focused PRIMARY selection, v1 | **48 PASS / 1 FAIL**, preserved separately | The overridable graph-input/initializer fixture returned **UNVERIFIED** instead of the required **FAILED** observation. Witness lookup encountered the exact same IR value twice through graph inputs and initializers. Identity deduplication lets the existing literal matcher reject the runtime-input substitute; no test was weakened. |
+| Literal typing, source snapshot `6f4c4863` | After the identifier-only repair, **574 files PASS on each stack**, PRIMARY v2 and SECONDARY v1; guards clean and source/Git held | The initial PRIMARY typing v1 **FAILED** on a reused loop-variable binding after the attribute loop; its receipt remains preserved. This typing pair does not establish full-suite or final-closeout acceptance. |
+| Literal broader regressions, source snapshot `6f4c4863` | **1,002 PASS each**, identical 1,002 unique identities, zero failures/errors/skips, complete consistent JUnit; source/Git held, clean terminal completion | The 17 complete owners retain the earlier 15 and add `test_source_layout_boundaries.py` and `test_source_precision_inventory.py`. Both regression and both typing runs hold the same full source snapshot. This finite qualification does not establish full-suite, original-model or public-transition acceptance. |
+| Fresh unchanged original AttentionCore exports, stored source `366a4d08` | **Four original cells**: both raw-x64 settings on both local stacks; source reference, artifact, schema and lowering audit **VALIDATED**; native eager/fresh-JIT references captured for **B=2 and B=5** | The original factory, callback, `None` criteria and row contract `ea6d8f6c7fab785a98941d54722b2926789b2edd59d74e81b40992e64d304e9d` are unchanged. Raw callback **FAILED**; structure and numerics **UNVERIFIED**. These actual exports precede the literal changes. |
+| Fresh AttentionCore default-sample CPU runtime, stored source `366a4d08` | **Eight sessions and runs VALIDATED**: four fresh artifacts × disabled/all optimization on the matching local stacks; all **21 pinned input files** and source/Git held | Actual CPU ORT 1.31.0, sequential execution and one intra-op/inter-op thread. The **B=2** physical sample is `[2, 257, 384]`, input FP32; raw-x64-off outputs FP32 and raw-x64-on outputs FP64. No B=5 runtime, structural or numerical acceptance. Original callback **FAILED** and `None` criteria remain unchanged. |
+| Pre-literal structure follow-through, source snapshot `c8add0e6`, local Python 3.12 and 3.11 | **169 PASS each**, identical unique selections across four complete owners, zero failures/errors/skips; PRIMARY **16.370 s**, SECONDARY **19.488 s**, source/Git held, clean completion | Exactly 30 structure, 36 layout, 54 finalization and 49 inventory cases. Legal NCHW boundaries, empty-result operation lowerings and FP64 cosine decompositions remain **UNVERIFIED** until their structural checks are implemented. Existing exports remain valid. No proto/file structural, original-model or full-suite acceptance follows. |
+| Pre-literal structure typing, source snapshot `c8add0e6` | **574 files PASS on each stack**, PRIMARY **66.329 s**, SECONDARY **41.243 s**; source/Git held, clean completion | This earlier qualification does not qualify the later literal cut. Actual quality/docs/hooks/staged-review closeout outcomes belong to the local commit record. |
 | Retained broad structure regression, source snapshot `42efea8b` | **893 PASS each**, identical unique selections across 15 complete owners, zero failures/errors/skips; PRIMARY **155.683 s**, SECONDARY **157.706 s**, source/Git held, clean completion | Includes the original 25 structure cases, eight backend owners and six shared-opset owners. This evidence belongs to its earlier source; it is not a rerun of the later boundary/decomposition corrections. |
-| Retained standalone inventory regression, source snapshot `42efea8b` | **49 PASS each**, identical unique complete-owner selections, zero failures/errors/skips; PRIMARY **9.017 s**, SECONDARY **9.698 s**, source/Git held | Checks the added plugin utility against ordinary discovery and baseline guards. No production inventory, baseline, denominator or optional-model acceptance change. The current 169-case pair includes this complete owner again. |
+| Retained standalone inventory regression, source snapshot `42efea8b` | **49 PASS each**, identical unique complete-owner selections, zero failures/errors/skips; PRIMARY **9.017 s**, SECONDARY **9.698 s**, source/Git held | Checks the added plugin utility against ordinary discovery and baseline guards. No production inventory, baseline, denominator or optional-model acceptance change. The later 169-case pair includes this complete owner again. |
 | Earlier corrected structure typing | **574 files PASS on each stack**, PRIMARY **63.718 s** at `7effba53`, SECONDARY **39.478 s** at `42efea8b`; source/Git held, clean completion | The intervening malformed-fixture correction changes only a test; package files are identical between these two snapshots. These results do not relabel the initial typing failure below or qualify later code changes. |
 | Initial structure-focused selection, source snapshot `4798ab21` | **25 PASS each**, identical unique complete-owner selections, zero failures/errors/skips; PRIMARY **10.388 s**, SECONDARY **7.498 s**, source/Git held; eight-file Ruff **PASS** | Retained initial evidence, distinct from the corrected 893-case pair and the failed predecessors below. |
 | Initial structure typing, source snapshot `4798ab21`, PRIMARY | **FAILED: one `union-attr` error in 574 checked files**, source/Git held, clean guard completion | The primitive rule read `.name` without narrowing an optional primitive. This failed predecessor remains distinct from the corrected successor. |
@@ -28,7 +36,7 @@ Public routes and defaults remain **LEGACY**; the full **B–F** goal remains op
 | Test-only deployment portability, source `c9f5812b`, local Python 3.12 and 3.11 | **142 PASS each**, identical unique four-owner selections, zero failures/errors/skips; PRIMARY **92.479 s**, SECONDARY **78.234 s**, source/Git held | Actual matching-host strict numerical branches, real cross-ABI observations and CPU-only negative controls ran under both optimization modes. Original subnormal numerical **FAILED** remains failed-target evidence. No production target, observer, criterion or public-default change. |
 | Optional-discovery fixture, source snapshot `b7eceac8`, normal local Python 3.12 and 3.11 | **49 PASS each**, identical unique complete-owner selections, zero failures/errors/skips; PRIMARY **10.295 s**, SECONDARY **6.528 s**, source/Git held | Normal optional sources are unconfigured; two new isolated family cases check configured external discovery and local preservation. Under the exact same deliberately incomplete external source, the original absence test changes from **1 FAIL** to **1 PASS**. This is local red/green evidence, not a recovered CI traceback, optional-model acceptance or a production inventory/baseline change. |
 | Retained invalid global optional-source environment, source snapshot `b7eceac8` | Complete SECONDARY owner: **48 PASS / 1 FAIL**, zero errors/skips | A safe raw-identity query proves the sole extra row is actual `MaxDiffusion_Environment_Error` from the deliberately invalid global fixture; the unchanged 1,852-row baseline guard correctly rejects it. This remains failed environment evidence, not an accepted model or a product regression. |
-| Remote CI run `40215501332`, stored head `73f4a7a5` | Four support jobs **PASS**; four full Python 3.11/3.12/3.13/3.14 jobs **running** at ROOT's recorded observation | Includes the stored portability/inventory test and CI-logging fixes, but not this new structure code cut. No completed full CI acceptance is claimed. |
+| Remote CI run `40215501332`, stored head `73f4a7a5`, read-only refresh 2026-10-25 | Four support jobs **PASS**; all four full jobs completed with **FAILURE**. Python 3.13: **13,950 PASS / 11 SKIP / 1 ERROR**; Python 3.14: **87 FAIL / 13,649 PASS / 11 SKIP / 215 ERROR** | Python 3.11 ends abruptly at 40% with **5,720 passed markers**, zero failed markers and no terminal summary. Python 3.12 records runner shutdown/exit **143** at 79% with **11,364 passed markers** and zero failed markers. Python 3.13's sole collection error is `KeyError: 'carriers'` in the native-wrapper fixture's `_NATIVE_AXISDATA` access; Python 3.14 retains lazy-annotation and code-constant adaptation failures. No full CI acceptance or shared shutdown cause is inferred. This remote source predates the literal cut; the earlier running observation remains prior history. |
 | Earlier remote CI run `40210233250`, stored head `b4f8b16e` | Four support jobs **PASS**; four full jobs were **running** at its retained observation | Historical observation predates the stored portability/inventory fixes. It is not evidence for the current code cut. |
 | Historical CI run `39908291998` | Four support jobs **PASS**, including minimum Python 3.11 **465 tests** and normalization Python 3.12 **102 tests**; full Python 3.11/3.12/3.13 jobs **FAILED/incomplete**, exit **143**, with **21/22/54 earlier failure markers**, respectively; full Python 3.14 completed with **145 FAIL / 13,465 PASS / 11 SKIP / 215 ERROR** | Executed merge `859c266` into `fae178`. Original failure markers remain distinct from later grounded local reproductions. Python 3.14 also retains lazy-annotation and native-capture compatibility failures. Neither interrupted failures nor completed compatibility failures are relabeled as infrastructure-only or full green. |
 | Local checkpoint closeout | Stored **`1ecb06b2` complete**: exact staged review, strict docs and all seven normal hooks **PASS**; normal commit **75.651 s**, source files held and expected HEAD transition | Actual closeout commands/outcomes are stored in the commit record. Neither checkpoint storage nor finite qualification establishes a local complete-suite green result. Later documentation-only closeout belongs to its own commit record. |
@@ -37,7 +45,7 @@ The structure foundation uses the shared lowering path and final SOURCE facade,
 after optimization, postprocessing, aliases and naming. Finite canonical native
 primitive rules check actual operators, attributes, typed edges and source
 constant storage. Known contradictions fail the structural observation;
-missing coverage, checks for decompositions, scopes, literals or symbolic identity
+missing coverage, checks for decompositions, scopes or symbolic identity
 not yet implemented, or lost optimizer witnesses leave it unverified. NCHW
 boundaries, operation rules with empty results and FP64 cosine's existing
 half-angle lowering have explicit gaps in this finite verifier. These are implementation gaps within the
@@ -49,8 +57,34 @@ The earlier test-only correction constructs the missing-primitive fixture direct
 canonical native and same-name custom-primitive controls remain. Package files
 at `42efea8b` are unchanged from the typing-qualified `7effba53` source.
 
-The retained runtime observations use the original physical feeds and compare
-outputs separately with retained eager and fresh-JIT references. All 197,376
+The literal extension freezes each original typed literal into a token; observing
+it never requests a new IR value or creates another initializer. Shared rules
+match the actual final consumer/output port against an immutable initializer or
+the authoritative tensor attribute of its `Constant` producer. Type, shape and
+storage bytes must match exactly, including signed zero and NaN payloads.
+Nonliteral SSA identities remain strict. An equivalent literal leaf after CSE
+may use a different IR value when its typed storage matches exactly. Witness
+lookup deduplicates repeated references to the exact same IR value; an overridable graph input is rejected
+even when it also has initializer storage. Unknown computed leaves
+remain **UNVERIFIED**. Export, warning and report parity checks keep observation
+independent of admission; there is no new public API, default, report
+serialization or corpus closure. General symbolic, scope and decomposition
+rules remain work; the next shared implementation extends the typed contract
+through symbolic identity before broader scope and decomposition rules.
+
+Fresh source-`366a4d08` exports use the unchanged registered AttentionCore factory
+and raw replay pipeline. It captured eager and fresh-JIT outputs for B=2/B=5,
+concrete and declared typed traces, original state/constants and actual facade
+artifacts before the original fusion-count callback failed. The later runtime
+workload uses only their captured default B=2 feeds and references; it performs
+no retracing, re-export or JIT execution. Eight actual CPU sessions/runs validated
+with disabled/all optimization on both stacks and all 21 pinned inputs held.
+This does not establish B=5 runtime, shared structure or numerical acceptance,
+and does not qualify the subsequent literal source cut. The older source-`12ee5c05`
+export, metadata and retained-runtime records remain separate historical evidence.
+
+The retained source-`12ee5c05` runtime observations use the original physical
+feeds and compare outputs separately with retained eager and fresh-JIT references. All 197,376
 output elements per run were finite. The maximum absolute differences were
 approximately `6.33e-8` for PRIMARY FP32, `4.84e-8` for SECONDARY FP32 and
 `1.18e-16` for FP64 on both stacks, in both optimization modes. These are
@@ -82,10 +116,10 @@ changes to the original probe, inventory, callbacks or numerical criteria.
 Python **3.11 and 3.12** are primary user cohorts and each requires its actual CI
 stack. Local PRIMARY Python 3.12/JAX 0.12.0.1 and SECONDARY Python 3.11/JAX 0.10.2
 passes do not replace the locked Python 3.12/JAX 0.10.2 CI cohort or the separate
-minimum stack. The next model gate combines shared structural validation bound to
-the exact returned artifact, fresh current-source exports of the original models
-and an explicit sample/numerical-criteria contract. Resolve raw callback
-mismatches with shared source-semantic checks; legacy fusion/operator-count
+minimum stack. The next model gate connects shared structural validation to
+the exact returned artifact and completes the original-model and explicit
+sample/numerical-criteria contracts beyond the fresh AttentionCore observations.
+Resolve raw callback mismatches with shared source-semantic checks; legacy fusion/operator-count
 expectations must not become a permanent SOURCE acceptance condition. Preserve
 original `None` criteria and their unverified numerical status; diagnostics do
 not supply missing criteria. Retain the interrupted **14,053 PASS /
@@ -94,9 +128,26 @@ Current inventory/probe reconciliation, fixed-source and opaque/metadata-free/
 manual obligations, scientific FP64/low-precision workflows and coherent public
 validation/preparation/export cutover remain open. The retained original cells,
 metadata extraction and supplementary retained runtime add no closures to the
-frozen caller map.
+frozen caller map. Neither the fresh four-cell exports/default-sample runtime nor
+the finite literal extension closes the full map.
 
-Current evidence: `root-attentioncore-retained-runtime-paired-proof-20261025-v1.json`
+Current evidence: `source-literals-focused-20261025-v2-primary/receipt.json`;
+`source-literals-focused-20261025-v2-secondary/receipt.json`;
+`source-literals-focused-20261025-v1-primary/receipt.json`;
+`source-literals-typing-primary-20261025-v1/receipt.json`;
+`source-literals-typing-primary-20261025-v2/receipt.json`;
+`source-literals-typing-secondary-20261025-v1/receipt.json`;
+`source-literals-regressions-20261025-v1-primary/receipt.json`;
+`source-literals-regressions-20261025-v1-secondary/receipt.json`;
+`root-source-literals-paired-qualification-20261025-v1.json`
+(SHA-256 `15f718a5884e5d16d3cb0d54ba823666af3a2d79f074da6013baea4a10a50698`);
+`root-pr277-ci-refresh-20261025-v2.json`;
+`root-pr277-ci-modern-refresh-20261025-v1.json`;
+`root-attentioncore-fresh-current366-summary-20261025-v1.json`
+(SHA-256 `6b26f8f6f123c68e3c57e6b35cbb73fd476a63c447c9f123645bdafd7004986f`);
+`root-attentioncore-fresh-current366-paired-proof-20261025-v1.json`
+(SHA-256 `b89166f3e5a2f2399e6c04b7235805945d18c8d891252784de7a9a4e08a38ef8`);
+`root-attentioncore-retained-runtime-paired-proof-20261025-v1.json`
 (SHA-256 `3a5482ae790e45612a3638964a3f41e6a44e327b967ac11e2e56a754465c7b54`);
 `root-attentioncore-retained-runtime-20261025-v2-primary/runtime.json`
 (SHA-256 `4dc4adef295660ae903adc8df37ac9ed09b00f86b51d4c6581156b6e0102b58b`);

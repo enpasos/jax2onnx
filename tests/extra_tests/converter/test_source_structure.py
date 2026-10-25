@@ -5,6 +5,7 @@
 from dataclasses import fields, is_dataclass, replace
 from types import SimpleNamespace
 from typing import Any
+import warnings
 
 import jax
 from jax import export as jax_export
@@ -17,6 +18,7 @@ import pytest
 from jax2onnx import user_interface as ui
 from jax2onnx._compat.jax import Jaxpr, JaxprEqn, Literal, Primitive, Var
 from jax2onnx.converter.ir_context import IRContext
+from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter import source_structure as structure
 from jax2onnx.plugins import _source_structure as rules
@@ -258,7 +260,7 @@ def test_literal_observation_adds_no_nodes_or_initializers(
 
     monkeypatch.setattr(ui, "validate_source_structure", audit)
     model = _source(lambda x: jax.lax.sub(x, np.float32(1)), arity=1)
-    assert model.meta[structure.RESULT_KEY].status == "unverified"
+    assert model.meta[structure.RESULT_KEY].status == "validated"
     assert observed and all(before == after for before, after in observed)
     # Scope collection itself is also non-allocating, including root literals.
     jaxpr = jax.make_jaxpr(lambda: np.float32(1))().jaxpr
@@ -271,8 +273,209 @@ def test_literal_observation_adds_no_nodes_or_initializers(
     with ledger.scope(ctx, jaxpr, rules.freeze_source_structure_rule):
         pass
     assert before == (len(ctx.builder.graph), len(ctx.builder.graph.initializers))
-    assert ledger.gaps == {"scope-capture:literal-use-contract-unavailable"}
+    assert not ledger.gaps and not ledger.failures
     assert ledger.expected_equations == 0
+    assert isinstance(ledger.scopes[0].result_values[0], structure.LiteralOperand)
+
+
+@pytest.mark.parametrize("optimized", [False, True])
+@pytest.mark.parametrize("unary", [False, True])
+def test_actual_literal_arithmetic_exports_check_without_rebinding_literals(
+    optimized: bool, unary: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not optimized:
+        monkeypatch.setattr(
+            conversion_api, "optimize_graph", lambda model, **kwargs: None
+        )
+
+    def fn(x: jax.Array) -> jax.Array:
+        literal = np.float32(1.25)
+        if unary:
+            literal = jax.lax.neg(literal)
+        return jax.lax.sub(x, literal)
+
+    model = _source(fn, arity=1, shape=())
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    assert model.meta[structure.RESULT_KEY].runtime == "unverified"
+    assert model.meta[structure.RESULT_KEY].numerics == "unverified"
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+def test_literal_cast_rounding_and_mixed_repeated_root_outputs() -> None:
+    def fn(x: jax.Array) -> Any:
+        rounded = jax.lax.sub(x.astype(jnp.float64), np.float64(2**-40)).astype(
+            jnp.float32
+        )
+        return rounded, np.float64(0.125), np.float32(-0.0), np.float32(-0.0)
+
+    names = ["rounded", "wide_literal", "negative_zero", "repeated_zero"]
+    model = _source(fn, arity=1, shape=(), output_names=names)
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    assert [value.name for value in model.graph.outputs] == names
+    assert [value.dtype for value in model.graph.outputs] == [
+        ir.DataType.FLOAT,
+        ir.DataType.DOUBLE,
+        ir.DataType.FLOAT,
+        ir.DataType.FLOAT,
+    ]
+    assert all(tuple(value.shape) == () for value in model.graph.outputs)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+@pytest.mark.parametrize("word", [0x80000000, 0x7FC00001])
+def test_root_literal_exact_signed_zero_and_nan_payloads(word: int) -> None:
+    original = np.array([word], dtype=np.uint32).view(np.float32)[0]
+    model = _source(lambda: original, arity=0, output_names=["literal_answer"])
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    expected = structure.ConstantContract.from_array(np.asarray(original))
+    scope = model.meta[structure._LEDGER].scopes[0]
+    assert scope.outputs[0].literal == expected
+    output = model.graph.outputs[0]
+    if output.producer() is not None:
+        output = output.producer().inputs[0]
+    changed = (
+        np.array([0 if word == 0x80000000 else 0x7FC00002], dtype=np.uint32)
+        .view(np.float32)
+        .reshape(())
+    )
+    output.const_value = ir.tensor(changed)
+    result = structure.validate_source_structure(model)
+    assert result.status == "failed"
+    assert result.reasons == ("literal-storage-differs",)
+
+
+def _scalar_literal_model() -> tuple[ir.Model, ir.Node, ir.Value]:
+    model = _source(lambda x: jax.lax.sub(x, np.float32(1.25)), arity=1, shape=())
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    consumer = next(node for node in model.graph if node.op_type == "Sub")
+    leaf = consumer.inputs[1]
+    assert leaf is not None
+    return model, consumer, leaf
+
+
+@pytest.mark.parametrize("fault", ["value", "dtype", "shape", "missing"])
+def test_recognized_wrong_literal_operand_fails(fault: str) -> None:
+    model, consumer, leaf = _scalar_literal_model()
+    if fault == "value":
+        leaf.const_value = ir.tensor(np.asarray(2.5, dtype=np.float32))
+    elif fault == "dtype":
+        leaf.dtype = ir.DataType.DOUBLE
+        leaf.const_value = ir.tensor(np.asarray(1.25, dtype=np.float64))
+    elif fault == "shape":
+        leaf.shape = ir.Shape([1])
+        leaf.const_value = ir.tensor(np.asarray([1.25], dtype=np.float32))
+    else:
+        consumer.replace_input_with(1, None)
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+@pytest.mark.parametrize("overridable", [False, True])
+def test_runtime_input_cannot_masquerade_as_literal(overridable: bool) -> None:
+    model, consumer, _ = _scalar_literal_model()
+    runtime = model.graph.inputs[0]
+    runtime.const_value = ir.tensor(np.asarray(1.25, dtype=np.float32))
+    if overridable:
+        model.graph.register_initializer(runtime)
+    consumer.replace_input_with(1, runtime)
+    result = structure.validate_source_structure(model)
+    assert result.status == "failed"
+    assert result.reasons == ("literal-runtime-input-substitute",)
+
+
+def test_equivalent_literal_cse_keeps_nonliteral_identity_strict() -> None:
+    def fn(x: jax.Array) -> Any:
+        return jax.lax.sub(x, np.float32(1.25)), jax.lax.add(x, np.float32(1.25))
+
+    model = _source(fn, arity=1, shape=())
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    subtract = next(node for node in model.graph if node.op_type == "Sub")
+    add = next(node for node in model.graph if node.op_type == "Add")
+    add.replace_input_with(1, subtract.inputs[1])
+    assert structure.validate_source_structure(model).status == "validated"
+    add.replace_input_with(0, subtract.inputs[1])
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+def test_constant_literal_uses_authoritative_tensor_and_covers_its_node() -> None:
+    model, consumer, _ = _scalar_literal_model()
+    array = np.asarray(1.25, dtype=np.float32)
+    leaf = ir.val("literal_constant", ir.DataType.FLOAT, [])
+    leaf.const_value = ir.tensor(array.copy())
+    constant = ir.Node(
+        "",
+        "Constant",
+        [],
+        outputs=[leaf],
+        attributes=[ir.AttrTensor("value", ir.tensor(array))],
+    )
+    model.graph.insert_before(consumer, constant)
+    consumer.replace_input_with(1, leaf)
+    assert structure.validate_source_structure(model).status == "validated"
+    # A stale matching annotation must not hide changed authoritative storage.
+    constant.attributes["value"] = ir.AttrTensor(
+        "value", ir.tensor(np.asarray(2.5, dtype=np.float32))
+    )
+    result = structure.validate_source_structure(model)
+    assert result.status == "failed"
+    assert result.reasons == ("literal-storage-differs",)
+
+
+@pytest.mark.parametrize("fault", ["unreadable", "computed"])
+def test_unreadable_or_unknown_literal_definition_stays_unverified(fault: str) -> None:
+    model, consumer, original = _scalar_literal_model()
+    if fault == "unreadable":
+        original.const_value = None
+    else:
+        computed = ir.val("computed_literal", ir.DataType.FLOAT, [])
+        computed.const_value = ir.tensor(np.asarray(1.25, dtype=np.float32))
+        model.graph.insert_before(
+            consumer, ir.Node("", "Identity", [original], outputs=[computed])
+        )
+        consumer.replace_input_with(1, computed)
+    assert structure.validate_source_structure(model).status == "unverified"
+
+
+def test_root_literal_weakness_is_frozen_from_original_native_trace() -> None:
+    model = _source(lambda: 1.25, arity=0)
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    scope = model.meta[structure._LEDGER].scopes[0]
+    report = get_precision_report(model)
+    assert report is not None
+    assert (
+        scope.outputs[0].tensor.weak_type is report.traced_outputs[0].weak_type is True
+    )
+
+
+def test_literal_observation_preserves_serialized_export_report_and_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fn(x: jax.Array) -> Any:
+        return jax.lax.sub(x, np.float32(1.25)), np.float64(0.125)
+
+    results = []
+    actual_init = IRContext.__init__
+
+    def without_ledger(self: IRContext, *args: Any, **kwargs: Any) -> None:
+        actual_init(self, *args, **kwargs)
+        self._source_structure = None
+
+    for enabled in (False, True):
+        with monkeypatch.context() as change:
+            if not enabled:
+                change.setattr(IRContext, "__init__", without_ledger)
+            with warnings.catch_warnings(record=True) as observed:
+                warnings.simplefilter("always")
+                model = _source(fn, arity=1, shape=())
+            results.append(
+                (
+                    ir.to_proto(model).SerializeToString(deterministic=True),
+                    get_precision_report(model),
+                    tuple((entry.category, str(entry.message)) for entry in observed),
+                )
+            )
+            if enabled:
+                assert model.meta[structure.RESULT_KEY].status == "validated"
+    assert results[0] == results[1]
 
 
 def test_symbolic_zero_equation_identity_does_not_pass_by_dimension_strings() -> None:

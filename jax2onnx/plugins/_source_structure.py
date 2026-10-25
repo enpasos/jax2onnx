@@ -19,6 +19,9 @@ import onnx_ir as ir
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.source_structure import (
     EquationRule,
+    LiteralMatcher,
+    LiteralOperand,
+    RuleOperand,
     StructureMismatch,
     TensorContract,
 )
@@ -60,15 +63,23 @@ class _DirectRule:
     def check(
         self,
         graph: ir.Graph,
-        inputs: tuple[ir.Value, ...],
+        inputs: tuple[RuleOperand, ...],
         outputs: tuple[ir.Value, ...],
+        match_literal: LiteralMatcher,
     ) -> tuple[ir.Node, ...]:
         if len(outputs) != 1:
             raise StructureMismatch("direct-result-arity-differs")
         result = outputs[0]
-        if self.identity_alias and len(inputs) == 1 and result is inputs[0]:
-            return ()
         node = result.producer()
+        if self.identity_alias and len(inputs) == 1:
+            operand = inputs[0]
+            if isinstance(operand, ir.Value):
+                if result is operand:
+                    return ()
+            elif node is None or node.op_type == "Constant":
+                # A literal no-op can legally reuse an equivalent immutable leaf.
+                match_literal(result, operand)
+                return ()
         if (
             node is None
             or node.graph is not graph
@@ -80,10 +91,7 @@ class _DirectRule:
             or node.outputs[0] is not result
         ):
             raise StructureMismatch("direct-operator-differs")
-        if len(node.inputs) != len(inputs) or any(
-            actual is not expected
-            for actual, expected in zip(node.inputs, inputs, strict=True)
-        ):
+        if len(node.inputs) != len(inputs):
             raise StructureMismatch("direct-input-edge-differs")
         if set(node.attributes) != {name for name, _ in self.attributes}:
             raise StructureMismatch("direct-attribute-set-differs")
@@ -101,6 +109,11 @@ class _DirectRule:
                 )
             if not matches:
                 raise StructureMismatch("direct-attribute-differs")
+        for actual, expected_operand in zip(node.inputs, inputs, strict=True):
+            if isinstance(expected_operand, LiteralOperand):
+                match_literal(actual, expected_operand)
+            elif actual is not expected_operand:
+                raise StructureMismatch("direct-input-edge-differs")
         return (node,)
 
 

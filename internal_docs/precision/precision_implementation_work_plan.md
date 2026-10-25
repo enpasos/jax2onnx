@@ -1,6 +1,6 @@
 # Computation Precision Implementation Work Plan
 
-Status: accepted complete B–F plan, updated 2026-10-22. One normal export must
+Status: accepted complete B–F plan, updated 2026-10-25. One normal export must
 preserve the selected JAX computation across all existing functionality and
 fixed supplied sources, with no permanent selector, fallback or capability loss.
 Only demonstrated ONNX representation and actual target limits restrict support.
@@ -9,9 +9,11 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
-continues stored checkpoint `1ecb06b2`, whose quality/docs checks, exact staged
-review and all seven normal hooks completed. The retained read-only remote
-observation found Draft PR #277 at `73f4a7a5`; `fe214590` remains the last fully green
+continues stored checkpoint `366a4d08`, which contains the `1ecb06b2` structure
+foundation and its later retained-runtime documentation. The foundation's
+quality/docs checks, exact staged review and all seven normal hooks completed.
+The three-file literal follow-through remains local WIP. The read-only remote
+refresh confirms Draft PR #277 at `73f4a7a5`; `fe214590` remains the last fully green
 checkpoint. The retained portability selection passes **142** cases on each
 local stack; the separate invalid-source environment result remains
 **48 PASS / 1 FAIL**.
@@ -19,15 +21,15 @@ local stack; the separate invalid-source environment result remains
 The new shared structure foundation checks finite flat, static SOURCE IR graphs
 through ordinary dispatch and final facade validation. Typed source equations,
 actual value/producer ports and plugin-owned rules must cover the whole graph.
-When a structural rule or check for scopes, symbolic dimensions or literals is
-not yet implemented, or an optimizer witness is lost, validation remains
+When a structural rule or check for scopes, symbolic dimensions or other
+carriers is not yet implemented, or an optimizer witness is lost, validation remains
 unverified. These verifier gaps remain part of the B–F work. Its result is private
 IR metadata, with no proto/file structural acceptance or runtime/numerical claim.
 Source snapshot `c8add0e6` passes **169 identical cases on each local stack**:
 30 structure, 36 layout, 54 finalization and 49 inventory cases. NCHW boundaries,
 empty-output branches and FP64 cosine decompositions remain explicitly unverified
 until their structural rules exist; existing exports and baseline guards remain
-intact. Final typing passes **574 files on each stack** at `c8add0e6`.
+intact. Pre-literal typing passes **574 files on each stack** at `c8add0e6`.
 The earlier **893-case pair** remains tied to
 `42efea8b`, with its own **574-file** typing evidence. The ledger also retains
 the initial 25-case pair, typing failure and **892 PASS / 1 FAIL** fixture
@@ -35,34 +37,80 @@ predecessor. Actual quality/docs, exact staged-review
 and normal-hook outcomes are recorded in local commit `1ecb06b2`. Public LEGACY
 behavior and defaults are unchanged; the full B–F migration remains open.
 
-Supplementary retained-artifact runtime evidence now covers all four original
+The literal follow-through freezes typed source-literal tokens without creating
+extra IR values or initializers. At final consumer and output ports it compares
+the actual immutable initializer or authoritative tensor `Constant` attribute
+with the frozen type, shape and exact storage, including signed zero and NaN
+payloads. Equivalent literal leaves after CSE may use different IR values when
+their typed storage matches exactly; nonliteral SSA identity remains strict.
+Witness lookup deduplicates repeated references to the exact same IR value.
+An overridable graph input stays
+rejected even when it also has initializer storage. An unknown computed leaf
+stays unverified.
+Source snapshot `8f3f6a15` passes **49 structure cases on each local stack**.
+The initial PRIMARY **48 PASS / 1 FAIL** remains preserved: the overridable
+input/initializer fixture returned unverified instead of the required failed
+observation. Deduplicating that same IR value lets the existing literal matcher
+reject the runtime-input substitute; no test was weakened. The first
+typing run failed on a reused loop-variable binding. After the identifier-only
+repair, source snapshot `6f4c4863` passes typing across **574 files on each stack**.
+The broader 17-owner selection passes **1,002 identical cases on each stack**,
+with zero failures/errors/skips and source/Git held. Observation adds no
+warning, export, public-report or serialization changes. General symbolic,
+scope and decomposition rules, artifact-bound validation and corpus closure
+remain open.
+
+Fresh exports of all four unchanged original AttentionCore cells now exist at
+stored source `366a4d08`, before the literal changes. Source reference, artifact,
+schema and lowering audit are validated on both raw-x64 settings and both local
+stacks; eager and fresh-JIT references were captured for `B=2` and `B=5`.
+The original raw callback remains failed and its original `None` criteria are
+unchanged. **Eight default-`B=2` CPU sessions and runs validated**, using disabled
+and all optimizations on both stacks with all 21 pinned input files and
+source/Git held. This establishes fresh-export and default-sample runtime
+evidence, with no `B=5` runtime, structural or numerical acceptance. Product
+summary `6b26f8f6` and paired proof `b89166f3` retain these boundaries.
+
+Separate retained-artifact runtime evidence covers all four original
 AttentionCore source-`12ee5c05` artifacts with their captured physical sample:
 **eight sessions and runs validated**, using CPU ORT 1.31.0, sequential execution,
 one intra-op/inter-op thread and both disabled/all optimization modes. All 21
 pinned input files and execution source `1ecb06b2` held. Inputs remain FP32;
 raw-x64-off outputs are FP32 and raw-x64-on outputs are FP64. Structural status
 remains unverified, the original raw callback remains failed, and original
-`None` criteria leave numerical acceptance unverified. This is retained-sample
-runtime feasibility, with no fresh current-source export or full-model acceptance.
+`None` criteria leave numerical acceptance unverified. This older retained-sample
+runtime feasibility remains separate from the fresh source-`366a4d08` exports.
 
 1. Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
    deployment pair with their unchanged semantic/type/precision/placement guards.
-   Connect shared structural coverage to ordinary validation with evidence bound
-   to the exact returned artifact, and qualify fresh current-source exports of
-   the original models. Resolve callback mismatches through source-semantic
-   checks; legacy fusion/operator-count expectations must not become a permanent
+   Extend the shared typed structural contract through symbolic identity, then
+   scopes and decompositions. Connect that coverage to ordinary validation with evidence bound
+   to the exact returned artifact, and complete the shared original-model gates
+   beyond the fresh AttentionCore export/default-sample observations. Resolve
+   callback mismatches through source-semantic checks; legacy fusion/operator-count
+   expectations must not become a permanent
    SOURCE acceptance condition. Establish the explicit sample/numerical-criteria
    contract without inventing tolerances or rewriting the original `None` cases.
    Metadata report `efa6eeab` extracts all four retained source-`12ee5c05` cells
    under execution context `73f4a7a5`/`d9c59125`; the later runtime proof `3a5482ae`
    supplements that metadata without changing the original export-time results.
+   Keep fresh product summary `6b26f8f6` and runtime proof `b89166f3` bound to
+   source `366a4d08`; they do not qualify the later literal changes.
    Retain the earlier v1 workload's Protobuf preflight error: it created no
    sessions and establishes no model runtime failure.
 2. Require actual full CI for the primary user cohorts Python 3.11 **and** 3.12.
    The local modern Python 3.12 stack does not substitute for locked older-JAX
    Python 3.12 CI or minimum-version evidence. Remote run `40215501332` tests
-   stored `73f4a7a5`; four support jobs passed and four full jobs were running at
-   ROOT's recorded observation. This is not completed full CI acceptance. Keep
+   stored `73f4a7a5`; the latest read-only refresh records four support jobs
+   passed and all four full jobs completed with failure. Python 3.11 ends
+   abruptly at 40%, with 5,720 passed markers, no failed marker and no terminal
+   summary. Python 3.12 records runner shutdown and exit 143 at 79%, with 11,364
+   passed markers and no failed marker. Python 3.13 completed **13,950 PASS /
+   11 SKIP / 1 ERROR**: a native-wrapper collection `KeyError: 'carriers'`.
+   Python 3.14 completed **87 FAIL / 13,649 PASS / 11 SKIP / 215 ERROR**, retaining
+   lazy-annotation and code-constant adaptation failures. These separate outcomes
+   establish no full CI acceptance or shared shutdown cause. The
+   earlier running observation remains historical. Keep
    older interrupted Python 3.11/3.12/3.13 failures and completed Python 3.14
    compatibility failures, the interrupted local full attempt and all historical
    failure epochs distinct. Fresh full current-suite acceptance remains open.
@@ -81,8 +129,9 @@ runtime feasibility, with no fresh current-source export or full-model acceptanc
    quality checks, strict docs/links, all seven normal hooks and exact staged
    review. Record their actual commands and terminal outcomes in the local
    commit body; finite test results do not preclaim those checks. The stored
-   `1ecb06b2` closeout is complete. WIP storage does not establish a green full
-   suite, release, resource-safety guarantee or migration completion.
+   structure closeout at `1ecb06b2` and later documentation checkpoint `366a4d08`
+   remain separate from the pending literal closeout. WIP storage does not
+   establish a green full suite, release, resource-safety guarantee or migration completion.
 
 <a id="current-binding-minimum-version-obligation"></a>
 
