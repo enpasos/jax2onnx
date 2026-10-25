@@ -4,7 +4,9 @@
 
 from dataclasses import asdict, replace
 from enum import Enum
+import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 from typing import Any
@@ -19,7 +21,7 @@ import onnx_ir as ir
 import onnxruntime as ort
 import pytest
 
-from jax2onnx import onnx_function, user_interface as ui
+from jax2onnx import onnx_function, precision as precision_module, user_interface as ui
 from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_deployment import (
@@ -44,6 +46,8 @@ from jax2onnx.precision import (
     SampleAcceptanceError,
     SampleCriteria,
     SourceSample,
+    SourceSampleEvidence,
+    _array_evidence,
     _deployment_graph_boundary,
     get_precision_report,
     precision_report_to_json,
@@ -63,10 +67,155 @@ from tests.extra_tests.converter.test_source_ordinary_matrix import (
 _DIMENSIONS = (((1,), (0,)), ((), ()))
 
 
+_REVIEWED_EXPORT_POINTS = (
+    ("1.31.0", "cpython-311"),
+    ("1.31.0", "cpython-312"),
+    ("1.24.1", "cpython-311"),
+)
+
+
+def _export_declaration(runtime_version: str, python_tag: str) -> Any:
+    """Choose a reviewed export fixture, never an observed host capability.
+
+    A host outside these three declarations cross-exports to the existing
+    ORT1.31/cp311 fixture. Each actual session must still pass its own gate.
+    """
+    point = runtime_version, python_tag
+    if point not in _REVIEWED_EXPORT_POINTS:
+        point = ("1.31.0", "cpython-311")
+    return ort_cpu_deployment_target(*point)
+
+
 def _target() -> Any:
-    return ort_cpu_deployment_target(
-        ort.__version__, sys.implementation.cache_tag or ""
+    return _export_declaration(ort.__version__, sys.implementation.cache_tag or "")
+
+
+def _assert_runtime_observation(
+    required: DeploymentRequirements,
+    actual: RuntimeTargetObservation,
+    *,
+    optimization: str,
+) -> bool:
+    """Check actual nonidentity evidence before classifying a target mismatch."""
+    assert reviewed_fp32_contract(required.target) is not None
+    assert required.matrix_precision
+    assert all(
+        site.matrix_output is not None
+        and site.matrix_scope is not None
+        and site.matrix_tag is not None
+        for site in required.matrix_precision
     )
+    assert actual.target.runtime == "onnxruntime"
+    assert actual.target.providers == ("CPUExecutionProvider",)
+    assert actual.target.provider_options == (("CPUExecutionProvider", ()),)
+    assert actual.target.session_config == required.target.session_config
+    assert optimization in ("disabled", "all")
+    assert (
+        actual.optimization
+        == {"disabled": "ORT_DISABLE_ALL", "all": "ORT_ENABLE_ALL"}[optimization]
+    )
+    assert actual.execution_mode == "ORT_SEQUENTIAL"
+    assert type(actual.intra_op_threads) is int and actual.intra_op_threads == 1
+    assert type(actual.inter_op_threads) is int and actual.inter_op_threads == 1
+    assert (
+        actual.distribution_version == actual.target.runtime_version == ort.__version__
+    )
+    assert type(actual.optimized_graph_sha256) is str
+    assert re.fullmatch(r"[0-9a-f]{64}", actual.optimized_graph_sha256)
+    assert actual.boundary_error is None
+    assert actual.boundary_contract in {
+        "matmul-transpose-and-original-casts-v1",
+        "matmul-gemm-quickgelu-and-original-casts-v2",
+    }
+    if actual.target == required.target:
+        require_runtime_target(required, actual)
+        return True
+    with pytest.raises(ValueError) as caught:
+        require_runtime_target(required, actual)
+    assert str(caught.value) == (
+        "Actual runtime does not satisfy the artifact deployment requirements"
+    )
+    return False
+
+
+def _assert_sample_deployment_result(
+    report: Any,
+    model: Any,
+    samples: list[SourceSample],
+    optimization: str,
+    result_path: Path,
+) -> bool:
+    required = get_precision_report(model).deployment_requirements
+    assert required is not None
+    target = report.target
+    assert target is not None and target.deployment_observation is not None
+    actual = target.deployment_observation
+    assert target.runtime_version == actual.target.runtime_version
+    assert target.architecture == actual.target.architecture
+    assert target.providers == actual.target.providers
+    assert target.provider_options == actual.target.provider_options
+    assert target.session_config == actual.target.session_config
+    assert target.optimization == actual.optimization
+    assert target.execution_mode == actual.execution_mode
+    assert target.intra_op_threads == actual.intra_op_threads
+    assert target.inter_op_threads == actual.inter_op_threads
+    matched = _assert_runtime_observation(required, actual, optimization=optimization)
+    if not matched:
+        assert report.status is CheckStatus.FAILED
+        assert report._artifact is model
+        assert (
+            report.artifact_sha256
+            == hashlib.sha256(model.SerializeToString(deterministic=True)).hexdigest()
+        )
+        assert tuple((item.category, item.status) for item in report.checks) == (
+            ("artifact-load", CheckStatus.VALIDATED),
+            ("onnx-schema", CheckStatus.VALIDATED),
+            ("runtime-load", CheckStatus.FAILED),
+        )
+        # The production gate returns on the first valid sample, before run.
+        assert len(report.samples) == 1
+        evidence, source = report.samples[0], samples[0]
+        assert evidence.index == 0 and evidence.outputs == ()
+        assert evidence.criteria is source.criteria
+        assert evidence.inputs == tuple(
+            _array_evidence(str(index), np.asarray(value))
+            for index, value in enumerate(source.inputs)
+        )
+        assert source.expected_outputs is not None
+        assert evidence.references == tuple(
+            _array_evidence(str(index), np.asarray(value))
+            for index, value in enumerate(source.expected_outputs)
+        )
+        assert (
+            evidence.sample_sha256
+            == SourceSampleEvidence(
+                0, evidence.inputs, evidence.references, (), source.criteria, ()
+            ).sample_sha256
+        )
+        assert tuple((item.category, item.status) for item in evidence.checks) == (
+            ("runtime-load", CheckStatus.FAILED),
+            ("numerical-acceptance", CheckStatus.UNVERIFIED),
+        )
+        with pytest.raises(SampleAcceptanceError, match="Actual runtime"):
+            report.require_sample_acceptance()
+    result_path.write_text(
+        json.dumps(
+            dict(
+                target_matched=matched,
+                report_status=report.status.value,
+                target_gate=("MATCHED" if matched else "REJECTED"),
+                numerical_checks=[
+                    check.status.value
+                    for sample in report.samples
+                    for check in sample.checks
+                    if check.category == "numerical-acceptance"
+                ],
+                observation=asdict(actual),
+            ),
+            indent=2,
+        )
+    )
+    return matched
 
 
 @onnx_function
@@ -186,17 +335,26 @@ def test_explicit_target_reaches_nested_scopes_and_actual_cpu(
             "numerical-acceptance"
         ] is CheckStatus.UNVERIFIED
         for optimization in ("disabled", "all"):
+            samples = [
+                SourceSample(values, [reference], SampleCriteria("bitwise"))
+                for reference in references
+            ]
             checked = validate_source_samples(
                 model,
-                samples=[
-                    SourceSample(values, [reference], SampleCriteria("bitwise"))
-                    for reference in references
-                ],
+                samples=samples,
                 optimization=optimization,
             )
             (tmp_path / f"runtime-{optimization}.json").write_text(
                 json.dumps(asdict(checked.target), indent=2)
             )
+            if not _assert_sample_deployment_result(
+                checked,
+                model,
+                samples,
+                optimization,
+                tmp_path / f"runtime-gate-{optimization}.json",
+            ):
+                continue
             checked.require_sample_acceptance()
             assert (
                 checked.target is not None
@@ -317,8 +475,10 @@ def test_deployment_declaration_roundtrip_and_child_cache_ownership() -> None:
         observed.setdefault(kwargs["ctx"].deployment_target, []).append(key)
         return key
 
-    other = ort_cpu_deployment_target(
-        "1.24.1" if ort.__version__ != "1.24.1" else "1.31.0", "cpython-311"
+    other = next(
+        candidate
+        for point in _REVIEWED_EXPORT_POINTS
+        if (candidate := ort_cpu_deployment_target(*point)) != target
     )
     specs = [
         jax.ShapeDtypeStruct((1, 2), np.float32),
@@ -462,12 +622,13 @@ def test_original_sensitive_matrix_criteria_with_highest_target(
         deployment_target=_target(),
     )
     for optimization in ("disabled", "all"):
+        samples = [
+            SourceSample(values, [reference], SampleCriteria("bitwise"))
+            for reference in references
+        ]
         report = validate_source_samples(
             model,
-            samples=[
-                SourceSample(values, [reference], SampleCriteria("bitwise"))
-                for reference in references
-            ],
+            samples=samples,
             optimization=optimization,
         )
         (tmp_path / f"sensitive-{optimization}.json").write_text(
@@ -479,6 +640,14 @@ def test_original_sensitive_matrix_criteria_with_highest_target(
                 indent=2,
             )
         )
+        if not _assert_sample_deployment_result(
+            report,
+            model,
+            samples,
+            optimization,
+            tmp_path / f"sensitive-gate-{optimization}.json",
+        ):
+            continue
         if report.status is CheckStatus.FAILED:
             assert (
                 probe == "subnormal"
@@ -678,15 +847,24 @@ def test_named_output_and_export_forms_retain_actual_matrix_binding(
         site.output == "answer"
         for site in report.deployment_requirements.matrix_precision
     )
-    validated = validate_source_samples(
-        model,
-        samples=[
-            SourceSample(values, [reference], SampleCriteria("bitwise"))
-            for reference in references
-        ],
-        optimization="disabled",
-    )
-    validated.require_sample_acceptance()
+    samples = [
+        SourceSample(values, [reference], SampleCriteria("bitwise"))
+        for reference in references
+    ]
+    for optimization in ("disabled", "all"):
+        validated = validate_source_samples(
+            model,
+            samples=samples,
+            optimization=optimization,
+        )
+        if _assert_sample_deployment_result(
+            validated,
+            model,
+            samples,
+            optimization,
+            tmp_path / f"named-gate-{optimization}.json",
+        ):
+            validated.require_sample_acceptance()
 
 
 def _import_fixture(policy: PrecisionPolicy) -> tuple[Any, Any, Any, Any]:
@@ -846,7 +1024,12 @@ def test_named_repeated_cast_matrix_calls_keep_exact_correspondence(
         (tmp_path / f"observation-{label}.json").write_text(
             json.dumps(asdict(observation), indent=2)
         )
-        require_runtime_target(report.deployment_requirements, observation)
+        matched = _assert_runtime_observation(
+            report.deployment_requirements, observation, optimization=label
+        )
+        (tmp_path / f"structural-target-{label}.json").write_text(
+            json.dumps(dict(target_matched=matched, numerics="UNVERIFIED"), indent=2)
+        )
         # Structural/kernel correspondence only; no session.run or numerics here.
 
 
@@ -903,7 +1086,12 @@ def test_actual_repeated_named_gemm_keeps_original_casts_and_v2_observation(
         (tmp_path / f"gemm-observation-{label}.json").write_text(
             json.dumps(asdict(observation), indent=2)
         )
-        require_runtime_target(report.deployment_requirements, observation)
+        matched = _assert_runtime_observation(
+            report.deployment_requirements, observation, optimization=label
+        )
+        (tmp_path / f"structural-target-{label}.json").write_text(
+            json.dumps(dict(target_matched=matched, numerics="UNVERIFIED"), indent=2)
+        )
         if label == "all":
             optimized = onnx.load_model(path)
             assert sum(node.op_type == "Gemm" for node in optimized.graph.node) == 2
@@ -933,3 +1121,214 @@ def test_fusion_metadata_presence_distinguishes_unknown_rank_and_scalar() -> Non
     assert _type(unknown).shape is None
     assert _type(scalar).shape == ()
     assert _type(dynamic).shape == ("B", None, 0)
+
+
+@pytest.mark.parametrize(
+    "runtime_version,python_tag",
+    _REVIEWED_EXPORT_POINTS
+    + (
+        ("1.31.0", "cpython-313"),
+        ("1.24.1", "cpython-312"),
+        ("unreviewed", "cpython-311"),
+    ),
+)
+def test_export_fixture_uses_only_three_existing_reviewed_declarations(
+    runtime_version: str,
+    python_tag: str,
+) -> None:
+    assert _REVIEWED_EXPORT_POINTS == (
+        ("1.31.0", "cpython-311"),
+        ("1.31.0", "cpython-312"),
+        ("1.24.1", "cpython-311"),
+    )
+    point = runtime_version, python_tag
+    expected = point if point in _REVIEWED_EXPORT_POINTS else ("1.31.0", "cpython-311")
+    assert _export_declaration(*point) == ort_cpu_deployment_target(*expected)
+    assert reviewed_fp32_contract(_export_declaration(*point)) is not None
+
+
+@pytest.mark.parametrize(
+    "runtime_version,python_tag",
+    [("1.31.0", "cpython-313"), ("1.24.1", "cpython-312"), ("1.31.0", "unknown")],
+)
+def test_production_factory_still_rejects_absent_runtime_abi(
+    runtime_version: str,
+    python_tag: str,
+) -> None:
+    with pytest.raises(ValueError) as caught:
+        ort_cpu_deployment_target(runtime_version, python_tag)
+    assert (
+        str(caught.value) == "No reviewed deployment declaration for this runtime/ABI"
+    )
+
+
+def _other_abi_declaration() -> Any:
+    # An explicit existing cross-export fixture; no observation is synthesized.
+    tag = (
+        "cpython-312"
+        if sys.implementation.cache_tag == "cpython-311"
+        else "cpython-311"
+    )
+    return ort_cpu_deployment_target("1.31.0", tag)
+
+
+def _target_sample_case(directory: Path, target: Any) -> tuple[Any, list[SourceSample]]:
+    values = (
+        np.asarray([[1 + 2**-11, 2**-12]], np.float32),
+        np.asarray([[1], [2]], np.float32),
+    )
+    references = _references(_highest, values, directory)
+    model = ui._to_onnx(
+        _highest,
+        list(map(_spec, values)),
+        precision_policy=PrecisionPolicy.SOURCE,
+        deployment_target=target,
+        opset=23,
+    )
+    onnx.checker.check_model(model, full_check=True)
+    samples = [
+        SourceSample(values, [reference], SampleCriteria("bitwise"))
+        for reference in references
+    ]
+    return model, samples
+
+
+@pytest.mark.parametrize("optimization", ["disabled", "all"])
+def test_real_cross_abi_observation_rejects_before_sample_execution(
+    optimization: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, samples = _target_sample_case(tmp_path / "native", _other_abi_declaration())
+    calls = []
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        calls.append((args, kwargs))
+        pytest.fail("A different observed target must reject before CPU samples")
+
+    monkeypatch.setattr(precision_module, "_run_cpu_samples", forbidden)
+    report = validate_source_samples(model, samples=samples, optimization=optimization)
+    assert not _assert_sample_deployment_result(
+        report, model, samples, optimization, tmp_path / "cross-abi-result.json"
+    )
+    assert not calls
+
+
+@pytest.mark.parametrize("optimization", ["disabled", "all"])
+def test_cpu_identity_only_negative_control_retains_real_observation(
+    optimization: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, samples = _target_sample_case(tmp_path / "native", _target())
+    observe = precision_module._observe_deployment_session
+    real_observations, changed_observations, calls = [], [], []
+
+    def cpu_mismatch(*args: Any, **kwargs: Any) -> Any:
+        actual = observe(*args, **kwargs)
+        real_observations.append(actual)
+        changed = replace(
+            actual,
+            target=replace(
+                actual.target,
+                cpu_model=actual.target.cpu_model + " [forced test mismatch]",
+            ),
+        )
+        assert (
+            replace(changed.target, cpu_model=actual.target.cpu_model) == actual.target
+        )
+        assert replace(changed, target=actual.target) == actual
+        changed_observations.append(changed)
+        return changed
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        calls.append((args, kwargs))
+        pytest.fail("Forced CPU identity mismatch must reject before CPU samples")
+
+    monkeypatch.setattr(precision_module, "_observe_deployment_session", cpu_mismatch)
+    monkeypatch.setattr(precision_module, "_run_cpu_samples", forbidden)
+    report = validate_source_samples(model, samples=samples, optimization=optimization)
+    assert len(real_observations) == len(changed_observations) == 1
+    assert report.target.deployment_observation is changed_observations[0]
+    assert not _assert_sample_deployment_result(
+        report, model, samples, optimization, tmp_path / "forced-result.json"
+    )
+    assert not calls
+    (tmp_path / "negative-control-real-and-changed.json").write_text(
+        json.dumps(
+            dict(
+                negative_control="Only CPU model was deliberately changed after actual observation",
+                real=asdict(real_observations[0]),
+                changed=asdict(changed_observations[0]),
+            ),
+            indent=2,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "provider",
+        "provider-options",
+        "session-config",
+        "threads",
+        "optimization",
+        "distribution",
+        "boundary",
+        "boundary-error",
+        "optimized-sha",
+        "matrix-binding",
+    ],
+)
+def test_target_mismatch_cannot_hide_unrelated_invalid_evidence(
+    fault: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, samples = _target_sample_case(tmp_path / "native", _other_abi_declaration())
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("The real cross-ABI baseline must reject before sample execution")
+
+    monkeypatch.setattr(precision_module, "_run_cpu_samples", forbidden)
+    report = validate_source_samples(model, samples=samples, optimization="all")
+    assert not _assert_sample_deployment_result(
+        report, model, samples, "all", tmp_path / "valid-mismatch-baseline.json"
+    )
+    actual = report.target.deployment_observation
+    required = get_precision_report(model).deployment_requirements
+    assert actual.target != required.target
+    if fault == "provider":
+        actual = replace(
+            actual, target=replace(actual.target, providers=("CUDAExecutionProvider",))
+        )
+    elif fault == "provider-options":
+        actual = replace(
+            actual,
+            target=replace(
+                actual.target,
+                provider_options=(("CPUExecutionProvider", (("unexpected", "1"),)),),
+            ),
+        )
+    elif fault == "session-config":
+        actual = replace(actual, target=replace(actual.target, session_config=()))
+    elif fault == "threads":
+        actual = replace(actual, inter_op_threads=2)
+    elif fault == "optimization":
+        actual = replace(actual, optimization="ORT_DISABLE_ALL")
+    elif fault == "distribution":
+        actual = replace(actual, distribution_version="unrelated")
+    elif fault == "boundary":
+        actual = replace(actual, boundary_contract=None)
+    elif fault == "boundary-error":
+        actual = replace(actual, boundary_error="unrelated boundary failure")
+    elif fault == "optimized-sha":
+        actual = replace(actual, optimized_graph_sha256="g" * 64)
+    else:
+        site, *others = required.matrix_precision
+        required = replace(
+            required, matrix_precision=(replace(site, matrix_output=None), *others)
+        )
+    with pytest.raises(AssertionError):
+        _assert_runtime_observation(required, actual, optimization="all")

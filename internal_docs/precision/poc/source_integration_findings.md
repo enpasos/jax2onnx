@@ -2,17 +2,34 @@
 
 ## Current checkpoint
 
-Snapshot: 2026-10-23. This unfinished LOCAL WIP follows **`79353cf6`**;
-**`fe214590`** remains the last fully green checkpoint. The applied shared
-opset-21 code cut is **`12ee5c05`** (**1,159 source pins**). Public routes and
-defaults remain **LEGACY**; the full **B–F** goal remains open.
+Snapshot: 2026-10-25. This unfinished LOCAL WIP is based on stored shared
+opset-21 checkpoint **`b4f8b16e`**; **`fe214590`** remains the last fully green
+checkpoint. The later deployment-test source snapshot is **`c9f5812b`** and the
+applied inventory-test source snapshot is **`b7eceac8`**. Results below retain
+their own source epochs.
+Public routes and defaults remain **LEGACY**; the full **B–F** goal remains open.
 
 | Current gate | Actual source-bound result | Scope and remaining work |
 | --- | --- | --- |
 | Shared opset-21 support, source `12ee5c05`, local Python 3.12 and 3.11 | **520 PASS each**, identical unique selections across six complete owners, zero failures/errors/skips; PRIMARY **90.448 s**, SECONDARY **93.671 s**, source/Git held | Includes **65 new cases** using real private SOURCE export, saved opset-21 artifacts/full checker, native eager/fresh-JIT references and both CPU optimization modes. This qualifies the finite samples and unchanged guards; deliberately failed subnormal target diagnostics remain failed-target evidence. |
 | Four unchanged original AttentionCore cells, source `12ee5c05` | Both raw-x64 caller settings on both local stacks: source reference, artifact, schema and lowering audit **VALIDATED**; original raw callback **FAILED**; structure/runtime/numerics **UNVERIFIED** | These cells progressed past admission. Original callback, `None` criteria and row contract `ea6d8f6c7fab785a98941d54722b2926789b2edd59d74e81b40992e64d304e9d` remain unchanged. CLI completion and the small attention fixtures do not establish original-model acceptance. |
-| Remote CI run `39908291998`, head `d0835d02` | Four support jobs **PASS**, including minimum Python 3.11 **465 tests** and normalization Python 3.12 **102 tests**; full Python 3.11 **FAILED/incomplete**, exit **143**, with **21 earlier failure markers whose identities remain unknown** | Executed merge `859c266` into `fae178`. Python 3.13 aborted with exit **143** and **54 unidentified failure markers**; full Python 3.12/3.14 jobs were still running at ROOT's recorded observation. These failed/incomplete jobs are not attributed solely to infrastructure. Support-job passes are not a green full matrix or current-source qualification. |
+| Test-only deployment portability, source `c9f5812b`, local Python 3.12 and 3.11 | **142 PASS each**, identical unique four-owner selections, zero failures/errors/skips; PRIMARY **92.479 s**, SECONDARY **78.234 s**, source/Git held | Actual matching-host strict numerical branches, real cross-ABI observations and CPU-only negative controls ran under both optimization modes. Original subnormal numerical **FAILED** remains failed-target evidence. No production target, observer, criterion or public-default change. |
+| Optional-discovery fixture, source snapshot `b7eceac8`, normal local Python 3.12 and 3.11 | **49 PASS each**, identical unique complete-owner selections, zero failures/errors/skips; PRIMARY **10.295 s**, SECONDARY **6.528 s**, source/Git held | Normal optional sources are unconfigured; two new isolated family cases check configured external discovery and local preservation. Under the exact same deliberately incomplete external source, the original absence test changes from **1 FAIL** to **1 PASS**. This is local red/green evidence, not a recovered CI traceback, optional-model acceptance or a production inventory/baseline change. |
+| Retained invalid global optional-source environment, source snapshot `b7eceac8` | Complete SECONDARY owner: **48 PASS / 1 FAIL**, zero errors/skips | A safe raw-identity query proves the sole extra row is actual `MaxDiffusion_Environment_Error` from the deliberately invalid global fixture; the unchanged 1,852-row baseline guard correctly rejects it. This remains failed environment evidence, not an accepted model or a product regression. |
+| Remote CI run `40210233250`, stored head `b4f8b16e` | Four support jobs **PASS**; four full Python 3.11/3.12/3.13/3.14 jobs **running** at ROOT's recorded observation | This remote run does not contain the later uncommitted test/CI-logging fixes. It is not current-cut or complete CI acceptance. |
+| Historical CI run `39908291998` | Four support jobs **PASS**, including minimum Python 3.11 **465 tests** and normalization Python 3.12 **102 tests**; full Python 3.11/3.12/3.13 jobs **FAILED/incomplete**, exit **143**, with **21/22/54 earlier failure markers**, respectively; full Python 3.14 completed with **145 FAIL / 13,465 PASS / 11 SKIP / 215 ERROR** | Executed merge `859c266` into `fae178`. Original failure markers remain distinct from later grounded local reproductions. Python 3.14 also retains lazy-annotation and native-capture compatibility failures. Neither interrupted failures nor completed compatibility failures are relabeled as infrastructure-only or full green. |
 | Current local closeout | **PENDING actual quality/docs/hooks/staged review** | Record terminal current-cut outcomes in the normal commit record. No local complete-suite green result is claimed. |
+
+The current portability changes are confined to test fixtures and test-job
+verbosity (`PYTEST_ADDOPTS='-v --tb=short'`). They choose explicit existing reviewed
+cross-export declarations without changing production registration, observation
+or numerical criteria. Matching actual targets retain all original comparisons;
+unreviewed actual targets must produce exact rejection before sample execution,
+with runtime-load **FAILED**, no outputs and numerics **UNVERIFIED**. Provider,
+thread, configuration, graph-boundary and matrix-binding guards remain strict.
+Optional discovery remains separate from source audit and numerical acceptance;
+production inventory, baseline rows, optional counts and model selection are
+unchanged.
 
 The shared change admits only FP32/FP64 `dot_general`, transpose, `reduce_max`,
 exp and `stop_gradient` in the existing opset-21 operation/type intersection,
@@ -34,7 +51,14 @@ manual obligations, scientific FP64/low-precision workflows and coherent public
 validation/preparation/export cutover remain open. The four new observations do
 not add closures to the frozen caller map.
 
-Current evidence: `source-opset21-shared-attention-root-application-v2/source-inputs.json`;
+Current evidence: `root-deployment-portability-paired-native-proof-20261025-v1.json`;
+`root-deployment-portability-native-branch-evidence-20261025-v1.json`;
+`root-inventory-environment-paired-native-proof-20261025-v1.json`;
+`root-ci312-optional-environment-original-red-proof-20261025-v1.json`;
+`root-inventory-configured-registration-diff-20261025-v1/identities.json`;
+`source-ci312-inventory-environment-fixed-20261025-v1-secondary/receipt.json`;
+`source-inventory-environment-root-application-20261025-v1/source-inputs.json`;
+`source-opset21-shared-attention-root-application-v2/source-inputs.json`;
 `root-opset21-shared-attention-paired-result-v2.json`;
 `source-opset21-shared-attention-v2-primary/receipt.json`;
 `source-opset21-shared-attention-v2-secondary/receipt.json`;

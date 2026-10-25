@@ -8,30 +8,40 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 ## Current implementation and next gates
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
-exact source/stack counts and historical failures. This unfinished LOCAL WIP
-follows `79353cf6`; `fe214590` remains the last fully green checkpoint. Shared
-opset-21 real contractions and the existing FP32 Max signed-zero route pass the
-paired finite regression selection. All four unchanged original AttentionCore
-cells now produce validated artifacts/schema/lowering audits, but their original
-raw callback fails and structure/runtime/numerics remain unverified. Public
-LEGACY behavior and defaults remain unchanged.
+exact source/stack counts and historical failures. This unfinished LOCAL WIP is
+based on stored shared-opset-21 checkpoint `b4f8b16e`; `fe214590` remains the last
+fully green checkpoint. The later test-only deployment portability cut passes
+142 cases on each local stack; the separate normal inventory selection passes
+49 cases on each. The **48 PASS / 1 FAIL** invalid-source environment check is
+retained separately. These finite results preserve the prior shared-opset-21
+qualification. Public LEGACY behavior and defaults remain unchanged.
 
-1. Retain the source-bound six-owner pair and unchanged semantic/type/precision/
-   placement guards. Complete the original AttentionCore structural contract,
-   then its runtime/numerical qualification with the original callback and
-   `None` criteria intact; small fixtures do not accept the original model.
+The portability fixtures use explicit reviewed export declarations and unchanged
+actual runtime observations. Matching targets retain every numerical assertion,
+including the expected failed subnormal diagnostic. Other targets must reject
+before sample execution, with numerical acceptance unverified. Production target
+registration, observation and criteria are unchanged; the CI change only adds
+`PYTEST_ADDOPTS='-v --tb=short'` to the test job.
+
+1. Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
+   deployment pair with their unchanged semantic/type/precision/placement guards.
+   Complete the original AttentionCore structural contract, then runtime/numerical
+   qualification with the original raw callback and `None` criteria intact.
+   The callback still fails; small fixtures do not accept the original model.
 2. Require actual full CI for the primary user cohorts Python 3.11 **and** 3.12.
    The local modern Python 3.12 stack does not substitute for locked older-JAX
-   Python 3.12 CI or minimum-version evidence. Keep the failed/incomplete
-   3.11 and aborted 3.13 full jobs, their unidentified failure markers and the
-   still-running 3.12/3.14 jobs distinct from support-job passes.
-   Retain the interrupted local full result and all historical failures; fresh
-   complete current-suite and applicable target/numerical gates remain open.
+   Python 3.12 CI or minimum-version evidence. Remote run `40210233250` tests
+   stored `b4f8b16e`, without these later uncommitted test fixes; four support jobs
+   passed and four full jobs were running at ROOT's recorded observation. Keep
+   older interrupted Python 3.11/3.12/3.13 failures and completed Python 3.14
+   compatibility failures, the interrupted local full attempt and all historical
+   failure epochs distinct. Fresh full current-suite acceptance remains open.
 3. Reconcile current inventory/probe and the full map, including changed Eqx
    recipes, without rewriting frozen outcomes or reducing original, optional,
-   opaque, metadata-free or manual obligations. SimpleLinear and AttentionCore
-   original raw callbacks remain unresolved; CLI/capture progress is not their
-   structural or numerical acceptance.
+   opaque, metadata-free or manual obligations. The isolated optional-discovery
+   fixture changes no production inventory, baseline, model filter or denominator.
+   SimpleLinear and AttentionCore original raw callbacks remain unresolved;
+   CLI/capture progress is not their structural or numerical acceptance.
 4. Complete every fixed-source/scientific-FP64/low-precision and B–F operator,
    scope, option, model and state gate. Preserve the four-setting whole private
    SOURCE facade restoration. Integrate shared validation, installed preparation,

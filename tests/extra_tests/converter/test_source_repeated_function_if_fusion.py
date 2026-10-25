@@ -19,13 +19,15 @@ import pytest
 
 from jax2onnx import onnx_function, user_interface as ui
 from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
-from jax2onnx.converter.source_deployment import require_runtime_target
 from jax2onnx.precision import (
     _configure_deployment_session,
     _observe_deployment_session,
     get_precision_report,
 )
-from tests.extra_tests.converter.test_source_deployment_target import _target
+from tests.extra_tests.converter.test_source_deployment_target import (
+    _assert_runtime_observation,
+    _target,
+)
 from tests.extra_tests.converter.test_source_ordinary_matrix import (
     _restore_settings as _restore_settings,
 )
@@ -324,28 +326,49 @@ def test_same_named_function_nested_if_keeps_actual_gemm_call_bindings(
             assert any(
                 item["scope"] for item in gemms
             ), "actual nested Gemm witness is required"
-        actual = tuple(
-            session.run(
-                None,
-                dict(
-                    zip(
-                        (value.name for value in model.graph.input), values, strict=True
-                    )
-                ),
-            )
-        )
-        np.savez(
-            tmp_path / "actual-cpu-outputs.npz",
-            **{f"output{i}": value for i, value in enumerate(actual)},
-        )
-        require_runtime_target(report.deployment_requirements, observation)
         assert observation.boundary_contract == (
             "matmul-gemm-quickgelu-and-original-casts-v2"
             if gemms
             else "matmul-transpose-and-original-casts-v1"
         )
-        for reference in references:
-            _same(actual, reference)
+        matched = _assert_runtime_observation(
+            report.deployment_requirements,
+            observation,
+            optimization=optimization,
+        )
+        if matched:
+            actual = tuple(
+                session.run(
+                    None,
+                    dict(
+                        zip(
+                            (value.name for value in model.graph.input),
+                            values,
+                            strict=True,
+                        )
+                    ),
+                )
+            )
+            np.savez(
+                tmp_path / "actual-cpu-outputs.npz",
+                **{f"output{i}": value for i, value in enumerate(actual)},
+            )
+            for reference in references:
+                _same(actual, reference)
+        else:
+            assert not (tmp_path / "actual-cpu-outputs.npz").exists()
+        (tmp_path / "runtime-target-gate.json").write_text(
+            json.dumps(
+                dict(
+                    target_matched=matched,
+                    target_gate="MATCHED" if matched else "REJECTED",
+                    runtime="VALIDATED" if matched else "FAILED",
+                    numerics="VALIDATED" if matched else "UNVERIFIED",
+                    actual_target=asdict(observation.target),
+                ),
+                indent=2,
+            )
+        )
     finally:
         assert model.SerializeToString() == original
         assert tuple(value.tobytes() for value in values) == snapshots

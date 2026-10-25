@@ -79,8 +79,13 @@ def test_inventory_serialization_is_deterministic_and_compact() -> None:
 def test_optional_config_discovery_retains_absent_environment_and_exclusions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("JAX2ONNX_MAXTEXT_SRC", raising=False)
-    monkeypatch.delenv("JAX2ONNX_MAXTEXT_MODELS", raising=False)
+    for variable in (
+        "JAX2ONNX_MAXTEXT_SRC",
+        "JAX2ONNX_MAXTEXT_MODELS",
+        "JAX2ONNX_MAXDIFFUSION_SRC",
+        "JAX2ONNX_MAXDIFFUSION_MODELS",
+    ):
+        monkeypatch.delenv(variable, raising=False)
     config = tmp_path / "tmp/maxtext/src/maxtext/configs/models"
     config.mkdir(parents=True)
     (config / "llama.yml").write_text("")
@@ -98,6 +103,71 @@ def test_optional_config_discovery_retains_absent_environment_and_exclusions(
     assert maxtext["registration_filters"]["default_models"] == ["llama.yml"]
     assert optional["maxdiffusion"]["discovery"][0]["present"] is False
     assert maxtext["source_audit"] == "not-run"
+
+
+@pytest.mark.parametrize(
+    "family,config_directory",
+    [
+        ("maxtext", "src/maxtext/configs/models"),
+        ("maxdiffusion", "src/maxdiffusion/configs"),
+    ],
+)
+def test_optional_config_discovery_retains_configured_external_and_local_sources(
+    family: str,
+    config_directory: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for variable in (
+        "JAX2ONNX_MAXTEXT_SRC",
+        "JAX2ONNX_MAXTEXT_MODELS",
+        "JAX2ONNX_MAXDIFFUSION_SRC",
+        "JAX2ONNX_MAXDIFFUSION_MODELS",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+    repository = tmp_path / "repository"
+    local_configs = repository / "tmp" / family / config_directory
+    local_configs.mkdir(parents=True)
+    (local_configs / "local.yml").write_text("local: true\n")
+    external = tmp_path / "external" / family
+    external_configs = external / config_directory
+    external_configs.mkdir(parents=True)
+    (external_configs / "external.yml").write_text("external: true\n")
+    (external_configs / "other.yml").write_text("other: true\n")
+    local_discovery = {
+        "checkout": f"tmp/{family}",
+        "present": True,
+        "configs": ["local.yml"],
+        "registration_exclusions": [],
+    }
+    unconfigured = optional_inventory(repository)[family]
+    assert unconfigured["source_environment_configured"] is False
+    assert unconfigured["model_filter"] == "<plugin-default>"
+    assert unconfigured["discovery"] == [local_discovery]
+    source_variable = f"JAX2ONNX_{family.upper()}_SRC"
+    models_variable = f"JAX2ONNX_{family.upper()}_MODELS"
+    monkeypatch.setenv(source_variable, str(external))
+    monkeypatch.setenv(models_variable, "external")
+    optional = optional_inventory(repository)
+    configured = optional[family]
+    assert configured["source_environment_configured"] is True
+    assert configured["model_filter"] == "external"
+    assert {item["checkout"]: item for item in configured["discovery"]} == {
+        f"tmp/{family}": local_discovery,
+        str(external): {
+            "checkout": str(external),
+            "present": True,
+            "configs": ["external.yml", "other.yml"],
+            "registration_exclusions": [],
+        },
+    }
+    other_family = "maxdiffusion" if family == "maxtext" else "maxtext"
+    assert optional[other_family]["source_environment_configured"] is False
+    assert configured["source_audit"] == "not-run"
+    assert configured["numerical_acceptance"] == "unverified"
+    monkeypatch.delenv(source_variable)
+    monkeypatch.delenv(models_variable)
+    assert optional_inventory(repository)[family] == unconfigured
 
 
 def test_manual_inventory_is_separate_from_generated_entrypoints(

@@ -192,6 +192,8 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    env:
+      PYTEST_ADDOPTS: '-v --tb=short'
     strategy:
       fail-fast: false
       matrix:

@@ -33,10 +33,6 @@ from jax2onnx._source_nnx_method_preparation import (
 from jax2onnx._source_preparation import SourcePreparationError
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import SourcePrecisionError
-from jax2onnx.converter.source_deployment import (
-    ort_cpu_deployment_target,
-    require_runtime_target,
-)
 from jax2onnx.plugins.plugin_system import (
     EXAMPLE_REGISTRY,
     FunctionPlugin,
@@ -51,6 +47,10 @@ from jax2onnx.precision import (
 )
 from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
+)
+from tests.extra_tests.converter.test_source_deployment_target import (
+    _assert_runtime_observation,
+    _target,
 )
 from tests.extra_tests.converter.test_source_callable_preparation import (
     _equations,
@@ -685,9 +685,7 @@ def test_full_original_transformer_named_artifacts_and_both_cpu_profiles(
     order: tuple[str, ...], opset: int, tmp_path: Path
 ) -> None:
     with jax.enable_x64(True):
-        deployment_target = ort_cpu_deployment_target(
-            ort.__version__, sys.implementation.cache_tag or ""
-        )
+        deployment_target = _target()
         (tmp_path / "target-request.json").write_text(
             json.dumps(
                 dict(
@@ -713,6 +711,7 @@ def test_full_original_transformer_named_artifacts_and_both_cpu_profiles(
         snapshots = tuple(_state(value) for value in owners)
         bind = FunctionPlugin._bind_function_call
         observed = []
+        runtime_results: list[dict[str, Any]] = []
 
         def observe(self: Any, *args: Any, **kwargs: Any) -> Any:
             before = (self._orig_fn, self._unbound_orig_fn)
@@ -830,7 +829,28 @@ def test_full_original_transformer_named_artifacts_and_both_cpu_profiles(
                     (directory / f"deployment-{label}.json").write_text(
                         json.dumps(asdict(observation), indent=2)
                     )
-                    require_runtime_target(requirements, observation)
+                    matched = _assert_runtime_observation(
+                        requirements, observation, optimization=label
+                    )
+                    if not matched:
+                        runtime_results.append(
+                            dict(
+                                role=name,
+                                optimization=label,
+                                target_matched=False,
+                                runtime="FAILED",
+                                numerics="UNVERIFIED",
+                            )
+                        )
+                        cpu_events.append(
+                            dict(
+                                status="target-rejected",
+                                stage=phase,
+                                runtime="FAILED",
+                                numerics="UNVERIFIED",
+                            )
+                        )
+                        continue
                     phase = "run"
                     returned = session.run(None, {"tokens": np.asarray(tokens)})
                     cpu_events.append(dict(status="returned", stage=phase))
@@ -856,6 +876,15 @@ def test_full_original_transformer_named_artifacts_and_both_cpu_profiles(
                         phase = f"comparison-{index}"
                         _compare(actual, reference)
                     cpu_events.append(dict(status="passed", stage="comparisons"))
+                    runtime_results.append(
+                        dict(
+                            role=name,
+                            optimization=label,
+                            target_matched=True,
+                            runtime="VALIDATED",
+                            numerics="VALIDATED",
+                        )
+                    )
                 except BaseException as exc:
                     cpu_events.append(
                         dict(
@@ -890,10 +919,22 @@ def test_full_original_transformer_named_artifacts_and_both_cpu_profiles(
             )
             return
         assert record.root.method in observed and second_record.root.method in observed
+        assert len(runtime_results) == 6
+        assert {(item["role"], item["optimization"]) for item in runtime_results} == {
+            (name, label) for name in order for label in ("disabled", "all")
+        }
+        all_targets_matched = all(item["target_matched"] for item in runtime_results)
         (tmp_path / "sample-contract.json").write_text(
             json.dumps(
                 dict(
-                    status="FINITE_SAMPLE_PASS",
+                    status=(
+                        "FINITE_SAMPLE_PASS"
+                        if all_targets_matched
+                        else "TARGET_REJECTED"
+                    ),
+                    runtime=("VALIDATED" if all_targets_matched else "FAILED"),
+                    numerics=("VALIDATED" if all_targets_matched else "UNVERIFIED"),
+                    sessions=runtime_results,
                     rtol=_RTOL,
                     atol=_ATOL,
                     rule="abs(actual-reference) <= atol + rtol*abs(reference)",
