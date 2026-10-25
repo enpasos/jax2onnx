@@ -9,9 +9,9 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
-continues stored checkpoint `73f4a7a5`, whose quality/docs checks, exact staged
-review and all seven normal hooks completed. ROOT's later read-only observation
-also found Draft PR #277 at `73f4a7a5`; `fe214590` remains the last fully green
+continues stored checkpoint `1ecb06b2`, whose quality/docs checks, exact staged
+review and all seven normal hooks completed. The retained read-only remote
+observation found Draft PR #277 at `73f4a7a5`; `fe214590` remains the last fully green
 checkpoint. The retained portability selection passes **142** cases on each
 local stack; the separate invalid-source environment result remains
 **48 PASS / 1 FAIL**.
@@ -32,19 +32,32 @@ The earlier **893-case pair** remains tied to
 `42efea8b`, with its own **574-file** typing evidence. The ledger also retains
 the initial 25-case pair, typing failure and **892 PASS / 1 FAIL** fixture
 predecessor. Actual quality/docs, exact staged-review
-and normal-hook outcomes belong to the local commit record. Public LEGACY
+and normal-hook outcomes are recorded in local commit `1ecb06b2`. Public LEGACY
 behavior and defaults are unchanged; the full B–F migration remains open.
+
+Supplementary retained-artifact runtime evidence now covers all four original
+AttentionCore source-`12ee5c05` artifacts with their captured physical sample:
+**eight sessions and runs validated**, using CPU ORT 1.31.0, sequential execution,
+one intra-op/inter-op thread and both disabled/all optimization modes. All 21
+pinned input files and execution source `1ecb06b2` held. Inputs remain FP32;
+raw-x64-off outputs are FP32 and raw-x64-on outputs are FP64. Structural status
+remains unverified, the original raw callback remains failed, and original
+`None` criteria leave numerical acceptance unverified. This is retained-sample
+runtime feasibility, with no fresh current-source export or full-model acceptance.
 
 1. Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
    deployment pair with their unchanged semantic/type/precision/placement guards.
-   Check actual CPU runtime feasibility of the retained original AttentionCore
-   artifacts with their captured physical feeds, independently of structural and
-   numerical acceptance. Extend shared structural rules while preserving the
-   original raw callback and `None` criteria.
+   Connect shared structural coverage to ordinary validation with evidence bound
+   to the exact returned artifact, and qualify fresh current-source exports of
+   the original models. Resolve callback mismatches through source-semantic
+   checks; legacy fusion/operator-count expectations must not become a permanent
+   SOURCE acceptance condition. Establish the explicit sample/numerical-criteria
+   contract without inventing tolerances or rewriting the original `None` cases.
    Metadata report `efa6eeab` extracts all four retained source-`12ee5c05` cells
-   under execution context `73f4a7a5`/`d9c59125`; it is no new export or acceptance.
-   The original callback still fails and structure/runtime/numerics remain
-   unverified. Neither metadata extraction nor finite fixtures accept the model.
+   under execution context `73f4a7a5`/`d9c59125`; the later runtime proof `3a5482ae`
+   supplements that metadata without changing the original export-time results.
+   Retain the earlier v1 workload's Protobuf preflight error: it created no
+   sessions and establishes no model runtime failure.
 2. Require actual full CI for the primary user cohorts Python 3.11 **and** 3.12.
    The local modern Python 3.12 stack does not substitute for locked older-JAX
    Python 3.12 CI or minimum-version evidence. Remote run `40215501332` tests
@@ -57,8 +70,8 @@ behavior and defaults are unchanged; the full B–F migration remains open.
    recipes, without rewriting frozen outcomes or reducing original, optional,
    opaque, metadata-free or manual obligations. The isolated optional-discovery
    fixture changes no production inventory, baseline, model filter or denominator.
-   SimpleLinear and AttentionCore original raw callbacks remain unresolved;
-   CLI/capture progress is not their structural or numerical acceptance.
+   SimpleLinear and AttentionCore original raw callback outcomes remain recorded
+   separately from shared structural and numerical acceptance.
 4. Complete every fixed-source/scientific-FP64/low-precision and B–F operator,
    scope, option, model and state gate. Preserve the four-setting whole private
    SOURCE facade restoration. Integrate shared validation, installed preparation,
@@ -68,7 +81,7 @@ behavior and defaults are unchanged; the full B–F migration remains open.
    quality checks, strict docs/links, all seven normal hooks and exact staged
    review. Record their actual commands and terminal outcomes in the local
    commit body; finite test results do not preclaim those checks. The stored
-   `73f4a7a5` closeout is complete. WIP storage does not establish a green full
+   `1ecb06b2` closeout is complete. WIP storage does not establish a green full
    suite, release, resource-safety guarantee or migration completion.
 
 <a id="current-binding-minimum-version-obligation"></a>

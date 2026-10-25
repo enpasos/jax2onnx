@@ -3,9 +3,9 @@
 ## Current checkpoint
 
 Snapshot: 2026-10-25. This unfinished LOCAL WIP continues stored checkpoint
-**`73f4a7a5`**, whose quality/docs checks, exact staged review and all seven normal
-hooks completed. ROOT's later read-only observation found Draft PR #277 at the
-same head. **`fe214590`** remains the last fully green checkpoint. The retained
+**`1ecb06b2`**, whose quality/docs checks, exact staged review and all seven normal
+hooks completed. The retained read-only remote observation found Draft PR #277
+at **`73f4a7a5`**. **`fe214590`** remains the last fully green checkpoint. The retained
 deployment-test and inventory-test snapshots are **`c9f5812b`** and **`b7eceac8`**;
 results below retain their own source epochs.
 Public routes and defaults remain **LEGACY**; the full **B–F** goal remains open.
@@ -21,15 +21,17 @@ Public routes and defaults remain **LEGACY**; the full **B–F** goal remains op
 | Initial structure typing, source snapshot `4798ab21`, PRIMARY | **FAILED: one `union-attr` error in 574 checked files**, source/Git held, clean guard completion | The primitive rule read `.name` without narrowing an optional primitive. This failed predecessor remains distinct from the corrected successor. |
 | Structure diagnostic/typing correction, source snapshot `7effba53`, PRIMARY | **892 PASS / 1 FAIL** across 15 complete owners, **155.122 s**, source/Git held, no guard stop | The sole test failure is the new malformed-input fixture: native `JaxprEqn.replace(primitive=None)` retains the existing primitive. The source rule correctly recognized Sub. This failed test predecessor remains distinct from the passing typing result. |
 | Shared opset-21 support, source `12ee5c05`, local Python 3.12 and 3.11 | **520 PASS each**, identical unique selections across six complete owners, zero failures/errors/skips; PRIMARY **90.448 s**, SECONDARY **93.671 s**, source/Git held | Includes **65 new cases** using real private SOURCE export, saved opset-21 artifacts/full checker, native eager/fresh-JIT references and both CPU optimization modes. This qualifies the finite samples and unchanged guards; deliberately failed subnormal target diagnostics remain failed-target evidence. |
-| Four unchanged original AttentionCore cells, source `12ee5c05` | Both raw-x64 caller settings on both local stacks: source reference, artifact, schema and lowering audit **VALIDATED**; original raw callback **FAILED**; structure/runtime/numerics **UNVERIFIED** | These cells progressed past admission. Original callback, `None` criteria and row contract `ea6d8f6c7fab785a98941d54722b2926789b2edd59d74e81b40992e64d304e9d` remain unchanged. CLI completion and the small attention fixtures do not establish original-model acceptance. |
+| Four unchanged original AttentionCore cells at export time, source `12ee5c05` | Both raw-x64 caller settings on both local stacks: source reference, artifact, schema and lowering audit **VALIDATED**; original raw callback **FAILED**; structure/runtime/numerics **UNVERIFIED** | These original export-time results remain unchanged. Original callback, `None` criteria and row contract `ea6d8f6c7fab785a98941d54722b2926789b2edd59d74e81b40992e64d304e9d` are retained. CLI completion and the small attention fixtures do not establish original-model acceptance. |
 | Retained AttentionCore metadata, report `efa6eeab`, execution context `73f4a7a5`/`d9c59125` | **Four EXTRACTED**, all original files unchanged; 37 source equations, six MatMul nodes, six declared unresolved DimExpr markers and zero concrete markers per cell | Inspects the existing source-`12ee5c05` artifacts. Original and inferred types remain separate; tensor payloads are represented by hashes, not values. No new export, dimension-identity proof or structural/runtime/numerical acceptance follows. |
+| Supplementary retained AttentionCore runtime v2, artifacts from `12ee5c05`, execution head `1ecb06b2` | **Eight sessions and runs VALIDATED**: four original artifacts × disabled/all optimization, actual CPU ORT 1.31.0, sequential execution, one intra-op/inter-op thread; settings held before/after. PRIMARY **1.158 s**, SECONDARY **1.208 s**; all 21 pinned input files and source/Git held, clean completion | Validates runtime feasibility for the retained captured physical sample only. Input shape `[2, 257, 384]` stays FP32; raw-x64-off outputs are FP32 and raw-x64-on outputs are FP64. Structure remains **UNVERIFIED**, raw callback **FAILED**, and original `None` criteria leave numerics **UNVERIFIED**. No new export or current-source/full-model acceptance. |
+| Retained runtime v1 preflight, PRIMARY at `1ecb06b2` | **Four UNVERIFIED**, no sessions or runs; temporary workload raised `AttributeError` because Protobuf 7.36.2 lacks `FieldDescriptor.label`; all 21 inputs and source/Git held | This is a workload API failure, with no model runtime rejection. The separate v2 successor uses the public `is_repeated` property confirmed on both stacks. The original script/report remain preserved. |
 | Test-only deployment portability, source `c9f5812b`, local Python 3.12 and 3.11 | **142 PASS each**, identical unique four-owner selections, zero failures/errors/skips; PRIMARY **92.479 s**, SECONDARY **78.234 s**, source/Git held | Actual matching-host strict numerical branches, real cross-ABI observations and CPU-only negative controls ran under both optimization modes. Original subnormal numerical **FAILED** remains failed-target evidence. No production target, observer, criterion or public-default change. |
 | Optional-discovery fixture, source snapshot `b7eceac8`, normal local Python 3.12 and 3.11 | **49 PASS each**, identical unique complete-owner selections, zero failures/errors/skips; PRIMARY **10.295 s**, SECONDARY **6.528 s**, source/Git held | Normal optional sources are unconfigured; two new isolated family cases check configured external discovery and local preservation. Under the exact same deliberately incomplete external source, the original absence test changes from **1 FAIL** to **1 PASS**. This is local red/green evidence, not a recovered CI traceback, optional-model acceptance or a production inventory/baseline change. |
 | Retained invalid global optional-source environment, source snapshot `b7eceac8` | Complete SECONDARY owner: **48 PASS / 1 FAIL**, zero errors/skips | A safe raw-identity query proves the sole extra row is actual `MaxDiffusion_Environment_Error` from the deliberately invalid global fixture; the unchanged 1,852-row baseline guard correctly rejects it. This remains failed environment evidence, not an accepted model or a product regression. |
 | Remote CI run `40215501332`, stored head `73f4a7a5` | Four support jobs **PASS**; four full Python 3.11/3.12/3.13/3.14 jobs **running** at ROOT's recorded observation | Includes the stored portability/inventory test and CI-logging fixes, but not this new structure code cut. No completed full CI acceptance is claimed. |
 | Earlier remote CI run `40210233250`, stored head `b4f8b16e` | Four support jobs **PASS**; four full jobs were **running** at its retained observation | Historical observation predates the stored portability/inventory fixes. It is not evidence for the current code cut. |
 | Historical CI run `39908291998` | Four support jobs **PASS**, including minimum Python 3.11 **465 tests** and normalization Python 3.12 **102 tests**; full Python 3.11/3.12/3.13 jobs **FAILED/incomplete**, exit **143**, with **21/22/54 earlier failure markers**, respectively; full Python 3.14 completed with **145 FAIL / 13,465 PASS / 11 SKIP / 215 ERROR** | Executed merge `859c266` into `fae178`. Original failure markers remain distinct from later grounded local reproductions. Python 3.14 also retains lazy-annotation and native-capture compatibility failures. Neither interrupted failures nor completed compatibility failures are relabeled as infrastructure-only or full green. |
-| Local checkpoint closeout | Stored **`73f4a7a5` complete**; new-cut outcomes require the actual local commit record | Record terminal quality/docs/hooks/staged-review outcomes there. Neither checkpoint storage nor finite qualification establishes a local complete-suite green result. |
+| Local checkpoint closeout | Stored **`1ecb06b2` complete**: exact staged review, strict docs and all seven normal hooks **PASS**; normal commit **75.651 s**, source files held and expected HEAD transition | Actual closeout commands/outcomes are stored in the commit record. Neither checkpoint storage nor finite qualification establishes a local complete-suite green result. Later documentation-only closeout belongs to its own commit record. |
 
 The structure foundation uses the shared lowering path and final SOURCE facade,
 after optimization, postprocessing, aliases and naming. Finite canonical native
@@ -46,6 +48,16 @@ raw-model validation and artifact-bound proto/file integration remain work.
 The earlier test-only correction constructs the missing-primitive fixture directly;
 canonical native and same-name custom-primitive controls remain. Package files
 at `42efea8b` are unchanged from the typing-qualified `7effba53` source.
+
+The retained runtime observations use the original physical feeds and compare
+outputs separately with retained eager and fresh-JIT references. All 197,376
+output elements per run were finite. The maximum absolute differences were
+approximately `6.33e-8` for PRIMARY FP32, `4.84e-8` for SECONDARY FP32 and
+`1.18e-16` for FP64 on both stacks, in both optimization modes. These are
+diagnostic aggregates with no supplied tolerance or acceptance criterion;
+numerics remains unverified. The captured feed/reference arrays remain unchanged;
+diagnostic subtraction uses temporary FP64 copies. The workload performs no
+retracing, re-export or JIT execution.
 
 The stored portability changes are confined to test fixtures and test-job
 verbosity (`PYTEST_ADDOPTS='-v --tb=short'`). They choose explicit existing reviewed
@@ -70,17 +82,32 @@ changes to the original probe, inventory, callbacks or numerical criteria.
 Python **3.11 and 3.12** are primary user cohorts and each requires its actual CI
 stack. Local PRIMARY Python 3.12/JAX 0.12.0.1 and SECONDARY Python 3.11/JAX 0.10.2
 passes do not replace the locked Python 3.12/JAX 0.10.2 CI cohort or the separate
-minimum stack. Check actual CPU runtime feasibility of the retained original
-AttentionCore artifacts using captured physical feeds. Continue shared
-structural coverage independently, preserving numerical acceptance as unverified
-under the original `None` criteria. Retain the interrupted **14,053 PASS /
+minimum stack. The next model gate combines shared structural validation bound to
+the exact returned artifact, fresh current-source exports of the original models
+and an explicit sample/numerical-criteria contract. Resolve raw callback
+mismatches with shared source-semantic checks; legacy fusion/operator-count
+expectations must not become a permanent SOURCE acceptance condition. Preserve
+original `None` criteria and their unverified numerical status; diagnostics do
+not supply missing criteria. Retain the interrupted **14,053 PASS /
 2 FAIL / 18 unexecuted** full attempt and every older failure epoch below.
 Current inventory/probe reconciliation, fixed-source and opaque/metadata-free/
 manual obligations, scientific FP64/low-precision workflows and coherent public
-validation/preparation/export cutover remain open. Neither the retained original
-cells nor metadata extraction add closures to the frozen caller map.
+validation/preparation/export cutover remain open. The retained original cells,
+metadata extraction and supplementary retained runtime add no closures to the
+frozen caller map.
 
-Current evidence: `root-source-structure-final-followthrough-paired-proof-20261025-v1.json`
+Current evidence: `root-attentioncore-retained-runtime-paired-proof-20261025-v1.json`
+(SHA-256 `3a5482ae790e45612a3638964a3f41e6a44e327b967ac11e2e56a754465c7b54`);
+`root-attentioncore-retained-runtime-20261025-v2-primary/runtime.json`
+(SHA-256 `4dc4adef295660ae903adc8df37ac9ed09b00f86b51d4c6581156b6e0102b58b`);
+`root-attentioncore-retained-runtime-20261025-v2-secondary/runtime.json`
+(SHA-256 `83f9e0c29dcb3f79023f1d0a89c37527c53e5e4ed9973309494976a9410a6b08`);
+`root-attentioncore-retained-runtime-20261025-v2-primary/receipt.json`;
+`root-attentioncore-retained-runtime-20261025-v2-secondary/receipt.json`;
+`root-attentioncore-retained-runtime-20261025-v1-primary/runtime.json`;
+`root-protobuf-descriptor-api-20261025-v1/receipt.json`;
+`source-structure-local-commit-20261025-v1-guard/receipt.json`;
+`root-source-structure-final-followthrough-paired-proof-20261025-v1.json`
 (SHA-256 `8a2c81347b487a564908197499dfaf4f6be3d6a21d7582872f8fe9f5de7557b2`);
 `source-structure-final-typing-primary-20261025-v1/receipt.json`;
 `source-structure-final-typing-secondary-20261025-v1/receipt.json`;
