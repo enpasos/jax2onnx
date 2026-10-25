@@ -21,6 +21,7 @@ from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter import source_structure as structure
+from jax2onnx.converter.source_representation import normalized_shape_dimensions
 from jax2onnx.plugins import _source_structure as rules
 from jax2onnx.precision import CheckStatus, get_precision_report
 
@@ -192,7 +193,9 @@ def test_missing_or_ambiguous_lexical_witness_stays_unverified(fault: str) -> No
 def test_incomplete_verifier_does_not_reject_export_or_validate_partial_coverage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(rules, "freeze_source_structure_rule", lambda eqn: None)
+    monkeypatch.setattr(
+        rules, "freeze_source_structure_rule", lambda eqn, inputs, outputs: None
+    )
     model = _source(_composition)
     result = model.meta[structure.RESULT_KEY]
     assert result.status == "unverified"
@@ -478,13 +481,176 @@ def test_literal_observation_preserves_serialized_export_report_and_warnings(
     assert results[0] == results[1]
 
 
-def test_symbolic_zero_equation_identity_does_not_pass_by_dimension_strings() -> None:
+def test_symbolic_identity_keeps_frozen_native_scope_authority() -> None:
     shape = jax_export.symbolic_shape("B, 3")
     model = _source(lambda x: x, arity=1, shape=shape)
-    assert model.meta[structure.RESULT_KEY].status == "unverified"
-    assert model.meta[structure.RESULT_KEY].reasons == (
-        "scope-capture:symbolic-shape-contract-unavailable",
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    scope = model.meta[structure._LEDGER].scopes[0]
+    source, result = scope.inputs[0].tensor, scope.outputs[0].tensor
+    assert type(source.symbol_token) is object
+    assert source.symbol_token is result.symbol_token
+    assert source.symbol_axis == source.logical_symbol_axis == result.symbol_axis == 0
+    assert source.symbol_token is not shape[0].scope
+
+
+def _symbolic_direct(x: jax.Array, y: jax.Array) -> Any:
+    left = jax.lax.transpose(x, (1, 0, 2))
+    right = jax.lax.transpose(y, (1, 0, 2))
+    wide = jax.lax.sub(left, right).astype(jnp.float64)
+    return wide, jax.lax.transpose(wide, (1, 0, 2)).astype(jnp.float32)
+
+
+def _symbolic_model() -> ir.Model:
+    shape = jax_export.symbolic_shape("B, 384, 257")
+    return _source(_symbolic_direct, shape=shape)
+
+
+@pytest.mark.parametrize("optimized", [False, True])
+def test_real_atomic_symbol_survives_nonleading_arithmetic_and_casts(
+    optimized: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not optimized:
+        monkeypatch.setattr(
+            conversion_api, "optimize_graph", lambda model, **kwargs: None
+        )
+    model = _symbolic_model()
+    result = model.meta[structure.RESULT_KEY]
+    assert result.status == "validated"
+    assert result.runtime == result.numerics == "unverified"
+    assert normalized_shape_dimensions(tuple(model.graph.outputs[0].shape)) == (
+        384,
+        "B",
+        257,
     )
+    assert normalized_shape_dimensions(tuple(model.graph.outputs[1].shape)) == (
+        "B",
+        384,
+        257,
+    )
+    scope = model.meta[structure._LEDGER].scopes[0]
+    token = scope.inputs[0].tensor.symbol_token
+    assert token is not None
+    contracts = [
+        use.tensor for eqn in scope.equations for use in (*eqn.inputs, *eqn.outputs)
+    ]
+    assert all(value.symbol_token is token for value in contracts)
+    assert any(
+        value.shape == (384, "B", 257) and value.symbol_axis == 1 for value in contracts
+    )
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+def test_real_leading_symbolic_negation_uses_existing_admitted_owner() -> None:
+    model = _source(jax.lax.neg, arity=1, shape=jax_export.symbolic_shape("B, 3"))
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+@pytest.mark.parametrize(
+    "fault", ["axis", "label", "static-tail", "edge", "permutation"]
+)
+def test_atomic_symbol_does_not_hide_final_graph_mutations(fault: str) -> None:
+    model = _symbolic_model()
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    if fault == "edge":
+        node = next(node for node in model.graph if node.op_type == "Sub")
+        node.replace_input_with(1, node.inputs[0])
+    elif fault == "permutation":
+        node = next(node for node in model.graph if node.op_type == "Transpose")
+        node.attributes["perm"] = ir.AttrInt64s("perm", [0, 1, 2])
+    else:
+        model.graph.outputs[0].shape = ir.Shape(
+            {
+                "axis": ["B", 384, 257],
+                "label": [384, "C", 257],
+                "static-tail": [384, "B", 258],
+            }[fault]
+        )
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+def test_equivalent_ir_symbol_objects_are_only_representation_labels() -> None:
+    model = _symbolic_model()
+    for value in (*model.graph.inputs, *model.graph.outputs):
+        dimensions = normalized_shape_dimensions(tuple(value.shape))
+        value.shape = ir.Shape(
+            [ir.SymbolicDim(dim) if isinstance(dim, str) else dim for dim in dimensions]
+        )
+    assert structure.validate_source_structure(model).status == "validated"
+
+
+def test_equal_printed_native_symbols_from_distinct_scopes_stay_unverified() -> None:
+    (local,) = jax_export.symbolic_shape("B")
+    (foreign,) = jax_export.symbolic_shape("B")
+    assert str(local) == str(foreign) == "B" and local.scope is not foreign.scope
+    spec = jax.ShapeDtypeStruct((local, 3), np.float32)
+    original = jax.make_jaxpr(jax.lax.sub)(spec, spec).jaxpr
+    other = Var(original.invars[1].aval.update(shape=(foreign, 3)))
+    equation = original.eqns[0].replace(invars=[original.invars[0], other])
+    changed = original.replace(invars=[original.invars[0], other], eqns=[equation])
+    ctx = IRContext(
+        opset=23, enable_double_precision=False, precision_policy=PrecisionPolicy.SOURCE
+    )
+    for index, var in enumerate(changed.invars):
+        ctx.add_input_for_invar(var, index)
+    ledger = ctx._source_structure
+    assert ledger is not None
+    with ledger.scope(ctx, changed, rules.freeze_source_structure_rule):
+        pass
+    output = ir.val("difference", ir.DataType.FLOAT, ["B", 3])
+    ctx.builder.op("Sub", list(ctx.builder.inputs), output=output)
+    ctx.builder.outputs.append(output)
+    model = ctx.builder.to_ir_model(name="distinct_native_scopes")
+    structure.attach_source_structure(model, ledger)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    result = structure.validate_source_structure(model)
+    assert result.status == "unverified"
+    assert result.reasons == ("scope-capture:symbolic-scope-contract-unavailable",)
+
+
+@pytest.mark.parametrize("form", ["string-only", "derived", "constrained", "two-atoms"])
+def test_unreviewed_native_dimension_forms_are_explicit_verifier_gaps(
+    form: str,
+) -> None:
+    (batch,) = jax_export.symbolic_shape("B")
+    if form == "string-only":
+        shape = ("B", 3)
+    elif form == "derived":
+        shape = (batch + 1, 3)
+    elif form == "constrained":
+        (constrained,) = jax_export.symbolic_shape("B", constraints=("B >= 2",))
+        shape = (constrained, 3)
+    else:
+        first, second = jax_export.symbolic_shape("B,C")
+        shape = (first, second, 3)
+    with pytest.raises(
+        structure.StructureUnavailable, match="symbolic-shape-contract-unavailable"
+    ):
+        structure.TensorContract.from_aval(
+            jax.ShapeDtypeStruct(shape, np.float32), structure._ShapeFreezer()
+        )
+
+
+def test_atomic_symbol_tokens_retain_no_native_scope_or_expression() -> None:
+    (native,) = jax_export.symbolic_shape("B")
+    model = _symbolic_model()
+
+    def inspect(value: Any) -> None:
+        assert not isinstance(
+            value, (Jaxpr, JaxprEqn, Var, Literal, type(native), type(native.scope))
+        )
+        if is_dataclass(value) and not isinstance(value, type):
+            for member in fields(value):
+                inspect(getattr(value, member.name))
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                inspect(key)
+                inspect(child)
+        elif isinstance(value, (list, tuple, set)):
+            for child in value:
+                inspect(child)
+
+    inspect(vars(model.meta[structure._LEDGER]))
 
 
 def test_zero_equation_identity_has_real_boundary_coverage() -> None:
@@ -529,12 +695,23 @@ def test_same_named_custom_primitive_has_no_canonical_lax_rule() -> None:
     jaxpr = jax.make_jaxpr(jax.lax.sub)(
         jax.ShapeDtypeStruct((2,), np.float32), jax.ShapeDtypeStruct((2,), np.float32)
     ).jaxpr
-    assert rules.freeze_source_structure_rule(jaxpr.eqns[0]) is not None
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(var.aval, shapes)
+        for var in jaxpr.eqns[0].invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(var.aval, shapes)
+        for var in jaxpr.eqns[0].outvars
+    )
+    assert (
+        rules.freeze_source_structure_rule(jaxpr.eqns[0], inputs, outputs) is not None
+    )
     fake = jaxpr.eqns[0].replace(primitive=Primitive("sub"))
-    assert rules.freeze_source_structure_rule(fake) is None
+    assert rules.freeze_source_structure_rule(fake, inputs, outputs) is None
     # Missing primitives are malformed boundary fixtures, not native equations.
     missing: Any = SimpleNamespace(primitive=None)
-    assert rules.freeze_source_structure_rule(missing) is None
+    assert rules.freeze_source_structure_rule(missing, (), ()) is None
 
 
 def test_final_registry_retains_no_native_trace_objects() -> None:

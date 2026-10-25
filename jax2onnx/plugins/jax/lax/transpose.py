@@ -123,7 +123,9 @@ class TransposePlugin(PrimitiveLeafPlugin):
                     raise ValueError(
                         "SOURCE Transpose operand differs from its native representation"
                     )
-                output = ctx.allocate_value_for_var(y_var, name_hint="transpose_out")
+                output = ctx.allocate_value_for_var(
+                    y_var, name_hint=ctx.fresh_name("transpose_out")
+                )
                 if not representation_for_aval(y_var.aval).matches_ir_value(output):
                     raise ValueError(
                         "SOURCE Transpose output differs from its native representation"

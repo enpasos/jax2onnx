@@ -9,19 +9,19 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
-continues stored checkpoint `366a4d08`, which contains the `1ecb06b2` structure
-foundation and its later retained-runtime documentation. The foundation's
-quality/docs checks, exact staged review and all seven normal hooks completed.
-The three-file literal follow-through remains local WIP. The read-only remote
+continues stored literal checkpoint `0bb168cb`, with all seven normal hooks
+passed. Its paired 1,002-case regression and 574-file typing results remain bound
+to source snapshot `6f4c4863`. The new atomic native-symbol follow-through remains
+local WIP. The read-only remote
 refresh confirms Draft PR #277 at `73f4a7a5`; `fe214590` remains the last fully green
 checkpoint. The retained portability selection passes **142** cases on each
 local stack; the separate invalid-source environment result remains
 **48 PASS / 1 FAIL**.
 
-The new shared structure foundation checks finite flat, static SOURCE IR graphs
+The shared structure foundation and its follow-through check finite flat SOURCE IR graphs
 through ordinary dispatch and final facade validation. Typed source equations,
 actual value/producer ports and plugin-owned rules must cover the whole graph.
-When a structural rule or check for scopes, symbolic dimensions or other
+When a structural rule or check for scopes, uncovered symbolic forms or other
 carriers is not yet implemented, or an optimizer witness is lost, validation remains
 unverified. These verifier gaps remain part of the B–F work. Its result is private
 IR metadata, with no proto/file structural acceptance or runtime/numerical claim.
@@ -36,6 +36,27 @@ the initial 25-case pair, typing failure and **892 PASS / 1 FAIL** fixture
 predecessor. Actual quality/docs, exact staged-review
 and normal-hook outcomes are recorded in local commit `1ecb06b2`. Public LEGACY
 behavior and defaults are unchanged; the full B–F migration remains open.
+
+The atomic native-symbol extension freezes a genuine native `SymbolicScope`
+and its single atomic label transiently into an opaque token, preserving the
+exact logical and physical symbol axes. The native Scope is not retained, and
+matching does not fall back to dimension-name strings or discard provenance.
+This supports the atomic symbol on any tensor axis, including the new
+nonleading `[384, B, 257]` Sub/Cast composition. Axis, label and SSA mutation
+controls remain strict. Derived, constrained and multi-atom forms remain
+verifier gaps within the migration work, rather than new technical exclusions.
+Source snapshot `7604c11a` passes **64 structure cases on each local stack** and
+**574-file typing on each stack**. The initial PRIMARY **63 PASS / 1 FAIL** is
+preserved: without optimization, the extended SOURCE transpose branch reused
+`transpose_out` and produced duplicate SSA names. That production branch now
+requests a fresh name; the checker and the original case with optimization disabled
+remain unchanged. The broader 17-owner selection passes **1,017 identical cases
+on each stack**, with zero failures/errors/skips, consistent complete JUnit and
+source/Git held. Both regression and both typing runs hold the same full source
+snapshot; paired proof `39bbd9cf` records this finite qualification. Actual
+quality/docs, normal-hook and exact staged-review outcomes for this cut belong
+to its local commit record.
+There is no new whole-model, proto/file structural or public-transition acceptance.
 
 The literal follow-through freezes typed source-literal tokens without creating
 extra IR values or initializers. At final consumer and output ports it compares
@@ -83,8 +104,9 @@ runtime feasibility remains separate from the fresh source-`366a4d08` exports.
 
 1. Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
    deployment pair with their unchanged semantic/type/precision/placement guards.
-   Extend the shared typed structural contract through symbolic identity, then
-   scopes and decompositions. Connect that coverage to ordinary validation with evidence bound
+   Prepare the shared generalized-dot structural rule next, with authoring kept
+   external until review and ROOT application. Continue the broader symbolic,
+   scope and decomposition rules. Connect that coverage to ordinary validation with evidence bound
    to the exact returned artifact, and complete the shared original-model gates
    beyond the fresh AttentionCore export/default-sample observations. Resolve
    callback mismatches through source-semantic checks; legacy fusion/operator-count
@@ -129,8 +151,8 @@ runtime feasibility remains separate from the fresh source-`366a4d08` exports.
    quality checks, strict docs/links, all seven normal hooks and exact staged
    review. Record their actual commands and terminal outcomes in the local
    commit body; finite test results do not preclaim those checks. The stored
-   structure closeout at `1ecb06b2` and later documentation checkpoint `366a4d08`
-   remain separate from the pending literal closeout. WIP storage does not
+   literal closeout at `0bb168cb` remains separate from this cut's own local
+   commit record. WIP storage does not
    establish a green full suite, release, resource-safety guarantee or migration completion.
 
 <a id="current-binding-minimum-version-obligation"></a>

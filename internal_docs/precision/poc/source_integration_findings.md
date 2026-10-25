@@ -2,10 +2,9 @@
 
 ## Current checkpoint
 
-Snapshot: 2026-10-25. This unfinished LOCAL WIP continues stored checkpoint
-**`366a4d08`**, which contains the **`1ecb06b2`** structure foundation and later
-retained-runtime documentation. The foundation's quality/docs checks, exact
-staged review and all seven normal hooks completed. The three-file literal
+Snapshot: 2026-10-25. This unfinished LOCAL WIP continues stored literal checkpoint
+**`0bb168cb`**, with all seven normal hooks **PASS**. Its paired regression and
+typing results retain source snapshot **`6f4c4863`**. The atomic native-symbol
 follow-through remains local WIP. The read-only remote refresh confirms
 Draft PR #277 at **`73f4a7a5`**. **`fe214590`** remains the last fully green checkpoint. The retained
 deployment-test and inventory-test snapshots are **`c9f5812b`** and **`b7eceac8`**;
@@ -14,6 +13,9 @@ Public routes and defaults remain **LEGACY**; the full **B–F** goal remains op
 
 | Current gate | Actual source-bound result | Scope and remaining work |
 | --- | --- | --- |
+| Atomic native-symbol structure, source snapshot `7604c11a`, local Python 3.12 and 3.11 | **64 PASS each**, zero failures/errors/skips; source/Git held, clean terminal completion in both v2 whole-owner receipts | Genuine native Scope and atomic label are frozen transiently into an opaque token with exact logical/physical symbol axes. Positive nonleading `[384, B, 257]` Sub/Cast and axis/label/SSA mutation controls run. No string fallback, native Scope retention or provenance loss; derived/constrained/multi-atom forms remain verifier gaps. No whole-model or serialized-artifact structural acceptance. |
+| Initial atomic-symbol PRIMARY focus, v1 | **63 PASS / 1 FAIL**, preserved separately | With optimization disabled, the extended SOURCE transpose branch reused `transpose_out`, producing duplicate SSA names. The production branch now requests a fresh name; neither the checker nor the original no-optimization case was changed. |
+| Atomic-symbol typing and broader regressions, source snapshot `7604c11a` | **574 files PASS on each stack** and **1,017 PASS each** across 17 complete owners; identical 1,017 unique JUnit identities, zero failures/errors/skips; source/Git held, clean terminal completion | Both regression and both typing runs hold the same full source snapshot. This finite pair does not establish whole-model, full-suite or public-transition acceptance. Actual quality/docs, normal-hook and exact staged-review outcomes belong to this cut's local commit record. |
 | Focused literal structure, source snapshot `8f3f6a15`, local Python 3.12 and 3.11 | **49 PASS each**, zero failures/errors/skips; source/Git held, clean terminal completion in both v2 receipts | Frozen typed literal tokens match actual final consumer/output storage without extra IR allocation. Witness lookup deduplicates references to the exact same IR value; overridable defaults remain rejected. The original tests remain strict. This finite selection does not establish symbolic/scope/decomposition, proto/file, original-model or full-suite structural acceptance. |
 | Initial literal-focused PRIMARY selection, v1 | **48 PASS / 1 FAIL**, preserved separately | The overridable graph-input/initializer fixture returned **UNVERIFIED** instead of the required **FAILED** observation. Witness lookup encountered the exact same IR value twice through graph inputs and initializers. Identity deduplication lets the existing literal matcher reject the runtime-input substitute; no test was weakened. |
 | Literal typing, source snapshot `6f4c4863` | After the identifier-only repair, **574 files PASS on each stack**, PRIMARY v2 and SECONDARY v1; guards clean and source/Git held | The initial PRIMARY typing v1 **FAILED** on a reused loop-variable binding after the attribute loop; its receipt remains preserved. This typing pair does not establish full-suite or final-closeout acceptance. |
@@ -39,13 +41,13 @@ Public routes and defaults remain **LEGACY**; the full **B–F** goal remains op
 | Remote CI run `40215501332`, stored head `73f4a7a5`, read-only refresh 2026-10-25 | Four support jobs **PASS**; all four full jobs completed with **FAILURE**. Python 3.13: **13,950 PASS / 11 SKIP / 1 ERROR**; Python 3.14: **87 FAIL / 13,649 PASS / 11 SKIP / 215 ERROR** | Python 3.11 ends abruptly at 40% with **5,720 passed markers**, zero failed markers and no terminal summary. Python 3.12 records runner shutdown/exit **143** at 79% with **11,364 passed markers** and zero failed markers. Python 3.13's sole collection error is `KeyError: 'carriers'` in the native-wrapper fixture's `_NATIVE_AXISDATA` access; Python 3.14 retains lazy-annotation and code-constant adaptation failures. No full CI acceptance or shared shutdown cause is inferred. This remote source predates the literal cut; the earlier running observation remains prior history. |
 | Earlier remote CI run `40210233250`, stored head `b4f8b16e` | Four support jobs **PASS**; four full jobs were **running** at its retained observation | Historical observation predates the stored portability/inventory fixes. It is not evidence for the current code cut. |
 | Historical CI run `39908291998` | Four support jobs **PASS**, including minimum Python 3.11 **465 tests** and normalization Python 3.12 **102 tests**; full Python 3.11/3.12/3.13 jobs **FAILED/incomplete**, exit **143**, with **21/22/54 earlier failure markers**, respectively; full Python 3.14 completed with **145 FAIL / 13,465 PASS / 11 SKIP / 215 ERROR** | Executed merge `859c266` into `fae178`. Original failure markers remain distinct from later grounded local reproductions. Python 3.14 also retains lazy-annotation and native-capture compatibility failures. Neither interrupted failures nor completed compatibility failures are relabeled as infrastructure-only or full green. |
-| Local checkpoint closeout | Stored **`1ecb06b2` complete**: exact staged review, strict docs and all seven normal hooks **PASS**; normal commit **75.651 s**, source files held and expected HEAD transition | Actual closeout commands/outcomes are stored in the commit record. Neither checkpoint storage nor finite qualification establishes a local complete-suite green result. Later documentation-only closeout belongs to its own commit record. |
+| Local checkpoint closeout | Stored literal checkpoint **`0bb168cb`**, all seven normal hooks **PASS**, with paired 1,002-case and 574-file qualification retained. Earlier **`1ecb06b2`** records exact staged review, strict docs and seven hooks **PASS**, normal commit **75.651 s** | Actual closeout commands/outcomes belong to their own commit records. Neither checkpoint storage nor finite qualification establishes a local complete-suite green result. Atomic-symbol quality/docs, normal-hook and exact staged-review outcomes belong to their own local commit record. |
 
 The structure foundation uses the shared lowering path and final SOURCE facade,
 after optimization, postprocessing, aliases and naming. Finite canonical native
 primitive rules check actual operators, attributes, typed edges and source
 constant storage. Known contradictions fail the structural observation;
-missing coverage, checks for decompositions, scopes or symbolic identity
+missing coverage, checks for decompositions, scopes or uncovered symbolic forms
 not yet implemented, or lost optimizer witnesses leave it unverified. NCHW
 boundaries, operation rules with empty results and FP64 cosine's existing
 half-angle lowering have explicit gaps in this finite verifier. These are implementation gaps within the
@@ -69,8 +71,20 @@ even when it also has initializer storage. Unknown computed leaves
 remain **UNVERIFIED**. Export, warning and report parity checks keep observation
 independent of admission; there is no new public API, default, report
 serialization or corpus closure. General symbolic, scope and decomposition
-rules remain work; the next shared implementation extends the typed contract
-through symbolic identity before broader scope and decomposition rules.
+rules remain work.
+
+The atomic native-symbol extension reads the genuine native `SymbolicScope`
+and single atomic label only during source freeze. It stores an opaque identity
+token and exact logical/physical axis positions, retaining neither the native
+Scope nor a string-only substitute for its provenance. Shared typed rules can
+match this atomic symbol on any axis; the new `[384, B, 257]` Sub/Cast composition
+and axis, label and SSA mutation tests exercise that relationship. Derived,
+constrained and multi-atom forms remain **UNVERIFIED** in this finite verifier;
+they are implementation gaps, not new technical exclusions or export rejections.
+The initial no-optimization duplicate-name failure remains preserved. Its SOURCE
+transpose naming repair leaves the checker and original test case intact.
+The next generalized-dot structural rule is being prepared externally; no
+implementation, original-model acceptance or public cutover is claimed for it.
 
 Fresh source-`366a4d08` exports use the unchanged registered AttentionCore factory
 and raw replay pipeline. It captured eager and fresh-JIT outputs for B=2/B=5,
@@ -131,7 +145,17 @@ metadata extraction and supplementary retained runtime add no closures to the
 frozen caller map. Neither the fresh four-cell exports/default-sample runtime nor
 the finite literal extension closes the full map.
 
-Current evidence: `source-literals-focused-20261025-v2-primary/receipt.json`;
+Current evidence: `source-symbols-focused-20261025-v2-primary/receipt.json`;
+`source-symbols-focused-20261025-v2-secondary/receipt.json`;
+`source-symbols-focused-20261025-v1-primary/receipt.json`;
+`source-symbols-typing-primary-20261025-v1/receipt.json`;
+`source-symbols-typing-secondary-20261025-v1/receipt.json`;
+`source-symbols-regressions-20261025-v1-primary/receipt.json`;
+`source-symbols-regressions-20261025-v1-secondary/receipt.json`;
+`root-source-symbols-paired-qualification-20261025-v1.json`
+(SHA-256 `39bbd9cfd75fcf4dd82eb3d73cd085625c0d132f2dd4c4254f899b7e1d90114d`);
+`root-source-symbols-format-20261025-v1/formatted-manifest.json`;
+`source-literals-focused-20261025-v2-primary/receipt.json`;
 `source-literals-focused-20261025-v2-secondary/receipt.json`;
 `source-literals-focused-20261025-v1-primary/receipt.json`;
 `source-literals-typing-primary-20261025-v1/receipt.json`;

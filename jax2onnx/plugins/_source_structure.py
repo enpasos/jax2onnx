@@ -117,7 +117,11 @@ class _DirectRule:
         return (node,)
 
 
-def freeze_source_structure_rule(eqn: JaxprEqn) -> EquationRule | None:
+def freeze_source_structure_rule(
+    eqn: JaxprEqn,
+    inputs: tuple[TensorContract, ...],
+    outputs: tuple[TensorContract, ...],
+) -> EquationRule | None:
     """Freeze expected semantics from the real equation before graph emission."""
     primitive = eqn.primitive
     if primitive is None:
@@ -125,8 +129,6 @@ def freeze_source_structure_rule(eqn: JaxprEqn) -> EquationRule | None:
     name = primitive.name
     if _PRIMITIVES.get(name) is not primitive:
         return None
-    inputs = tuple(TensorContract.from_aval(var.aval) for var in eqn.invars)
-    outputs = tuple(TensorContract.from_aval(var.aval) for var in eqn.outvars)
     if (
         eqn.effects
         or len(outputs) != 1
@@ -135,6 +137,13 @@ def freeze_source_structure_rule(eqn: JaxprEqn) -> EquationRule | None:
             for value in (*inputs, *outputs)
         )
     ):
+        return None
+    tokens = [
+        value.symbol_token
+        for value in (*inputs, *outputs)
+        if value.symbol_token is not None
+    ]
+    if tokens and any(token is not tokens[0] for token in tokens):
         return None
     # Empty-output representations and FP64 cosine's half-angle decomposition
     # require compositional contracts beyond these direct operator rules.
@@ -153,13 +162,24 @@ def freeze_source_structure_rule(eqn: JaxprEqn) -> EquationRule | None:
             or any(value.dtype != outputs[0].dtype for value in inputs)
         ):
             return None
+        symbolic_inputs = [value for value in inputs if value.symbol_token is not None]
+        if bool(symbolic_inputs) != (outputs[0].symbol_token is not None):
+            return None
+        if symbolic_inputs:
+            if any(
+                value.symbol_axis is None
+                or len(outputs[0].shape) - len(value.shape) + value.symbol_axis
+                != outputs[0].symbol_axis
+                for value in symbolic_inputs
+            ):
+                return None
         return _DirectRule(operation)
     if name == "stop_gradient":
         if (
             params
             or len(inputs) != 1
             or inputs[0].dtype != outputs[0].dtype
-            or inputs[0].shape != outputs[0].shape
+            or not inputs[0].same_shape(outputs[0])
         ):
             return None
         return _DirectRule("Identity", identity_alias=True)
@@ -173,6 +193,13 @@ def freeze_source_structure_rule(eqn: JaxprEqn) -> EquationRule | None:
             or sorted(permutation) != list(range(len(inputs[0].shape)))
             or tuple(inputs[0].shape[axis] for axis in permutation) != outputs[0].shape
             or inputs[0].dtype != outputs[0].dtype
+            or inputs[0].symbol_token is not outputs[0].symbol_token
+            or outputs[0].symbol_axis
+            != (
+                tuple(permutation).index(inputs[0].symbol_axis)
+                if inputs[0].symbol_axis is not None
+                else None
+            )
         ):
             return None
         return _DirectRule(
@@ -188,7 +215,7 @@ def freeze_source_structure_rule(eqn: JaxprEqn) -> EquationRule | None:
             or "new_dtype" not in params
             or np.dtype(params["new_dtype"]).name != outputs[0].logical_dtype
             or params.get("weak_type", False) != outputs[0].weak_type
-            or inputs[0].shape != outputs[0].shape
+            or not inputs[0].same_shape(outputs[0])
         ):
             return None
         return _DirectRule(

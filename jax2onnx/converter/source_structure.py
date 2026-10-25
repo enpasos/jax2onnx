@@ -10,7 +10,7 @@ witnesses keep the audit unverified; observation never rejects an export.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import hashlib
@@ -21,6 +21,7 @@ import onnx_ir as ir
 
 from jax2onnx._compat.jax import Jaxpr, JaxprEqn, Literal as JaxLiteral
 from .source_representation import (
+    native_shape_contract,
     normalized_shape_dimensions,
     representation_for_aval,
 )
@@ -43,6 +44,31 @@ class StructureMismatch(ValueError):
     """Observed final structure contradicts a frozen source contract."""
 
 
+class _ShapeFreezer:
+    """Transient native authority; only its opaque token survives source freeze."""
+
+    def __init__(self) -> None:
+        self._native_scope: object | None = None
+        self._label: str | None = None
+        self._token: object | None = None
+
+    def freeze(
+        self, shape: Sequence[object]
+    ) -> tuple[tuple[int | str, ...], object | None, int | None]:
+        try:
+            contract = native_shape_contract(shape)
+        except ValueError as exc:
+            raise StructureUnavailable("symbolic-shape-contract-unavailable") from exc
+        if contract.symbol is None:
+            return contract.shape, None, None
+        label, native_scope = contract.symbol
+        if self._native_scope is None:
+            self._native_scope, self._label, self._token = native_scope, label, object()
+        elif native_scope is not self._native_scope or label != self._label:
+            raise StructureUnavailable("symbolic-scope-contract-unavailable")
+        return contract.shape, self._token, contract.symbol_axis
+
+
 @dataclass(frozen=True)
 class TensorContract:
     logical_dtype: str
@@ -51,31 +77,53 @@ class TensorContract:
     dtype: ir.DataType
     shape: tuple[int | str, ...]
     encoding: str
+    symbol_token: object | None
+    logical_symbol_axis: int | None
+    symbol_axis: int | None
 
     @classmethod
-    def from_aval(cls, aval: Any) -> TensorContract:
+    def from_aval(cls, aval: Any, shapes: _ShapeFreezer) -> TensorContract:
         representation = representation_for_aval(aval)
-        # Symbolic lexical identity needs a separate reviewed carrier. String
-        # agreement between DimExprs is not authority for that contract.
-        if any(
-            not isinstance(dim, (int, np.integer)) or isinstance(dim, (bool, np.bool_))
-            for dim in (*representation.logical_shape, *representation.physical_shape)
-        ):
-            raise StructureUnavailable("symbolic-shape-contract-unavailable")
+        logical, logical_token, logical_axis = shapes.freeze(
+            representation.logical_shape
+        )
+        physical, physical_token, physical_axis = shapes.freeze(
+            representation.physical_shape
+        )
+        if logical_token is not physical_token:
+            raise StructureUnavailable("symbolic-representation-contract-unavailable")
         return cls(
             str(representation.logical_dtype),
-            normalized_shape_dimensions(representation.logical_shape),
+            logical,
             bool(aval.weak_type),
             representation.ir_dtype,
-            normalized_shape_dimensions(representation.physical_shape),
+            physical,
             representation.encoding,
+            physical_token,
+            logical_axis,
+            physical_axis,
         )
 
     def matches(self, value: ir.Value) -> bool:
+        if value.shape is not None and any(
+            not isinstance(dim, (int, np.integer, str, ir.SymbolicDim))
+            or isinstance(dim, (bool, np.bool_))
+            for dim in value.shape
+        ):
+            # Final IR labels describe a frozen native relationship. Do not
+            # decode another native Scope/DimExpr through a string here.
+            raise StructureUnavailable("ir-shape-representation-unavailable")
         return (
             value.dtype == self.dtype
             and value.shape is not None
             and normalized_shape_dimensions(tuple(value.shape)) == self.shape
+        )
+
+    def same_shape(self, other: TensorContract) -> bool:
+        return (
+            self.shape == other.shape
+            and self.symbol_token is other.symbol_token
+            and self.symbol_axis == other.symbol_axis
         )
 
 
@@ -190,7 +238,7 @@ class _Use:
     literal: ConstantContract | None = None
 
 
-def _use(var: Any) -> _Use:
+def _use(var: Any, shapes: _ShapeFreezer) -> _Use:
     literal = None
     if isinstance(var, JaxLiteral):
         # These conversions observe already-traced storage. Production binding
@@ -200,7 +248,7 @@ def _use(var: Any) -> _Use:
             literal = ConstantContract.from_array(
                 representation_for_aval(var.aval).encode_array(array)
             )
-    return _Use(id(var), TensorContract.from_aval(var.aval), literal)
+    return _Use(id(var), TensorContract.from_aval(var.aval, shapes), literal)
 
 
 @dataclass(frozen=True)
@@ -280,7 +328,10 @@ class SourceStructureLedger:
         self,
         ctx: ConverterContext,
         jaxpr: Jaxpr,
-        freeze_rule: Callable[[JaxprEqn], EquationRule | None],
+        freeze_rule: Callable[
+            [JaxprEqn, tuple[TensorContract, ...], tuple[TensorContract, ...]],
+            EquationRule | None,
+        ],
     ) -> Iterator[None]:
         self.expected_equations += len(jaxpr.eqns)
 
@@ -289,17 +340,33 @@ class SourceStructureLedger:
             owner = graph.meta.setdefault(_OWNER, object())
             if type(owner) is not object or jaxpr.effects:
                 raise StructureUnavailable("scope-contract-unavailable")
-            equations = tuple(
-                _Equation(
+            shapes = _ShapeFreezer()
+            inputs = tuple(_use(var, shapes) for var in jaxpr.invars)
+            # Closed constants also participate in native shape provenance,
+            # including a source constant unused by the retained equations.
+            for var in jaxpr.constvars:
+                _use(var, shapes)
+
+            def freeze_equation(eqn: JaxprEqn) -> _Equation:
+                operands = tuple(_use(var, shapes) for var in eqn.invars)
+                results = tuple(_use(var, shapes) for var in eqn.outvars)
+                return _Equation(
                     id(eqn),
-                    tuple(_use(var) for var in eqn.invars),
-                    tuple(_use(var) for var in eqn.outvars),
-                    freeze_rule(eqn) if not eqn.effects else None,
+                    operands,
+                    results,
+                    (
+                        freeze_rule(
+                            eqn,
+                            tuple(use.tensor for use in operands),
+                            tuple(use.tensor for use in results),
+                        )
+                        if not eqn.effects
+                        else None
+                    ),
                 )
-                for eqn in jaxpr.eqns
-            )
-            inputs = tuple(_use(var) for var in jaxpr.invars)
-            outputs = tuple(_use(var) for var in jaxpr.outvars)
+
+            equations = tuple(freeze_equation(eqn) for eqn in jaxpr.eqns)
+            outputs = tuple(_use(var, shapes) for var in jaxpr.outvars)
             values = tuple(_witness(_lookup(ctx, var)) for var in jaxpr.invars)
             variables = {
                 id(var): _witness(_lookup(ctx, var))
