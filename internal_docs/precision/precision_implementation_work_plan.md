@@ -9,10 +9,10 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
-continues stored literal checkpoint `0bb168cb`, with all seven normal hooks
-passed. Its paired 1,002-case regression and 574-file typing results remain bound
-to source snapshot `6f4c4863`. The new atomic native-symbol follow-through remains
-local WIP. The read-only remote
+continues stored atomic-symbol checkpoint `038dc9eb`. Its paired 1,017-case
+regression and 574-file typing results remain bound to source snapshot
+`7604c11a`. The new generalized-dot structural follow-through remains local WIP.
+The read-only remote
 refresh confirms Draft PR #277 at `73f4a7a5`; `fe214590` remains the last fully green
 checkpoint. The retained portability selection passes **142** cases on each
 local stack; the separate invalid-source environment result remains
@@ -36,6 +36,30 @@ the initial 25-case pair, typing failure and **892 PASS / 1 FAIL** fixture
 predecessor. Actual quality/docs, exact staged-review
 and normal-hook outcomes are recorded in local commit `1ecb06b2`. Public LEGACY
 behavior and defaults are unchanged; the full B–F migration remains open.
+
+The generalized-dot rule freezes the actual native contraction plan, supplied
+axis order, widths and reviewed precision parameters before lowering. Final
+producer/port checks cover direct tensor/matrix and paired-batch routes, local
+casts and generalized Transpose/Reshape/MatMul chains. Exact immutable INT64
+shape storage and Shape/Gather/Concat edges retain the original symbolic
+operand and axis; known wrong operators, edges, attributes or storage fail.
+Unimplemented legal routes remain unverified, without changing SOURCE
+admission or exports. Source snapshot `a3d3e01e` passes **112 structure cases
+on each stack**. The initial PRIMARY **109 PASS / 3 FAIL** remains preserved:
+two internal dot results reused `dot_contraction`, `dot_tensor_matrix` or
+`dot_batch_matrix` with optimization disabled. Those three SOURCE allocations
+now request fresh names; the original tests, full checker and optimizer are
+unchanged. The initial typing run reports one missing local NumPy annotation.
+After the annotation-only repair, source snapshot `4845b6cb` passes **575-file
+typing on each stack**. At that source, the 18-owner broader selection passes
+**1,065 identical cases on each stack**, with zero failures/errors/skips,
+complete consistent JUnit, source/Git held and clean terminal completion.
+Both regression and both typing runs hold the same full source snapshot;
+paired proof `1b075819` retains this finite qualification.
+The result stays private IR metadata and supplies no original-model,
+serialized-artifact, runtime or numerical acceptance. Actual quality/docs,
+normal-hook and exact staged-review outcomes belong to this cut's local commit
+record.
 
 The atomic native-symbol extension freezes a genuine native `SymbolicScope`
 and its single atomic label transiently into an opaque token, preserving the
@@ -104,7 +128,7 @@ runtime feasibility remains separate from the fresh source-`366a4d08` exports.
 
 1. Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
    deployment pair with their unchanged semantic/type/precision/placement guards.
-   Prepare the shared generalized-dot structural rule next, with authoring kept
+   Continue shared reduction and shape-carrier rules, with authoring kept
    external until review and ROOT application. Continue the broader symbolic,
    scope and decomposition rules. Connect that coverage to ordinary validation with evidence bound
    to the exact returned artifact, and complete the shared original-model gates

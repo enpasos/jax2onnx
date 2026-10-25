@@ -126,6 +126,12 @@ def freeze_source_structure_rule(
     primitive = eqn.primitive
     if primitive is None:
         return None
+    if primitive is jax.lax.dot_general_p:
+        from jax2onnx.plugins.jax.lax._source_dot_structure import (
+            freeze_dot_structure_rule,
+        )
+
+        return freeze_dot_structure_rule(eqn, inputs, outputs)
     name = primitive.name
     if _PRIMITIVES.get(name) is not primitive:
         return None

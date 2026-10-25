@@ -477,7 +477,9 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 raise ValueError(
                     "SOURCE dot_general: physical matrix dtype/shape differs from aval"
                 )
-        output = ctx.allocate_value_for_var(out_var, name_hint="dot_contraction")
+        output = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("dot_contraction")
+        )
         if not representation_for_aval(out_var.aval).matches_ir_value(output):
             raise ValueError(
                 "SOURCE dot_general: physical matrix dtype/shape differs from aval"
@@ -714,7 +716,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             )
         lhs, rhs = (ctx.require_value_for_var(var) for var in eqn.invars)
         output = ctx.allocate_value_for_var(
-            eqn.outvars[0], name_hint="dot_tensor_matrix"
+            eqn.outvars[0], name_hint=ctx.fresh_name("dot_tensor_matrix")
         )
         for value, expected in (
             (lhs, lhs_shape),
@@ -798,7 +800,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             )
         lhs, rhs = (ctx.require_value_for_var(var) for var in eqn.invars)
         output = ctx.allocate_value_for_var(
-            eqn.outvars[0], name_hint="dot_batch_matrix"
+            eqn.outvars[0], name_hint=ctx.fresh_name("dot_batch_matrix")
         )
         for value, expected in (
             (lhs, lhs_shape),
