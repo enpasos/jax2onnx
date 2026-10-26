@@ -23,14 +23,16 @@ The supported floor is **Python >=3.11, JAX/JAXLIB >=0.10.2 and Flax >=0.12.8**.
 The exact framework-floor stack and the all-direct-dependency-minimum stack
 are separate validation targets; ORT 1.24.1 remains the declared runtime floor.
 
-This unfinished LOCAL WIP continues **`d0835d02`**; **`fe214590`** remains the
-last fully green checkpoint. The private SOURCE facade now preserves four caller
-settings across early argument protocols, conversion and final naming/report/file
-work. Complete paired checks pass for that private boundary; public behavior stays **LEGACY**.
-The separate CI typing repair passes both supported stacks and its focused
-regressions. This is not full-suite or full B–F acceptance. The interrupted full
-run and all prior failures remain recorded; software resource checks do not
-establish machine-wide stability.
+This unfinished LOCAL WIP continues stored **`3deb083a`**; **`fe214590`** remains
+the last fully green checkpoint. Applied private work extends shared source
+structure checks, diagnostics for the actual returned artifact, original-row
+metadata accounting and exact native-callable capture. Paired focused and broader
+checks qualify their recorded scopes; actual quality and local closeout outcomes
+belong to this cut's commit record. Four caller settings remain preserved across
+the private in-call
+facade. Public behavior stays **LEGACY**. Full-suite, model, fixed-source and
+B–F acceptance remain open; failed and resource-stopped epochs retain their
+actual outcomes.
 
 The [canonical current status and evidence ledger](poc/source_integration_findings.md#current-checkpoint)
 owns exact source/dependency epochs, result scopes and next gates. The
@@ -79,7 +81,7 @@ trace leakage, and an unsafe arithmetic fusion on the source path. Matrix
 result preservation and selected wider normalization now have bounded positive
 evidence. Required FP16 runtime rounding remains a failed gate on the recorded
 targets; the explicit wider example is not an automatic repair. The
-preceding code checkpoint `1533d60b` remains accepted. The
+historical experiment's accepted code checkpoint was `1533d60b`. The
 [next work](precision_migration_plan.md#next-implementation-work) continues the
 remaining inventory mapping, end-to-end models and fixed-source workflows
 while preserving original source, inputs and criteria.

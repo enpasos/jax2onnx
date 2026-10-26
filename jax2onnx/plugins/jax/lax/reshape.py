@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/reshape.py
 
 from __future__ import annotations
-from typing import Any, Dict, Final, Iterable, List, Optional, Union, cast
+from typing import Any, Dict, Final, Iterable, List, Optional, Sequence, Union, cast
 from functools import reduce
 import operator
 import os
@@ -33,6 +33,15 @@ from jax2onnx.utils.shape_poly import (
     is_dim_expr,
     symbolic_dim_eq,
 )
+
+
+def _propagate_shape_helper_dtype(output: ir.Value, inputs: Sequence[ir.Value]) -> None:
+    """Fill absent Unsqueeze/Concat type only from known actual operand types."""
+    if output.type is not None or not inputs:
+        return
+    dtype = inputs[0].dtype
+    if dtype is not None and all(value.dtype == dtype for value in inputs):
+        output.type = ir.TensorType(dtype)
 
 
 # --- helper for tests: forbid constant-only Concat as Reshape shape input ---
@@ -296,6 +305,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             unsqueezed = ctx.builder.Unsqueeze(
                 src, axes, _outputs=[ctx.fresh_name("unsq")]
             )
+            _propagate_shape_helper_dtype(unsqueezed, (src,))
             _stamp_type_and_shape(unsqueezed, (1,))
             _ensure_value_metadata(ctx, unsqueezed)
             return cast(ir.Value, unsqueezed)
@@ -453,6 +463,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     axis=0,
                     _outputs=[ctx.fresh_name("reshape_shape_tensor")],
                 )
+                _propagate_shape_helper_dtype(shape_tensor, shape_parts)
                 _stamp_type_and_shape(shape_tensor, (len(shape_parts),))
                 _ensure_value_metadata(ctx, shape_tensor)
 

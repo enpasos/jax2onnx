@@ -992,6 +992,7 @@ def _export_prepared(
     diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
     artifact_observer: Callable[[onnx.ModelProto], None] | None = None,
     facade_return_observer: Callable[[Any], None] | None = None,
+    source_structure_collector: user_interface._SourceStructureCollector | None = None,
     output_directory: Path | None = None,
 ) -> onnx.ModelProto:
     return_mode = (
@@ -1024,6 +1025,7 @@ def _export_prepared(
         output_path=output_path,
         precision_policy=PrecisionPolicy.SOURCE,
         diagnostic_jaxpr_validator=diagnostic_jaxpr_validator,
+        source_structure_collector=source_structure_collector,
     )
     if facade_return_observer is not None:
         facade_return_observer(model)

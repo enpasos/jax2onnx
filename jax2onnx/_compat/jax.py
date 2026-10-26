@@ -156,7 +156,7 @@ _NATIVE_CAPTURE_OWNERS = (
     ),
     *(
         (vars(_native_numpy)[name], ((_native_numpy, name), (_native_ufuncs, name)))
-        for name in ("maximum", "minimum", "logical_xor")
+        for name in ("add", "maximum", "minimum", "logical_xor")
     ),
 )
 _NATIVE_CAPTURE_UFUNC_TYPE = _native_ufunc_api.ufunc
@@ -457,16 +457,54 @@ class _NativeCaptureGraph:
     def retain(self, value: object) -> None:
         self.retained[id(value)] = value
 
-    def _record_bindings(self, value: Any) -> None:
-        module_name = value.__module__
-        if type(module_name) is not str:
+    def _record_bindings(self, value: Any) -> dict[str, Any] | None:
+        # __module__ is still captured metadata, but a public re-export is not
+        # the executable namespace of a retained native callback.
+        kind = type(value)
+        if kind is not types.FunctionType and kind is not _NATIVE_CAPTURE_JIT_TYPE:
+            raise ValueError("unsupported native executable binding provenance")
+        if type(value.__module__) is not str:
             raise ValueError("native implementation module requires an actual string")
+        if kind is types.FunctionType:
+            function = value
+        elif type(value) is _NATIVE_CAPTURE_JIT_TYPE:
+            fields = vars(value)
+            if not self._schema(fields, _NATIVE_CAPTURE_JIT_FIELDS):
+                raise ValueError("native JIT wrapper schema changed")
+            function, wrapped = fields["_fun"], fields["__wrapped__"]
+            if (
+                type(function) is not types.FunctionType
+                or type(wrapped) is not types.FunctionType
+            ):
+                raise ValueError(
+                    "native JIT executable provenance needs exact Python functions"
+                )
+            if function is not wrapped:
+                raise ValueError("selected native callable behavior/state changed")
+        else:
+            raise ValueError("unsupported native executable binding provenance")
+        globals_dict = function.__globals__
+        self.retain(globals_dict)
+        module_name = dict.get(globals_dict, "__name__")
+        if type(module_name) is not str:
+            return None
         module = sys.modules.get(module_name)
         namespace = _native_module_dictionary(module)
-        if namespace is not None:
-            for name, item in namespace.copy().items():
-                if item is value:
-                    self.bindings.append((cast(types.ModuleType, module), name, value))
+        if namespace is not globals_dict:
+            # Already-owned generated functions can have an exec namespace.
+            # Keep their exact globals/code state without inventing aliases.
+            return None
+        self.retain(module)
+        for name, item in namespace.copy().items():
+            if item is value:
+                self.bindings.append((cast(types.ModuleType, module), name, value))
+        # This observed proof is part of the existing graph snapshot. Losing a
+        # real module registration cannot silently become an exec namespace.
+        return {
+            "name": module_name,
+            "module_identity": id(module),
+            "globals_identity": id(globals_dict),
+        }
 
     @staticmethod
     def _schema(mapping: Any, expected: frozenset[str]) -> bool:
@@ -592,7 +630,7 @@ class _NativeCaptureGraph:
                     self.take(cell.cell_contents) for cell in value.__closure__ or ()
                 ],
             )
-            self._record_bindings(value)
+            node["defining_namespace"] = self._record_bindings(value)
         elif type(value) is functools.partial:
             node.update(
                 function=self.take(value.func),
@@ -627,8 +665,9 @@ class _NativeCaptureGraph:
             members = self._class(_NATIVE_CAPTURE_JIT_TYPE)
             if not self._schema(vars(value), _NATIVE_CAPTURE_JIT_FIELDS):
                 raise ValueError("native JIT wrapper schema changed")
-            self._record_bindings(value)
+            defining_namespace = self._record_bindings(value)
             node.update(
+                defining_namespace=defining_namespace,
                 fields=self.take(vars(value)),
                 members=members,
                 # This pinned native getter exposes a mutable Python callback;
@@ -2758,6 +2797,9 @@ _NATIVE_AXISDATA_PRESLOTS_MEMBERS = frozenset(
         "__match_args__",
     )
 )
+_NATIVE_AXISDATA_EXTRA_MEMBERS = frozenset(
+    ("__firstlineno__", "__replace__", "__static_attributes__")
+)
 
 
 def _initial_native_axisdata_roles() -> dict[str, Any]:
@@ -2791,13 +2833,28 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
     ):
         raise ValueError("native AxisData exported/pre-slots closure aliases changed")
     old_namespace = vars(type)["__dict__"].__get__(old)
-    if not (
-        _NativeCaptureGraph._schema(namespace, _NATIVE_AXISDATA_EXPORTED_MEMBERS)
-        and _NativeCaptureGraph._schema(
-            old_namespace, _NATIVE_AXISDATA_PRESLOTS_MEMBERS
-        )
-    ):
+    legacy_namespace = _NativeCaptureGraph._schema(
+        namespace, _NATIVE_AXISDATA_EXPORTED_MEMBERS
+    ) and _NativeCaptureGraph._schema(old_namespace, _NATIVE_AXISDATA_PRESLOTS_MEMBERS)
+    extended_namespace = _NativeCaptureGraph._schema(
+        namespace, _NATIVE_AXISDATA_EXPORTED_MEMBERS | _NATIVE_AXISDATA_EXTRA_MEMBERS
+    ) and _NativeCaptureGraph._schema(
+        old_namespace,
+        _NATIVE_AXISDATA_PRESLOTS_MEMBERS | _NATIVE_AXISDATA_EXTRA_MEMBERS,
+    )
+    if not (legacy_namespace or extended_namespace):
         raise ValueError("native AxisData class namespace needs an exact adapter")
+    replacement = None
+    if extended_namespace:
+        replacement = vars(_native_dataclasses).get("_replace")
+        if type(replacement) is not types.FunctionType or any(
+            type(members["__firstlineno__"]) is not int
+            or type(members["__static_attributes__"]) is not tuple
+            or len(members["__static_attributes__"]) != 0
+            or members["__replace__"] is not replacement
+            for members in (namespace, old_namespace)
+        ):
+            raise ValueError("native AxisData extended class metadata changed")
     fields = namespace["__dataclass_fields__"]
     params = namespace["__dataclass_params__"]
     names = ("name", "size", "spmd_name", "_ema")
@@ -2868,7 +2925,10 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
         raise ValueError(
             "native AxisData field metadata needs its original empty mappingproxy"
         )
-    markers = {name: vars(_native_dataclasses)[name] for name in ("MISSING", "_FIELD")}
+    marker_names: tuple[str, ...] = ("MISSING", "_FIELD")
+    if extended_namespace:
+        marker_names += ("_FIELD_CLASSVAR", "_FIELD_INITVAR")
+    markers = {name: vars(_native_dataclasses)[name] for name in marker_names}
     marker_descriptors = {}
     for name, value in markers.items():
         cls = type(value)
@@ -2878,10 +2938,23 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
                 "native AxisData marker instance dictionary needs an exact adapter"
             )
         marker_descriptors[name] = (cls, descriptor)
+        if name in {"_FIELD_CLASSVAR", "_FIELD_INITVAR"}:
+            dictionary = descriptor.__get__(value, cls)
+            if (
+                cls is not type(markers["_FIELD"])
+                or type(dictionary) is not dict
+                or any(type(key) is not str for key in dictionary)
+                or set(dictionary) != {"name"}
+                or type(dictionary["name"]) is not str
+                or dictionary["name"] != name
+            ):
+                raise ValueError("native AxisData extended marker metadata changed")
     helpers = {
         name: vars(_native_dataclasses)[name]
         for name in ("_dataclass_getstate", "_dataclass_setstate", "fields", "_FIELDS")
     }
+    if extended_namespace:
+        helpers["_replace"] = replacement
     if (
         namespace["__getstate__"] is not helpers["_dataclass_getstate"]
         or namespace["__setstate__"] is not helpers["_dataclass_setstate"]
@@ -2964,8 +3037,8 @@ class _AxisDataCaptureGraph(_NativeCaptureGraph):
                     )
                 if set(namespace) != (set() if role == "MISSING" else {"name"}):
                     raise ValueError("native AxisData marker field schema changed")
-                if role == "_FIELD" and (
-                    type(namespace["name"]) is not str or namespace["name"] != "_FIELD"
+                if role != "MISSING" and (
+                    type(namespace["name"]) is not str or namespace["name"] != role
                 ):
                     raise ValueError("native AxisData field marker value changed")
                 self.retain(cls)
@@ -3109,6 +3182,9 @@ class _AxisDataCaptureGraph(_NativeCaptureGraph):
             "_FIELDS",
         ):
             _native_wrapper_slot(_native_dataclasses, name)
+        if "_replace" in _NATIVE_AXISDATA["helpers"]:
+            for name in ("_replace", "_FIELD_CLASSVAR", "_FIELD_INITVAR"):
+                _native_wrapper_slot(_native_dataclasses, name)
         for name, original in _NATIVE_AXISDATA["helpers"].items():
             if vars(_native_dataclasses).get(name) is not original:
                 raise ValueError(
@@ -3129,7 +3205,16 @@ class _AxisDataCaptureGraph(_NativeCaptureGraph):
             name: self.take(value)
             for name, value in _NATIVE_AXISDATA["helpers"].items()
         }
-        return {"classes": documents, "state_helpers": helpers, "nodes": self.nodes}
+        markers = {
+            name: self.take(value)
+            for name, value in _NATIVE_AXISDATA["markers"].items()
+        }
+        return {
+            "classes": documents,
+            "state_helpers": helpers,
+            "state_markers": markers,
+            "nodes": self.nodes,
+        }
 
 
 # These two original default roles are an edge-only implementation dependency.

@@ -132,6 +132,18 @@ def freeze_source_structure_rule(
         )
 
         return freeze_dot_structure_rule(eqn, inputs, outputs)
+    if primitive in (jax.lax.reduce_sum_p, jax.lax.reduce_max_p):
+        from jax2onnx.plugins.jax.lax._source_reduce_structure import (
+            freeze_reduction_structure_rule,
+        )
+
+        return freeze_reduction_structure_rule(eqn, inputs, outputs)
+    if primitive in (jax.lax.reshape_p, jax.lax.broadcast_in_dim_p):
+        from jax2onnx.plugins.jax.lax._source_shape_structure import (
+            freeze_shape_structure_rule,
+        )
+
+        return freeze_shape_structure_rule(eqn, inputs, outputs)
     name = primitive.name
     if _PRIMITIVES.get(name) is not primitive:
         return None

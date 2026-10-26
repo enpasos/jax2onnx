@@ -372,6 +372,12 @@ def build_probe_plan(
     )
 
 
+class SourceContractDrift(ValueError):
+    """A complete frozen source/recipe/artifact contract was contradicted."""
+
+    category = "source-contract-drift"
+
+
 def _resolve_case(
     row: ProbeRow, registrations: Mapping[str, Mapping[str, Any]]
 ) -> dict[str, Any]:
@@ -382,7 +388,9 @@ def _resolve_case(
         )
     cases = registered.get("testcases", [])
     if row.ordinal >= len(cases):
-        raise ValueError("Raw baseline ordinal is unavailable; review inventory drift.")
+        raise SourceContractDrift(
+            "Raw baseline ordinal is unavailable; review inventory drift."
+        )
     raw = cases[row.ordinal]
     unresolved: list[str] = []
     contract = canonical_contract(
@@ -399,7 +407,7 @@ def _resolve_case(
         str(raw.get("testcase", "unnamed")),
     )
     if _fingerprint(contract) != row.contract_sha256 or display != row.display:
-        raise ValueError(
+        raise SourceContractDrift(
             "Raw source contract changed after the plan was frozen; review and rebuild the plan."
         )
     return {**raw, "context": display[0], "component": display[1]}
@@ -740,11 +748,715 @@ def execute_probe_plan(
     return replace(plan, cells=tuple(cells))
 
 
+def _raw_metadata_checks(prepared: Any, result: Any, capture: Any) -> dict[str, Any]:
+    """Observe original assertion requests without changing product admission.
+
+    Known native/metadata contradictions fail. An unsupported assertion recipe
+    remains pending, and observer failures cannot abort the ordinary raw batch or
+    demote an earlier known contradiction. Original expectations are not inferred
+    from the produced artifact.
+    """
+    metadata = prepared.metadata if prepared is not None else {}
+    checks: dict[str, Any] = {}
+    capture.records["metadata_assertions"] = checks
+
+    def add(name: str, status: CheckStatus, detail: str) -> None:
+        checks[name] = {"status": status.value, "detail": detail}
+
+    for name in ("expected_output_shapes", "expected_output_dtypes"):
+        if name not in metadata or metadata[name] is None:
+            continue
+        try:
+            expected = metadata[name]
+            if not isinstance(expected, (list, tuple)):
+                add(
+                    name,
+                    CheckStatus.UNVERIFIED,
+                    "Original expected-output container needs a reviewed adapter",
+                )
+                continue
+            actual = prepared.traced_outputs
+            if len(expected) != len(actual):
+                add(
+                    name,
+                    CheckStatus.FAILED,
+                    "Original expected output arity differs from native trace",
+                )
+                continue
+            if name == "expected_output_dtypes":
+                if any(dtype is None for dtype in expected):
+                    add(
+                        name,
+                        CheckStatus.UNVERIFIED,
+                        "Incomplete original expected dtype does not select a default",
+                    )
+                    continue
+                matched = all(
+                    np.dtype(dtype).name == properties.dtype
+                    for dtype, properties in zip(expected, actual, strict=True)
+                )
+                add(
+                    name,
+                    CheckStatus.VALIDATED if matched else CheckStatus.FAILED,
+                    "Original output dtypes compared with native trace before tolerance",
+                )
+            else:
+                if any(not isinstance(shape, (list, tuple)) for shape in expected):
+                    add(
+                        name,
+                        CheckStatus.UNVERIFIED,
+                        "Original expected shape recipe needs a reviewed container adapter",
+                    )
+                    continue
+                if any(
+                    not isinstance(dim, (int, np.integer))
+                    for shape in expected
+                    for dim in shape
+                ) or any(
+                    not isinstance(dim, (int, np.integer))
+                    for properties in actual
+                    for dim in properties.shape
+                ):
+                    add(
+                        name,
+                        CheckStatus.UNVERIFIED,
+                        "Original symbolic expected shape needs exact scope reconciliation",
+                    )
+                    continue
+                matched = all(
+                    tuple(shape) == tuple(properties.shape)
+                    for shape, properties in zip(expected, actual, strict=True)
+                )
+                add(
+                    name,
+                    CheckStatus.VALIDATED if matched else CheckStatus.FAILED,
+                    "Original static output shapes compared with native trace before tolerance",
+                )
+        except Exception as exc:
+            add(
+                name,
+                CheckStatus.UNVERIFIED,
+                f"Original expected-output observer needs a reviewed adapter: {type(exc).__name__}: {exc}",
+            )
+
+    pending = {
+        "expected_number_of_function_instances": "Original function-instance count needs shared function ownership evidence",
+        "check_onnx_load": "Original reload request has not been executed",
+        "check_onnx_shape_inference": "Original shape-inference request has not been executed",
+        "check_deployment_readiness_report": "Original deployment report request has not been executed",
+        "post_check_onnx_runtime": "Original runtime callback is retained and needs captured target outputs",
+        "x64_expected_output_shapes": "Original x64-specific expectation needs explicit counterpart review",
+    }
+    for name, detail in pending.items():
+        if (
+            name in metadata
+            and metadata[name] is not None
+            and metadata[name] is not False
+        ):
+            add(name, CheckStatus.UNVERIFIED, detail)
+    for name in metadata:
+        if (
+            isinstance(name, str)
+            and name.startswith(("expected_", "check_", "post_check_"))
+            and name not in checks
+            and name != "post_check_onnx_graph"
+        ):
+            if metadata[name] is not None and metadata[name] is not False:
+                add(
+                    name,
+                    CheckStatus.UNVERIFIED,
+                    "Original assertion has no SOURCE handler",
+                )
+    runtime = capture.records.get("metadata_runtime", {})
+    if "runtime_input_values" in metadata:
+        add(
+            "runtime_input_values",
+            CheckStatus(runtime.get("alternate_inputs_status", "unverified")),
+            "Original alternate samples must retain bytes, dtype and dynamic controls",
+        )
+    add(
+        "runtime_binding",
+        CheckStatus(runtime.get("binding_status", "unverified")),
+        runtime.get(
+            "binding_detail", "Runtime source/artifact binding has not been observed"
+        ),
+    )
+    add(
+        "runtime_reference",
+        CheckStatus(runtime.get("reference_status", "unverified")),
+        runtime.get(
+            "reference_detail",
+            "Original runtime reference obligations have not been observed",
+        ),
+    )
+    if metadata.get("export_mode", "standard") == "web":
+        add(
+            "onnxruntime_web",
+            CheckStatus.UNVERIFIED,
+            "CPU evidence does not qualify the requested web target",
+        )
+    for name in ("record_primitive_calls_file", "output_path"):
+        if metadata.get(name) is not None:
+            add(
+                name,
+                CheckStatus.UNVERIFIED,
+                "Original destination retained; requested facade contract needs qualification",
+            )
+    if prepared is not None and prepared.scenario.require_reviewed_criteria:
+        if prepared.criteria is None or metadata.get("skip_numeric_validation"):
+            add(
+                "reviewed_criteria",
+                CheckStatus.UNVERIFIED,
+                "Missing/partial/skipped original criterion does not authorize numerics",
+            )
+        else:
+            add(
+                "reviewed_criteria",
+                CheckStatus.VALIDATED,
+                "Complete explicit raw source criterion retained",
+            )
+    return checks
+
+
+def _raw_runtime_status(result: Any) -> CheckStatus:
+    """Only an actual validator observation can establish execution status."""
+    if result is None or result.validation is None:
+        return CheckStatus.UNVERIFIED
+    checks = result.validation.checks + tuple(
+        check for sample in result.validation.samples for check in sample.checks
+    )
+    runtime = [
+        check.status for check in checks if check.category == "runtime-execution"
+    ]
+    if CheckStatus.FAILED in runtime:
+        return CheckStatus.FAILED
+    return (
+        CheckStatus.VALIDATED
+        if runtime and all(status is CheckStatus.VALIDATED for status in runtime)
+        else CheckStatus.UNVERIFIED
+    )
+
+
+def _raw_metadata_runtime(
+    prepared: Any,
+    result: Any,
+    capture: Any,
+    checks: Mapping[str, Any],
+    *,
+    adapter: Mapping[str, Any],
+    optimization: Literal["disabled", "all"],
+) -> Any:
+    """Reuse retained source/reference/artifact and the existing sample validator.
+
+    Reference and binding failures are independent from actual target execution.
+    Every original-source invocation is fenced before a subsequent invocation or
+    target execution. A later binding failure retains actual validator evidence.
+    """
+    import jax
+    from jax2onnx.precision import _artifact_bytes, validate_source_samples
+    from tests.extra_tests.converter.source_precision_support import (
+        _source_sample_from_reference,
+        prepared_source_reference,
+        prepare_source_reference,
+        source_configuration,
+    )
+
+    observation = {
+        "status": "unverified",
+        "alternate_inputs_status": "unverified",
+        "binding_status": "unverified",
+        "reference_status": "unverified",
+        "reference_role": "original-prepared-eager",
+        "optimization": optimization,
+        "criteria": (
+            asdict(prepared.criteria)
+            if prepared is not None and prepared.criteria
+            else None
+        ),
+    }
+    capture.records["metadata_runtime"] = observation
+    blockers = []
+    if prepared is None or result is None or result.model is None:
+        blockers.append("No retained prepared source and returned artifact")
+    elif prepared.criteria is None or prepared.metadata.get("skip_numeric_validation"):
+        blockers.append("No complete applicable reviewed raw criterion")
+    else:
+        if (
+            result.audit.status is not CheckStatus.VALIDATED
+            or result.schema is not CheckStatus.VALIDATED
+        ):
+            blockers.append("Raw product audit/schema is not validated")
+        if (
+            capture.readiness is not CheckStatus.VALIDATED
+            or capture.source_structure_status() is not CheckStatus.VALIDATED
+        ):
+            blockers.append("Exact source/artifact/physical mapping is not validated")
+        if result.raw_callback_status not in {"absent", "passed"}:
+            blockers.append("Original graph callback has not passed")
+        if any(
+            prepared.metadata.get(name)
+            for name in ("inputs_as_nchw", "outputs_as_nchw")
+        ):
+            blockers.append(
+                "Original layout needs an explicit native/physical runtime adapter"
+            )
+        if adapter.get("samples", [])[1:]:
+            blockers.append(
+                "Additional symbolic binding target samples are not yet reconciled"
+            )
+        if any(value["status"] == "failed" for value in checks.values()):
+            blockers.append(
+                "Original expected metadata contradicts source before tolerance"
+            )
+        if any(
+            name in checks and checks[name]["status"] != "validated"
+            for name in (
+                "expected_output_shapes",
+                "expected_output_dtypes",
+                "x64_expected_output_shapes",
+            )
+        ):
+            blockers.append("Original expected output contract needs review")
+    if blockers:
+        observation["detail"] = "; ".join(blockers)
+        return result
+    phase = "binding"
+    observed_result = result
+    try:
+        capture.require_stable_target("before-metadata-runtime")
+        audited_sha = capture.records["artifact"]["sha256"]
+        if _artifact_bytes(result.model)[1] != audited_sha:
+            raise SourceContractDrift(
+                "Returned artifact differs before metadata runtime"
+            )
+        phase = "reference"
+        references = [prepared_source_reference(prepared)]
+        alternate = prepared.metadata.get("runtime_input_values")
+        if alternate is not None:
+            if not isinstance(alternate, (list, tuple)) or not alternate:
+                raise ValueError(
+                    "Original runtime input samples need a nonempty reviewed container"
+                )
+            for index, values in enumerate(alternate):
+                label = f"metadata-runtime-reference-{index}"
+                with capture.execution_context(label):
+                    reference = prepare_source_reference(
+                        prepared,
+                        label=f"original-runtime-input-values-{index}",
+                        input_values=values,
+                    )
+                capture.require_stable_target(label + "-after-eager")
+                references.append(reference)
+                capture.arrays(label + "-inputs", reference.arguments)
+                capture.arrays(label + "-eager", reference.reference_outputs)
+                positional = reference.arguments[: len(prepared.input_specs)]
+                named = dict(
+                    zip(
+                        prepared.named_specs,
+                        reference.arguments[len(prepared.input_specs) :],
+                        strict=True,
+                    )
+                )
+                with source_configuration(prepared.scenario):
+                    if SourceSettings.observe() != prepared.settings:
+                        raise SourceContractDrift(
+                            "Alternate fresh-JIT settings differ from preparation"
+                        )
+                    fresh = capture.invoke(
+                        label + "-fresh-jit",
+                        lambda args=positional, kwargs=named: jax.device_get(
+                            jax.jit(prepared.fn)(*args, **kwargs)
+                        ),
+                    )
+                    capture.require_stable_target(label + "-after-fresh-jit")
+                    if label + "-fresh-jit" not in capture.native_values:
+                        raise ValueError(
+                            "Original alternate fresh-JIT reference did not return"
+                        )
+                    outputs, tree = jax.tree_util.tree_flatten(fresh)
+                    if str(tree) != prepared.output_tree or len(outputs) != len(
+                        reference.reference_outputs
+                    ):
+                        raise SourceContractDrift(
+                            "Alternate fresh-JIT native output tree/arity differs"
+                        )
+                    if any(
+                        np.asarray(value).dtype != expected.dtype
+                        or np.asarray(value).shape != expected.shape
+                        for value, expected in zip(
+                            outputs, reference.reference_outputs, strict=True
+                        )
+                    ):
+                        raise SourceContractDrift(
+                            "Alternate fresh-JIT native dtype/shape differs before tolerance"
+                        )
+                    capture.arrays(label + "-fresh-jit", outputs)
+                    if SourceSettings.observe() != prepared.settings:
+                        raise SourceContractDrift(
+                            "Alternate fresh-JIT changed caller settings"
+                        )
+        observation["reference_status"] = "validated"
+        observation["reference_detail"] = (
+            "Original eager and fresh-JIT source evidence retained before target execution"
+        )
+        # Materialization may reject an unsupported mapping. It is a source
+        # reference/preflight outcome, not proof that ORT ran and failed.
+        samples = [
+            _source_sample_from_reference(prepared, result.model, reference)
+            for reference in references
+        ]
+        phase = "binding"
+        capture.require_stable_target("immediately-before-metadata-validator")
+        capture.finalize_source_structure(result.model)
+        if (
+            capture.readiness is not CheckStatus.VALIDATED
+            or capture.source_structure_status() is not CheckStatus.VALIDATED
+        ):
+            raise ValueError(
+                "Source/artifact readiness changed before the sample validator"
+            )
+        if _artifact_bytes(result.model)[1] != audited_sha:
+            raise SourceContractDrift(
+                "Audited artifact differs immediately before target execution"
+            )
+        observation["binding_status"] = "validated"
+        phase = "validator"
+        validation = validate_source_samples(
+            result.model, samples=samples, optimization=optimization
+        )
+        # Retain the actual validator result before any later source/artifact
+        # fence. Later failure must not erase successful or failed execution.
+        observed_result = replace(result, validation=validation)
+        observation.update(
+            {
+                "status": validation.status.value,
+                "artifact_sha256": validation.artifact_sha256,
+                "target": (
+                    asdict(validation.target) if validation.target is not None else None
+                ),
+                "checks": [asdict(item) for item in validation.checks],
+                "samples": [asdict(item) for item in validation.samples],
+                "alternate_inputs_status": (
+                    "validated"
+                    if alternate is not None
+                    and len(validation.samples) == len(references)
+                    and _raw_runtime_status(observed_result) is CheckStatus.VALIDATED
+                    else "unverified"
+                ),
+            }
+        )
+        phase = "binding"
+        if (
+            validation.artifact_sha256 != audited_sha
+            or _artifact_bytes(result.model)[1] != audited_sha
+        ):
+            raise SourceContractDrift(
+                "Metadata validator changed its audited artifact epoch"
+            )
+        capture.require_stable_target("after-metadata-runtime")
+        capture.finalize_source_structure(result.model)
+        if (
+            capture.readiness is not CheckStatus.VALIDATED
+            or capture.source_structure_status() is not CheckStatus.VALIDATED
+        ):
+            raise ValueError("Metadata runtime invalidated the source/artifact fence")
+        observation["binding_detail"] = (
+            "Same retained target and audited artifact fenced before/after target execution"
+        )
+        return observed_result
+    except Exception as exc:
+        capture.failure("metadata-runtime-" + phase, exc)
+        status = "failed" if isinstance(exc, SourceContractDrift) else "unverified"
+        observation.update(failure_phase=phase, detail=str(exc))
+        if phase in {"binding", "reference"}:
+            observation[phase + "_status"] = status
+            observation[phase + "_detail"] = str(exc)
+        else:
+            observation["validator_observation"] = (
+                "No returned validator evidence; runtime remains unverified"
+            )
+        return observed_result
+
+
+def execute_raw_probe_cell(
+    row: ProbeRow,
+    cell: ProbeCell,
+    registrations: Sequence[tuple[str, str, Mapping[str, Any]]],
+    *,
+    stage: Literal["prepare", "product"],
+    adapters: Mapping[str, Any],
+    evidence_directory: Path,
+    runtime_optimization: Literal["disabled", "all"] | None = None,
+) -> ProbeCell:
+    """Execute one unchanged raw recipe; both CLI and metadata use this owner.
+
+    Runtime is an explicitly requested test contract and reuses the same retained
+    target and artifact. It is never enabled by ordinary raw product observation.
+    """
+    if stage not in {"prepare", "product"} or cell.scenario not in SCENARIOS:
+        raise ValueError("Unknown raw source stage or scenario")
+    if (row.origin, row.ordinal) != (cell.origin, cell.ordinal):
+        raise ValueError("Raw cell and row provenance differ")
+    if cell.stage not in {"scheduled", "recipe-pending", "source-prepared"}:
+        raise ValueError("Raw cell already has a terminal observation")
+    if any(
+        CheckStatus.FAILED
+        in (
+            item.source_reference,
+            item.schema,
+            item.artifact,
+            item.lowering_audit,
+            item.structure,
+            item.runtime,
+            item.numerics,
+        )
+        for item in cell.history
+    ):
+        raise ValueError("Prior failed source evidence cannot be overwritten")
+    from tests.extra_tests.converter.source_precision_raw_replay import (
+        RawReplayCapture,
+        prepare_raw_source_case,
+        replay_adapter,
+        run_raw_source_case,
+        structured_source_error,
+    )
+
+    registered = {origin: metadata for origin, _, metadata in registrations}
+    if len(registered) != len(registrations):
+        raise ValueError("Ambiguous raw registration provenance")
+    adapter: Mapping[str, Any] = {}
+    environment = ProbeEnvironment.observe()
+    capture = RawReplayCapture(evidence_directory / stage / _fingerprint(cell.identity))
+    prepared = None
+    result = None
+    declared = None
+    scenario_sha = _fingerprint(
+        {
+            "identity": cell.identity,
+            "contract": row.contract_sha256,
+            "adapter": adapters.get("rows", {}).get(f"{row.origin}::{row.ordinal}", {}),
+            "criteria": asdict(row.criteria) if row.criteria else None,
+        }
+    )
+    observed_settings: list[SourceSettings] = []
+    outcome = cell
+    try:
+        metadata = _resolve_case(row, registered)
+        adapter = replay_adapter(row, adapters)
+        declared = raw_source_scenarios(
+            metadata,
+            SourceProvenance(row.origin, row.ordinal),
+            criteria=row.criteria,
+            preserve_supplied_properties=True,
+        )[SCENARIOS.index(cell.scenario)]
+        if declared.input_values is not None:
+            capture.arrays("supplied-inputs", declared.input_values)
+        capture.document("adapter", adapter)
+        scenario_sha = _fingerprint(
+            {
+                "identity": cell.identity,
+                "contract": row.contract_sha256,
+                "adapter": adapter,
+                "criteria": asdict(row.criteria) if row.criteria else None,
+            }
+        )
+        prepared = prepare_raw_source_case(
+            metadata,
+            declared,
+            adapter=adapter,
+            capture=capture,
+            settings_observer=observed_settings.append,
+        )
+        outcome = replace(
+            cell, stage="source-prepared", source_reference=capture.readiness
+        )
+        if cell.history and (
+            cell.history[-1].environment != environment
+            or cell.history[-1].scenario_sha256 != scenario_sha
+            or cell.history[-1].inputs != prepared.input_evidence
+            or cell.history[-1].references != prepared.reference_evidence
+            or cell.history[-1].original_trace_json != prepared.original_trace_json
+            or cell.history[-1].actual_settings != prepared.settings
+        ):
+            outcome = replace(
+                outcome,
+                stage="source-drift",
+                category="migration-gap",
+                source_reference=CheckStatus.FAILED,
+                detail="Original source inputs/reference/trace/settings changed; prior history retained.",
+            )
+        elif stage == "product":
+            # Ordinary validator remains active; no diagnostic adapter or ORT.
+            result = run_raw_source_case(prepared, capture=capture)
+            report = (
+                get_precision_report(result.model) if result.model is not None else None
+            )
+            lowering = (
+                next(
+                    (
+                        check.status
+                        for check in report.checks
+                        if check.category == "lowering"
+                    ),
+                    CheckStatus.UNVERIFIED,
+                )
+                if report
+                else (
+                    capture.records.get("product_audit_status", CheckStatus.UNVERIFIED)
+                )
+            )
+            outcome = replace(
+                outcome,
+                stage=result.stage,
+                category=result.category,
+                schema=result.schema,
+                artifact=(
+                    CheckStatus.VALIDATED
+                    if capture.records.get("artifact", {}).get("status") == "captured"
+                    else CheckStatus.UNVERIFIED
+                ),
+                lowering_audit=lowering,
+                detail=result.audit.detail,
+                artifact_sha256=capture.records.get("artifact", {}).get("sha256"),
+            )
+    except Exception as exc:
+        capture.failure("preparation", exc)
+        capture.records["source_error"] = structured_source_error(exc)
+        unavailable = cell.origin not in registered
+        category = (
+            "environment-unavailable"
+            if unavailable
+            else getattr(exc, "category", "replay-lane-gap")
+        )
+        lane_gap = category in {"replay-lane-gap", "environment-unavailable"}
+        outcome = replace(
+            cell,
+            stage="replay-adapter-pending" if lane_gap else "source-preparation",
+            category=category,
+            source_reference=(
+                CheckStatus.UNVERIFIED if lane_gap else CheckStatus.FAILED
+            ),
+            detail=str(exc),
+        )
+    report = (
+        get_precision_report(result.model)
+        if result is not None and result.model is not None
+        else None
+    )
+    try:
+        supplied_evidence = (
+            tuple(
+                value_evidence(
+                    value,
+                    _properties(
+                        value
+                        if hasattr(value, "dtype") and hasattr(value, "shape")
+                        else np.asarray(value)
+                    ),
+                )
+                for value in (declared.input_values or ())
+            )
+            if declared is not None
+            else ()
+        )
+    except Exception as exc:
+        capture.gap("supplied-input-evidence", exc)
+        supplied_evidence = ()
+    try:
+        checks = _raw_metadata_checks(prepared, result, capture)
+    except Exception as exc:
+        checks = dict(capture.records.get("metadata_assertions", {}))
+        checks["metadata_assertion_observer"] = {
+            "status": "unverified",
+            "detail": f"Unsupported original assertion observer: {type(exc).__name__}: {exc}",
+        }
+    if stage == "product" and runtime_optimization is not None:
+        result = _raw_metadata_runtime(
+            prepared,
+            result,
+            capture,
+            checks,
+            adapter=adapter,
+            optimization=runtime_optimization,
+        )
+        try:
+            checks = _raw_metadata_checks(prepared, result, capture)
+        except Exception as exc:
+            checks.setdefault(
+                "metadata_assertion_observer",
+                {
+                    "status": "unverified",
+                    "detail": f"Unsupported original assertion observer: {type(exc).__name__}: {exc}",
+                },
+            )
+    capture.records["metadata_assertions"] = checks
+    if (
+        capture.readiness is CheckStatus.UNVERIFIED
+        and capture.gaps
+        and outcome.source_reference is not CheckStatus.FAILED
+    ):
+        outcome = replace(
+            outcome,
+            source_reference=CheckStatus.UNVERIFIED,
+            stage="replay-capture-pending",
+            category="replay-lane-gap",
+            detail="; ".join(
+                gap["role"] + ": " + gap["detail"] for gap in capture.gaps
+            ),
+        )
+    evidence = ProbeStageEvidence(
+        cell.identity,
+        stage,
+        row.contract_sha256,
+        scenario_sha,
+        environment,
+        cell.scenario == "raw-x64-on",
+        None,
+        (
+            prepared.settings
+            if prepared
+            else observed_settings[-1] if observed_settings else None
+        ),
+        result.export_settings if result else None,
+        prepared.original_trace_json if prepared else None,
+        (
+            hashlib.sha256(prepared.original_trace_json.encode()).hexdigest()
+            if prepared
+            else None
+        ),
+        supplied_evidence,
+        prepared.input_evidence if prepared else (),
+        prepared.reference_evidence if prepared else (),
+        outcome.source_reference,
+        capture.source_structure_status(),
+        outcome.schema,
+        outcome.artifact,
+        outcome.lowering_audit,
+        _raw_runtime_status(result),
+        result.numerical_status if result else CheckStatus.UNVERIFIED,
+        outcome.stage,
+        outcome.category,
+        outcome.detail,
+        outcome.artifact_sha256,
+        report,
+        (),
+        cell.history[-1].sha256 if cell.history else None,
+        raw_callback_status=(result.raw_callback_status if result else "not-executed"),
+        replay_capture=dict(capture.records),
+    )
+    return replace(
+        outcome,
+        runtime=_raw_runtime_status(result),
+        numerics=result.numerical_status if result else CheckStatus.UNVERIFIED,
+        history=(*cell.history, evidence),
+    )
+
+
 def _execute_raw_probe_plan(
     plan: SourceProbePlan,
     registrations: Sequence[tuple[str, str, Mapping[str, Any]]],
     *,
-    stage: str,
+    stage: Literal["prepare", "product"],
     limit: int,
     origins: frozenset[str],
     scenario: str | None,
@@ -754,13 +1466,6 @@ def _execute_raw_probe_plan(
 ) -> SourceProbePlan:
     """Complete-denominator native/product observations, retaining every cell."""
     import tempfile
-    from tests.extra_tests.converter.source_precision_raw_replay import (
-        RawReplayCapture,
-        prepare_raw_source_case,
-        replay_adapter,
-        run_raw_source_case,
-        structured_source_error,
-    )
 
     registered = {origin: metadata for origin, _, metadata in registrations}
     if len(registered) != len(registrations):
@@ -789,6 +1494,9 @@ def _execute_raw_probe_plan(
                     item.schema,
                     item.artifact,
                     item.lowering_audit,
+                    item.structure,
+                    item.runtime,
+                    item.numerics,
                 )
                 for item in cell.history
             )
@@ -796,201 +1504,16 @@ def _execute_raw_probe_plan(
             cells.append(cell)
             continue
         selected += 1
-        row = rows[(cell.origin, cell.ordinal)]
-        environment = ProbeEnvironment.observe()
-        capture = RawReplayCapture(directory / stage / _fingerprint(cell.identity))
-        prepared = None
-        result = None
-        declared = None
-        scenario_sha = _fingerprint(
-            {"identity": cell.identity, "contract": row.contract_sha256}
-        )
-        observed_settings: list[SourceSettings] = []
-        outcome = cell
-        try:
-            metadata = _resolve_case(row, registered)
-            adapter = replay_adapter(row, adapters)
-            declared = raw_source_scenarios(
-                metadata,
-                SourceProvenance(row.origin, row.ordinal),
-                criteria=row.criteria,
-                preserve_supplied_properties=True,
-            )[SCENARIOS.index(cell.scenario)]
-            if declared.input_values is not None:
-                capture.arrays("supplied-inputs", declared.input_values)
-            capture.document("adapter", adapter)
-            scenario_sha = _fingerprint(
-                {
-                    "identity": cell.identity,
-                    "contract": row.contract_sha256,
-                    "adapter": adapter,
-                    "criteria": asdict(row.criteria) if row.criteria else None,
-                }
-            )
-            prepared = prepare_raw_source_case(
-                metadata,
-                declared,
-                adapter=adapter,
-                capture=capture,
-                settings_observer=observed_settings.append,
-            )
-            outcome = replace(
-                cell, stage="source-prepared", source_reference=capture.readiness
-            )
-            if cell.history and (
-                cell.history[-1].environment != environment
-                or cell.history[-1].scenario_sha256 != scenario_sha
-                or cell.history[-1].inputs != prepared.input_evidence
-                or cell.history[-1].references != prepared.reference_evidence
-                or cell.history[-1].original_trace_json != prepared.original_trace_json
-                or cell.history[-1].actual_settings != prepared.settings
-            ):
-                outcome = replace(
-                    outcome,
-                    stage="source-drift",
-                    category="migration-gap",
-                    source_reference=CheckStatus.FAILED,
-                    detail="Original source inputs/reference/trace/settings changed; prior history retained.",
-                )
-            elif stage == "product":
-                # Ordinary validator remains active; no diagnostic adapter or ORT.
-                result = run_raw_source_case(prepared, capture=capture)
-                report = (
-                    get_precision_report(result.model)
-                    if result.model is not None
-                    else None
-                )
-                lowering = (
-                    next(
-                        (
-                            check.status
-                            for check in report.checks
-                            if check.category == "lowering"
-                        ),
-                        CheckStatus.UNVERIFIED,
-                    )
-                    if report
-                    else (
-                        capture.records.get(
-                            "product_audit_status", CheckStatus.UNVERIFIED
-                        )
-                    )
-                )
-                outcome = replace(
-                    outcome,
-                    stage=result.stage,
-                    category=result.category,
-                    schema=result.schema,
-                    artifact=(
-                        CheckStatus.VALIDATED
-                        if capture.records.get("artifact", {}).get("status")
-                        == "captured"
-                        else CheckStatus.UNVERIFIED
-                    ),
-                    lowering_audit=lowering,
-                    detail=result.audit.detail,
-                    artifact_sha256=capture.records.get("artifact", {}).get("sha256"),
-                )
-        except Exception as exc:
-            capture.failure("preparation", exc)
-            capture.records["source_error"] = structured_source_error(exc)
-            unavailable = cell.origin not in registered
-            category = (
-                "environment-unavailable"
-                if unavailable
-                else getattr(exc, "category", "replay-lane-gap")
-            )
-            lane_gap = category in {"replay-lane-gap", "environment-unavailable"}
-            outcome = replace(
+        cells.append(
+            execute_raw_probe_cell(
+                rows[(cell.origin, cell.ordinal)],
                 cell,
-                stage="replay-adapter-pending" if lane_gap else "source-preparation",
-                category=category,
-                source_reference=(
-                    CheckStatus.UNVERIFIED if lane_gap else CheckStatus.FAILED
-                ),
-                detail=str(exc),
+                registrations,
+                stage=stage,
+                adapters=adapters,
+                evidence_directory=directory,
             )
-        report = (
-            get_precision_report(result.model)
-            if result is not None and result.model is not None
-            else None
         )
-        try:
-            supplied_evidence = (
-                tuple(
-                    value_evidence(
-                        value,
-                        _properties(
-                            value
-                            if hasattr(value, "dtype") and hasattr(value, "shape")
-                            else np.asarray(value)
-                        ),
-                    )
-                    for value in (declared.input_values or ())
-                )
-                if declared is not None
-                else ()
-            )
-        except Exception as exc:
-            capture.gap("supplied-input-evidence", exc)
-            supplied_evidence = ()
-        if (
-            capture.readiness is CheckStatus.UNVERIFIED
-            and capture.gaps
-            and outcome.source_reference is not CheckStatus.FAILED
-        ):
-            outcome = replace(
-                outcome,
-                source_reference=CheckStatus.UNVERIFIED,
-                stage="replay-capture-pending",
-                category="replay-lane-gap",
-                detail="; ".join(
-                    gap["role"] + ": " + gap["detail"] for gap in capture.gaps
-                ),
-            )
-        evidence = ProbeStageEvidence(
-            cell.identity,
-            stage,
-            row.contract_sha256,
-            scenario_sha,
-            environment,
-            cell.scenario == "raw-x64-on",
-            None,
-            (
-                prepared.settings
-                if prepared
-                else observed_settings[-1] if observed_settings else None
-            ),
-            result.export_settings if result else None,
-            prepared.original_trace_json if prepared else None,
-            (
-                hashlib.sha256(prepared.original_trace_json.encode()).hexdigest()
-                if prepared
-                else None
-            ),
-            supplied_evidence,
-            prepared.input_evidence if prepared else (),
-            prepared.reference_evidence if prepared else (),
-            outcome.source_reference,
-            CheckStatus.UNVERIFIED,
-            outcome.schema,
-            outcome.artifact,
-            outcome.lowering_audit,
-            CheckStatus.UNVERIFIED,
-            CheckStatus.UNVERIFIED,
-            outcome.stage,
-            outcome.category,
-            outcome.detail,
-            outcome.artifact_sha256,
-            report,
-            (),
-            cell.history[-1].sha256 if cell.history else None,
-            raw_callback_status=(
-                result.raw_callback_status if result else "not-executed"
-            ),
-            replay_capture=dict(capture.records),
-        )
-        cells.append(replace(outcome, history=(*cell.history, evidence)))
     return replace(plan, cells=tuple(cells))
 
 

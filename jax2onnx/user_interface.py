@@ -130,7 +130,10 @@ from jax2onnx.converter.source_representation import (
     validate_source_shapes,
 )
 from jax2onnx.ir_utils import iter_ir_functions
-from jax2onnx.converter.source_structure import validate_source_structure
+from jax2onnx.converter.source_structure import (
+    StructureResult,
+    validate_source_structure,
+)
 from jax2onnx.precision import (
     CheckStatus,
     PrecisionCheck,
@@ -148,6 +151,9 @@ from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 _LOGGER = logging.getLogger(__name__)
 
 ReturnMode = Literal["proto", "ir", "file"]
+_SourceStructureCollector = Callable[
+    [_TraceResult, ir.Model, StructureResult, object], None
+]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
 ExportMode = Literal["standard", "web"]
 _VALID_EXPORT_MODES = {"standard", "web"}
@@ -1266,6 +1272,7 @@ def _to_onnx(
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
     deployment_target: DeploymentTarget | None = None,
+    source_structure_collector: _SourceStructureCollector | None = None,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """One facade pipeline; SOURCE is a private, bounded migration experiment."""
     source = precision_policy is PrecisionPolicy.SOURCE
@@ -1538,6 +1545,7 @@ def _to_onnx(
             input_values=source_values,
         )
         model_proto: onnx.ModelProto | None = None
+        source_structure_result: StructureResult | None = None
         if source:
             _finalize_source_deployment(result)
             assert trace_result is not None
@@ -1557,7 +1565,7 @@ def _to_onnx(
             # Final IR only: after optimizer, postprocessing, output aliases and
             # IO names. The private result neither changes export admission nor
             # claims that a serialized proto/file has been structurally audited.
-            validate_source_structure(result)
+            source_structure_result = validate_source_structure(result)
             report = _build_source_report(
                 result,
                 trace_result,
@@ -1580,7 +1588,25 @@ def _to_onnx(
                 raise RuntimeError(
                     "Source precision metadata failed its serialization roundtrip"
                 )
+
+        def observe_source_return(value: object) -> None:
+            if (
+                source
+                and not diagnostic
+                and source_structure_collector is not None
+                and trace_result is not None
+                and source_structure_result is not None
+            ):
+                # Private evidence cannot change ordinary export success.
+                try:
+                    source_structure_collector(
+                        trace_result, result, source_structure_result, value
+                    )
+                except Exception:
+                    pass
+
         if normalized_mode == "ir":
+            observe_source_return(result)
             return result
 
         if model_proto is None:
@@ -1601,7 +1627,9 @@ def _to_onnx(
                     raise RuntimeError(
                         "Saved source precision metadata failed its roundtrip"
                     )
+            observe_source_return(saved_path)
             return saved_path
+        observe_source_return(model_proto)
         return model_proto
 
 

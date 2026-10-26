@@ -9,13 +9,15 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+import warnings
 
+import jax
 import numpy as np
 import onnx
 import pytest
 
 from jax2onnx import user_interface
-from jax2onnx.precision import CheckStatus
+from jax2onnx.precision import CheckStatus, get_precision_report
 from scripts import source_precision_probe as probe
 from scripts.source_precision_inventory import raw_registrations
 from tests.extra_tests.converter import source_precision_raw_replay as raw
@@ -483,7 +485,9 @@ def test_concrete_manifest_failure_still_attempts_declared_native_trace(
     result = _execute(original_scope, tmp_path, "plugin::add", 0)
     cell = _cell(result, "plugin::add", 0)
     capture = cell.history[-1].replay_capture
-    assert len(observed) == 2
+    # Two original manifest attempts remain, followed by the actual export and
+    # fresh prepared manifests used only by the optional artifact bridge.
+    assert len(observed) == 4
     assert capture["native_outcomes"]["concrete-typed-trace"]["status"] == "returned"
     assert capture["native_outcomes"]["declared-typed-trace"]["status"] == "returned"
     assert capture["concrete-typed-trace"]["status"] == "failed"
@@ -621,6 +625,520 @@ def test_original_global_weight_rebinding_is_detected_without_rebuilding_source(
     assert capture.records["global-weight-fault-state"]["status"] == "failed"
     assert capture.readiness is CheckStatus.UNVERIFIED
     assert capture.records["native_outcomes"] == {}
+
+
+def _bridge_prepared(original_scope, tmp_path, *, return_mode="proto"):
+    row, metadata, _ = _original_metadata(original_scope, "plugin::add", 0)
+    capture = raw.RawReplayCapture(tmp_path)
+    scenario = raw_source_scenarios(
+        metadata, SourceProvenance(row.origin, row.ordinal)
+    )[1]
+    prepared = raw.prepare_raw_source_case(
+        metadata, scenario, adapter={}, capture=capture
+    )
+    return replace(prepared, metadata={**metadata, "return_mode": return_mode}), capture
+
+
+def _bridge_record(capture):
+    # A persisted bridge record must remain ordinary metadata, with no native
+    # trace, IR, ModelProto, array, or original payload object retained in it.
+    record = capture.records["source_structure"]
+    json.dumps(record, allow_nan=False)
+    return record
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "ir", "file"])
+def test_shared_structure_binds_real_return_without_changing_its_mode(
+    original_scope, tmp_path, return_mode
+):
+    prepared, capture = _bridge_prepared(
+        original_scope, tmp_path / return_mode, return_mode=return_mode
+    )
+    result = raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert result.model is not None and result.schema is CheckStatus.VALIDATED
+    assert capture.readiness is CheckStatus.VALIDATED
+    assert record["collector_calls"] == 1
+    assert record["ir_result"]["status"] == "validated"
+    assert record["source_binding"]["status"] == "validated"
+    expected = (
+        CheckStatus.UNVERIFIED if return_mode == "file" else CheckStatus.VALIDATED
+    )
+    assert capture.source_structure_status() is expected
+    assert capture.records["facade_return"]["kind"] == return_mode
+    assert record["artifact_binding"]["return_kind"] == return_mode
+    if return_mode != "file":
+        binding = record["artifact_binding"]
+        for role in (
+            "actual_return",
+            "normalized_return",
+            "saved_artifact",
+            "after_callback",
+            "facade_after_callback",
+        ):
+            assert binding[role] == binding["checked_ir_proto"]
+        assert binding["fenced_after_callback"] is True
+        assert (
+            capture.records["artifact"]["sha256"]
+            == binding["checked_ir_proto"]["sha256"]
+        )
+    else:
+        assert (
+            "file-or-external-bundle-binding-unverified"
+            in record["artifact_binding"]["reasons"]
+        )
+    assert result.numerical_status is CheckStatus.UNVERIFIED
+
+
+def test_raw_probe_uses_bound_shared_structure_separately_from_callback(
+    original_scope, tmp_path
+):
+    result = _execute(original_scope, tmp_path, "plugin::add", 0)
+    cell = _cell(result, "plugin::add", 0)
+    record = cell.history[-1]
+    assert cell.source_reference is CheckStatus.VALIDATED
+    assert record.source_reference is CheckStatus.VALIDATED
+    assert record.structure is CheckStatus.VALIDATED
+    assert record.replay_capture["source_structure"]["status"] == "validated"
+    assert cell.runtime is cell.numerics is CheckStatus.UNVERIFIED
+
+
+def test_missing_shared_rule_is_unverified_without_affecting_product(
+    original_scope, tmp_path, monkeypatch
+):
+    from jax2onnx.plugins import _source_structure as rules
+
+    monkeypatch.setattr(
+        rules, "freeze_source_structure_rule", lambda eqn, inputs, outputs: None
+    )
+    prepared, capture = _bridge_prepared(original_scope, tmp_path / "missing-rule")
+    result = raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert record["ir_result"]["status"] == "unverified"
+    assert capture.source_structure_status() is CheckStatus.UNVERIFIED
+    assert result.model is not None and result.schema is CheckStatus.VALIDATED
+    assert capture.readiness is CheckStatus.VALIDATED
+
+
+def test_actual_ir_contradiction_retains_the_original_shared_result(
+    original_scope, tmp_path, monkeypatch
+):
+    actual = user_interface.validate_source_structure
+
+    def mutate_then_check(model):
+        next(node for node in model.graph if node.op_type == "Add").op_type = "Sub"
+        return actual(model)
+
+    monkeypatch.setattr(user_interface, "validate_source_structure", mutate_then_check)
+    prepared, capture = _bridge_prepared(
+        original_scope, tmp_path / "bad-ir", return_mode="ir"
+    )
+    result = raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert record["ir_result"]["status"] == "failed"
+    assert record["ir_result"]["reasons"]
+    assert record["source_binding"]["status"] == "validated"
+    assert record["artifact_binding"]["status"] == "validated"
+    assert capture.source_structure_status() is CheckStatus.FAILED
+    assert result.model is not None and capture.readiness is CheckStatus.VALIDATED
+
+
+def test_same_typed_returned_proto_drift_cannot_reuse_ir_acceptance(
+    original_scope, tmp_path, monkeypatch
+):
+    actual = user_interface._to_onnx
+
+    def return_changed(**kwargs):
+        value = actual(**kwargs)
+        next(node for node in value.graph.node if node.op_type == "Add").op_type = "Sub"
+        return value
+
+    monkeypatch.setattr(user_interface, "_to_onnx", return_changed)
+    prepared, capture = _bridge_prepared(original_scope, tmp_path / "bad-return")
+    result = raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert record["ir_result"]["status"] == "validated"
+    assert record["artifact_binding"]["status"] == "failed"
+    assert (
+        "normalized-return-and-checked-ir-differ"
+        in record["artifact_binding"]["reasons"]
+    )
+    assert capture.source_structure_status() is CheckStatus.FAILED
+    assert result.schema is CheckStatus.VALIDATED
+    assert capture.readiness is CheckStatus.VALIDATED
+
+
+@pytest.mark.parametrize("fault", ["model", "saved", "trace"])
+@pytest.mark.parametrize("callback_outcome", ["false", "raises"])
+def test_after_callback_fence_detects_mutation_even_when_callback_fails(
+    original_scope, tmp_path, fault, callback_outcome
+):
+    prepared, capture = _bridge_prepared(original_scope, tmp_path / "callback-fault")
+
+    def callback(model):
+        if fault == "model":
+            next(node for node in model.graph.node if node.op_type == "Add").op_type = (
+                "Sub"
+            )
+        elif fault == "saved":
+            path = Path(capture.records["artifact"]["path"])
+            changed = onnx.load_model(path)
+            next(
+                node for node in changed.graph.node if node.op_type == "Add"
+            ).op_type = "Sub"
+            path.write_bytes(changed.SerializeToString(deterministic=True))
+        else:
+            path = Path(
+                capture.records["source_structure"]["source_binding"][
+                    "export_trace_manifest"
+                ]["path"]
+            )
+            path.write_text("{}")
+        if callback_outcome == "raises":
+            raise RuntimeError("injected callback failure")
+        return False
+
+    prepared = replace(
+        prepared, metadata={**prepared.metadata, "post_check_onnx_graph": callback}
+    )
+    result = raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert result.raw_callback_status == (
+        "error" if callback_outcome == "raises" else "failed"
+    )
+    assert record["ir_result"]["status"] == "validated"
+    assert capture.source_structure_status() is CheckStatus.FAILED
+    assert capture.readiness is CheckStatus.VALIDATED
+    assert result.schema is CheckStatus.VALIDATED
+
+
+def test_failed_callback_keeps_independent_validated_shared_structure(
+    original_scope, tmp_path
+):
+    prepared, capture = _bridge_prepared(original_scope, tmp_path / "failed-callback")
+    prepared = replace(
+        prepared,
+        metadata={**prepared.metadata, "post_check_onnx_graph": lambda model: False},
+    )
+    result = raw.run_raw_source_case(prepared, capture=capture)
+    assert result.raw_callback_status == "failed"
+    assert capture.source_structure_status() is CheckStatus.VALIDATED
+    assert capture.readiness is CheckStatus.VALIDATED
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing", "duplicate", "raises", "sink", "ir-result"]
+)
+def test_bridge_failure_is_local_to_structure_evidence(
+    original_scope, tmp_path, monkeypatch, fault
+):
+    actual = user_interface._to_onnx
+
+    def export(**kwargs):
+        collector = kwargs["source_structure_collector"]
+        if fault == "missing":
+            kwargs["source_structure_collector"] = None
+        elif fault == "duplicate":
+
+            def duplicate(*args):
+                collector(*args)
+                collector(*args)
+
+            kwargs["source_structure_collector"] = duplicate
+        elif fault == "raises":
+
+            def broken(*args):
+                raise OSError("injected private evidence failure")
+
+            kwargs["source_structure_collector"] = broken
+        elif fault == "ir-result":
+
+            def missing_result(trace, final_ir, result, returned):
+                collector(trace, final_ir, None, returned)
+
+            kwargs["source_structure_collector"] = missing_result
+        return actual(**kwargs)
+
+    monkeypatch.setattr(user_interface, "_to_onnx", export)
+    if fault == "sink":
+        actual_open = Path.open
+
+        def open_evidence(path, *args, **kwargs):
+            if path.name == "source-export-typed-trace.json":
+                raise OSError("injected bridge sink failure")
+            return actual_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", open_evidence)
+    prepared, capture = _bridge_prepared(original_scope, tmp_path / fault)
+    result = raw.run_raw_source_case(prepared, capture=capture)
+    assert capture.source_structure_status() is CheckStatus.UNVERIFIED
+    assert capture.readiness is CheckStatus.VALIDATED and capture.gaps == []
+    assert result.model is not None and result.schema is CheckStatus.VALIDATED
+    assert result.audit.status is CheckStatus.VALIDATED
+    assert all(
+        value["status"] == "returned"
+        for value in capture.records["native_outcomes"].values()
+    )
+    record = _bridge_record(capture)
+    if fault == "ir-result":
+        assert record["artifact_binding"]["checked_ir_proto"]
+        assert record["artifact_binding"]["actual_return"]
+        assert record["artifact_binding"]["status"] == "unverified"
+
+
+_BRIDGE_LITERAL = np.float32(0)
+
+
+def _bridge_root_literal():
+    return _BRIDGE_LITERAL
+
+
+def _bridge_sub_literal(x):
+    return jax.lax.sub(x, _BRIDGE_LITERAL)
+
+
+def _bridge_literal_prepared(tmp_path, *, scalar=True):
+    metadata = {
+        "context": "bridge-test",
+        "component": "literal",
+        "testcase": "exact-words",
+        "callable": _bridge_root_literal if scalar else _bridge_sub_literal,
+        "input_shapes": [] if scalar else [(2,)],
+        "opset_version": 23,
+    }
+    capture = raw.RawReplayCapture(tmp_path)
+    scenario = raw_source_scenarios(metadata, SourceProvenance("bridge-test", 0))[1]
+    prepared = raw.prepare_raw_source_case(
+        metadata, scenario, adapter={}, capture=capture
+    )
+    return prepared, capture
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "ir"])
+def test_actual_raw_collector_preserves_literal_bytes_and_product_evidence(
+    tmp_path, monkeypatch, return_mode
+):
+    monkeypatch.setitem(
+        _bridge_sub_literal.__globals__, "_BRIDGE_LITERAL", np.float32(1.25)
+    )
+    actual = user_interface._to_onnx
+    observations = []
+    structures = []
+
+    def without_collector(**kwargs):
+        kwargs["source_structure_collector"] = None
+        return actual(**kwargs)
+
+    for enabled in (False, True):
+        prepared, capture = _bridge_literal_prepared(
+            tmp_path / str(enabled), scalar=False
+        )
+        prepared = replace(
+            prepared, metadata={**prepared.metadata, "return_mode": return_mode}
+        )
+        with monkeypatch.context() as context:
+            if not enabled:
+                context.setattr(user_interface, "_to_onnx", without_collector)
+            with warnings.catch_warnings(record=True) as emitted:
+                warnings.simplefilter("always")
+                result = raw.run_raw_source_case(prepared, capture=capture)
+        assert result.model is not None
+        observations.append(
+            (
+                result.model.SerializeToString(deterministic=True),
+                get_precision_report(result.model),
+                tuple((entry.category, str(entry.message)) for entry in emitted),
+                result.audit,
+                result.schema,
+                result.raw_callback_status,
+                capture.readiness,
+                capture.records["facade_return"]["kind"],
+                capture.records["native_outcomes"],
+                prepared.original_trace_json,
+                prepared.input_evidence,
+                prepared.reference_evidence,
+            )
+        )
+        structures.append(capture.source_structure_status())
+    assert observations[0] == observations[1]
+    assert observations[1][4] is CheckStatus.VALIDATED
+    assert observations[1][6] is CheckStatus.VALIDATED
+    assert observations[1][7] == return_mode
+    assert structures == [CheckStatus.UNVERIFIED, CheckStatus.VALIDATED]
+
+
+@pytest.mark.parametrize("word", [0x80000000, 0x7FC00001])
+@pytest.mark.parametrize("phase", ["prepared", "export-trace"])
+def test_frozen_source_words_detect_same_typed_literal_drift(
+    tmp_path, monkeypatch, word, phase
+):
+    original = np.asarray(word, np.uint32).view(np.float32)[()]
+    changed = np.asarray(0 if word == 0x80000000 else 0x7FC00002, np.uint32).view(
+        np.float32
+    )[()]
+    monkeypatch.setitem(_bridge_root_literal.__globals__, "_BRIDGE_LITERAL", original)
+    prepared, capture = _bridge_literal_prepared(tmp_path / "literal")
+    baseline = json.dumps(
+        capture.records["source_structure"]["source_binding"]["prepared_storage"],
+        sort_keys=True,
+    )
+    actual = user_interface._to_onnx
+
+    def export(**kwargs):
+        collector = kwargs["source_structure_collector"]
+
+        def changed_trace(trace, final_ir, result, returned):
+            literal = raw._structure_body(trace.closed_jaxpr).outvars[0]
+            assert isinstance(literal, raw.JaxLiteral)
+            previous = literal.val
+            try:
+                literal.val = changed
+                collector(trace, final_ir, result, returned)
+            finally:
+                literal.val = previous
+
+        kwargs["source_structure_collector"] = changed_trace
+        return actual(**kwargs)
+
+    if phase == "export-trace":
+        monkeypatch.setattr(user_interface, "_to_onnx", export)
+        result = raw.run_raw_source_case(prepared, capture=capture)
+    else:
+        # Mutation before collection must not become a newly derived expected
+        # value: the exact-word baseline was frozen during preparation.
+        literal = raw._structure_body(prepared.original_jaxpr).outvars[0]
+        assert isinstance(literal, raw.JaxLiteral)
+        previous = literal.val
+        try:
+            literal.val = changed
+            result = raw.run_raw_source_case(prepared, capture=capture)
+        finally:
+            literal.val = previous
+    record = _bridge_record(capture)
+    assert (
+        json.dumps(record["source_binding"]["prepared_storage"], sort_keys=True)
+        == baseline
+    )
+    assert record["ir_result"]["status"] == "validated"
+    assert record["source_binding"]["status"] == "failed"
+    assert (
+        "source-constant-or-literal-storage-differs"
+        in record["source_binding"]["reasons"]
+    )
+    assert capture.source_structure_status() is CheckStatus.FAILED
+    assert result.schema is CheckStatus.VALIDATED
+    assert capture.readiness is CheckStatus.VALIDATED
+    saved = json.loads(
+        Path(record["source_binding"]["export_trace_manifest"]["path"]).read_text()
+    )
+    literal = saved["manifest"]["outputs"][0]["literal"]
+    assert set(literal) == {"canonical_payload"}
+    assert set(literal["canonical_payload"]) == {"sha256", "bytes"}
+    assert set(saved["manifest"]["const_payloads"]) == {"canonical_payload"}
+    assert "bytes_hex" not in json.dumps(saved)
+
+
+@pytest.mark.parametrize("drift", [False, True])
+def test_known_word_mismatch_precedes_independent_unowned_parameter_gap(
+    tmp_path, monkeypatch, drift
+):
+    monkeypatch.setitem(
+        _bridge_sub_literal.__globals__, "_BRIDGE_LITERAL", np.float32(1.25)
+    )
+    prepared, capture = _bridge_literal_prepared(
+        tmp_path / "unowned-param", scalar=False
+    )
+    actual = user_interface._to_onnx
+
+    def export(**kwargs):
+        collector = kwargs["source_structure_collector"]
+
+        def changed_trace(trace, final_ir, result, returned):
+            eqn = raw._structure_body(trace.closed_jaxpr).eqns[0]
+            literal = next(var for var in eqn.invars if isinstance(var, raw.JaxLiteral))
+            previous = literal.val
+            assert "injected_unowned" not in eqn.params
+            try:
+                eqn.params["injected_unowned"] = object()
+                if drift:
+                    literal.val = np.float32(2.5)
+                collector(trace, final_ir, result, returned)
+            finally:
+                eqn.params.pop("injected_unowned")
+                literal.val = previous
+
+        kwargs["source_structure_collector"] = changed_trace
+        return actual(**kwargs)
+
+    monkeypatch.setattr(user_interface, "_to_onnx", export)
+    raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert record["ir_result"]["status"] == "validated"
+    expected = CheckStatus.FAILED if drift else CheckStatus.UNVERIFIED
+    assert capture.source_structure_status() is expected
+    assert capture.readiness is CheckStatus.VALIDATED
+    if drift:
+        assert (
+            "source-constant-or-literal-storage-differs"
+            in record["source_binding"]["reasons"]
+        )
+
+
+@pytest.mark.parametrize("word", [0x80000000, 0x7FC00001])
+def test_same_typed_returned_constant_words_cannot_reuse_ir_observation(
+    tmp_path, monkeypatch, word
+):
+    original = np.asarray(word, np.uint32).view(np.float32)[()]
+    changed = np.asarray(0 if word == 0x80000000 else 0x7FC00002, np.uint32).view(
+        np.float32
+    )
+    monkeypatch.setitem(_bridge_root_literal.__globals__, "_BRIDGE_LITERAL", original)
+    prepared, capture = _bridge_literal_prepared(tmp_path / "returned-constant")
+    actual = user_interface._to_onnx
+
+    def export(**kwargs):
+        value = actual(**kwargs)
+        tensors = list(value.graph.initializer)
+        tensors.extend(
+            attribute.t
+            for node in value.graph.node
+            for attribute in node.attribute
+            if attribute.type == onnx.AttributeProto.TENSOR
+        )
+        assert tensors
+        tensor = tensors[0]
+        tensor.CopyFrom(onnx.numpy_helper.from_array(changed, name=tensor.name))
+        return value
+
+    monkeypatch.setattr(user_interface, "_to_onnx", export)
+    result = raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert record["ir_result"]["status"] == "validated"
+    assert record["artifact_binding"]["status"] == "failed"
+    assert capture.source_structure_status() is CheckStatus.FAILED
+    assert result.schema is CheckStatus.VALIDATED
+    assert capture.readiness is CheckStatus.VALIDATED
+
+
+def test_structure_requires_original_source_readiness(
+    original_scope, tmp_path, monkeypatch
+):
+    prepared, capture = _bridge_prepared(original_scope, tmp_path / "source-gap")
+    capture.gap(
+        "injected-original-source-gap", TypeError("source evidence unavailable")
+    )
+    raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert record["ir_result"]["status"] == "validated"
+    assert record["source_binding"]["status"] == "validated"
+    assert record["artifact_binding"]["status"] == "validated"
+    assert capture.source_structure_status() is CheckStatus.UNVERIFIED
+    assert capture.readiness is CheckStatus.UNVERIFIED
+    assert capture.records["native_outcomes"]
+    assert all(
+        value["status"] == "returned"
+        for value in capture.records["native_outcomes"].values()
+    )
 
 
 def test_original_function_attributes_are_part_of_target_state(

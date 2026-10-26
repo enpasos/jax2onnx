@@ -10,27 +10,36 @@ Framework-floor and all-direct-minimum evidence remain separate.
 
 ## Current private implementation
 
-This unfinished LOCAL WIP continues **`d0835d02`**; **`fe214590`** remains the
-last fully green checkpoint. The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
-keeps exact source epochs, interrupted/full failure history and current gates.
+Current private snapshot: **2026-10-26**. This unfinished LOCAL WIP continues
+stored **`3deb083a`**; **`fe214590`** remains the last fully green checkpoint.
+The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
+owns exact source epochs, paired qualifications, failed predecessors and gates.
 
-Private SOURCE now preserves x64, matrix precision, dtype promotion and rank
-promotion across the entire in-function facade: early logging and input/name/
-parameter/path protocols, conversion, final naming, reports and file handling.
-The existing late scope remains, so its restoration before finalization is
-preserved. Both global and local/unset values are restored on success or error;
-updates remain visible inside the call. This covers exactly four settings, not
-arbitrary JAX configuration or evaluation performed before function entry.
-Complete paired native checks pass for this private boundary; their exact scope
-and source remain in the ledger.
+Shared finite SOURCE rules now cover additional reductions and reshape/broadcast
+compositions using typed equations, exact native dimension provenance and final
+IR edges. Missing shape-helper types are filled only from matching known actual
+operand types; arithmetic and verifier strictness are unchanged. The private
+raw/probe bridge binds diagnostic results to the actual returned proto/IR and
+trace, without completing general file/external-storage handling or a serialized
+public precision report.
 
-The separate CI repair retains the older-stack early Scan return, lazily loads
-the native flat-tree class only when requested and makes the unchanged BF16
-storage copy's ndarray type explicit. Actual typing and focused tests pass on
-both stacks. Public LEGACY routes, defaults and enclosing-local flag precedence
-are unchanged. Full existing-functionality, fixed-source, numerical, inventory
-and B–F obligations remain open. Software execution guards are not hard system
-memory quotas or proof of general stability.
+The metadata lane reuses original registered factories, caller contexts and
+criteria, with bounded actual raw-cell execution and terminal accounting.
+Native callable capture retains defining provenance and exact carrier state;
+the AxisData adapter's locked modern-Python qualification remains separate. This
+does not establish positive acceptance of the full inventory or fill missing
+numerical criteria. The established private facade still restores exactly x64,
+matrix precision and both NumPy promotion settings across in-call handling and
+finalization, including errors; it promises no broader configuration coverage.
+
+Paired focused and broader checks and package typing pass within the ledger's
+recorded scopes. Typing does not cover the edited scripts/tests/generator;
+actual quality/docs/hooks and staged-review outcomes belong to this cut's local
+commit record.
+Public LEGACY routes, defaults and enclosing-local flag precedence are unchanged.
+Full existing-functionality, fixed-source, numerical, inventory and B–F work
+remain open. Software guards are not hard system memory quotas or proof of
+general stability.
 
 ## One Argument Controls Several Decisions
 

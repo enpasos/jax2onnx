@@ -6,13 +6,15 @@ contract across existing functionality and fixed sources, without a permanent
 public precision mode/profile selector or capability loss. The private
 source-static milestone is implementation scaffolding, not completion scope.
 
-Public precision behavior remains LEGACY. This unfinished WIP continues
-`d0835d02`; `fe214590` remains the last fully green checkpoint. The
+Current implementation snapshot: **2026-10-26**. Public precision behavior
+remains LEGACY. This unfinished WIP continues stored `3deb083a`;
+`fe214590` remains the last fully green checkpoint. The
 [canonical ledger](poc/source_integration_findings.md#current-checkpoint) records
-the separate dual-stack CI typing repair and the new private whole-facade
-four-setting preservation. Complete paired checks for that extension pass within their recorded
-scope. It changes no public flag, route or default and does not cover arbitrary
-JAX configuration. The interrupted full run and all historical failure epochs
+the applied private structural, artifact-diagnostic, metadata and native-capture
+work and its scoped paired qualifications. Actual local quality and closeout
+outcomes belong to this cut's commit record.
+Four-setting facade preservation remains bounded to its recorded contract.
+No public flag, route or default changes. Failed and resource-stopped epochs
 remain binding; no checkpoint reduces full B–F, assigns a release or deadline.
 
 Read the [user migration plan](precision_migration_plan_user_view.md) for the
@@ -100,11 +102,13 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
-This unfinished LOCAL WIP continues **`d0835d02`**; **`fe214590`** remains the
-last fully green checkpoint. The private four-setting scope now encloses early
-user protocols and finalization as well as conversion, retaining its earlier
-late restoration boundary. Complete paired checks pass within their scope; actual source/results and the
-separate CI repair remain in the canonical ledger.
+This unfinished LOCAL WIP continues stored **`3deb083a`**; **`fe214590`** remains
+the last fully green checkpoint. The
+[canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
+the applied private changes, exact scoped results and remaining modern-Python
+and migration work. Package typing has its own bounded coverage; actual local
+closeout outcomes belong to this cut's commit record. Finite qualification does not
+complete the acceptance requirements below.
 
 Complete current inventory/probe reconciliation, opaque/metadata-free/manual
 accounting, fixed-source and numerical workflows and every remaining B–F gate.

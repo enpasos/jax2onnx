@@ -2,7 +2,7 @@
 
 Public precision-policy reference: `main` at `fae17822`, 2026-10-17, after the
 merged double-consumer repair. The local-branch snapshot below is dated
-2026-10-23; it does not change the public export options or defaults.
+2026-10-26; it does not change the public export options or defaults.
 
 This document explains the precision behavior available to JAX model exporters.
 See the [technical details](precision_current_state.md) for implementation and
@@ -19,19 +19,19 @@ and ONNX IR 1.0.0+**. The user’s Poetry update retains the modern JAX 0.12.0.1
 IR 1.1.0 stack. Current public options, defaults and `enable_double_precision`
 remain unchanged.
 
-The private path preserves more original model functions, state, explicit
-rounding and input-derived layouts. The same repeated nested-Function recipe
-now passes both CPU settings against three native references on all three
-tested stacks. Portable BF16 TopK source-word checks also pass; compiled JAX
-NaN words and ordering keep their separate failed native comparisons. These
-samples establish neither all-model support nor a general numerical guarantee.
+The private path checks more cases against the original computation and the
+actual returned model, preserving chosen types, input-derived layouts and
+original callable state. It also accounts for original registered cases without
+changing their supplied comparison criteria. These bounded checks establish
+neither all-model support nor a general numerical guarantee.
 
-This unfinished local WIP continues **`d0835d02`**; **`fe214590`** remains the
-last fully green checkpoint. The private export path now restores four caller
-settings even when early argument handling or final naming, reporting or saving
-changes them or fails. This covers x64, matrix precision and the two NumPy
-promotion settings; it is not a promise about every JAX setting. Complete paired
-checks pass within the scope recorded in the [technical ledger](poc/source_integration_findings.md#current-checkpoint).
+This unfinished local WIP continues stored **`3deb083a`**; **`fe214590`** remains
+the last fully green checkpoint. Paired scoped results and remaining gates are
+recorded in the [technical ledger](poc/source_integration_findings.md#current-checkpoint).
+The private path still restores x64, matrix precision and both NumPy promotion
+settings across in-call handling and finalization, including errors; it makes no
+promise about every JAX setting. Actual local checks and checkpoint closeout
+outcomes belong to this cut's commit record.
 
 Public options remain LEGACY, including the enclosing-local setting's precedence
 over the flag's temporary global value. The flag discussion below assumes no

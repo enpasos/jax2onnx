@@ -6,12 +6,13 @@ consistent rule across all existing functionality and fixed supplied sources,
 without a permanent selector or capability loss.
 
 Public behavior and `enable_double_precision` remain unchanged. This unfinished
-WIP continues **`d0835d02`**; **`fe214590`** remains the last fully green
-checkpoint. The private export path now restores four caller settings across
-early argument handling and final naming, reports and saving, with complete
-paired checks passing within their recorded scope. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
-keeps exact sources and outcomes. This private repair does not promise arbitrary
-JAX configuration restoration or change public flag behavior.
+WIP continues stored **`3deb083a`**; **`fe214590`** remains the last fully green
+checkpoint. The current private work checks more original computations and
+returned-model cases while keeping original comparison criteria. Paired scoped
+checks qualify their recorded cases; actual local checks and closeout outcomes
+belong to this cut's commit record. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
+keeps exact sources and outcomes. Four-setting restoration remains bounded;
+these private changes do not change public flag behavior or complete support.
 
 An intermediate WIP does not complete the full inventory, fixed-source,
 numerical or public transition work. The interrupted full run remains incomplete;

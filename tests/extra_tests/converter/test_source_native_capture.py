@@ -539,7 +539,8 @@ def test_unknown_owners_and_attribute_paths_remain_explicit_gaps() -> None:
     _reject(owner)
     _reject(SimpleNamespace(state=[1]))
     _reject(jax.lax.add_p)
-    _reject(jnp.add)
+    assert selected_native_capture(jnp.multiply) is None
+    _reject(jnp.multiply)
     with pytest.raises(ValueError):
         selected_native_capture_member(_OWNERS["maximum"], "accumulate")
 

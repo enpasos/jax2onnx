@@ -2,24 +2,37 @@
 
 ## Current checkpoint
 
-Snapshot: 2026-10-26; earlier observations retain their own 2026-10-25 source epochs. This unfinished LOCAL WIP continues stored generalized-dot
-checkpoint **`8393cb84`**. Its earlier **1,065-case pair and 575-file typing**
+Snapshot: 2026-10-26; earlier observations retain their own source epochs.
+This unfinished LOCAL WIP continues stored checkpoint **`3deb083a`**.
+The earlier generalized-dot **1,065-case pair and 575-file typing**
 retain source snapshot **`4845b6cb`**. The atomic-symbol evidence remains bound
-to **`7604c11a`** and stored checkpoint **`038dc9eb`**. The read-only remote refresh
-confirms Draft PR #277 at **`73f4a7a5`**. **`fe214590`** remains the last fully green checkpoint. The retained
+to **`7604c11a`** and stored checkpoint **`038dc9eb`**. The retained read-only GitHub
+observation of 2026-10-25 recorded Draft PR #277 at **`73f4a7a5`**.
+**`fe214590`** remains the last fully green checkpoint. The retained
 deployment-test and inventory-test snapshots are **`c9f5812b`** and **`b7eceac8`**;
 results below retain their own source epochs.
 Public routes and defaults remain **LEGACY**; the full **B–F** goal remains open.
 
 | Current gate | Actual source-bound result | Scope and remaining work |
 | --- | --- | --- |
-| Current six-file fixture/Dot-fingerprint follow-through, source-files snapshot `f0afb9f17ae13312c6ecfee49e2cb385aeb64f1e9371cce8e8369d351d0654c9` | **758 PASS each**, identical unique cases across six complete owners, zero failures/errors/skips, complete consistent JUnit; PRIMARY **87.212 s**, peak **787,058,688 bytes**; SECONDARY **84.749 s**, peak **1,355,759,616 bytes**; source/Git held | Fixture-owned pure stubs and strict current Dot fingerprint, control **v8**, same reviewed oracle **v3**. Paired proof `d8af0013d24c8e791f434b9e7276d83ef008a2dce825cddcdc81b06934a5ce50`. Finite qualification; no full-suite, original-model or public-transition acceptance. |
-| Current six-file normal hooks | **All seven PASS, unskipped**, **139.493 s**, peak **1,064,837,120 bytes**; source/Git/index held, cleanup complete | Includes actual pinned Black/Ruff, full mypy and policy hooks. Actual documentation/link and closeout outcomes belong to the local commit record. |
+| Applied private five-candidate cut and follow-through | Reduction/shape rules, exact proto/IR diagnostic bridge, metadata lane and native AxisData capture are applied; truthful reshape-helper type propagation and native-add defining-provenance repairs are included. Integration's pinned serial Black/Ruff checks **PASS**, reviewed AST held | This cut continues stored `3deb083a`; actual closeout outcomes belong to its local commit record. Public defaults and source admission are unchanged. Later fixture correction and final quality gates retain their own scope. The bounded features and focused pair do not qualify full model/capability, public-report or B–F acceptance. |
+| Complete focused pair, source-files snapshot `12ac4c0629a78fb0cdc1dafa190cc8383d8eb04d16f3010969c39f798acd6fc8` | **PRIMARY 760 PASS / SECONDARY 756 PASS**, zero failures/errors/skips; complete consistent JUnit, source/Git held; PRIMARY **54.963467 s**, peak **644,644,864 bytes**; SECONDARY **47.871061 s**, peak **837,140,480 bytes** | **756 shared identities + 4 actual Python 3.12 native `_DataclassParams` controls**: `kw_only`, `match_args`, `slots`, `weakref_slot`. Counts are not identical; native audit explains the authenticated ten-slot versus six-slot carrier, with no omitted controls. Paired proof `03c44278`, comparison `3a02003b`, audit `dc0f9680`. |
+| Initial focused PRIMARY epoch | **637 PASS / 56 FAIL**, 693 cases, zero errors/skips; source held | Preserved predecessor: unadmitted nonleading formals and operation/type intersections, missing reshape intermediate type metadata, and native-add capture. Subsequent fixes retain internal nonleading operation coverage through admitted formals and preserve strict metadata/criterion checks. |
+| Subsequent focused PRIMARY epoch | **708 PASS / 32 FAIL**, 740 cases, zero errors/skips; source held | Separate native-add/cumsum metadata-boundary predecessor. It is not relabeled by the later defining-provenance repair or focused pair. |
+| First broader 35-owner PRIMARY epoch | **2,388 PASS / 1 FAIL**, 2,389 cases, zero errors/skips; complete JUnit, source/Git held, clean completion; **305.830168 s**, peak **1,313,411,072 bytes** | The old `_reject(jnp.add)` negative fixture predates legitimate native-add capture. The later fixture-only correction does not relabel this failed epoch. The repaired pair is recorded separately below. |
+| Fixture-only broader successor, source-files `8b03e5c471fc83223378c3a2eb76f023645bee1bd4bd4b12b438a94771c2646b` | Only `test_source_native_capture.py` changes; production and all six focused-owner bytes are held, HEAD held | Exact application proof `a3abdb08` projects the qualified focused product/owners from `12ac4c06`; it does not assert identical full source or repeat the focused run. Broader regression and package typing qualify this successor separately below. |
+| Repaired broader 35-owner pair, source-files `8b03e5c4` | **2,389 identical unique PASS per stack**, zero failures/errors/skips; complete consistent JUnit, source/Git held, clean completion; PRIMARY **299.335641 s**, peak **1,294,172,160 bytes**; SECONDARY **292.826404 s**, peak **2,906,165,248 bytes** | Paired proof `e1fc7bee` retains the actual complete-owner result on the same full source snapshot. This finite regression pair does not establish ordinary full-suite, model or public-transition acceptance. |
+| Final package typing and RNG reports, source-files `8b03e5c4` | **577 package source files PASS per stack**, no issues; **17 identical RNG-factory entries per stack**; source/Git held, clean completion; PRIMARY **68.423641 s**, peak **408,494,080 bytes**; SECONDARY **55.933943 s**, peak **435,802,112 bytes** | Paired proof `c7690897` binds the same source/Git snapshot as the repaired broader pair. Package mypy does not cover the edited scripts/tests/generator; complete owners and normal Ruff/Black/policy checks remain necessary. |
+| Available Python 3.13/JAX 0.11 complete native-wrapper diagnostic | **56 PASS / 226 FAIL**, 282 cases, zero errors/skips; complete JUnit, source held, clean completion; **90.033756 s**, peak **608,915,456 bytes**, no resource stop | Native-helper class schemas and unmeasured Python 3.13 typing-alias storage need exact adapters; missing-role failures cascade from these gaps. AxisData/native capture is not whole-owner qualified in this environment. This is unfinished compatibility work, not an ONNX limit, and does not replace locked Python 3.13/3.14 JAX 0.12 CI. |
+| Local WIP closeout and continuing migration gates | The local checkpoint requires actual quality/docs/links, all normal hooks and exact staged review; their terminal outcomes belong to this cut's local commit record | No unexecuted PASS or future commit is claimed. The measured available-3.13 failure remains open compatibility work and does not prevent storing a qualified 3.11/3.12 WIP. Locked modern CI, ordinary full suites, original models, fixed sources, complete capability accounting and full B–F acceptance remain separate requirements. |
+| Stored six-file fixture/Dot-fingerprint follow-through at `3deb083a`, source-files snapshot `f0afb9f17ae13312c6ecfee49e2cb385aeb64f1e9371cce8e8369d351d0654c9` | **758 PASS each**, identical unique cases across six complete owners, zero failures/errors/skips, complete consistent JUnit; PRIMARY **87.212 s**, peak **787,058,688 bytes**; SECONDARY **84.749 s**, peak **1,355,759,616 bytes**; source/Git held | Fixture-owned pure stubs and strict current Dot fingerprint, control **v8**, same reviewed oracle **v3**. Paired proof `d8af0013d24c8e791f434b9e7276d83ef008a2dce825cddcdc81b06934a5ce50`. Historical finite qualification; no full-suite, original-model or public-transition acceptance. |
+| Stored six-file normal hooks | **All seven PASS, unskipped**, **139.493 s**, peak **1,064,837,120 bytes**; source/Git/index held, cleanup complete | Includes actual pinned Black/Ruff, full mypy and policy hooks for that stored cut. It does not qualify later uncommitted changes; closeout outcomes belong to its local commit record. |
 | Ordinary PRIMARY full run at stored `8393cb84` | **Resource-guard STOP at 63%**, **8,989 passed markers / 52 failed markers** from **14,319 collected**, zero skip/error markers; no JUnit or terminal pytest summary; peak **4,426,104,832 bytes**, above unchanged **4 GiB** budget | Source/Git and ignored generated state held; descendant cleanup complete. Marker counts are an interrupted observation. Full resource/suite closure remains open; no OOM or cache cause is inferred. |
 | Exact 52-case reproduction, unchanged full-run source before fixes | **52 FAIL**, complete JUnit, **25.526 s**, source held | Confirms fixture/fingerprint causes before the exact six-file repairs. This terminal focused failure does not relabel the interrupted full run or its marker counts. |
 | Isolated original-22 owner | **Resource-guard STOP** during first **raw-x64-off-0**, **215.44 s**, peak **4,600,295,424 bytes**, **zero of 44 collected test terminals**, no JUnit | Separate from the full suite and later observer diagnostic; no model/runtime/numerical acceptance or demonstrated cache/OOM cause. |
 | First-case observer diagnostic | **238.213 s**, peak **3,889,733,632 bytes**, below unchanged 4 GiB budget, no resource-guard stop; complete JUnit **1 ERROR**, pytest exit **1**, xdist worker crash; source/observer pins held and cleanup complete | Matching WSL kernel record: worker **2563300**, **SIG11**, no new OOM record. Eight complete stack samples reached native/preparation paths; ninth sample ends mid-frame while printing inspect frames. Cause and resource closure remain unverified; no acceptance follows. |
-| Observer-free exact first-case diagnostic, 2026-10-26 | **Controlled RSS STOP**, **209.574764 s**, peak **4,356,943,872 bytes**, above unchanged **4 GiB**; host MemAvailable **12,332,810,240 bytes**, disk free **9,188,364,288 bytes** at stop; source/Git and diagnostic inputs held, cleanup left no owned processes, no JUnit | Periodic observer disabled; recorded controller/worker fd2 both point to `pytest.log`. No SIG11/fatal text was observed before the guard censored execution. Differential outcome remains unverified and cannot establish that the earlier observer caused SIG11. No 6 GiB budget, cache operation or source/data sample change was applied. |
+| Observer-free exact first-case 4 GiB diagnostic, 2026-10-26 | **Controlled RSS STOP**, **209.574764 s**, peak **4,356,943,872 bytes**, above unchanged **4 GiB**; host MemAvailable **12,332,810,240 bytes**, disk free **9,188,364,288 bytes** at stop; source/Git and diagnostic inputs held, cleanup left no owned processes, no JUnit | Periodic observer disabled; recorded controller/worker fd2 both point to `pytest.log`. No SIG11/fatal text was observed before the guard censored execution. Differential outcome remains unverified and cannot establish that the earlier observer caused SIG11. No 6 GiB budget, cache operation or source/data sample change was applied in this historical trial. |
+| Later isolated original first-case 6 GiB qualification, stored `3deb083a`, source-files `02520f21` | **Controlled RSS STOP**, **286.423274886 s**, peak **6,448,361,472 bytes > 6,442,450,944 bytes**; host MemAvailable **11,239,313,408 bytes**, disk free **8,892,198,912 bytes** at stop; no JUnit or ordinary test success; source/diagnostic inputs held and cleanup left no owned processes | Periodic observer disabled; default 4 GiB policy remained unchanged. No SIG11 was seen before censoring. This does not explain the prior SIG11 or prove an OOM, leak or cache cause. Next reviewed action is synchronous phase-ledger observation after the product checkpoint, not yet applied/executed; no further cap raise or retry follows from this result. |
 | Generalized-dot structure, source snapshot `a3d3e01e`, local Python 3.12 and 3.11 | **112 PASS each**, zero failures/errors/skips; source/Git held, clean terminal completion in both v2 receipts | Actual native plans, supplied axes, widths and reviewed precision parameters anchor final direct/general MatMul chains and exact immutable shape programs. Same-typed edge/operator/axis/storage mutations fail; unknown legal routes remain unverified. No original-model, serialized-artifact or numerical acceptance. |
 | Initial generalized-dot PRIMARY focus, v1 | **109 PASS / 3 FAIL**, preserved separately | The three two-dot compositions with optimization disabled reused `dot_contraction`, `dot_tensor_matrix` or `dot_batch_matrix` as SSA names. Exactly those SOURCE allocations now request fresh names; tests, full checker and optimizer remain unchanged. |
 | Generalized-dot typing, source snapshot `4845b6cb` | **575 files PASS on each stack**, PRIMARY v2 and SECONDARY v1; source/Git held, clean terminal completion | The initial PRIMARY typing v1 failed on one missing local NumPy vector annotation. Its annotation-only successor retains runtime behavior and the failed receipt. |
@@ -52,7 +65,19 @@ Public routes and defaults remain **LEGACY**; the full **B–F** goal remains op
 | Remote CI run `40215501332`, stored head `73f4a7a5`, read-only refresh 2026-10-25 | Four support jobs **PASS**; all four full jobs completed with **FAILURE**. Python 3.13: **13,950 PASS / 11 SKIP / 1 ERROR**; Python 3.14: **87 FAIL / 13,649 PASS / 11 SKIP / 215 ERROR** | Python 3.11 ends abruptly at 40% with **5,720 passed markers**, zero failed markers and no terminal summary. Python 3.12 records runner shutdown/exit **143** at 79% with **11,364 passed markers** and zero failed markers. Python 3.13's sole collection error is `KeyError: 'carriers'` in the native-wrapper fixture's `_NATIVE_AXISDATA` access; Python 3.14 retains lazy-annotation and code-constant adaptation failures. No full CI acceptance or shared shutdown cause is inferred. This remote source predates the literal cut; the earlier running observation remains prior history. |
 | Earlier remote CI run `40210233250`, stored head `b4f8b16e` | Four support jobs **PASS**; four full jobs were **running** at its retained observation | Historical observation predates the stored portability/inventory fixes. It is not evidence for the current code cut. |
 | Historical CI run `39908291998` | Four support jobs **PASS**, including minimum Python 3.11 **465 tests** and normalization Python 3.12 **102 tests**; full Python 3.11/3.12/3.13 jobs **FAILED/incomplete**, exit **143**, with **21/22/54 earlier failure markers**, respectively; full Python 3.14 completed with **145 FAIL / 13,465 PASS / 11 SKIP / 215 ERROR** | Executed merge `859c266` into `fae178`. Original failure markers remain distinct from later grounded local reproductions. Python 3.14 also retains lazy-annotation and native-capture compatibility failures. Neither interrupted failures nor completed compatibility failures are relabeled as infrastructure-only or full green. |
-| Local checkpoint closeout | Stored atomic-symbol checkpoint **`038dc9eb`** retains paired 1,017-case and 574-file qualification. Stored literal checkpoint **`0bb168cb`** retains all seven normal hooks **PASS** and its earlier paired results. Earlier **`1ecb06b2`** records exact staged review, strict docs and seven hooks **PASS**, normal commit **75.651 s** | Actual closeout commands/outcomes belong to their own commit records. Neither checkpoint storage nor finite qualification establishes a local complete-suite green result. Generalized-dot quality/docs, normal-hook and exact staged-review outcomes belong to this cut's local commit record. |
+| Historical local checkpoint closeouts | Stored atomic-symbol checkpoint **`038dc9eb`** retains paired 1,017-case and 574-file qualification. Stored literal checkpoint **`0bb168cb`** retains all seven normal hooks **PASS** and its earlier paired results. Earlier **`1ecb06b2`** records exact staged review, strict docs and seven hooks **PASS**, normal commit **75.651 s** | Actual closeout commands/outcomes belong to their own commit records. Neither checkpoint storage nor finite qualification establishes a local complete-suite green result. These stored results do not preclaim the applied five-candidate cut's closeout. |
+
+The applied five-candidate cut composes shared reduction/shape rules, the private
+artifact bridge, AxisData adaptation and an original-row metadata lane. The
+bridge consumes the shared structural result and binds diagnostics to the exact
+returned proto/IR and actual trace; it does not complete general file/external
+storage or serialize a general public `PrecisionReport`. The metadata lane
+preserves original factories, caller contexts and criteria and accounts for the
+frozen inventory, with bounded actual execution of two raw add caller cells.
+It does not validate all 3,704 caller cells or fill missing criteria. Native-add
+capture follows actual defining provenance and retains ownership controls.
+AxisData's modern namespace is implemented, but local Python 3.11/3.12 results
+do not establish locked Python 3.13/3.14 qualification.
 
 The structure foundation uses the shared lowering path and final SOURCE facade,
 after optimization, postprocessing, aliases and naming. Finite canonical native
@@ -64,8 +89,9 @@ boundaries, operation rules with empty results and FP64 cosine's existing
 half-angle lowering have explicit gaps in this finite verifier. These are implementation gaps within the
 remaining B–F work. Observation does not
 reject exports or disable optimization. The private result does not serialize,
-change the public report or replace the original raw callback. Full shared
-raw-model validation and artifact-bound proto/file integration remain work.
+change the public report or replace the original raw callback. The applied
+private bridge adds bounded exact proto/IR diagnostics; complete shared
+raw-model, file/external-storage and serialized public-report integration remain work.
 The earlier test-only correction constructs the missing-primitive fixture directly;
 canonical native and same-name custom-primitive controls remain. Package files
 at `42efea8b` are unchanged from the typing-qualified `7effba53` source.
@@ -104,8 +130,9 @@ empty, outer-product, unsupported work-dtype and unimplemented legal optimized
 forms remain unverified. This changes no source admission, public report,
 default or optimizer behavior. All 112 structure cases pass on both stacks
 after the three observed duplicate-name repairs; the initial three failures and
-single typing diagnostic remain separately recorded. Artifact-bound raw/probe
-integration and shared reduction/reshape/broadcast geometry remain work.
+single typing diagnostic remain separately recorded. Those dot-only results
+precede the applied bridge and bounded reduction/shape rules above; broader
+artifact, scope and model coverage remain work.
 
 Fresh source-`366a4d08` exports use the unchanged registered AttentionCore factory
 and raw replay pipeline. It captured eager and fresh-JIT outputs for B=2/B=5,
@@ -151,14 +178,15 @@ changes to the original probe, inventory, callbacks or numerical criteria.
 Python **3.11 and 3.12** are primary user cohorts and each requires its actual CI
 stack. Local PRIMARY Python 3.12/JAX 0.12.0.1 and SECONDARY Python 3.11/JAX 0.10.2
 passes do not replace the locked Python 3.12/JAX 0.10.2 CI cohort or the separate
-minimum stack. First review the controlled observer-free stop together with
-the unexplained earlier SIG11, then assess one explicit isolated resource
-envelope before a full restart. No further identical 4 GiB retry is planned;
-no 6 GiB budget, cache operation or source/data sample change has been applied.
-Resource and crash causes remain unverified. ROOT can then qualify
-the reviewed reduction, shape-carrier, artifact-bridge v2, AxisData v2 and
-metadata-lane candidates in order. These remain external drafts, not applied or
-natively qualified by their text review. The next model gate connects shared structural validation to
+minimum stack. The separate 4 GiB and later 6 GiB trials retain their controlled
+stops and censored outcomes; resource and crash causes remain unverified.
+After the product checkpoint, the reviewed next diagnostic is synchronous
+phase-ledger observation, not a further cap increase or automatic retry.
+The five candidates and follow-through are now applied, with the focused pair
+qualified only at its exact source epoch. The repaired broader pair and package
+typing have their own successor evidence. Complete local quality/docs/hooks and
+staged review for WIP storage, while measured modern-Python compatibility and
+locked CI continue separately. The next model gate connects shared structural validation to
 the exact returned artifact and completes the original-model and explicit
 sample/numerical-criteria contracts beyond the fresh AttentionCore observations.
 Resolve raw callback mismatches with shared source-semantic checks; legacy fusion/operator-count
@@ -173,7 +201,35 @@ metadata extraction and supplementary retained runtime add no closures to the
 frozen caller map. Neither the fresh four-cell exports/default-sample runtime nor
 the finite literal extension closes the full map.
 
-Current evidence: `root-source-dot-full-followthrough-paired-qualification-20261025-v1.json`;
+Current evidence: `root-source-five-focused-paired-qualification-20261026-v1.json`
+(SHA-256 `03c442787109a750151d8fe53cca9fd552cac03dfdc8d0c3395a0e950a390761`);
+`root-source-five-focused-pair-comparison-20261026-v1.json`
+(SHA-256 `3a02003bafea5e0a388e2881fb7cd33a169f3961f055cbbabcbdd5f4e463f7e0`);
+`root-source-five-focused-native-param-audit-20261026-v1/audit.json`
+(SHA-256 `dc0f96804a280854abe25c85cc73a5bcc97ef0d31fbbbc7fa360139bdac43901`);
+`root-source-five-focused-failures-20261026-v1.json`
+(SHA-256 `97a817bb2c0904fe6f6b61c68470cbb48a73dcd3e8960ad022000b4224455c8c`);
+`source-five-focused-20261026-v1-primary/receipt.json`
+(SHA-256 `18cc4b7f439ff02305bb3e675db9e4e6d1d7f546333e6506c758a696f560e572`);
+`source-five-focused-20261026-v2-primary/receipt.json`
+(SHA-256 `60a7254b4b06071fbdeec82d097ac30a1ce0ab2ea89e930bc88a3ffa0f5d7e8e`);
+`source-five-broader-20261026-v1-primary/receipt.json`
+(SHA-256 `be35d819928950dcb736d76a2adea1ce53f8116d828bb66fd202aff643092e2b`);
+`source-five-broader-20261026-v2-primary/receipt.json`
+(SHA-256 `e3b7494d237b9468d1043deee7d171fca8f34a344946fb6679585f4ded1e3a05`);
+`root-source-five-broader-paired-qualification-20261026-v1.json`
+(SHA-256 `e1fc7bee1a89b728e0bc860bfbd5b30cdc63eea372126b80623f920c0e0fb2d0`);
+`root-source-five-full-typing-paired-qualification-20261026-v1.json`
+(SHA-256 `c76908970a2d9da40cea621b61a4952b31da477eed281e30123d7e77dec16988`);
+`root-source-five-unknown-fixture-application-20261026-v1/application.json`
+(SHA-256 `a3abdb083aa4a1f931e48a2ffa7472cd73073c8334965bdf59833dd6026cde3e`);
+`source-axisdata-existing313-20261026-v1-python313-jax011/receipt.json`
+(SHA-256 `10b53db5361d615eff6aee5d509dfb52cb7311dc9f591d22f294ae4f4b253dcc`);
+`root-source-python313-followthrough-text-20261026-v1/failure-summary.json`
+(SHA-256 `28648f07177e27658253211f26304a2e1efd085779903ad75a1515ebeae916bd`);
+`source-original22-sixgib-qualification-20261026-v1/receipt.json`
+(SHA-256 `c70e1dbe4c23d292099e2f3237f22f8448a237b9e2d9d6b901338d9d2175ffea`);
+`root-source-dot-full-followthrough-paired-qualification-20261025-v1.json`;
 `source-dot-full-followthrough-hooks-20261025-v1-guard/receipt.json`;
 `source-original22-stack-diagnostic-20261025-v1/receipt.json`;
 `source-original22-observer-free-crash-diagnostic-20261026-v1/receipt.json`;

@@ -12,16 +12,17 @@ Current status snapshot: **2026-10-26**. Earlier observations retain their own
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
-continues stored generalized-dot checkpoint `8393cb84`. Its earlier **1,065-case
+continues stored checkpoint `3deb083a`. The earlier generalized-dot **1,065-case
 pair and 575-file typing** retain their own source snapshot `4845b6cb`; the
 atomic-symbol pair and typing retain `7604c11a` and stored checkpoint `038dc9eb`.
-The read-only remote refresh confirms Draft PR #277 at `73f4a7a5`;
+The retained read-only GitHub observation of 2026-10-25 recorded Draft PR #277
+at `73f4a7a5`.
 `fe214590` remains the last fully green checkpoint. Public routes/defaults stay
 LEGACY and the full B–F contract remains open. The retained portability selection
 passes **142** cases on each local stack; the separate invalid-source environment
 result remains **48 PASS / 1 FAIL**.
 
-The current six-file follow-through changes fixture-owned pure stubs and the
+The stored six-file follow-through at `3deb083a` changes fixture-owned pure stubs and the
 strict current Dot source fingerprint: control revision **v8** retains the same
 reviewed oracle **v3**. Its exact source-files snapshot is
 `f0afb9f17ae13312c6ecfee49e2cb385aeb64f1e9371cce8e8369d351d0654c9`.
@@ -33,6 +34,37 @@ source/Git held: PRIMARY **87.212 s**, peak **787,058,688 bytes**; SECONDARY
 binds this finite result. All **seven normal hooks passed unskipped** in
 **139.493 s**, peak **1,064,837,120 bytes**; source/Git/index held and descendant
 cleanup completed. Actual documentation/link and closeout outcomes belong to the local commit record.
+
+The applied five-candidate cut adds bounded shared reduction and
+reshape/broadcast rules, exact proto/IR artifact diagnostics in raw/probe
+validation, original-row metadata execution/accounting and native AxisData
+capture. Follow-through propagates shape-helper dtypes from matching known
+actual operands and preserves native-add defining provenance. It adds no
+arithmetic nodes/casts, profile exclusions or public defaults. The diagnostic
+bridge is private; general file/external-storage and serialized public-report
+integration remain open. The metadata lane has actual evidence for two original
+raw add caller cells, not positive acceptance of all 3,704 frozen caller cells.
+Original factories, contexts and criteria remain authoritative.
+
+At source-files snapshot `12ac4c06`, the complete six-owner focus passes
+**760 cases on PRIMARY and 756 on SECONDARY**, zero failures/errors/skips.
+There are **756 common identities** and four actual Python 3.12 native dataclass
+params-slot controls; no selection was changed or skipped. Paired proof
+`03c44278`, comparison `3a02003b` and native-param audit `dc0f9680` retain this
+scope. The initial **637 PASS / 56 FAIL out of 693** and subsequent **708 PASS /
+32 FAIL out of 740** remain distinct failed epochs. The first broader 35-owner
+PRIMARY run completed **2,388 PASS / 1 FAIL**; its old native-add rejection
+fixture remains a failed predecessor. The separate fixture-only repair gives
+source-files snapshot `8b03e5c4`, with production and all six focused-owner bytes
+held; the focused pair retains its own `12ac4c06` epoch. The repaired 35-owner
+broader pair passes **2,389 identical unique cases per stack**, zero
+failures/errors/skips, with complete consistent JUnit and source/Git held at
+`8b03e5c4`; proof `e1fc7bee` retains this scope. At the same source, final package
+typing passes **577 source files** and the RNG report has **17 identical entries
+per stack**, proof `c7690897`. Package typing does not cover the edited
+scripts/tests/generator. Actual quality/docs, normal-hook and exact staged-review
+outcomes belong to this cut's local commit record. Modern-Python, full-suite,
+model and full B–F qualification remain separate open work.
 
 The ordinary PRIMARY full run at stored `8393cb84` stopped under its resource
 guard at **63%**, with **8,989 passed markers / 52 failed markers** from
@@ -64,15 +96,29 @@ JUnit was produced. Recorded controller and worker fd2 destinations both point
 to the trial's `pytest.log`. No SIG11 or fatal text was observed before the guard
 censored execution. This does not establish that the earlier periodic observer
 caused the SIG11; the differential outcome and resource closure remain unverified.
-No 6 GiB budget, cache operation or source/data sample change was applied.
+No 6 GiB budget, cache operation or source/data sample change was applied in
+that historical 4 GiB trial.
+
+A later isolated **6 GiB** qualification of the same original first case also
+stopped under its reviewed RSS guard: **286.423274886 s**, peak **6,448,361,472
+bytes**, above **6,442,450,944 bytes**. At the stop, host MemAvailable was
+**11,239,313,408 bytes** and disk free **8,892,198,912 bytes**. Source and
+diagnostic inputs held, the default 4 GiB policy stayed unchanged, cleanup left
+no owned processes, and no JUnit was produced. No SIG11 was seen before
+censoring; this does not explain the earlier crash or prove a leak, OOM or cache
+cause. The next reviewed resource action is synchronous phase-ledger
+observation after the product checkpoint, not a further budget raise or retry;
+that diagnostic is not yet applied or executed.
 
 The shared structure foundation and its follow-through check finite flat SOURCE IR graphs
 through ordinary dispatch and final facade validation. Typed source equations,
 actual value/producer ports and plugin-owned rules must cover the whole graph.
 When a structural rule or check for scopes, uncovered symbolic forms or other
 carriers is not yet implemented, or an optimizer witness is lost, validation remains
-unverified. These verifier gaps remain part of the B–F work. Its result is private
-IR metadata, with no proto/file structural acceptance or runtime/numerical claim.
+unverified. These verifier gaps remain part of the B–F work. The core result is
+private IR metadata; the current bridge adds bounded exact proto/IR diagnostics,
+without completing file/external-storage or public-report acceptance. Runtime
+and numerical evidence remain separate.
 Source snapshot `c8add0e6` passes **169 identical cases on each local stack**:
 30 structure, 36 layout, 54 finalization and 49 inventory cases. NCHW boundaries,
 empty-output branches and FP64 cosine decompositions remain explicitly unverified
@@ -104,7 +150,7 @@ typing on each stack**. At that source, the 18-owner broader selection passes
 complete consistent JUnit, source/Git held and clean terminal completion.
 Both regression and both typing runs hold the same full source snapshot;
 paired proof `1b075819` retains this finite qualification.
-The result stays private IR metadata and supplies no original-model,
+That earlier dot-only qualification supplies no original-model,
 serialized-artifact, runtime or numerical acceptance. Actual quality/docs,
 normal-hook and exact staged-review outcomes belong to this cut's local commit
 record.
@@ -128,7 +174,7 @@ source/Git held. Both regression and both typing runs hold the same full source
 snapshot; paired proof `39bbd9cf` records this finite qualification. Actual
 quality/docs, normal-hook and exact staged-review outcomes for this cut belong
 to its local commit record.
-There is no new whole-model, proto/file structural or public-transition acceptance.
+That atomic-symbol pair adds no whole-model, proto/file structural or public-transition acceptance.
 
 The literal follow-through freezes typed source-literal tokens without creating
 extra IR values or initializers. At final consumer and output ports it compares
@@ -150,7 +196,7 @@ repair, source snapshot `6f4c4863` passes typing across **574 files on each stac
 The broader 17-owner selection passes **1,002 identical cases on each stack**,
 with zero failures/errors/skips and source/Git held. Observation adds no
 warning, export, public-report or serialization changes. General symbolic,
-scope and decomposition rules, artifact-bound validation and corpus closure
+scope and decomposition rules, broader artifact-bound validation and corpus closure
 remain open.
 
 Fresh exports of all four unchanged original AttentionCore cells now exist at
@@ -174,13 +220,15 @@ remains unverified, the original raw callback remains failed, and original
 `None` criteria leave numerical acceptance unverified. This older retained-sample
 runtime feasibility remains separate from the fresh source-`366a4d08` exports.
 
-1. Review the controlled observer-free stop together with the unexplained
-   earlier SIG11, then assess one explicit isolated resource envelope before a
-   full restart. No further identical 4 GiB retry is planned; no 6 GiB budget,
-   cache operation or source/data sample change has been applied.
-   Then ROOT can qualify the reviewed reduction, shape-carrier, artifact-bridge
-   v2, AxisData v2 and metadata-lane candidates in order. These are external
-   drafts, not applied or natively qualified by their text review.
+1. Retain the repaired 35-owner broader pair and paired package typing, then
+   complete quality/docs, hooks and exact staged review for the applied cut. Keep the
+   qualified focused pair at its own source epoch and preserve the failed
+   focused/broader predecessors. Modern-Python native ownership still requires
+   actual evidence; local Python 3.11/3.12 passes do not qualify locked 3.13/3.14.
+   After the product checkpoint, use the approved synchronous phase-ledger
+   diagnostic to investigate the separate original-case resource/crash epochs.
+   Neither a further budget increase nor a repeated full trial is authorized
+   by those observations.
    Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
    deployment pair with their unchanged semantic/type/precision/placement guards.
    Continue shared reduction and shape-carrier rules, with authoring kept

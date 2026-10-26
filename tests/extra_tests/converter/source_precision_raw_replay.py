@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import fields, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 import builtins as _native_builtins
 import dis
 import functools
@@ -32,6 +32,7 @@ import onnx_ir as ir
 from jax2onnx.precision import CheckStatus, PrecisionCheck, get_precision_report
 from jax2onnx._compat.jax import (
     Array as _NATIVE_UNION_ARRAY,
+    Literal as JaxLiteral,
     canonical_code_fingerprint,
     is_selected_prng_key_dtype,
     selected_prng_key_words,
@@ -43,7 +44,11 @@ from jax2onnx._compat.jax import (
     NativeTransformedExecutionError,
     native_transformed_execution_context,
 )
-from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx.converter.source_representation import (
+    native_shape_contract,
+    representation_for_aval,
+)
+from jax2onnx.converter.source_structure import ConstantContract, StructureResult
 from scripts.source_precision_inventory import canonical_contract
 from tests.extra_tests.converter.source_precision_support import (
     PRESERVE_FACTORY_DTYPE,
@@ -97,6 +102,220 @@ class _ReplayReferenceWitness:
                 )
 
 
+class _StructureBindingGap(ValueError):
+    """Artifact/source evidence is unavailable without changing export admission."""
+
+
+class _StructureBindingMismatch(ValueError):
+    """Complete observed binding evidence contradicts the frozen source."""
+
+
+def _structure_digest(payload: bytes) -> dict[str, Any]:
+    return {"sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload)}
+
+
+def _structure_file_digest(path: Path) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    count = 0
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+            count += len(block)
+    return {"sha256": digest.hexdigest(), "bytes": count}
+
+
+def _structure_external_storage(message: Any) -> bool:
+    if isinstance(message, onnx.TensorProto):
+        return bool(
+            message.data_location == onnx.TensorProto.EXTERNAL or message.external_data
+        )
+    for descriptor, child in message.ListFields():
+        if descriptor.message_type is not None:
+            children = child if descriptor.is_repeated else (child,)
+            if any(_structure_external_storage(value) for value in children):
+                return True
+    return False
+
+
+def _structure_model_digest(value: Any) -> tuple[dict[str, Any], bool]:
+    if isinstance(value, ir.Model):
+        proto = ir.to_proto(value)
+    elif isinstance(value, onnx.ModelProto):
+        proto = value
+    else:
+        raise _StructureBindingGap("return-normalization-unavailable")
+    external = _structure_external_storage(proto)
+    payload = proto.SerializeToString(deterministic=True)
+    digest = _structure_digest(payload)
+    # Do not overlap the next model serialization with these temporary bytes.
+    del payload
+    return digest, external
+
+
+def _structure_pending(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(
+            (key == "unresolved_parameters" and bool(item))
+            or (str(key).startswith("unresolved") and key != "unresolved_parameters")
+            or (key == "var" and item == "unbound")
+            or _structure_pending(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (tuple, list)):
+        return any(_structure_pending(item) for item in value)
+    return False
+
+
+def _structure_compact_manifest(value: Any) -> Any:
+    """Persist typed topology and payload digests, never duplicate word payloads."""
+    if isinstance(value, dict):
+        payload = value.pop("bytes_hex", None)
+        if payload is not None:
+            value["payload_sha256"] = hashlib.sha256(bytes.fromhex(payload)).hexdigest()
+        for key in tuple(value):
+            if key in {"literal", "const_payloads"}:
+                payload = json.dumps(
+                    value[key], sort_keys=True, separators=(",", ":")
+                ).encode()
+                value[key] = {"canonical_payload": _structure_digest(payload)}
+                del payload
+            else:
+                value[key] = _structure_compact_manifest(value[key])
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            value[index] = _structure_compact_manifest(item)
+    elif isinstance(value, tuple):
+        return [_structure_compact_manifest(item) for item in value]
+    return value
+
+
+def _structure_trace_manifest(closed: Any) -> tuple[dict[str, Any], str, bool]:
+    from tests.extra_tests.converter.source_precision_diagnostics import (
+        typed_trace_manifest,
+    )
+
+    manifest = typed_trace_manifest(closed)
+    payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    digest = hashlib.sha256(payload).hexdigest()
+    del payload
+    return manifest, digest, _structure_pending(manifest)
+
+
+def _structure_body(closed: Any) -> Any:
+    # JAX 0.11 may return itself from .jaxpr; unwrap once, never recursively.
+    return getattr(closed, "jaxpr", closed)
+
+
+def _structure_trace_storage(closed: Any) -> list[dict[str, Any]]:
+    body = _structure_body(closed)
+    constants = tuple(getattr(closed, "consts", ()))
+    if len(constants) != len(body.constvars):
+        raise _StructureBindingGap("closed-constant-storage-unavailable")
+    evidence = []
+
+    def take(role: str, var: Any, value: Any) -> None:
+        # Match the existing shared literal observer's typed storage conversion.
+        with np.errstate(over="ignore", invalid="ignore"):
+            array = np.asarray(value, dtype=var.aval.dtype)
+            representation = representation_for_aval(var.aval)
+            logical = asdict(ConstantContract.from_array(array))
+            physical = asdict(
+                ConstantContract.from_array(representation.encode_array(array))
+            )
+        evidence.append(
+            {
+                "role": role,
+                "logical_dtype": np.dtype(var.aval.dtype).name,
+                "weak_type": bool(getattr(var.aval, "weak_type", False)),
+                "logical": logical,
+                "encoding": representation.encoding,
+                "physical": physical,
+            }
+        )
+
+    for index, (var, value) in enumerate(zip(body.constvars, constants, strict=True)):
+        take(f"constant:{index}", var, value)
+    for index, eqn in enumerate(body.eqns):
+        for port, var in enumerate(eqn.invars):
+            if isinstance(var, JaxLiteral):
+                take(f"equation:{index}:input:{port}", var, var.val)
+    for index, var in enumerate(body.outvars):
+        if isinstance(var, JaxLiteral):
+            take(f"output:{index}", var, var.val)
+    return evidence
+
+
+def _structure_flat_parameters(value: Any) -> None:
+    if value is None or type(value) in (bool, int, str) or isinstance(value, np.dtype):
+        return
+    if type(value) in (tuple, list):
+        for item in value:
+            _structure_flat_parameters(item)
+        return
+    if type(value) is dict and all(type(key) is str for key in value):
+        for item in value.values():
+            _structure_flat_parameters(item)
+        return
+    # In particular, nested Jaxprs and unowned parameter objects are not proved
+    # merely because their printed names or partial JSON documents agree.
+    raise _StructureBindingGap("nested-or-unowned-source-parameter")
+
+
+def _structure_flat_relation(original: Any, actual: Any) -> None:
+    left, right = _structure_body(original), _structure_body(actual)
+    if left.effects or right.effects:
+        raise _StructureBindingGap("source-effects-relation-unverified")
+    if len(left.eqns) != len(right.eqns):
+        raise _StructureBindingMismatch("source-equation-count-differs")
+    pairs = [(left.constvars, right.constvars), (left.invars, right.invars)]
+    pairs.append((left.outvars, right.outvars))
+    for a, b in zip(left.eqns, right.eqns, strict=True):
+        if a.primitive is not b.primitive:
+            raise _StructureBindingMismatch("native-source-primitive-differs")
+        pairs.extend(((a.invars, b.invars), (a.outvars, b.outvars)))
+    for a, b in zip(left.eqns, right.eqns, strict=True):
+        _structure_flat_parameters(a.params)
+        _structure_flat_parameters(b.params)
+    for left_vars, right_vars in pairs:
+        if len(left_vars) != len(right_vars):
+            raise _StructureBindingMismatch("source-port-arity-differs")
+        for a, b in zip(left_vars, right_vars, strict=True):
+            if (
+                np.dtype(a.aval.dtype) != np.dtype(b.aval.dtype)
+                or bool(getattr(a.aval, "weak_type", False))
+                != bool(getattr(b.aval, "weak_type", False))
+                or isinstance(a, JaxLiteral) != isinstance(b, JaxLiteral)
+            ):
+                raise _StructureBindingMismatch("source-port-type-differs")
+            try:
+                a_shape = native_shape_contract(a.aval.shape)
+                b_shape = native_shape_contract(b.aval.shape)
+            except (TypeError, ValueError) as exc:
+                raise _StructureBindingGap("native-source-shape-unverified") from exc
+            if (a_shape.symbol is None) != (b_shape.symbol is None):
+                raise _StructureBindingMismatch("source-symbolic-port-differs")
+            if a_shape.symbol is not None and b_shape.symbol is not None:
+                if a_shape.symbol[1] is not b_shape.symbol[1]:
+                    raise _StructureBindingGap("cross-trace-native-scope-unverified")
+            if (
+                a_shape.shape != b_shape.shape
+                or a_shape.symbol_axis != b_shape.symbol_axis
+            ):
+                raise _StructureBindingMismatch("source-port-shape-differs")
+
+
+def _structure_source_evidence(inputs: Any, references: Any) -> str:
+    payload = json.dumps(
+        {
+            "inputs": [asdict(item) for item in inputs],
+            "references": [asdict(item) for item in references],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
 class RawReplayCapture:
     """Write each native result/returned artifact before subsequent checks."""
 
@@ -126,6 +345,298 @@ class RawReplayCapture:
         self.preparation_complete = False
         self.records["native_outcomes"] = {}
         self.records["replay_readiness"] = {"status": "unverified", "gaps": self.gaps}
+        self.records["source_structure"] = {
+            "status": "unverified",
+            "collector_calls": 0,
+            "ir_result": None,
+            "source_binding": {"status": "unverified", "reasons": []},
+            "artifact_binding": {"status": "unverified", "reasons": []},
+        }
+
+    def _structure_note(self, section: str, status: CheckStatus, reason: str) -> None:
+        try:
+            binding = self.records["source_structure"][section]
+            # Later unavailable evidence must not erase a known contradiction.
+            if binding.get("status") != "failed":
+                # Every nonempty reason denotes required evidence. An unrelated
+                # successful subcheck cannot fill a previously recorded gap.
+                binding["status"] = (
+                    "unverified"
+                    if status is CheckStatus.VALIDATED and binding.get("reasons")
+                    else status.value
+                )
+            reasons = binding.setdefault("reasons", [])
+            if reason and reason not in reasons and len(reasons) < 16:
+                reasons.append(reason)
+        except Exception:
+            pass
+
+    def _structure_error(self, section: str, phase: str, exc: Exception) -> None:
+        known = type(exc) is _StructureBindingMismatch
+        reason = (
+            str(exc)
+            if type(exc) in (_StructureBindingMismatch, _StructureBindingGap)
+            else phase + "-unreadable"
+        )
+        self._structure_note(
+            section, CheckStatus.FAILED if known else CheckStatus.UNVERIFIED, reason
+        )
+
+    def freeze_source_structure(
+        self, closed: Any, trace_json: str, inputs: Any, references: Any
+    ) -> None:
+        """Freeze exact prepared words now, before any later export or callback."""
+        try:
+            binding = self.records["source_structure"]["source_binding"]
+            binding["prepared_trace_sha256"] = hashlib.sha256(
+                trace_json.encode()
+            ).hexdigest()
+            binding["prepared_trace_pending"] = _structure_pending(
+                json.loads(trace_json)
+            )
+            binding["prepared_source_evidence_sha256"] = _structure_source_evidence(
+                inputs, references
+            )
+            binding["prepared_storage"] = _structure_trace_storage(closed)
+        except Exception as exc:
+            self._structure_error("source_binding", "prepared-source", exc)
+
+    def source_structure_collector(self, prepared: PreparedSourceCase) -> Any:
+        """One invocation-local callback; persisted records contain metadata only."""
+
+        def collect(trace: Any, final_ir: ir.Model, result: Any, returned: Any) -> None:
+            try:
+                record = self.records["source_structure"]
+                record["collector_calls"] += 1
+                if record["collector_calls"] != 1:
+                    self._structure_note(
+                        "artifact_binding",
+                        CheckStatus.UNVERIFIED,
+                        "collector-duplicate",
+                    )
+                    return
+                if type(result) is StructureResult:
+                    record["ir_result"] = {
+                        "status": result.status,
+                        "expected_equations": result.expected_equations,
+                        "checked_equations": result.checked_equations,
+                        "reasons": list(result.reasons),
+                    }
+                else:
+                    self._structure_note(
+                        "artifact_binding",
+                        CheckStatus.UNVERIFIED,
+                        "ir-result-unavailable",
+                    )
+                self._collect_structure_source(prepared, trace)
+                try:
+                    binding = record["artifact_binding"]
+                    candidate, external = _structure_model_digest(final_ir)
+                    binding["checked_ir_proto"] = candidate
+                    binding["return_kind"] = (
+                        "proto"
+                        if isinstance(returned, onnx.ModelProto)
+                        else (
+                            "ir"
+                            if isinstance(returned, ir.Model)
+                            else "file" if isinstance(returned, str) else "unknown"
+                        )
+                    )
+                    if binding["return_kind"] in {"file", "unknown"}:
+                        raise _StructureBindingGap(
+                            "file-or-unknown-return-binding-unverified"
+                        )
+                    actual, returned_external = _structure_model_digest(returned)
+                    binding["actual_return"] = actual
+                    binding["external_storage"] = external or returned_external
+                    if candidate != actual:
+                        raise _StructureBindingMismatch(
+                            "checked-ir-and-returned-artifact-differ"
+                        )
+                    if binding["external_storage"]:
+                        raise _StructureBindingGap(
+                            "external-payload-binding-unverified"
+                        )
+                    self._structure_note("artifact_binding", CheckStatus.VALIDATED, "")
+                except Exception as exc:
+                    self._structure_error("artifact_binding", "returned-artifact", exc)
+            except Exception as exc:
+                self._structure_error("artifact_binding", "collector", exc)
+
+        return collect
+
+    def _collect_structure_source(
+        self, prepared: PreparedSourceCase, trace: Any
+    ) -> None:
+        manifest = None
+        try:
+            binding = self.records["source_structure"]["source_binding"]
+            manifest, actual_sha, actual_pending = _structure_trace_manifest(
+                trace.closed_jaxpr
+            )
+            binding["actual_trace_sha256"] = actual_sha
+            _, fresh_sha, fresh_pending = _structure_trace_manifest(
+                prepared.original_jaxpr
+            )
+            binding["fresh_prepared_trace_sha256"] = fresh_sha
+            if self.target is not prepared.fn:
+                raise _StructureBindingMismatch("prepared-target-binding-differs")
+            expected_evidence = binding.get("prepared_source_evidence_sha256")
+            if expected_evidence is None:
+                raise _StructureBindingGap("prepared-source-evidence-unavailable")
+            if (
+                _structure_source_evidence(
+                    prepared.input_evidence, prepared.reference_evidence
+                )
+                != expected_evidence
+            ):
+                raise _StructureBindingMismatch("prepared-source-evidence-differs")
+            fresh_storage = _structure_trace_storage(prepared.original_jaxpr)
+            actual_storage = _structure_trace_storage(trace.closed_jaxpr)
+            binding["fresh_prepared_storage"] = fresh_storage
+            binding["actual_storage"] = actual_storage
+            if "prepared_storage" not in binding:
+                raise _StructureBindingGap("prepared-source-storage-unavailable")
+            if (
+                fresh_storage != binding["prepared_storage"]
+                or actual_storage != binding["prepared_storage"]
+            ):
+                raise _StructureBindingMismatch(
+                    "source-constant-or-literal-storage-differs"
+                )
+            _structure_flat_relation(prepared.original_jaxpr, trace.closed_jaxpr)
+            if (
+                binding.get("prepared_trace_pending", True)
+                or fresh_pending
+                or actual_pending
+            ):
+                raise _StructureBindingGap("unresolved-source-trace-binding")
+            expected_sha = binding.get("prepared_trace_sha256")
+            if expected_sha is None:
+                raise _StructureBindingGap("prepared-source-trace-unavailable")
+            if (
+                hashlib.sha256(prepared.original_trace_json.encode()).hexdigest()
+                != expected_sha
+                or fresh_sha != expected_sha
+                or actual_sha != expected_sha
+            ):
+                raise _StructureBindingMismatch("complete-source-trace-differs")
+            binding["native_primitive_relation"] = "identical-flat-sequence"
+            binding["native_shape_relation"] = "static-or-identical-native-scope"
+            self._structure_note("source_binding", CheckStatus.VALIDATED, "")
+        except Exception as exc:
+            self._structure_error("source_binding", "export-source", exc)
+        # A sink failure is only this bridge's gap, never a source-readiness gap.
+        if manifest is not None:
+            try:
+                binding = self.records["source_structure"]["source_binding"]
+                compact = _structure_compact_manifest(manifest)
+                payload = json.dumps(
+                    {
+                        "canonical_typed_trace_sha256": binding["actual_trace_sha256"],
+                        "manifest": compact,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+                path = self.directory / "source-export-typed-trace.json"
+                with path.open("xb") as stream:
+                    stream.write(payload)
+                binding["export_trace_manifest"] = {
+                    "path": str(path),
+                    **_structure_digest(payload),
+                }
+                del payload
+            except Exception as exc:
+                self._structure_error("source_binding", "export-trace-sink", exc)
+
+    def finalize_source_structure(self, normalized: Any) -> None:
+        """Fence real returned objects and saved bytes after the raw callback."""
+        try:
+            record = self.records["source_structure"]
+            binding = record["artifact_binding"]
+            if record["collector_calls"] != 1:
+                raise _StructureBindingGap("collector-missing-or-duplicate")
+            if binding.get("return_kind") not in {"proto", "ir"} or binding.get(
+                "external_storage"
+            ):
+                raise _StructureBindingGap("file-or-external-bundle-binding-unverified")
+            candidate = binding.get("checked_ir_proto")
+            if candidate is None:
+                raise _StructureBindingGap("checked-ir-digest-unavailable")
+            normalized_return = binding.get("normalized_return")
+            if normalized_return is None:
+                raise _StructureBindingGap("normalized-return-evidence-unavailable")
+            if normalized_return != candidate:
+                raise _StructureBindingMismatch(
+                    "normalized-return-and-checked-ir-differ"
+                )
+            # Each serialization is released before beginning the next one.
+            for role, value in (
+                ("after_callback", normalized),
+                ("facade_after_callback", self.facade_value),
+            ):
+                try:
+                    digest, external = _structure_model_digest(value)
+                    binding[role] = digest
+                    if digest != candidate or external:
+                        raise _StructureBindingMismatch(
+                            "post-callback-artifact-mutation"
+                        )
+                except Exception as exc:
+                    self._structure_error("artifact_binding", role, exc)
+            artifact = self.records.get("artifact", {})
+            if artifact.get("status") != "captured":
+                raise _StructureBindingGap("saved-artifact-unavailable")
+            if artifact.get("sha256") != candidate["sha256"]:
+                raise _StructureBindingMismatch("saved-artifact-and-checked-ir-differ")
+            path = Path(artifact["path"])
+            if path != self.directory / "returned.onnx" or path.is_symlink():
+                raise _StructureBindingMismatch("saved-artifact-path-differs")
+            saved = _structure_file_digest(path)
+            binding["saved_artifact"] = saved
+            if saved != candidate:
+                raise _StructureBindingMismatch("post-callback-saved-artifact-mutation")
+            binding["fenced_after_callback"] = True
+        except Exception as exc:
+            self._structure_error("artifact_binding", "artifact-fence", exc)
+        try:
+            trace = self.records["source_structure"]["source_binding"].get(
+                "export_trace_manifest"
+            )
+            if trace is not None:
+                actual_trace_file = _structure_file_digest(Path(trace["path"]))
+                if actual_trace_file != {
+                    key: trace[key] for key in ("sha256", "bytes")
+                }:
+                    raise _StructureBindingMismatch(
+                        "post-callback-export-trace-mutation"
+                    )
+        except Exception as exc:
+            self._structure_error("source_binding", "export-trace-fence", exc)
+        self.source_structure_status()
+
+    def source_structure_status(self) -> CheckStatus:
+        try:
+            record = self.records["source_structure"]
+            source, artifact = record["source_binding"], record["artifact_binding"]
+            if "failed" in (source["status"], artifact["status"]):
+                status = CheckStatus.FAILED
+            elif (
+                record["collector_calls"] != 1
+                or source["status"] != "validated"
+                or artifact["status"] != "validated"
+                or not artifact.get("fenced_after_callback")
+                or self.readiness is not CheckStatus.VALIDATED
+                or record["ir_result"] is None
+            ):
+                status = CheckStatus.UNVERIFIED
+            else:
+                status = CheckStatus(record["ir_result"]["status"])
+            record["status"] = status.value
+            return status
+        except Exception:
+            return CheckStatus.UNVERIFIED
 
     def gap(self, role: str, exc: Exception) -> None:
         self.failure(role, exc)
@@ -366,6 +877,19 @@ class RawReplayCapture:
             }
         except Exception as exc:
             self.gap("artifact", exc)
+        try:
+            artifact = self.records.get("artifact", {})
+            if artifact.get("status") == "captured":
+                # This is the existing serializer's actual normalized return,
+                # before the raw callback. Do not serialize another model here.
+                self.records["source_structure"]["artifact_binding"][
+                    "normalized_return"
+                ] = {
+                    "sha256": artifact["sha256"],
+                    "bytes": Path(artifact["path"]).stat().st_size,
+                }
+        except Exception as exc:
+            self._structure_error("artifact_binding", "normalized-return", exc)
 
 
 def structured_source_error(exc: Exception) -> dict[str, Any]:
@@ -2243,6 +2767,9 @@ def prepare_raw_source_case(
                 "Original callable changed caller JAX settings during preparation"
             )
         capture.require_stable_target("native-preparation-complete")
+        capture.freeze_source_structure(
+            closed, original_trace_json, input_evidence, reference_evidence
+        )
         capture.preparation_complete = True
         capture.readiness
         return PreparedSourceCase(
@@ -2300,6 +2827,9 @@ def run_raw_source_case(
                             prepared,
                             artifact_observer=capture.artifact,
                             facade_return_observer=capture.observe_facade_return,
+                            source_structure_collector=capture.source_structure_collector(
+                                prepared
+                            ),
                             output_directory=capture.directory,
                         )
                     schema = CheckStatus.VALIDATED
@@ -2405,6 +2935,7 @@ def run_raw_source_case(
         "status": callback_status,
         "detail": str(error) if stage == "raw-callback" and error is not None else "",
     }
+    capture.finalize_source_structure(model)
     readiness = capture.readiness
     category = (
         "replay-lane-gap"

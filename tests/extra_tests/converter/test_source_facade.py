@@ -3,6 +3,7 @@
 """Private SOURCE and public legacy calls share the actual export facade."""
 
 from collections.abc import Callable, Iterator
+import inspect
 from pathlib import Path
 from typing import Any
 import warnings
@@ -743,6 +744,148 @@ def test_failed_source_trace_replays_warnings_and_restores_contexts(
     assert len(observed) == 1
     assert bool(jax.config.x64_enabled) is ambient_x64
     assert active_precision_policy() is PrecisionPolicy.LEGACY
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "ir", "file"])
+def test_private_structure_collector_keeps_exact_facade_parity(
+    return_mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def model(x: jax.Array, y: jax.Array) -> jax.Array:
+        return jax.lax.sub(x, y)
+
+    actual = ui.validate_source_structure
+    results = []
+    observed = []
+    validations = []
+
+    def validate(final_ir: ir.Model) -> Any:
+        result = actual(final_ir)
+        validations.append((final_ir, result))
+        return result
+
+    def collect(trace: Any, final_ir: ir.Model, result: Any, returned: Any) -> None:
+        assert validations[-1][0] is final_ir
+        assert validations[-1][1] is result
+        assert trace.closed_jaxpr is not None
+        assert get_precision_report(final_ir) == get_precision_report(returned)
+        assert get_precision_report(returned) is not None
+        observed.append(returned)
+
+    monkeypatch.setattr(ui, "validate_source_structure", validate)
+    path = tmp_path / "same-destination.onnx"
+    for enabled in (False, True):
+        with warnings.catch_warnings(record=True) as emitted:
+            warnings.simplefilter("always")
+            returned = _source(
+                model,
+                [jax.ShapeDtypeStruct((2,), np.float32)] * 2,
+                return_mode=return_mode,
+                output_path=path,
+                source_structure_collector=collect if enabled else None,
+            )
+        results.append(
+            (
+                type(returned),
+                _proto(returned).SerializeToString(deterministic=True),
+                get_precision_report(returned),
+                tuple((entry.category, str(entry.message)) for entry in emitted),
+            )
+        )
+        if enabled:
+            assert observed == [returned]
+    assert len(validations) == 2  # One existing shared pass per actual export.
+    assert results[0] == results[1]
+    assert (
+        results[1][0]
+        is {
+            "proto": onnx.ModelProto,
+            "ir": ir.Model,
+            "file": str,
+        }[return_mode]
+    )
+    if return_mode == "file":
+        assert observed[0] == str(path)
+
+
+def test_private_structure_collector_preserves_real_warning_and_report() -> None:
+    jax.config.update("jax_enable_x64", False)
+    results = []
+    observed = []
+    for enabled in (False, True):
+        # Fresh callable identities make both real traces emit the same actual
+        # truncation warning, without relying on a prior JAX trace cache.
+        def model(x: jax.Array) -> jax.Array:
+            return x + jnp.asarray(1, dtype=jnp.float64)
+
+        with warnings.catch_warnings(record=True) as emitted:
+            warnings.simplefilter("always")
+            returned = _source(
+                model,
+                [()],
+                source_structure_collector=(
+                    (lambda *args: observed.append(args[2])) if enabled else None
+                ),
+            )
+        results.append(
+            (
+                returned.SerializeToString(deterministic=True),
+                get_precision_report(returned),
+                tuple((entry.category, str(entry.message)) for entry in emitted),
+            )
+        )
+    assert results[0] == results[1]
+    assert len(results[0][2]) == 1 and "float64" in results[0][2][0][1]
+    assert len(observed) == 1
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "ir", "file"])
+def test_private_structure_collector_failure_cannot_fail_export(
+    return_mode: str, tmp_path: Path
+) -> None:
+    called = []
+
+    def broken(*args: Any) -> None:
+        called.append(True)
+        raise OSError("injected private evidence failure")
+
+    artifact = _source(
+        lambda x: -x,
+        [jax.ShapeDtypeStruct((2,), np.float32)],
+        return_mode=return_mode,
+        output_path=tmp_path / "returned.onnx",
+        source_structure_collector=broken,
+    )
+    assert called == [True]
+    onnx.checker.check_model(_proto(artifact), full_check=True)
+    assert get_precision_report(artifact).profile == "source-static-v1"
+
+
+def test_structure_collector_is_private_source_success_only() -> None:
+    assert "source_structure_collector" not in inspect.signature(to_onnx).parameters
+    observed = []
+
+    def collector(*args: Any) -> None:
+        observed.append(args)
+
+    ui._to_onnx(
+        lambda x: -x,
+        [(2,)],
+        precision_policy=PrecisionPolicy.LEGACY,
+        source_structure_collector=collector,
+    )
+    _source(
+        lambda x: -x,
+        [(2,)],
+        diagnostic_jaxpr_validator=DiagnosticValidator(),
+        source_structure_collector=collector,
+    )
+
+    def failing_model(x: jax.Array) -> jax.Array:
+        raise ValueError("injected original trace failure")
+
+    with pytest.raises(ValueError, match="original trace failure"):
+        _source(failing_model, [(2,)], source_structure_collector=collector)
+    assert observed == []
 
 
 def test_source_fp64_input_disabled_rejects_before_tracing() -> None:

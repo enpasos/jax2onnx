@@ -681,6 +681,160 @@ def test_actual_axisdata_foreign_storage_alias_and_descriptor_controls(
     assert calls == []
 
 
+def test_actual_axisdata_namespace_variant_and_replace_function_are_owned(
+    tmp_path: Path,
+) -> None:
+    assert compat._NATIVE_AXISDATA_GAP is None
+    roles = compat._NATIVE_AXISDATA
+    exported, old = (roles["classes"][name] for name in ("exported", "pre-slots"))
+    extra = compat._NATIVE_AXISDATA_EXTRA_MEMBERS
+    extended = "__replace__" in vars(exported)
+    additions = extra if extended else frozenset()
+    assert set(vars(exported)) == compat._NATIVE_AXISDATA_EXPORTED_MEMBERS | additions
+    assert set(vars(old)) == compat._NATIVE_AXISDATA_PRESLOTS_MEMBERS | additions
+    document = compat._AxisDataCaptureGraph().state()
+    assert set(document["state_markers"]) == set(roles["markers"])
+    for name, marker in roles["markers"].items():
+        assert document["state_markers"][name]["native_axisdata_marker"] == name
+        assert document["state_markers"][name]["identity"] == id(marker)
+    if extended:
+        replacement = vars(compat._native_dataclasses)["_replace"]
+        assert type(replacement) is types.FunctionType
+        assert roles["helpers"]["_replace"] is replacement
+        for role, cls in (("exported", exported), ("pre-slots", old)):
+            assert type(vars(cls)["__firstlineno__"]) is int
+            assert vars(cls)["__static_attributes__"] == ()
+            assert vars(cls)["__replace__"] is replacement
+            assert (
+                document["classes"][role]["members"]["__replace__"]
+                == document["state_helpers"]["_replace"]
+            )
+        function = document["nodes"][str(id(replacement))]
+        assert function["code_identity"] == id(replacement.__code__)
+        assert function["code_sha256"] == compat.canonical_code_fingerprint(
+            replacement.__code__
+        )
+        assert {"_FIELD_CLASSVAR", "_FIELD_INITVAR"} <= set(roles["markers"])
+    else:
+        assert "_replace" not in roles["helpers"]
+        assert set(roles["markers"]) == {"MISSING", "_FIELD"}
+    capture = _capture(_mapped(), tmp_path)
+    assert capture.check_target("original-axisdata-complete-namespace-variant")
+
+
+@pytest.mark.parametrize("role", ("exported", "pre-slots"))
+@pytest.mark.parametrize("fault", ("unknown", "missing", "partial", "mixed"))
+def test_actual_axisdata_namespace_variants_reject_partial_mixed_and_unknown(
+    role: str, fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cls = compat._NATIVE_AXISDATA["classes"][role]
+    extended = "__replace__" in vars(cls)
+    if fault == "unknown":
+        monkeypatch.setattr(cls, "unobserved_member", True, raising=False)
+    elif fault == "missing":
+        monkeypatch.delattr(cls, "__match_args__")
+    elif fault == "partial":
+        if extended:
+            monkeypatch.delattr(cls, "__firstlineno__")
+        else:
+            monkeypatch.setattr(cls, "__firstlineno__", 1, raising=False)
+    elif extended:
+        for name in compat._NATIVE_AXISDATA_EXTRA_MEMBERS:
+            monkeypatch.delattr(cls, name)
+    else:
+        for name, value in (
+            ("__firstlineno__", 1),
+            ("__static_attributes__", ()),
+            ("__replace__", cls.__init__),
+        ):
+            monkeypatch.setattr(cls, name, value, raising=False)
+    with pytest.raises(ValueError, match="native AxisData class namespace"):
+        compat._initial_native_axisdata_roles()
+
+
+@pytest.mark.parametrize("role", ("exported", "pre-slots"))
+@pytest.mark.parametrize(
+    "member,value",
+    (
+        ("__firstlineno__", True),
+        ("__static_attributes__", []),
+        ("__static_attributes__", ("unobserved",)),
+        ("__replace__", _source),
+    ),
+)
+def test_actual_axisdata_extended_metadata_requires_observed_types_and_binding(
+    role: str, member: str, value: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cls = compat._NATIVE_AXISDATA["classes"][role]
+    monkeypatch.setattr(cls, member, value, raising=False)
+    with pytest.raises(ValueError, match="native AxisData"):
+        compat._initial_native_axisdata_roles()
+
+
+@pytest.mark.parametrize("role", ("exported", "pre-slots"))
+@pytest.mark.parametrize(
+    "member", ("__firstlineno__", "__static_attributes__", "__replace__")
+)
+def test_actual_axisdata_extended_class_state_is_not_discarded(
+    role: str, member: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = _capture(_mapped(), tmp_path)
+    cls = compat._NATIVE_AXISDATA["classes"][role]
+    value: Any
+    if member == "__firstlineno__":
+        value = vars(cls).get(member, 0) + 1
+    elif member == "__static_attributes__":
+        value = ("changed",)
+    else:
+        value = _source
+    monkeypatch.setattr(cls, member, value, raising=False)
+    assert not capture.check_target("changed-axisdata-" + role + "-" + member)
+
+
+@pytest.mark.parametrize("name", tuple(compat._NATIVE_AXISDATA["helpers"]))
+def test_actual_axisdata_all_helper_defining_bindings_are_owned(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = _capture(_mapped(), tmp_path)
+    monkeypatch.setattr(compat._native_dataclasses, name, object())
+    assert not capture.check_target("changed-axisdata-helper-binding-" + name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    tuple(
+        name
+        for name, value in compat._NATIVE_AXISDATA["helpers"].items()
+        if type(value) is types.FunctionType
+    ),
+)
+def test_actual_axisdata_owned_helper_code_is_not_discarded(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = _capture(_mapped(), tmp_path)
+    function = compat._NATIVE_AXISDATA["helpers"][name]
+    monkeypatch.setattr(
+        function,
+        "__code__",
+        function.__code__.replace(co_filename="changed-axisdata.py"),
+    )
+    assert not capture.check_target("changed-axisdata-helper-code-" + name)
+
+
+@pytest.mark.parametrize("name", ("_FIELD_CLASSVAR", "_FIELD_INITVAR"))
+@pytest.mark.parametrize("fault", ("binding", "name"))
+def test_actual_axisdata_replace_markers_have_exact_contextual_ownership(
+    name: str, fault: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = _capture(_mapped(), tmp_path)
+    owned = name in compat._NATIVE_AXISDATA["markers"]
+    if fault == "binding":
+        monkeypatch.setattr(compat._native_dataclasses, name, object())
+    else:
+        monkeypatch.setattr(vars(compat._native_dataclasses)[name], "name", "changed")
+    assert capture.check_target("changed-axisdata-replace-marker-" + name) is not owned
+
+
 @pytest.mark.parametrize(
     "fault",
     (
