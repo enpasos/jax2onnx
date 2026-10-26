@@ -93,6 +93,15 @@ else:
 
 AbstractValue = jax_core.AbstractValue
 ShapedArray = jax_core.ShapedArray
+# Preserve the actual native declaration before plugins or mutable metadata.
+_NATIVE_AVAL_TYPE = ShapedArray
+_NATIVE_AVAL_SLOT_CONTAINER = vars(ShapedArray).get("__slots__")
+_NATIVE_AVAL_SLOT_SEQUENCE = (
+    tuple(_NATIVE_AVAL_SLOT_CONTAINER)
+    if type(_NATIVE_AVAL_SLOT_CONTAINER) in (list, tuple)
+    and all(type(name) is str for name in _NATIVE_AVAL_SLOT_CONTAINER)
+    else None
+)
 Tracer = jax_core.Tracer
 Var = jax_core_ext.Var
 try:
@@ -996,7 +1005,17 @@ _NATIVE_ABSTRACT_RULES = tuple(
 
 def native_aval_metadata_schema() -> str:
     """Own exact native ShapedArray layouts, independently of module symbols."""
-    slots = tuple(ShapedArray.__slots__)
+    if ShapedArray is not _NATIVE_AVAL_TYPE:
+        raise TypeError("native ShapedArray class binding changed")
+    declaration = vars(ShapedArray).get("__slots__")
+    if (
+        declaration is not _NATIVE_AVAL_SLOT_CONTAINER
+        or type(declaration) not in (list, tuple)
+        or any(type(name) is not str for name in declaration)
+        or tuple(declaration) != _NATIVE_AVAL_SLOT_SEQUENCE
+    ):
+        raise TypeError("native ShapedArray slot declaration changed")
+    slots = tuple(declaration)
     if slots == ("shape", "sharding", "vma", "memory_space"):
         return "vma"
     common = (
@@ -1009,6 +1028,8 @@ def native_aval_metadata_schema() -> str:
     )
     if slots == (*common, "__weakref__"):
         return "manual"
+    if slots == (*common, "_stripped_weak_type", "__weakref__"):
+        return "manual-stripped"
     if slots == (*common, "layout", "_stripped_weak_type", "__weakref__"):
         return "manual-layout"
     raise TypeError("native ShapedArray metadata schema needs an exact adapter")
@@ -1019,6 +1040,117 @@ def native_manual_axis_metadata(varying: frozenset[str]) -> tuple[str, Any]:
     if native_aval_metadata_schema() == "vma":
         return "vma", varying
     return "manual_axis_type", _native_core.ManualAxisType(varying=varying)
+
+
+def _require_manual_stripped_aval_cache(aval: Any) -> None:
+    """Read only the measured no-layout native weak-to-strong cache relation."""
+    if native_aval_metadata_schema() != "manual-stripped":
+        raise TypeError("native signature stripped cache requires its exact schema")
+    members = vars(ShapedArray)
+    names = (
+        "shape",
+        "dtype",
+        "weak_type",
+        "sharding",
+        "manual_axis_type",
+        "memory_space",
+        "_stripped_weak_type",
+    )
+    slots = {}
+    for name in names:
+        slot = members.get(name)
+        if (
+            type(slot) is not types.MemberDescriptorType
+            or slot.__objclass__ is not ShapedArray
+            or slot.__name__ != name
+        ):
+            raise TypeError("native signature stripped cache descriptor changed")
+        slots[name] = slot
+
+    def read(value: Any) -> dict[str, Any]:
+        if type(value) is not ShapedArray:
+            raise TypeError(
+                "native signature stripped cache requires exact ShapedArray"
+            )
+        try:
+            return {
+                name: slot.__get__(value, ShapedArray) for name, slot in slots.items()
+            }
+        except AttributeError as error:
+            raise TypeError(
+                "native signature stripped cache is uninitialized"
+            ) from error
+
+    original = read(aval)
+    if type(original["weak_type"]) is not bool:
+        raise TypeError("native signature weakness is not a native Boolean")
+    cached = original["_stripped_weak_type"]
+    if cached is None:
+        return
+    strong = read(cached)
+    if (
+        cached is aval
+        or original["weak_type"] is not True
+        or strong["weak_type"] is not False
+        or strong["_stripped_weak_type"] is not None
+        or any(
+            strong[name] is not original[name]
+            for name in (
+                "sharding",
+                "manual_axis_type",
+                "memory_space",
+            )
+        )
+    ):
+        raise TypeError("native signature has invalid stripped weak-type cache")
+    if not (
+        issubclass(type(original["dtype"]), np.dtype)
+        and issubclass(type(strong["dtype"]), np.dtype)
+        and np.dtype.__eq__(original["dtype"], strong["dtype"]) is True
+    ):
+        raise TypeError("native signature stripped cache dtype changed")
+    left, right = original["shape"], strong["shape"]
+    if type(left) is not tuple or type(right) is not tuple or len(left) != len(right):
+        raise TypeError("native signature stripped cache shape changed")
+
+    def symbol(value: Any) -> tuple[str, object]:
+        from jax._src.export import shape_poly
+
+        # Exact native types precede the established atomic/scope contract;
+        # core.is_symbolic_dim alone uses getattr on arbitrary objects.
+        if type(value) is not shape_poly._DimExpr:
+            raise TypeError("native signature stripped cache has an unowned dimension")
+        scope_slot = vars(shape_poly._DimExpr).get("_scope")
+        if (
+            type(scope_slot) is not types.MemberDescriptorType
+            or scope_slot.__objclass__ is not shape_poly._DimExpr
+            or scope_slot.__name__ != "_scope"
+        ):
+            raise TypeError("native signature symbolic scope descriptor changed")
+        scope = scope_slot.__get__(value, shape_poly._DimExpr)
+        if type(scope) is not shape_poly.SymbolicScope:
+            raise TypeError("native signature stripped cache has an unowned scope")
+        try:
+            name, observed_scope = atomic_symbolic_dimension(value)
+        except ValueError as error:
+            raise TypeError(
+                "native signature stripped cache dimension is not atomic"
+            ) from error
+        if type(name) is not str or observed_scope is not scope:
+            raise TypeError("native signature stripped cache symbolic identity changed")
+        return name, scope
+
+    for base_dim, cached_dim in zip(left, right, strict=True):
+        if type(base_dim) is int and type(cached_dim) is int:
+            if base_dim != cached_dim:
+                raise TypeError("native signature stripped cache shape changed")
+        else:
+            base_name, base_scope = symbol(base_dim)
+            cached_name, cached_scope = symbol(cached_dim)
+            if base_scope is not cached_scope or base_name != cached_name:
+                raise TypeError(
+                    "native signature stripped cache symbolic identity changed"
+                )
 
 
 def _require_plain_native_aval(aval: Any) -> None:
@@ -1046,6 +1178,8 @@ def _require_plain_native_aval(aval: Any) -> None:
         raise TypeError("native signature has unsupported manual axes")
     if schema == "manual-layout" and aval.layout is not _native_core.AutoLayout:
         raise TypeError("native signature has unsupported explicit layout")
+    if schema == "manual-stripped":
+        _require_manual_stripped_aval_cache(aval)
 
 
 def native_typed_array_payload(value: Any) -> tuple[np.ndarray, bool] | None:
@@ -1135,6 +1269,13 @@ def native_typed_array_payload(value: Any) -> tuple[np.ndarray, bool] | None:
                 and aval.shape == array.shape
             ):
                 raise TypeError("native typed-array cached aval disagrees with storage")
+            # Keep the carrier's established weakness error at this boundary;
+            # the new shared signature guard also owns the cache's bool fields.
+            if (
+                native_aval_metadata_schema() == "manual-stripped"
+                and type(aval.weak_type) is not bool
+            ):
+                raise TypeError("native typed-array weakness is not a native Boolean")
             _require_plain_native_aval(aval)
             weak = aval.weak_type
     else:

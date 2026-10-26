@@ -594,6 +594,10 @@ def test_original_native_error_object_chain_notes_and_traceback_are_retained(
         assert capture.check_target("after-native-error")
 
 
+# Surface the recorded layout gap before collecting authenticated role controls.
+assert compat._NATIVE_AXISDATA_GAP is None, compat._NATIVE_AXISDATA_GAP
+
+
 @pytest.mark.parametrize("slot", compat._NATIVE_AXISDATA_FIELD_SLOTS)
 def test_actual_axisdata_every_field_slot_is_owned(
     slot: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

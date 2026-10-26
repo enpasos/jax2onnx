@@ -974,3 +974,293 @@ def test_type_promotion_error_is_exact_native_exception_and_restores_context() -
             jnp.result_type(np.dtype(np.int32), np.dtype(np.float32))
         assert type(caught.value) is compat.TypePromotionError
     assert jax.config.jax_numpy_dtype_promotion == previous
+
+
+def test_native_aval_declaration_is_owned_and_unknown_sequences_never_fall_back(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    owner = compat.ShapedArray
+    declaration = vars(owner)["__slots__"]
+    sequence = tuple(declaration)
+    common = (
+        "shape",
+        "dtype",
+        "weak_type",
+        "sharding",
+        "manual_axis_type",
+        "memory_space",
+    )
+    expected = {
+        ("shape", "sharding", "vma", "memory_space"): "vma",
+        (*common, "__weakref__"): "manual",
+        (*common, "layout", "_stripped_weak_type", "__weakref__"): "manual-layout",
+        (*common, "_stripped_weak_type", "__weakref__"): "manual-stripped",
+    }
+    assert compat.native_aval_metadata_schema() == expected[sequence]
+    # Even an equal replacement declaration must not replace the native owner.
+    with monkeypatch.context() as change:
+        change.setattr(owner, "__slots__", list(sequence))
+        with pytest.raises(TypeError, match="slot declaration changed"):
+            compat.native_aval_metadata_schema()
+    invalid = [sequence[::-1], (*sequence, "unknown"), sequence[:-1]]
+    if "_stripped_weak_type" in sequence:
+        # In 0.11 this would otherwise masquerade as the older manual tuple.
+        invalid.append(
+            tuple(name for name in sequence if name != "_stripped_weak_type")
+        )
+    invoked = []
+
+    class Foreign:
+        def __eq__(self, other: Any) -> bool:
+            invoked.append("equality")
+            raise AssertionError("foreign declaration equality ran")
+
+        def __iter__(self) -> Any:
+            invoked.append("iteration")
+            raise AssertionError("foreign declaration iteration ran")
+
+    invalid.append((*sequence[:-1], Foreign()))
+    for malformed in invalid:
+        if type(declaration) is list:
+            try:
+                declaration[:] = malformed
+                with pytest.raises(TypeError, match="slot declaration changed"):
+                    compat.native_aval_metadata_schema()
+            finally:
+                declaration[:] = sequence
+        else:
+            with monkeypatch.context() as change:
+                change.setattr(owner, "__slots__", malformed)
+                with pytest.raises(TypeError, match="slot declaration changed"):
+                    compat.native_aval_metadata_schema()
+        assert vars(owner)["__slots__"] is declaration
+        assert compat.native_aval_metadata_schema() == expected[sequence]
+    with monkeypatch.context() as change:
+        change.setattr(owner, "__slots__", Foreign())
+        with pytest.raises(TypeError, match="slot declaration changed"):
+            compat.native_aval_metadata_schema()
+    with monkeypatch.context() as change:
+        change.setattr(compat, "ShapedArray", Foreign())
+        with pytest.raises(TypeError, match="class binding changed"):
+            compat.native_aval_metadata_schema()
+    assert invoked == []
+
+
+def test_native_stripped_cache_lazy_and_actual_populated_reads_are_unchanged(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    backing = np.asarray([-0.0, np.nan], np.float32)
+    value = _native_typed_constant(backing, True)
+    carrier_state = _native_typed_constant_state(value)
+    assert compat.native_typed_array_payload(value)[1] is True
+    _assert_native_typed_constant_state(value, carrier_state)
+    if compat.native_aval_metadata_schema() != "manual-stripped":
+        # The new cache relation confers no permission on older layouts.
+        with pytest.raises(TypeError, match="exact schema"):
+            compat._require_manual_stripped_aval_cache(
+                compat.ShapedArray((2,), np.float32)
+            )
+        return
+    audit = _corrupt_isolated_native_cached_aval(value, "_stripped_weak_type", None)
+    base = value._aval
+    lazy_state = _native_aval_slot_state(base)
+    assert compat.native_typed_array_payload(value)[1] is True
+    _assert_original_native_aval_untouched((base, lazy_state, *audit[2:]))
+    # The real native method, before observation, populates only this isolated
+    # aval. The original interned aval and its every slot remain unchanged.
+    strong = base.strip_weak_type()
+    assert base._stripped_weak_type is strong and strong.weak_type is False
+    assert strong._stripped_weak_type is None
+    _assert_original_native_aval_untouched(audit)
+    base_state, strong_state = _native_aval_slot_state(base), _native_aval_slot_state(
+        strong
+    )
+    carrier_state = _native_typed_constant_state(value)
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("native cache method ran during observation")
+
+    with monkeypatch.context() as change:
+        change.setattr(compat.ShapedArray, "strip_weak_type", forbidden)
+        change.setattr(compat.ShapedArray, "update_weak_type", forbidden)
+        for _ in range(3):
+            result = compat.native_typed_array_payload(value)
+            assert result is not None and result[1] is True
+            assert result[0].dtype == backing.dtype and result[0].shape == backing.shape
+            assert result[0].tobytes() == audit[-1]
+            _assert_native_typed_constant_state(value, carrier_state)
+            _assert_original_native_aval_untouched((base, base_state, *audit[2:]))
+            _assert_original_native_aval_untouched((strong, strong_state, *audit[2:]))
+            _assert_original_native_aval_untouched(audit)
+
+
+def test_native_stripped_cache_rejects_stale_foreign_and_cyclic_state_without_hooks() -> (
+    None
+):
+    backing = np.asarray([-0.0, np.nan], np.float32)
+    value = _native_typed_constant(backing, True)
+    assert compat.native_typed_array_payload(value)[1] is True
+    if compat.native_aval_metadata_schema() != "manual-stripped":
+        with pytest.raises(TypeError, match="exact schema"):
+            compat._require_manual_stripped_aval_cache(
+                compat.ShapedArray((2,), np.float32)
+            )
+        return
+    audit = _corrupt_isolated_native_cached_aval(value, "_stripped_weak_type", None)
+    base = value._aval
+    strong = base.strip_weak_type()
+    strong_state = _native_aval_slot_state(strong)
+    slots = {name: slot for name, slot, _, _ in _native_aval_slot_state(base)}
+    carrier_slot = dict(compat._NATIVE_TYPED_ARRAY_MEMBERS)["_aval"]
+    invoked = []
+
+    class Foreign:
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("foreign cache reflection ran")
+
+        def __eq__(self, other: Any) -> bool:
+            invoked.append("equality")
+            raise AssertionError("foreign cache equality ran")
+
+        def __repr__(self) -> str:
+            invoked.append("repr")
+            raise AssertionError("foreign cache representation ran")
+
+    class Derived(compat.ShapedArray):
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("derived cache reflection ran")
+
+    def clone(original: Any) -> Any:
+        copied = object.__new__(compat.ShapedArray)
+        for _, slot, initialized, item in _native_aval_slot_state(original):
+            if initialized:
+                slot.__set__(copied, item)
+        return copied
+
+    faults = (
+        "weak",
+        "weak-type",
+        "dtype",
+        "foreign-dtype",
+        "shape",
+        "foreign-shape",
+        "sharding",
+        "manual",
+        "memory",
+        "self",
+        "nested",
+        "foreign",
+        "subclass",
+        "uninitialized",
+        "strong-base",
+    )
+    for fault in faults:
+        isolated, cached = clone(base), clone(strong)
+        slots["_stripped_weak_type"].__set__(isolated, cached)
+        carrier_slot.__set__(value, isolated)
+        if fault == "weak":
+            slots["weak_type"].__set__(cached, True)
+        elif fault == "weak-type":
+            slots["weak_type"].__set__(cached, 0)
+        elif fault == "dtype":
+            slots["dtype"].__set__(cached, np.dtype(np.float64))
+        elif fault == "foreign-dtype":
+            slots["dtype"].__set__(cached, Foreign())
+        elif fault == "shape":
+            slots["shape"].__set__(cached, (3,))
+        elif fault == "foreign-shape":
+            slots["shape"].__set__(cached, (Foreign(),))
+        elif fault in ("sharding", "manual", "memory"):
+            field = {
+                "sharding": "sharding",
+                "manual": "manual_axis_type",
+                "memory": "memory_space",
+            }[fault]
+            slots[field].__set__(cached, Foreign())
+        elif fault == "self":
+            slots["_stripped_weak_type"].__set__(isolated, isolated)
+        elif fault == "nested":
+            slots["_stripped_weak_type"].__set__(cached, isolated)
+        elif fault == "foreign":
+            slots["_stripped_weak_type"].__set__(isolated, Foreign())
+        elif fault == "subclass":
+            slots["_stripped_weak_type"].__set__(isolated, object.__new__(Derived))
+        elif fault == "uninitialized":
+            slots["_stripped_weak_type"].__delete__(cached)
+        else:
+            slots["weak_type"].__set__(isolated, False)
+        before = _native_typed_constant_state(value)
+        base_before, cached_before = _native_aval_slot_state(
+            isolated
+        ), _native_aval_slot_state(cached)
+        with pytest.raises(TypeError, match="native signature.*stripped"):
+            compat.native_typed_array_payload(value)
+        assert invoked == [], fault
+        _assert_native_typed_constant_state(value, before)
+        _assert_original_native_aval_untouched((isolated, base_before, *audit[2:]))
+        _assert_original_native_aval_untouched((cached, cached_before, *audit[2:]))
+        _assert_original_native_aval_untouched((strong, strong_state, *audit[2:]))
+        _assert_original_native_aval_untouched(audit)
+    assert backing.tobytes() == audit[-1]
+
+
+def test_native_stripped_cache_symbolic_identity_retains_scope_without_foreign_hooks() -> (
+    None
+):
+    if compat.native_aval_metadata_schema() != "manual-stripped":
+        aval = compat.ShapedArray((2,), np.float32, weak_type=True)
+        before = _native_aval_slot_state(aval)
+        compat._require_plain_native_aval(aval)
+        assert all(
+            a[0] == b[0] and all(x is y for x, y in zip(a[1:], b[1:], strict=True))
+            for a, b in zip(_native_aval_slot_state(aval), before, strict=True)
+        )
+        with pytest.raises(TypeError, match="exact schema"):
+            compat._require_manual_stripped_aval_cache(aval)
+        return
+    from jax import export
+
+    scope = export.SymbolicScope()
+    (dim,) = export.symbolic_shape("B", scope=scope)
+    original = compat.ShapedArray((dim,), np.float32, weak_type=True)
+    original_state = _native_aval_slot_state(original)
+    base = object.__new__(compat.ShapedArray)
+    for _, slot, initialized, item in original_state:
+        if initialized:
+            slot.__set__(base, item)
+    cache_slot = vars(compat.ShapedArray)["_stripped_weak_type"]
+    cache_slot.__set__(base, None)
+    strong = base.strip_weak_type()
+    before = (_native_aval_slot_state(base), _native_aval_slot_state(strong))
+    for _ in range(3):
+        compat._require_plain_native_aval(base)
+        for actual, expected in zip(
+            (_native_aval_slot_state(base), _native_aval_slot_state(strong)),
+            before,
+            strict=True,
+        ):
+            assert all(
+                a[0] == b[0] and all(x is y for x, y in zip(a[1:], b[1:], strict=True))
+                for a, b in zip(actual, expected, strict=True)
+            )
+    other_scope = export.SymbolicScope()
+    (other_dim,) = export.symbolic_shape("B", scope=other_scope)
+    stale = object.__new__(compat.ShapedArray)
+    for _, slot, initialized, item in before[1]:
+        if initialized:
+            slot.__set__(stale, item)
+    vars(compat.ShapedArray)["shape"].__set__(stale, (other_dim,))
+    cache_slot.__set__(base, stale)
+    with pytest.raises(TypeError, match="symbolic identity"):
+        compat._require_plain_native_aval(base)
+    assert (
+        dim.scope is scope
+        and other_dim.scope is other_scope
+        and scope is not other_scope
+    )
+    assert all(
+        a[0] == b[0] and all(x is y for x, y in zip(a[1:], b[1:], strict=True))
+        for a, b in zip(_native_aval_slot_state(original), original_state, strict=True)
+    )

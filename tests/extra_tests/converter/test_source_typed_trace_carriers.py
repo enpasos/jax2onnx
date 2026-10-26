@@ -320,3 +320,38 @@ def test_typed_host_literal_checks_owner_before_reflection_or_conversion(
     _unchanged(value, before)
     assert typed_trace_manifest(trace)["outputs"][0]["literal"] == _expected(backing)
     _unchanged(value, before)
+
+
+def test_actual_stripped_cache_remains_internal_to_typed_trace_json() -> None:
+    backing = _backing("fp64-words")
+    value = _carrier(backing, True)
+    aval = compat.ShapedArray(backing.shape, backing.dtype, weak_type=True)
+    trace = _trace(value, aval)
+    baseline = typed_trace_manifest(trace)
+    before = _state(value)
+    assert typed_trace_manifest(trace) == baseline
+    _unchanged(value, before)
+    if compat.native_aval_metadata_schema() != "manual-stripped":
+        with pytest.raises(TypeError, match="exact schema"):
+            compat._require_manual_stripped_aval_cache(aval)
+        return
+    audit = _corrupt_isolated_native_cached_aval(value, "_stripped_weak_type", None)
+    base = value._aval
+    lazy = typed_trace_manifest(trace)
+    assert lazy == baseline and base._stripped_weak_type is None
+    strong = base.strip_weak_type()
+    assert base._stripped_weak_type is strong and strong.weak_type is False
+    assert strong._stripped_weak_type is None
+    base_before, strong_before = _native_aval_slot_state(base), _native_aval_slot_state(
+        strong
+    )
+    carrier_before = _state(value)
+    for _ in range(3):
+        assert typed_trace_manifest(trace) == baseline
+        result = compat.native_typed_array_payload(value)
+        assert result is not None and result[1] is True
+        assert result[0].tobytes() == backing.tobytes()
+        _unchanged(value, carrier_before)
+        _assert_original_native_aval_untouched((base, base_before, *audit[2:]))
+        _assert_original_native_aval_untouched((strong, strong_before, *audit[2:]))
+        _assert_original_native_aval_untouched(audit)

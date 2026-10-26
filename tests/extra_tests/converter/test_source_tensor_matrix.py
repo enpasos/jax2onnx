@@ -1073,6 +1073,8 @@ def test_tensor_matrix_checks_physical_metadata_before_emitting_or_mutating(
             "lhs" if var is equation.invars[0] else "rhs"
         ],
         allocate_value_for_var=lambda *args, **kwargs: values["output"],
+        # Naming is pure setup; graph emission and binding remain observed.
+        fresh_name=lambda hint: hint,
         bind_value_for_var=forbidden,
         builder=SimpleNamespace(opset=23, op=forbidden),
     )

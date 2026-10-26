@@ -464,7 +464,7 @@ def test_current_counterpart_rejects_stale_or_other_checkout_source(
 
 
 def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
-    """Current v7 retains all v1-v6 rejection and archived descriptor controls."""
+    """Current v8 retains all v1-v7 rejection and archived descriptor controls."""
     registrations, _ = raw_registrations()
     blob = probe.DEFAULT_BASELINE.read_bytes()
     plan = probe.build_probe_plan(
@@ -473,7 +473,11 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
     controls = probe._corpus_product_controls(plan, registrations)
     assert (
         len(controls) == 4
-        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v7"
+        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v8"
+    )
+    assert (
+        probe.HISTORICAL_CORPUS_CONTROL_REVISION_V7
+        == "source-static-add-ordinary-dot-v7"
     )
     assert probe._corpus_controls_admitted(controls)
     for defect in (
@@ -489,6 +493,8 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
         "v6",
         "v6-identifier",
         "v6-digest",
+        "v7",
+        "v7-digest",
         "v2-snapshot-digest",
     ):
         broken = deepcopy(controls)
@@ -516,6 +522,12 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
         elif defect == "v6-digest":
             broken[2]["corpus_structure"]["counterpart_sha256"] = (
                 probe.HISTORICAL_CORPUS_DOT_DESCRIPTOR_V6["counterpart_sha256"]
+            )
+        elif defect == "v7":
+            broken[2]["control_revision"] = probe.HISTORICAL_CORPUS_CONTROL_REVISION_V7
+        elif defect == "v7-digest":
+            broken[2]["corpus_structure"]["counterpart_sha256"] = (
+                probe.HISTORICAL_CORPUS_DOT_DESCRIPTOR_V7["counterpart_sha256"]
             )
         elif defect == "v2-snapshot-digest":
             broken[2]["corpus_structure"]["counterpart_sha256"] = (
@@ -569,6 +581,9 @@ def test_native_linear_counterpart_rejects_parameter_and_wiring_corruption(
 
 def test_current_linear_v2_preserves_archived_v1_source_and_descriptors() -> None:
     assert oracles.DOT_SOURCE_SHA256 == (
+        "6433dfb3292cb8966e4b11d2f5f677f78a86dc50311298eb41cd236cabd4ec0b"
+    )
+    assert oracles.HISTORICAL_DOT_SOURCE_SHA256_BEFORE_FRESH_NAMES == (
         "96a458f4294fde2f3ec3c596d80a4188b36c422b4b19f22181f305ee59c8d4b3"
     )
     assert oracles.HISTORICAL_DOT_SOURCE_SHA256_V2 == (
