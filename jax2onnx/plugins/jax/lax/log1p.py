@@ -5,9 +5,10 @@ from jax2onnx._compat.jax import JaxprEqn
 import jax
 import numpy as np
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
+from jax2onnx.plugins.jax._log1p_expm1 import emit_log1p
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -20,6 +21,18 @@ from jax2onnx.plugins.plugin_system import (
     onnx=[
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
         {"component": "Log", "doc": "https://onnx.ai/onnx/operators/onnx__Log.html"},
+        {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {
+            "component": "Equal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+        },
+        {"component": "Or", "doc": "https://onnx.ai/onnx/operators/onnx__Or.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
     ],
     since="0.11.0",
     context="primitives.lax",
@@ -28,59 +41,37 @@ from jax2onnx.plugins.plugin_system import (
         {
             "testcase": "log1p",
             "callable": lambda x: jax.lax.log1p(x),
-            "input_shapes": [(3,)],
+            # Log(1 + x) returns 0 or loses most digits for the small entries.
+            "input_values": [
+                np.array(
+                    [-0.5, -1e-3, -(2.0**-30), 0.0, 2.0**-30, 1e-6, 1e-3, 0.5, 3.0],
+                    dtype=np.float32,
+                )
+            ],
+            "rtol_f32": 1e-6,
+            "rtol_f64": 1e-12,
+            "atol": 0.0,
             "post_check_onnx_graph": EG(
-                ["Add:3 -> Log:3"],
+                ["Add:9 -> Sub:9 -> Div:9 -> Where:9 -> Mul:9"],
                 no_unused_inputs=True,
             ),
         }
     ],
 )
 class Log1pPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.log1p`` to ONNX via Add + Log."""
+    """Lower ``lax.log1p`` with a compensated ``Log(1 + x)``."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("log1p_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("log1p_out"))
-
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("log1p_out")
-        producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("log1p_out")
-
-        dtype_enum = getattr(getattr(x_val, "type", None), "dtype", None)
-        np_dtype = ir_dtype_to_numpy(dtype_enum, default=None)
-        if np_dtype is None:
-            aval = getattr(x_var, "aval", None)
-            np_dtype = np.dtype(getattr(aval, "dtype", np.float32))
-
-        one_scalar = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
-
-        sum_val = ctx.builder.Add(
-            x_val,
-            one_scalar,
-            _outputs=[ctx.fresh_name("log1p_add")],
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("log1p_out")
         )
-        if getattr(x_val, "type", None) is not None:
-            sum_val.type = x_val.type
-        elif getattr(out_spec, "type", None) is not None:
-            sum_val.type = out_spec.type
-        if getattr(x_val, "shape", None) is not None:
-            sum_val.shape = x_val.shape
-        elif getattr(out_spec, "shape", None) is not None:
-            sum_val.shape = out_spec.shape
+        x_val = promote_float32_operand(
+            ctx, x_val, target_dtype=out_spec.dtype, name_hint="log1p_operand_double"
+        )
 
-        result = ctx.builder.Log(sum_val, _outputs=[desired_name])
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        elif getattr(sum_val, "type", None) is not None:
-            result.type = sum_val.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
-        elif getattr(sum_val, "shape", None) is not None:
-            result.shape = sum_val.shape
-
+        result = emit_log1p(ctx, x_val, name_hint="log1p", output=out_spec)
         ctx.bind_value_for_var(out_var, result)

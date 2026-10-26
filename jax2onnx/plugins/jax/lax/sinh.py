@@ -1,14 +1,14 @@
 # jax2onnx/plugins/jax/lax/sinh.py
 
-from typing import Any
-
-from jax2onnx._compat.jax import JaxprEqn
 import jax
 import numpy as np
+import onnx_ir as ir
+from jax2onnx._compat.jax import JaxprEqn
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
-
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
+from jax2onnx.plugins.jax._log1p_expm1 import emit_sinh
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -22,7 +22,24 @@ from jax2onnx.plugins.plugin_system import (
         {
             "component": "Sinh",
             "doc": "https://onnx.ai/onnx/operators/onnx__Sinh.html",
-        }
+        },
+        {"component": "Abs", "doc": "https://onnx.ai/onnx/operators/onnx__Abs.html"},
+        {"component": "Exp", "doc": "https://onnx.ai/onnx/operators/onnx__Exp.html"},
+        {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
+        {"component": "Log", "doc": "https://onnx.ai/onnx/operators/onnx__Log.html"},
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {
+            "component": "Equal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+        },
+        {"component": "Less", "doc": "https://onnx.ai/onnx/operators/onnx__Less.html"},
+        {"component": "Or", "doc": "https://onnx.ai/onnx/operators/onnx__Or.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
     ],
     since="0.4.4",
     context="primitives.lax",
@@ -31,15 +48,19 @@ from jax2onnx.plugins.plugin_system import (
         {
             "testcase": "sinh",
             "callable": lambda x: jax.lax.sinh(x),
-            "input_shapes": [(3,)],
+            # (Exp(x) - Exp(-x)) / 2 returns 0 or loses most digits for the
+            # small entries.
+            "input_values": [
+                np.array(
+                    [-20.0, -1.0, -1e-3, -(2.0**-30), 0.0, 2.0**-30, 1e-6, 1e-3, 1.0],
+                    dtype=np.float32,
+                )
+            ],
+            "rtol_f32": 1e-6,
+            "rtol_f64": 1e-12,
+            "atol": 0.0,
             "post_check_onnx_graph": EG(
-                [
-                    "Sinh:3",
-                    {
-                        "path": "Exp:3 -> Sub:3 -> Mul:3",
-                        "inputs": {1: {"const": 0.5}},
-                    },
-                ],
+                ["Sinh:9", "Abs:9 -> Exp:9 -> Sub:9 -> Mul:9 -> Where:9 -> Where:9"],
                 mode="any",
                 no_unused_inputs=True,
             ),
@@ -47,52 +68,23 @@ from jax2onnx.plugins.plugin_system import (
     ],
 )
 class SinhPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    """Lower ``lax.sinh`` to ``Sinh``, or a compensated form without a kernel."""
+
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("sinh_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sinh_out"))
-
-        x_dtype: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("sinh_out")
-        producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("sinh_out")
-
-        if x_dtype == np.float32:
-            result = ctx.builder.Sinh(x_val, _outputs=[desired_name])
-            if getattr(out_spec, "type", None) is not None:
-                result.type = out_spec.type
-            if getattr(out_spec, "shape", None) is not None:
-                result.shape = out_spec.shape
-            ctx.bind_value_for_var(out_var, result)
-            return
-
-        # ONNX lacks a DOUBLE kernel for Sinh; emulate via (exp(x) - exp(-x)) * 0.5
-        exp_x = ctx.builder.Exp(x_val, _outputs=[ctx.fresh_name("sinh_exp")])
-        exp_x.type = x_val.type
-        exp_x.shape = x_val.shape
-
-        neg_x = ctx.builder.Neg(x_val, _outputs=[ctx.fresh_name("sinh_neg")])
-        neg_x.type = x_val.type
-        neg_x.shape = x_val.shape
-
-        exp_neg_x = ctx.builder.Exp(neg_x, _outputs=[ctx.fresh_name("sinh_exp_neg")])
-        exp_neg_x.type = x_val.type
-        exp_neg_x.shape = x_val.shape
-
-        diff_val = ctx.builder.Sub(
-            exp_x, exp_neg_x, _outputs=[ctx.fresh_name("sinh_diff")]
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("sinh_out")
         )
-        diff_val.type = x_val.type
-        diff_val.shape = x_val.shape
+        x_val = promote_float32_operand(
+            ctx, x_val, target_dtype=out_spec.dtype, name_hint="sinh_operand_double"
+        )
 
-        half = ctx.bind_const_for_var(object(), np.asarray(0.5, dtype=x_dtype))
-
-        result = ctx.builder.Mul(diff_val, half, _outputs=[desired_name])
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
+        # ONNX Runtime has no float64 or bfloat16 Sinh kernel.
+        if out_spec.dtype == ir.DataType.FLOAT:
+            result = ctx.builder.op("Sinh", [x_val], output=out_spec)
+        else:
+            result = emit_sinh(ctx, x_val, name_hint="sinh", output=out_spec)
         ctx.bind_value_for_var(out_var, result)
