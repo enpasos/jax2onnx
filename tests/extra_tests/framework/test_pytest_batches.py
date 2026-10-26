@@ -371,6 +371,284 @@ def _cast_observer_module() -> Any:
     return module
 
 
+def _observer_off_request(module: Any, original: dict[str, Any]) -> dict[str, Any]:
+    payload = (json.dumps(original, indent=2, ensure_ascii=False) + "\n").encode()
+    return {
+        **original,
+        "diagnostic_control": {
+            "schema": "source-cast-observer-off-v1",
+            "nodeid": module._CAST_OBSERVER_NODE,
+            "original_request_sha256": hashlib.sha256(payload).hexdigest(),
+            "original_receipt_sha256": "1" * 64,
+            "original_observer_sha256": "2" * 64,
+            "observer_enabled": False,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "extra",
+        "schema",
+        "node",
+        "enabled",
+        "digest",
+        "uppercase",
+        "request-drift",
+        "kind",
+    ),
+)
+def test_observer_off_descriptor_rejects_unknown_or_unbound_control(fault: str) -> None:
+    module = _runner()
+    original = {
+        "kind": "batch",
+        "assigned": [module._CAST_OBSERVER_NODE],
+        "full_preselection_ids": [module._CAST_OBSERVER_NODE],
+        "collection_skips": [],
+        "pytest_args": ["-x"],
+    }
+    request = _observer_off_request(module, original)
+    assert module._diagnostic_control(request) == request["diagnostic_control"]
+    if fault == "extra":
+        request["diagnostic_control"]["extra"] = False
+    elif fault == "schema":
+        request["diagnostic_control"]["schema"] = "another-version"
+    elif fault == "node":
+        request["diagnostic_control"]["nodeid"] = "another-node"
+    elif fault == "enabled":
+        request["diagnostic_control"]["observer_enabled"] = 0
+    elif fault == "digest":
+        request["diagnostic_control"]["original_receipt_sha256"] = "bad"
+    elif fault == "uppercase":
+        request["diagnostic_control"]["original_observer_sha256"] = "A" * 64
+    elif fault == "kind":
+        request["kind"] = "collection"
+    else:
+        request["pytest_args"].append("changed")
+    with pytest.raises(ValueError, match="observer-off"):
+        module._diagnostic_control(request)
+
+
+def test_worker_context_environment_is_bounded_without_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _runner()
+    monkeypatch.setenv("JAX2ONNX_MAXTEXT_SRC", "/fixed/discovery")
+    context = module._worker_context()
+    assert context["environment"]["JAX2ONNX_MAXTEXT_SRC"] == "/fixed/discovery"
+    assert "PYTHONHASHSEED" in context["environment"]
+    monkeypatch.setenv("XLA_FLAGS", "x" * 8193)
+    oversized = module._worker_context()
+    assert oversized["status"] == "UNVERIFIED"
+    assert oversized["environment"] == {}
+    assert {"stage": "environment", "error_type": "ValueError"} in oversized["errors"]
+
+
+def test_real_worker_separates_startup_environment_from_full_collection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("JAX_PLATFORMS", raising=False)
+    monkeypatch.delenv("JAX_ENABLE_X64", raising=False)
+    _, _, folder = _run_suite(
+        tmp_path,
+        {
+            "conftest.py": "import os\nos.environ['JAX_PLATFORMS']='cpu'\nos.environ['JAX_ENABLE_X64']='True'\n",
+            "test_case.py": "def test_case():\n    pass\n",
+        },
+    )
+    receipt = json.loads((folder / "batch-0001/receipt.json").read_text())
+    assert receipt["startup_context"]["environment"]["JAX_PLATFORMS"] is None
+    assert receipt["startup_context"]["environment"]["JAX_ENABLE_X64"] is None
+    assert receipt["startup_context"]["loaded_jax_config"]["status"] == "NOT_LOADED"
+    assert receipt["collection_context"]["environment"]["JAX_PLATFORMS"] == "cpu"
+    assert receipt["collection_context"]["environment"]["JAX_ENABLE_X64"] == "True"
+    assert receipt["supplemental"] is False and receipt["cast_observer_enabled"] is True
+    assert "diagnostic_control" not in json.loads(
+        (folder / "batch-0001/request.json").read_text()
+    )
+
+
+@pytest.mark.parametrize("original_pass", (False, True))
+def test_real_observer_off_control_never_imports_observer_or_validates_canonical(
+    original_pass: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    copied = tmp_path / "runner"
+    copied.mkdir()
+    runner = copied / "run_pytest_batches.py"
+    runner.write_text(_RUNNER.read_text())
+    marker = copied / "observer-imported"
+    (copied / "_source_cast_observer.py").write_text(
+        "from pathlib import Path\nPath(__file__).with_name('observer-imported').write_text('yes')\n"
+        "def start_observation(*args):\n    raise RuntimeError('original observer sentinel')\n"
+    )
+    monkeypatch.setitem(globals(), "_RUNNER", runner)
+    owner = "tests/extra_tests/converter/test_source_conversion_semantics.py"
+    content = (
+        "import pytest\nfrom pathlib import Path\n"
+        "@pytest.mark.parametrize('source',['float64'])\n"
+        "@pytest.mark.parametrize('target',['float16'])\n"
+        "@pytest.mark.parametrize('group',['ties'])\n"
+        "def test_floating_conversion_rounding_and_strict_special_value_gates(source,target,group):\n"
+        "    p=Path('original-calls')\n    p.write_text(p.read_text()+'x' if p.exists() else 'x')\n"
+        + (
+            "    assert False, 'unchanged original failure'\n"
+            if not original_pass
+            else ""
+        )
+    )
+    result, run, folder = _run_suite(tmp_path, {owner: content})
+    assert marker.exists()
+    marker.unlink()
+    module = _runner()
+    original = json.loads((folder / "batch-0001/request.json").read_text())
+    request = _observer_off_request(module, original)
+    control = tmp_path / "control"
+    control.mkdir()
+    (control / "request.json").write_text(
+        json.dumps(request, indent=2, ensure_ascii=False) + "\n"
+    )
+    child = subprocess.run(
+        [sys.executable, str(runner), "--worker", str(control / "request.json")],
+        cwd=tmp_path / "suite",
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    receipt = json.loads((control / "receipt.json").read_text())
+    assert not marker.exists()
+    assert child.returncode == result.returncode
+    assert (tmp_path / "suite/original-calls").read_text() == "xx"
+    assert (
+        receipt["supplemental"] is True and receipt["native_source_recomputed"] is True
+    )
+    assert receipt["cast_observer_enabled"] is False
+    for name in ("target_context_before", "target_context_after"):
+        assert receipt[name]["sys_profile_is_none"] is True
+        assert receipt[name]["threading_profile_is_none"] is True
+    with pytest.raises(ValueError, match="supplemental"):
+        module._validate(
+            receipt,
+            original["assigned"],
+            original["full_preselection_ids"],
+            original["collection_skips"],
+        )
+
+
+def test_observer_off_control_never_clears_an_existing_profile(
+    tmp_path: Path,
+) -> None:
+    module = _runner()
+    suite = tmp_path / "suite"
+    owner = suite / "tests/extra_tests/converter/test_source_conversion_semantics.py"
+    owner.parent.mkdir(parents=True)
+    owner.write_text(
+        "import pytest\nfrom pathlib import Path\n"
+        "@pytest.mark.parametrize('source',['float64'])\n"
+        "@pytest.mark.parametrize('target',['float16'])\n"
+        "@pytest.mark.parametrize('group',['ties'])\n"
+        "def test_floating_conversion_rounding_and_strict_special_value_gates(source,target,group):\n"
+        "    Path('unexpected-source-call').write_text('ran')\n"
+    )
+    (suite / "conftest.py").write_text(
+        "import sys,pytest\nfrom pathlib import Path\n"
+        "def PROFILE(*args):\n    return None\n"
+        "@pytest.fixture(autouse=True)\n"
+        "def active_profile():\n"
+        "    before=sys.getprofile()\n    sys.setprofile(PROFILE)\n"
+        "    try:\n        yield\n"
+        "    finally:\n"
+        "        assert sys.getprofile() is PROFILE\n"
+        "        Path('profile-preserved').write_text('yes')\n"
+        "        sys.setprofile(before)\n"
+    )
+    original = {
+        "kind": "batch",
+        "assigned": [module._CAST_OBSERVER_NODE],
+        "full_preselection_ids": [module._CAST_OBSERVER_NODE],
+        "collection_skips": [],
+        "pytest_args": ["-q", str(suite)],
+    }
+    folder = tmp_path / "control"
+    folder.mkdir()
+    (folder / "request.json").write_text(
+        json.dumps(
+            _observer_off_request(module, original), indent=2, ensure_ascii=False
+        )
+        + "\n"
+    )
+    result = subprocess.run(
+        [sys.executable, str(_RUNNER), "--worker", str(folder / "request.json")],
+        cwd=suite,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert not (suite / "unexpected-source-call").exists()
+    assert (suite / "profile-preserved").read_text() == "yes"
+    receipt = json.loads((folder / "receipt.json").read_text())
+    assert receipt["native_source_recomputed"] is False
+    assert receipt["target_context_before"]["sys_profile_is_none"] is False
+    assert receipt["target_context_after"]["sys_profile_is_none"] is False
+
+
+def test_child_explicit_environment_does_not_mutate_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    module = _runner()
+    monkeypatch.setenv("JAX2ONNX_CONTROL_ENV_TEST", "parent")
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "test_case.py").write_text(
+        "import os\nassert os.environ['JAX2ONNX_CONTROL_ENV_TEST']=='child'\n"
+        "def test_case():\n    pass\n"
+    )
+    environment = dict(os.environ, JAX2ONNX_CONTROL_ENV_TEST="child")
+    request = {
+        "kind": "collection",
+        "pytest_args": [str(suite), "--collect-only", "-q"],
+    }
+    run = {"processes": [], "status": "RUNNING"}
+    assert (
+        module._child(
+            tmp_path / "child", request, run, tmp_path, environment=environment
+        )
+        == 0
+    )
+    assert os.environ["JAX2ONNX_CONTROL_ENV_TEST"] == "parent"
+    receipt = json.loads((tmp_path / "child/receipt.json").read_text())
+    assert (
+        receipt["startup_context"]["environment"]["JAX2ONNX_CONTROL_ENV_TEST"]
+        == "child"
+    )
+
+
+def test_child_diagnostic_timeout_is_terminal_without_retry(tmp_path: Path) -> None:
+    module = _runner()
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "test_case.py").write_text(
+        "import time\ntime.sleep(60)\ndef test_case():\n    pass\n"
+    )
+    request = {
+        "kind": "collection",
+        "pytest_args": [str(suite), "--collect-only", "-q"],
+    }
+    run = {"processes": [], "status": "RUNNING"}
+    with pytest.raises(TimeoutError, match="fixed timeout"):
+        module._child(tmp_path / "child", request, run, tmp_path, timeout_seconds=0.2)
+    assert run["status"] == "FAIL" and len(run["processes"]) == 1
+    assert run["processes"][0]["diagnostic_timeout_seconds"] == 0.2
+    assert run["processes"][0]["returncode"] is not None
+
+
 @pytest.mark.parametrize(
     "diagnostic,original_pass",
     (

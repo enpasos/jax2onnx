@@ -126,6 +126,59 @@ Current proof paths and primary contract references are in the
 [handoff](../implementation_handoff.md#actual-hosted-fp64-to-fp16-failure).
 Public **LEGACY**, model/resource and full **B–F** gates remain open.
 
+### Hosted diagnostic closure and observer causality control
+
+At exact head `b8888c40`, [CI #537](https://github.com/enpasos/jax2onnx/actions/runs/40386799137)
+again fails the original Python 3.11 tie case. Original receipt/events/JUnit,
+observer and model remain unchanged. The complete new installed-file manifest
+verifies **57 files / 458,165,086 bytes**; all measured file paths, sizes and
+SHA values match the local Python 3.11 audit. This rules out differences in
+those measured installed files, without claiming executed-kernel identity.
+The new separate hosted replay now observes all four optimization/reference
+combinations: runtime VALIDATED, numerics FAILED, and acceptance errors.
+These are supplementary calls; the original call still stops at comparison 1.
+
+This does not exclude an observer effect on native JAX behavior. The earlier
+`70ea34ad` run is now terminal **eight SUCCESS**, but its enum-schema failure
+left the profiler uninstalled and its hardware/native context uncaptured.
+That ancestor success does not qualify the current head or establish causality.
+Before any assertion amendment, the next experiment reproduces the current
+failed request once with the observer disabled in a separately identified child.
+Full collection, assigned order, all predecessors, inputs, criteria and startup
+context remain fixed. Startup is captured before pytest/imports; target-time
+environment mutations from collection must not be applied prematurely.
+
+Canonical execution remains observer-on and rejects supplementary receipts as
+full-suite completion. Matching unprofiled bitwise failure shows this observer
+is unnecessary for that reproduced failure. Target success establishes an
+association requiring further investigation; changed history, context,
+profiling, interruption or invalid evidence remains UNVERIFIED. The original
+failure remains authoritative. Implementation, tests, hooks and independent
+review of this control retain their own gates. Full **B–F** scope and public
+**LEGACY** defaults remain unchanged. Actual #537 proof is under
+`/tmp/jax2onnx-goal-validation/cib888-python311/`.
+
+The control's final local code epoch is source-files
+`d761acce0350de0b1d0f9ef0cb1fb9a55876c3cf7450338005f31dad00c256c1`.
+All three complete diagnostic owners pass **139 identical ordered unique cases
+per cohort**, Python 3.14.9/JAX 0.12.0.1 and Python 3.11.17/JAX 0.10.2,
+with no failures/errors/skips and clean guarded source/environment/cleanup.
+The original unchanged node passes once ON and once OFF on each cohort; all
+four boundary contexts match exactly, including observed native JAX config
+after collection. Canonical completion rejects OFF receipts; a passing parent
+launches no failure-control child. Independent Astra review accepts these
+finite qualifications. They do not reproduce the hosted failure or its full
+predecessor history. The earlier interruption-test run remains **138 passed /
+one failed**, with its rejected receipt and separate cleanup record; the fixed
+test uses the persisted boundary and verifies owned worker cleanup.
+
+Complete original #537 failed-batch bytes also exercise UNVERIFIED rejection
+without child/framework imports because the new canonical/startup metadata is
+absent. The earlier sparse-extraction check established only missing-file
+rejection and retains its scope correction. Evidence paths are listed in the
+handoff; normal hooks/docs/commit and the actual hosted experiment remain
+separate gates. No numerical assertion amendment has been made.
+
 ### Retained earlier qualification epochs
 
 | Current gate | Actual source-bound result | Scope and remaining work |

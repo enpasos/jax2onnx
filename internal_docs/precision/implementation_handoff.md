@@ -1,9 +1,10 @@
 # Precision migration handoff — 2026-10-26
 
-This continues repair commit `87b2b3c6`, following checkpoint `3869ba31`.
+This continues diagnostic commit `b8888c40`, after annotation repair `87b2b3c6`.
 The annotation repair and original-call diagnostic have local qualification.
-The current CI gate is red at the exact FP64-to-FP16 witness below; a further
-diagnostic packet is being qualified. Continue on branch
+The current CI gate is red at the exact FP64-to-FP16 witness below; the
+observer-off control has independently reviewed local qualification; its
+actual hosted experiment remains pending. Continue on branch
 `precision-migration` in `/home/enpasos/projects/jax2onnx`.
 
 ## Objective and immediate priority
@@ -62,7 +63,7 @@ with complete artifact/runtime/comparison words and provenance, restored
 profile/settings, and held source/code identity. SciPy is explicitly
 **NOT_LOADED**, rather than imported for observation. This repairs diagnostic
 coverage; it changes no numerical conversion and does not explain the hosted
-Python 3.12 bitwise disagreement.
+bitwise disagreement.
 
 At source-files `08e434e7deee1680e5fe3d97ef72b01770fc1bdeb4f207f6cf7e18c325f5f0d8`,
 all seven actual pinned hooks pass over all files, including modern-stack mypy.
@@ -97,7 +98,8 @@ passes the unchanged actual node with all four comparisons: local eager/JIT and
 ORT all return `0x3c00`. This rules out Python minor version alone; it does not
 isolate CPU causality. Python build, native binaries and compiler settings have
 their own evidence limits. Local installed native files have matching RECORD
-hashes; hosted native binaries have not yet been measured.
+hashes; hosted native files had not yet been measured at that checkpoint. The
+later #537 measurements below supersede that evidence gap.
 
 The [ORT Cast implementation](https://raw.githubusercontent.com/microsoft/onnxruntime/v1.31.0/onnxruntime/core/providers/cpu/tensor/cast_op.cc)
 uses its [pinned Eigen half constructor](https://raw.githubusercontent.com/eigen-mirror/eigen/1d8b82b0740839c0de7f1242a3585e3390ff5f33/Eigen/src/Core/arch/Default/Half.h)
@@ -130,6 +132,74 @@ separate replay context. A real passing original-node receipt returns
 metadata and clean cleanup. Independent code review accepts this finite
 diagnostic packet. It does not repair the numerical mismatch or qualify the
 unattempted hosted comparisons; those still need actual CI evidence.
+
+## Hosted follow-up and the observer-off control
+
+Diagnostic commit `b8888c40` was stored with all seven normal hooks passing,
+unchanged tested file contents and strict-docs qualification, then pushed
+without force. [CI #537](https://github.com/enpasos/jax2onnx/actions/runs/40386799137)
+is bound to that exact head; its checkout/event merge is `71b03a7869875ea537747d76cc36e25e98831fa9`.
+Python 3.11 again fails the original tie case. The new observer supplies complete
+original word evidence and **57 verified installed files / 458,165,086 bytes**;
+all measured paths, sizes and SHA values match the local 3.11 manifest.
+Its separate **hosted** replay completes all four optimization/reference
+combinations: runtime execution VALIDATED, numerical acceptance FAILED and
+`SampleAcceptanceError`, with held original-evidence/source/artifact fences.
+The original call still contains only its first failed comparison.
+
+A further causal confound remains: the earlier green `70ea34ad` run had failed
+observer initialization, so its cast executed without this profiler. Its CPU
+and native context were not captured. Current installed-file agreement and
+target replays do not establish fresh unprofiled JAX behavior on the failing
+worker. Preserve the original success assertion while investigating this.
+
+The next controlled experiment uses one supplementary fresh child with the
+exact current failed request, full ordered collection, assigned items, pytest
+arguments and predecessor history. For #537 these are 15,119 collected items,
+390 assigned items and 323 predecessors before the target; derive counts from
+the actual new failure, rather than hardcoding them. Only an exact diagnostic
+descriptor disables observer activation in that child. Canonical execution
+keeps the observer and rejects supplementary receipts as completion evidence.
+
+Capture startup environment **before pytest/full collection**, then collection
+and target-entry/exit contexts separately. Full collection itself sets
+`JAX_PLATFORMS=cpu` and `JAX_ENABLE_X64=True`; copying those target-time values
+to startup changes the experiment. Missing startup evidence stays UNVERIFIED.
+Use no source wrappers, new native oracle, CPU/math flags or retry loop. Keep
+the original failed job and all original inputs/criteria unchanged.
+
+Matching unprofiled bitwise failure excludes observer activation as necessary
+for that reproduced failure. Target success establishes only an association
+and requires further paired investigation. Earlier failure, changed collection
+or predecessors, profile present, timeout, interruption or bad fences stay
+UNVERIFIED. Preserve `-x` and any unattempted suffix. No assertion amendment or
+numerical production rewrite is authorized by this diagnostic plan.
+
+At source-files
+`d761acce0350de0b1d0f9ef0cb1fb9a55876c3cf7450338005f31dad00c256c1`,
+the three complete diagnostic owners pass **139 identical ordered unique cases
+on each cohort**: Python 3.14.9/JAX 0.12.0.1 and Python 3.11.17/JAX 0.10.2.
+There are no failures/errors/skips; source/Git/index and environment metadata
+hold, and process cleanup is empty. Independent Astra review accepts the code
+and both actual local ON/OFF integrations. The predecessor modern run remains
+**138 passed / one failed**, with its original rejected receipt and a separate
+owned-process cleanup record; it does not qualify the final source epoch.
+
+The actual unchanged cast node also passes **once with the observer on and
+once with it off on each cohort**. Each pair has exactly equal startup,
+collection and target-before/after metadata, absent profiles at those boundaries,
+JAX NOT_LOADED at startup and native JAX config OBSERVED at the later boundaries.
+OFF produces no observer artifact, remains explicitly supplemental, and is
+rejected by canonical completion validation. Its passing parent is
+NOT_APPLICABLE to the failure-only coordinator, with no child launched. These
+one-node passing-baseline integrations qualify branch/config plumbing only;
+they are not the full hosted failed-history experiment or a numerical repair.
+
+A complete byte-equal extraction of #537's original failed batch is rejected
+as UNVERIFIED before a child or framework import because it lacks the new
+canonical/startup metadata. The controller does not infer missing context.
+An earlier local check used a sparse extraction and established only
+missing-file rejection; its scope correction is retained separately.
 
 ## Preserved predecessor outcomes
 
@@ -165,12 +235,11 @@ unattempted hosted comparisons; those still need actual CI evidence.
 
 ## Next concrete work
 
-Complete the diagnostic packet's normal hooks and documentation closeout, then
-store it with normal unskipped commit hooks before a repair push. Its finite
-code/test qualification is recorded above. Inspect all eight checks on
-that exact new head. Preserve original models, cases, inputs, assertions and
-criteria; neither a passing local replay nor a diagnostic commit repairs the
-numerical mismatch by itself.
+Store the observer-off control only after actual pinned hooks, an external-output
+strict documentation build and normal unskipped commit hooks pass. Then inspect
+all eight checks and the actual controlled outcome on that exact pushed head.
+Preserve original models, cases, inputs, assertions and criteria; a diagnostic
+commit alone does not repair the numerical mismatch.
 
 Only after the CI gate is green, resume the held shared-comparison work and the
 remaining full migration. The full-model resource gate and final public
@@ -205,6 +274,16 @@ The follow-up proof directories are `diagnostic-owners-{modern,python311}-v1`,
 under `ci87-python311/replay-current-{modern,python311}-v1.json`; they do not
 overwrite original files. The passing-node early exit has its separate
 `diagnostic-real-passing-node-not-applicable-v1` receipt.
+
+Actual #537 originals, native manifests, supplementary hosted replay and
+independent archive comparisons are under `cib888-python311/`.
+The complete original failed-batch extraction used for the control's rejection
+check is `control-archive-b888-complete-v1/`. Current control qualifications are
+`control-owners-modern-v2`, `control-owners-python311-v1`,
+`control-real-{modern,python311}-{on,off}-v1` and
+`control-real-archived-rejection-v2`; their aggregate is
+`control-packet-qualification-v1.json`. The real ON/OFF branch audits are
+`actual-control-{modern,python311}-off-v1/qualification.json`.
 
 Preserve machine stability: one native test/build/hook job at a time, one pytest
 worker, native thread counts of one, CPUs 4–7, a 4 GiB aggregate process guard,

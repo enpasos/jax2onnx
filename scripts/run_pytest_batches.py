@@ -12,6 +12,7 @@ No retry or resource-limit change can turn an incomplete run into success.
 import argparse
 from collections import Counter
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import threading
 import time
@@ -34,6 +36,323 @@ _CAST_OBSERVER_NODE = (
     "[ties-float16-float64]"
 )
 _CAST_DIAGNOSTIC_NAME = "source-f64-f16-cast-observation.json"
+_CONTROL_SCHEMA = "source-cast-observer-off-v1"
+_REQUEST_FIELDS = (
+    "kind",
+    "assigned",
+    "full_preselection_ids",
+    "collection_skips",
+    "pytest_args",
+)
+_WORKER_ENV_NAMES = (
+    "PYTHONPATH",
+    "PYTHONHASHSEED",
+    "PYTEST_ADDOPTS",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+    "PYTHONHOME",
+    "PYTHONNOUSERSITE",
+    "PYTHONSAFEPATH",
+    "PYTHONPYCACHEPREFIX",
+    "LD_LIBRARY_PATH",
+    "LD_PRELOAD",
+    "OMP_NUM_THREADS",
+    "OMP_THREAD_LIMIT",
+    "OMP_DYNAMIC",
+    "MKL_NUM_THREADS",
+    "MKL_DYNAMIC",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "TF_NUM_INTEROP_THREADS",
+    "TF_NUM_INTRAOP_THREADS",
+    "JAX_PLATFORMS",
+    "JAX_ENABLE_X64",
+    "XLA_FLAGS",
+    "NPY_DISABLE_CPU_FEATURES",
+    "JAX2ONNX_RUN_MAXTEXT",
+    "JAX2ONNX_MAXTEXT_SRC",
+    "JAX2ONNX_MAXTEXT_MODELS",
+    "JAX2ONNX_MAXTEXT_REF",
+    "JAX2ONNX_RUN_MAXDIFFUSION",
+    "JAX2ONNX_MAXDIFFUSION_SRC",
+    "JAX2ONNX_MAXDIFFUSION_MODELS",
+    "JAX2ONNX_MAXDIFFUSION_REF",
+)
+_WORKER_ENV_PREFIXES = (
+    "JAX_",
+    "JAX2ONNX_",
+    "XLA_",
+    "PYTEST_",
+    "OMP_",
+    "MKL_",
+    "OPENBLAS_",
+    "TF_",
+    "NPY_",
+    "NUMEXPR_",
+)
+_WORKER_SOURCE_FILES = (
+    "scripts/run_pytest_batches.py",
+    "scripts/_source_cast_observer.py",
+    "tests/extra_tests/converter/test_source_conversion_semantics.py",
+    "tests/extra_tests/converter/test_source_pointwise_mul_exp.py",
+    "tests/extra_tests/converter/test_source_predicate_families.py",
+    "jax2onnx/precision.py",
+    "jax2onnx/_compat/jax.py",
+    "jax2onnx/plugins/jax/lax/convert_element_type.py",
+)
+
+
+def _worker_environment_names(environment: Any = None) -> list[str]:
+    source = os.environ if environment is None else environment
+    names = set(_WORKER_ENV_NAMES)
+    for name in source:
+        if type(name) is not str:
+            raise ValueError("worker environment names must be exact strings")
+        if name.startswith(_WORKER_ENV_PREFIXES):
+            names.add(name)
+    if len(names) > 256 or any(len(name) > 256 for name in names):
+        raise ValueError("worker environment names exceed bounds")
+    return sorted(names)
+
+
+def _context_read(path: Path, limit: int = 2 * 1024 * 1024) -> bytes:
+    with path.open("rb") as stream:
+        payload = stream.read(limit + 1)
+    if len(payload) > limit:
+        raise ValueError("worker context file exceeds bound")
+    return payload
+
+
+def _worker_context() -> dict[str, Any]:
+    # Metadata only: never import JAX or another framework to complete a snapshot.
+    result: dict[str, Any] = {
+        "status": "OBSERVED",
+        "python": sys.version,
+        "executable": sys.executable,
+        "prefix": sys.prefix,
+        "base_prefix": sys.base_prefix,
+        "soabi": sysconfig.get_config_var("SOABI"),
+        "byteorder": sys.byteorder,
+        "checkout": {},
+        "cpu": {},
+        "environment": {},
+        "source_files": {},
+        "sys_profile_is_none": sys.getprofile() is None,
+        "threading_profile_is_none": threading.getprofile() is None,
+        "loaded_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "errors": [],
+    }
+
+    def error(stage: str, exc: BaseException) -> None:
+        result["status"] = "UNVERIFIED"
+        result["errors"].append({"stage": stage, "error_type": type(exc).__name__})
+
+    root = Path(__file__).resolve().parents[1]
+    try:
+        if any(
+            type(result[name]) is not str or len(result[name]) > 4096
+            for name in ("python", "executable", "prefix", "base_prefix", "byteorder")
+        ) or (
+            result["soabi"] is not None
+            and (type(result["soabi"]) is not str or len(result["soabi"]) > 256)
+        ):
+            raise ValueError("worker interpreter metadata exceeds bounds")
+    except BaseException as exc:
+        for name in (
+            "python",
+            "executable",
+            "prefix",
+            "base_prefix",
+            "byteorder",
+            "soabi",
+        ):
+            result[name] = None
+        error("interpreter", exc)
+    try:
+        environment = {
+            name: os.environ.get(name) for name in _worker_environment_names()
+        }
+        if (
+            any(
+                value is not None and (type(value) is not str or len(value) > 8192)
+                for value in environment.values()
+            )
+            or len(json.dumps(environment).encode()) > 65536
+        ):
+            raise ValueError("worker environment values exceed bounds")
+        result["environment"] = environment
+    except BaseException as exc:
+        error("environment", exc)
+    try:
+        directory = root / ".git"
+        if directory.is_file():
+            pointer = _context_read(directory, 4096).decode().strip()
+            if not pointer.startswith("gitdir: "):
+                raise ValueError("invalid Git pointer")
+            directory = (root / pointer[8:]).resolve()
+        head = _context_read(directory / "HEAD", 4096).decode().strip()
+        reference = ""
+        if head.startswith("ref: "):
+            reference = head[5:]
+            if not reference.startswith("refs/") or ".." in reference.split("/"):
+                raise ValueError("invalid Git reference")
+            head = _context_read(directory / reference, 4096).decode().strip()
+        if len(head) != 40 or any(char not in "0123456789abcdef" for char in head):
+            raise ValueError("invalid Git head")
+        result["checkout"] = {"head": head, "symbolic_ref": reference}
+    except BaseException as exc:
+        error("checkout", exc)
+    try:
+        cpu = {}
+        for line in _context_read(Path("/proc/cpuinfo")).decode().splitlines():
+            key, separator, value = line.partition(":")
+            key = key.strip()
+            if (
+                separator
+                and key
+                in (
+                    "vendor_id",
+                    "cpu family",
+                    "model",
+                    "model name",
+                    "stepping",
+                    "microcode",
+                    "flags",
+                )
+                and key not in cpu
+            ):
+                if len(value) > 8192:
+                    raise ValueError("CPU context exceeds bound")
+                cpu[key] = value.strip()
+        result["cpu"] = cpu
+    except BaseException as exc:
+        error("cpu", exc)
+    for relative in _WORKER_SOURCE_FILES:
+        try:
+            payload = _context_read(root / relative)
+            result["source_files"][relative] = {
+                "bytes": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        except BaseException as exc:
+            error("source:" + relative, exc)
+    if "jax" in sys.modules:
+        try:
+            import types
+
+            jax, native = sys.modules["jax"], sys.modules.get("jax._src.config")
+            if (
+                type(jax) is not types.ModuleType
+                or type(native) is not types.ModuleType
+            ):
+                raise ValueError("loaded JAX module context is unsupported")
+            config = vars(jax).get("config")
+            if type(config) is not vars(native).get("Config"):
+                raise ValueError("loaded JAX config context is unsupported")
+            values = {}
+            for name in (
+                "x64_enabled",
+                "jax_disable_jit",
+                "jax_default_matmul_precision",
+                "jax_platforms",
+                "jax_numpy_dtype_promotion",
+                "jax_numpy_rank_promotion",
+            ):
+                value = getattr(config, name)
+                if value is None or type(value) is bool or type(value) is str:
+                    if type(value) is str and len(value) > 256:
+                        raise ValueError("loaded JAX setting exceeds bound")
+                    values[name] = value
+                elif name == "jax_numpy_dtype_promotion" and type(value) is vars(
+                    native
+                ).get("NumpyDtypePromotion"):
+                    member = next(
+                        (
+                            key
+                            for key in ("STANDARD", "STRICT")
+                            if value is vars(type(value)).get(key)
+                        ),
+                        None,
+                    )
+                    if member is None:
+                        raise ValueError("loaded JAX enum member differs")
+                    storage = object.__getattribute__(value, "__dict__")
+                    literal = storage.get("_value_") if type(storage) is dict else None
+                    if (
+                        type(literal) is not str
+                        or literal
+                        != {"STANDARD": "standard", "STRICT": "strict"}[member]
+                    ):
+                        raise ValueError("loaded JAX enum storage differs")
+                    values[name] = {
+                        "type": "jax._src.config.NumpyDtypePromotion",
+                        "member": member,
+                        "value": literal,
+                    }
+                else:
+                    raise ValueError("loaded JAX setting is not literal metadata")
+            result["loaded_jax_config"] = {"status": "OBSERVED", "values": values}
+        except BaseException as exc:
+            result["loaded_jax_config"] = {"status": "UNVERIFIED", "values": {}}
+            error("loaded_jax_config", exc)
+    return result
+
+
+def _diagnostic_control(request: dict[str, Any]) -> dict[str, Any] | None:
+    if type(request) is not dict:
+        raise ValueError("worker request must be an exact JSON object")
+    if "diagnostic_control" not in request:
+        return None
+    descriptor = request["diagnostic_control"]
+    keys = {
+        "schema",
+        "nodeid",
+        "observer_enabled",
+        "original_request_sha256",
+        "original_receipt_sha256",
+        "original_observer_sha256",
+    }
+    if (
+        type(descriptor) is not dict
+        or any(type(key) is not str for key in descriptor)
+        or set(descriptor) != keys
+        or set(request) != {*_REQUEST_FIELDS, "diagnostic_control"}
+    ):
+        raise ValueError("invalid observer-off descriptor schema")
+    if (
+        type(request["kind"]) is not str
+        or type(descriptor["schema"]) is not str
+        or type(descriptor["nodeid"]) is not str
+        or type(request["assigned"]) is not list
+        or any(type(node) is not str for node in request["assigned"])
+    ):
+        raise ValueError("observer-off descriptor requires exact JSON types")
+    if (
+        request["kind"] != "batch"
+        or descriptor["schema"] != _CONTROL_SCHEMA
+        or descriptor["nodeid"] != _CAST_OBSERVER_NODE
+        or descriptor["observer_enabled"] is not False
+        or _CAST_OBSERVER_NODE not in request["assigned"]
+    ):
+        raise ValueError("invalid observer-off descriptor scope")
+    for name in (
+        "original_request_sha256",
+        "original_receipt_sha256",
+        "original_observer_sha256",
+    ):
+        digest = descriptor[name]
+        if (
+            type(digest) is not str
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+        ):
+            raise ValueError("invalid observer-off evidence digest")
+    original = {
+        name: value for name, value in request.items() if name != "diagnostic_control"
+    }
+    payload = (json.dumps(original, indent=2, ensure_ascii=False) + "\n").encode()
+    if hashlib.sha256(payload).hexdigest() != descriptor["original_request_sha256"]:
+        raise ValueError("observer-off original request binding differs")
+    return descriptor
 
 
 def _now() -> str:
@@ -182,6 +501,15 @@ def _completed(phases: dict[str, list[dict[str, Any]]]) -> list[str]:
 def _validate(
     receipt: dict[str, Any], assigned: list[str], full: list[str], skips: list[Any]
 ) -> None:
+    if (
+        receipt.get("supplemental", False) is not False
+        or receipt.get("native_source_recomputed", False) is not False
+        or receipt.get("cast_observer_enabled", True) is not True
+        or "diagnostic_control" in receipt
+    ):
+        raise ValueError(
+            "supplemental diagnostic receipt cannot validate a canonical batch"
+        )
     actual = [item["nodeid"] for item in receipt["items"]]
     if (
         actual != assigned
@@ -209,10 +537,21 @@ def _validate(
 
 
 def _worker(request_path: Path) -> int:
+    startup_context = _worker_context()
+
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate worker request JSON key")
+            result[key] = value
+        return result
+
+    request = json.loads(request_path.read_text(), object_pairs_hook=unique)
+    control = _diagnostic_control(request)
     # Import pytest only inside disposable collection/execution children.
     import pytest
 
-    request = json.loads(request_path.read_text())
     folder = request_path.parent
     receipt: dict[str, Any] = {
         "kind": request["kind"],
@@ -229,7 +568,17 @@ def _worker(request_path: Path) -> int:
         "collection_skips": [],
         "phases": {},
         "exitstatus": None,
+        "startup_context": startup_context,
+        "supplemental": control is not None,
+        "native_source_recomputed": False,
+        "cast_observer_enabled": control is None,
     }
+    if control is not None:
+        receipt["diagnostic_control"] = {
+            **control,
+            "request_binding_verified_by_worker": True,
+            "evidence_sha_scope": "Coordinator-verified references; worker verifies request binding only.",
+        }
 
     def checkpoint() -> None:
         receipt["completed"] = _completed(receipt["phases"])
@@ -272,6 +621,7 @@ def _worker(request_path: Path) -> int:
             # batch imports the same full suite before execution is selected.
             yield
             full_items = list(session.items)
+            receipt["collection_context"] = _worker_context()
             full_ids = [item.nodeid for item in full_items]
             receipt["full_items"] = [describe(item) for item in full_items]
             receipt["full_preselection_ids"] = full_ids
@@ -309,6 +659,26 @@ def _worker(request_path: Path) -> int:
         def pytest_runtest_call(self, item: Any) -> Any:
             if request["kind"] != "batch" or item.nodeid != _CAST_OBSERVER_NODE:
                 yield
+                return
+            receipt["target_context_before"] = _worker_context()
+            checkpoint()
+            if control is not None:
+                before = receipt["target_context_before"]
+                if (
+                    not before["sys_profile_is_none"]
+                    or not before["threading_profile_is_none"]
+                ):
+                    receipt["target_context_after"] = _worker_context()
+                    checkpoint()
+                    raise pytest.UsageError(
+                        "observer-off control requires absent profile owners"
+                    )
+                receipt["native_source_recomputed"] = True
+                try:
+                    yield
+                finally:
+                    receipt["target_context_after"] = _worker_context()
+                    checkpoint()
                 return
             observer: Any = None
 
@@ -356,6 +726,8 @@ def _worker(request_path: Path) -> int:
                         observer.finish()
                     except BaseException as error:
                         diagnostic_error("observer-finish-error", error)
+                receipt["target_context_after"] = _worker_context()
+                checkpoint()
 
         def pytest_runtest_logreport(self, report: Any) -> None:
             entry = {"when": report.when, "outcome": report.outcome}
@@ -397,8 +769,29 @@ def _worker(request_path: Path) -> int:
 
 
 def _child(
-    folder: Path, request: dict[str, Any], run: dict[str, Any], root: Path
+    folder: Path,
+    request: dict[str, Any],
+    run: dict[str, Any],
+    root: Path,
+    *,
+    environment: dict[str, str] | None = None,
+    timeout_seconds: float | None = None,
 ) -> int:
+    if environment is not None and (
+        type(environment) is not dict
+        or len(environment) > 1024
+        or any(
+            type(key) is not str or type(value) is not str
+            for key, value in environment.items()
+        )
+        or sum(len(key) + len(value) for key, value in environment.items())
+        > 1024 * 1024
+    ):
+        raise ValueError("explicit child environment exceeds schema bounds")
+    if timeout_seconds is not None and (
+        type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 240
+    ):
+        raise ValueError("child diagnostic timeout must be within 240 seconds")
     folder.mkdir()
     _write(folder / "request.json", request)
     command = [
@@ -424,6 +817,7 @@ def _child(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        env=environment,
     )
     event["pid"] = child.pid
     event["child_started"] = _resources(child.pid)
@@ -462,9 +856,32 @@ def _child(
     try:
         while True:
             try:
-                result = child.wait(timeout=60)
+                wait = (
+                    60
+                    if timeout_seconds is None
+                    else min(
+                        60, max(0.001, timeout_seconds - (time.monotonic() - start))
+                    )
+                )
+                result = child.wait(timeout=wait)
+                if (
+                    timeout_seconds is not None
+                    and time.monotonic() - start >= timeout_seconds
+                ):
+                    event["diagnostic_timeout_seconds"] = timeout_seconds
+                    run["status"] = "FAIL"
+                    run["failure"] = {"type": "diagnostic-timeout"}
+                    raise TimeoutError("diagnostic child exceeded its fixed timeout")
                 break
             except subprocess.TimeoutExpired:
+                if (
+                    timeout_seconds is not None
+                    and time.monotonic() - start >= timeout_seconds
+                ):
+                    event["diagnostic_timeout_seconds"] = timeout_seconds
+                    run["status"] = "FAIL"
+                    run["failure"] = {"type": "diagnostic-timeout"}
+                    raise TimeoutError("diagnostic child exceeded its fixed timeout")
                 sample = _resources(child.pid)
                 event["samples"].append(sample)
                 _write(root / "run.json", run)
