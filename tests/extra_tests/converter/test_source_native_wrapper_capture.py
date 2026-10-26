@@ -598,15 +598,39 @@ def test_original_native_error_object_chain_notes_and_traceback_are_retained(
 assert compat._NATIVE_AXISDATA_GAP is None, compat._NATIVE_AXISDATA_GAP
 
 
-@pytest.mark.parametrize("slot", compat._NATIVE_AXISDATA_FIELD_SLOTS)
+_AXISDATA_CLASS_ROLES = tuple(
+    role for role in compat._NATIVE_AXISDATA["classes"] if role != "FrozenInstanceError"
+)
+
+
+@pytest.mark.parametrize("slot", compat._NATIVE_AXISDATA["carriers"]["Field"][1])
 def test_actual_axisdata_every_field_slot_is_owned(
     slot: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mapped = _mapped()
     capture = _capture(mapped, tmp_path)
     field = compat._NATIVE_AXISDATA["field_objects"][0]
-    monkeypatch.setattr(field, slot, object())
+    calls = []
+
+    class Foreign:
+        def __getattribute__(self, name: str) -> Any:
+            calls.append(name)
+            raise AssertionError("foreign Field value reflection ran")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("foreign Field value representation ran")
+
+        def __eq__(self, other: Any) -> bool:
+            calls.append("equality")
+            raise AssertionError("foreign Field value equality ran")
+
+    monkeypatch.setattr(field, slot, Foreign())
+    if slot == "doc":
+        with pytest.raises(ValueError, match="Field doc state"):
+            compat._initial_native_axisdata_roles()
     assert not capture.check_target("changed-axisdata-field-" + slot)
+    assert calls == []
 
 
 @pytest.mark.parametrize(
@@ -629,7 +653,7 @@ def test_actual_axisdata_every_params_slot_is_owned(
         "descriptor",
         "metadata",
         "marker",
-        "pre-slots-closure",
+        "class-closure",
         "generated-code",
         "class-name",
         "old-export-alias",
@@ -663,9 +687,13 @@ def test_actual_axisdata_foreign_storage_alias_and_descriptor_controls(
         monkeypatch.setattr(original_field, "metadata", types.MappingProxyType({}))
     elif fault == "marker":
         monkeypatch.setattr(roles["markers"]["_FIELD"], "name", "changed")
-    elif fault == "pre-slots-closure":
+    elif fault == "class-closure":
+        freevar = exported.__setattr__.__code__.co_freevars[1]
+        replacement_class = (
+            exported if freevar == "cls" else type("UnobservedAxisData", (), {})
+        )
         monkeypatch.setattr(
-            _closure(exported.__setattr__, "cls"), "cell_contents", exported
+            _closure(exported.__setattr__, freevar), "cell_contents", replacement_class
         )
     elif fault == "generated-code":
         monkeypatch.setattr(
@@ -690,12 +718,46 @@ def test_actual_axisdata_namespace_variant_and_replace_function_are_owned(
 ) -> None:
     assert compat._NATIVE_AXISDATA_GAP is None
     roles = compat._NATIVE_AXISDATA
-    exported, old = (roles["classes"][name] for name in ("exported", "pre-slots"))
+    exported = roles["classes"]["exported"]
+    modern = exported.__setattr__.__code__.co_freevars == (
+        "FrozenInstanceError",
+        "__class__",
+    )
+    assert set(roles["classes"]) == (
+        {"exported", "FrozenInstanceError"}
+        if modern
+        else {"exported", "pre-slots", "FrozenInstanceError"}
+    )
+    for method in (exported.__setattr__, exported.__delattr__):
+        freevars = method.__code__.co_freevars
+        assert freevars == ("FrozenInstanceError", "__class__" if modern else "cls")
+        assert (
+            _closure(method, "FrozenInstanceError").cell_contents
+            is roles["classes"]["FrozenInstanceError"]
+        )
+        assert (
+            _closure(method, freevars[1]).cell_contents
+            is roles["classes"]["exported" if modern else "pre-slots"]
+        )
+    if modern:
+        assert all(
+            left is right
+            for left, right in zip(
+                exported.__setattr__.__closure__,
+                exported.__delattr__.__closure__,
+                strict=True,
+            )
+        )
     extra = compat._NATIVE_AXISDATA_EXTRA_MEMBERS
     extended = "__replace__" in vars(exported)
     additions = extra if extended else frozenset()
     assert set(vars(exported)) == compat._NATIVE_AXISDATA_EXPORTED_MEMBERS | additions
-    assert set(vars(old)) == compat._NATIVE_AXISDATA_PRESLOTS_MEMBERS | additions
+    if modern:
+        assert extended
+    else:
+        old = roles["classes"]["pre-slots"]
+        assert old is not exported
+        assert set(vars(old)) == compat._NATIVE_AXISDATA_PRESLOTS_MEMBERS | additions
     document = compat._AxisDataCaptureGraph().state()
     assert set(document["state_markers"]) == set(roles["markers"])
     for name, marker in roles["markers"].items():
@@ -705,7 +767,8 @@ def test_actual_axisdata_namespace_variant_and_replace_function_are_owned(
         replacement = vars(compat._native_dataclasses)["_replace"]
         assert type(replacement) is types.FunctionType
         assert roles["helpers"]["_replace"] is replacement
-        for role, cls in (("exported", exported), ("pre-slots", old)):
+        for role in _AXISDATA_CLASS_ROLES:
+            cls = roles["classes"][role]
             assert type(vars(cls)["__firstlineno__"]) is int
             assert vars(cls)["__static_attributes__"] == ()
             assert vars(cls)["__replace__"] is replacement
@@ -726,7 +789,104 @@ def test_actual_axisdata_namespace_variant_and_replace_function_are_owned(
     assert capture.check_target("original-axisdata-complete-namespace-variant")
 
 
-@pytest.mark.parametrize("role", ("exported", "pre-slots"))
+@pytest.mark.parametrize("method", ("__setattr__", "__delattr__"))
+@pytest.mark.parametrize(
+    "fault",
+    ("mixed-schema", "class-alias", "frozen-binding", "empty-cell", "extra-cell"),
+)
+def test_actual_axisdata_frozen_closure_variants_require_exact_aliases(
+    method: str, fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roles = compat._NATIVE_AXISDATA
+    exported = roles["classes"]["exported"]
+    original = vars(exported)[method]
+    freevars = original.__code__.co_freevars
+    cells = original.__closure__
+    assert type(cells) is tuple and len(cells) == 2
+    code = original.__code__
+    if fault == "mixed-schema":
+        alternate = "cls" if freevars[1] == "__class__" else "__class__"
+        code = code.replace(co_freevars=("FrozenInstanceError", alternate))
+    elif fault == "class-alias":
+        replacement = (
+            exported if freevars[1] == "cls" else type("UnobservedAxisData", (), {})
+        )
+        cells = (cells[0], types.CellType(replacement))
+    elif fault == "frozen-binding":
+        monkeypatch.setattr(compat._native_dataclasses, "FrozenInstanceError", object())
+    elif fault == "empty-cell":
+        cells = (cells[0], types.CellType())
+    else:
+        code = code.replace(co_freevars=(*freevars, "unobserved"))
+        cells = (*cells, types.CellType(object()))
+    changed = types.FunctionType(
+        code, original.__globals__, original.__name__, original.__defaults__, cells
+    )
+    monkeypatch.setattr(exported, method, changed)
+    with pytest.raises(ValueError, match="native AxisData"):
+        compat._initial_native_axisdata_roles()
+
+
+@pytest.mark.parametrize("method", ("__setattr__", "__delattr__"))
+@pytest.mark.parametrize("index", (0, 1))
+def test_actual_axisdata_same_value_split_cells_remain_owned(
+    method: str, index: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = _capture(_mapped(), tmp_path)
+    roles = compat._NATIVE_AXISDATA
+    exported = roles["classes"]["exported"]
+    original = vars(exported)[method]
+    cells = list(original.__closure__ or ())
+    assert len(cells) == 2
+    cells[index] = types.CellType(cells[index].cell_contents)
+    changed = types.FunctionType(
+        original.__code__,
+        original.__globals__,
+        original.__name__,
+        original.__defaults__,
+        tuple(cells),
+    )
+    changed.__module__ = original.__module__
+    changed.__qualname__ = original.__qualname__
+    changed.__doc__ = original.__doc__
+    changed.__annotations__ = original.__annotations__
+    changed.__kwdefaults__ = original.__kwdefaults__
+    changed.__dict__.update(original.__dict__)
+    monkeypatch.setattr(exported, method, changed)
+    if "pre-slots" in roles["classes"]:
+        # Legacy admission retains its original contents-alias contract.
+        assert compat._initial_native_axisdata_roles()["classes"] == roles["classes"]
+    else:
+        with pytest.raises(ValueError, match="closure aliases"):
+            compat._initial_native_axisdata_roles()
+    assert not capture.check_target("changed-axisdata-same-value-split-cell")
+
+
+def test_actual_axisdata_field_doc_variant_is_exact_and_owned() -> None:
+    roles = compat._NATIVE_AXISDATA
+    _, slots, descriptors, _ = roles["carriers"]["Field"]
+    if "doc" in slots:
+        assert "pre-slots" not in roles["classes"]
+        assert slots == (
+            *compat._NATIVE_AXISDATA_FIELD_SLOTS[:-1],
+            "doc",
+            "_field_type",
+        )
+        descriptor = descriptors[slots.index("doc")]
+        for field in roles["field_objects"]:
+            assert descriptor.__get__(field, type(field)) is None
+        document = compat._AxisDataCaptureGraph().state()
+        assert all(
+            field[1]["slots"]["doc"] is None
+            for field in document["classes"]["exported"]["members"][
+                "__dataclass_fields__"
+            ]["fields"]
+        )
+    else:
+        assert slots == compat._NATIVE_AXISDATA_FIELD_SLOTS
+
+
+@pytest.mark.parametrize("role", _AXISDATA_CLASS_ROLES)
 @pytest.mark.parametrize("fault", ("unknown", "missing", "partial", "mixed"))
 def test_actual_axisdata_namespace_variants_reject_partial_mixed_and_unknown(
     role: str, fault: str, monkeypatch: pytest.MonkeyPatch
@@ -756,7 +916,7 @@ def test_actual_axisdata_namespace_variants_reject_partial_mixed_and_unknown(
         compat._initial_native_axisdata_roles()
 
 
-@pytest.mark.parametrize("role", ("exported", "pre-slots"))
+@pytest.mark.parametrize("role", _AXISDATA_CLASS_ROLES)
 @pytest.mark.parametrize(
     "member,value",
     (
@@ -775,7 +935,7 @@ def test_actual_axisdata_extended_metadata_requires_observed_types_and_binding(
         compat._initial_native_axisdata_roles()
 
 
-@pytest.mark.parametrize("role", ("exported", "pre-slots"))
+@pytest.mark.parametrize("role", _AXISDATA_CLASS_ROLES)
 @pytest.mark.parametrize(
     "member", ("__firstlineno__", "__static_attributes__", "__replace__")
 )

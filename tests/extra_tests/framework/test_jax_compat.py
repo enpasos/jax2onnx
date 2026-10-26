@@ -1362,6 +1362,39 @@ def test_native_axisdata_frozen_closure_gap_reports_only_intrinsic_schema(
     assert invoked == []
 
 
+@pytest.mark.parametrize("hostile_leaf", (False, True))
+def test_code_fingerprint_keeps_unmeasured_slice_constants_outside_admission(
+    hostile_leaf: bool,
+) -> None:
+    invoked = []
+
+    class Foreign:
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("foreign slice leaf reflection ran")
+
+        def __repr__(self) -> str:
+            invoked.append("repr")
+            raise AssertionError("foreign slice leaf representation ran")
+
+        def __eq__(self, other: Any) -> bool:
+            invoked.append("equality")
+            raise AssertionError("foreign slice leaf equality ran")
+
+        def __hash__(self) -> int:
+            invoked.append("hash")
+            raise AssertionError("foreign slice leaf hashing ran")
+
+    def selected() -> None:
+        pass
+
+    value = slice(Foreign() if hostile_leaf else 1, None, 2)
+    changed = selected.__code__.replace(co_consts=(*selected.__code__.co_consts, value))
+    with pytest.raises(TypeError, match="code constant type needs an exact adapter"):
+        compat.canonical_code_fingerprint(changed)
+    assert invoked == []
+
+
 def test_native_interned_cache_accepts_distinct_plain_sharding_without_mutation() -> (
     None
 ):

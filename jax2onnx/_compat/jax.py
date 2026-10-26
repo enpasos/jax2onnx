@@ -3020,6 +3020,7 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
         raise ValueError("native AxisData requires builtin type metaclass")
     namespace = vars(type)["__dict__"].__get__(exported)
     closures = []
+    closure_schemas = []
     for name in ("__setattr__", "__delattr__"):
         function = namespace[name]
         is_function = type(function) is types.FunctionType
@@ -3030,7 +3031,11 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
         if (
             not is_function
             or not literal_freevars
-            or freevars != ("FrozenInstanceError", "cls")
+            or freevars
+            not in (
+                ("FrozenInstanceError", "cls"),
+                ("FrozenInstanceError", "__class__"),
+            )
         ):
             if not is_function:
                 detail = name + ": non-function"
@@ -3046,29 +3051,65 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
                 "native AxisData generated frozen closure needs an exact adapter: "
                 + detail
             )
-        closures.append(
-            tuple(cell.cell_contents for cell in function.__closure__ or ())
-        )
-    frozen, old = closures[0]
+        closure = function.__closure__
+        if (
+            type(closure) is not tuple
+            or len(closure) != 2
+            or any(type(cell) is not types.CellType for cell in closure)
+        ):
+            raise ValueError("native AxisData frozen closure cell layout changed")
+        # Read only exact builtin cells, and reject an uninitialized cell before
+        # selecting either of the two measured dataclasses layouts.
+        try:
+            tuple(cell.cell_contents for cell in closure)
+        except ValueError as exc:
+            raise ValueError("native AxisData frozen closure cell is empty") from exc
+        closures.append(closure)
+        closure_schemas.append(freevars)
+    modern_closure = closure_schemas[0] == ("FrozenInstanceError", "__class__")
+    frozen, closed_class = (cell.cell_contents for cell in closures[0])
     if not (
-        len(closures[1]) == 2
-        and closures[1][0] is frozen
-        and closures[1][1] is old
-        and old is not exported
-        and type(old) is type
+        closure_schemas[1] == closure_schemas[0]
+        and closures[1][0].cell_contents is frozen
+        and closures[1][1].cell_contents is closed_class
+        and type(closed_class) is type
         and frozen is vars(_native_dataclasses)["FrozenInstanceError"]
+        and (
+            closed_class is exported
+            and all(left is right for left, right in zip(*closures, strict=True))
+            if modern_closure
+            else closed_class is not exported
+        )
     ):
         raise ValueError("native AxisData exported/pre-slots closure aliases changed")
-    old_namespace = vars(type)["__dict__"].__get__(old)
-    legacy_namespace = _NativeCaptureGraph._schema(
-        namespace, _NATIVE_AXISDATA_EXPORTED_MEMBERS
-    ) and _NativeCaptureGraph._schema(old_namespace, _NATIVE_AXISDATA_PRESLOTS_MEMBERS)
-    extended_namespace = _NativeCaptureGraph._schema(
-        namespace, _NATIVE_AXISDATA_EXPORTED_MEMBERS | _NATIVE_AXISDATA_EXTRA_MEMBERS
-    ) and _NativeCaptureGraph._schema(
-        old_namespace,
-        _NATIVE_AXISDATA_PRESLOTS_MEMBERS | _NATIVE_AXISDATA_EXTRA_MEMBERS,
-    )
+    classes = {"exported": exported}
+    namespaces: tuple[Any, ...]
+    if modern_closure:
+        # Modern dataclasses repair __class__ cells to the exported slots class;
+        # no distinct pre-slots class remains reachable through these closures.
+        namespaces = (namespace,)
+        legacy_namespace = False
+        extended_namespace = _NativeCaptureGraph._schema(
+            namespace,
+            _NATIVE_AXISDATA_EXPORTED_MEMBERS | _NATIVE_AXISDATA_EXTRA_MEMBERS,
+        )
+    else:
+        old_namespace = vars(type)["__dict__"].__get__(closed_class)
+        classes["pre-slots"] = closed_class
+        namespaces = (namespace, old_namespace)
+        legacy_namespace = _NativeCaptureGraph._schema(
+            namespace, _NATIVE_AXISDATA_EXPORTED_MEMBERS
+        ) and _NativeCaptureGraph._schema(
+            old_namespace, _NATIVE_AXISDATA_PRESLOTS_MEMBERS
+        )
+        extended_namespace = _NativeCaptureGraph._schema(
+            namespace,
+            _NATIVE_AXISDATA_EXPORTED_MEMBERS | _NATIVE_AXISDATA_EXTRA_MEMBERS,
+        ) and _NativeCaptureGraph._schema(
+            old_namespace,
+            _NATIVE_AXISDATA_PRESLOTS_MEMBERS | _NATIVE_AXISDATA_EXTRA_MEMBERS,
+        )
+    classes["FrozenInstanceError"] = frozen
     if not (legacy_namespace or extended_namespace):
         raise ValueError("native AxisData class namespace needs an exact adapter")
     replacement = None
@@ -3079,7 +3120,7 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
             or type(members["__static_attributes__"]) is not tuple
             or len(members["__static_attributes__"]) != 0
             or members["__replace__"] is not replacement
-            for members in (namespace, old_namespace)
+            for members in namespaces
         ):
             raise ValueError("native AxisData extended class metadata changed")
     fields = namespace["__dataclass_fields__"]
@@ -3089,27 +3130,35 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
         type(fields) is dict
         and all(type(key) is str for key in fields)
         and tuple(fields) == names
-        and old_namespace["__dataclass_fields__"] is fields
-        and old_namespace["__dataclass_params__"] is params
+        and all(
+            members["__dataclass_fields__"] is fields
+            and members["__dataclass_params__"] is params
+            for members in namespaces
+        )
     ):
         raise ValueError("native AxisData shared metadata layout changed")
     field_type = vars(_native_dataclasses)["Field"]
     params_type = vars(_native_dataclasses)["_DataclassParams"]
+    extended_params_slots = (
+        *_NATIVE_AXISDATA_PARAMS_SLOTS,
+        "match_args",
+        "kw_only",
+        "slots",
+        "weakref_slot",
+    )
+    field_slots: tuple[tuple[str, ...], ...] = (_NATIVE_AXISDATA_FIELD_SLOTS,)
+    if modern_closure:
+        field_slots += ((*_NATIVE_AXISDATA_FIELD_SLOTS[:-1], "doc", "_field_type"),)
     carriers = {}
     for name, cls, allowed in (
-        ("Field", field_type, (_NATIVE_AXISDATA_FIELD_SLOTS,)),
+        ("Field", field_type, field_slots),
         (
             "_DataclassParams",
             params_type,
             (
-                _NATIVE_AXISDATA_PARAMS_SLOTS,
-                (
-                    *_NATIVE_AXISDATA_PARAMS_SLOTS,
-                    "match_args",
-                    "kw_only",
-                    "slots",
-                    "weakref_slot",
-                ),
+                (extended_params_slots,)
+                if modern_closure
+                else (_NATIVE_AXISDATA_PARAMS_SLOTS, extended_params_slots)
             ),
         ),
     ):
@@ -3141,6 +3190,11 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
     field_descriptors = dict(
         zip(carriers["Field"][1], carriers["Field"][2], strict=True)
     )
+    if "doc" in field_descriptors and any(
+        field_descriptors["doc"].__get__(field, field_type) is not None
+        for field in fields.values()
+    ):
+        raise ValueError("native AxisData Field doc state changed")
     metadata = tuple(
         field_descriptors["metadata"].__get__(field, field_type)
         for field in fields.values()
@@ -3188,11 +3242,7 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
     ):
         raise ValueError("native AxisData state helper bindings changed")
     return {
-        "classes": {
-            "exported": exported,
-            "pre-slots": old,
-            "FrozenInstanceError": frozen,
-        },
+        "classes": classes,
         "fields": fields,
         "field_names": names,
         "field_objects": tuple(fields.values()),
@@ -3341,6 +3391,8 @@ class _AxisDataCaptureGraph(_NativeCaptureGraph):
                     raise ValueError("native AxisData Field Boolean flag changed")
                 elif slot == "hash" and item is not None:
                     raise ValueError("native AxisData Field hash state changed")
+                elif slot == "doc" and item is not None:
+                    raise ValueError("native AxisData Field doc state changed")
                 elif slot == "kw_only" and item is not False:
                     raise ValueError("native AxisData Field keyword flag changed")
                 elif (
