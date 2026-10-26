@@ -48,6 +48,16 @@
   operands explicitly while preserving the preceding FP32 rounding, direct FP32
   outputs, and bitcast representations. Align concatenation inputs and outputs
   with the effective precision policy, including inside child scopes.
+* **Keep `log1p`, `expm1`, and functions built on them accurate:** Replace
+  `Log(1 + x)` and `Exp(x) - 1`, which return zero or lose most digits for small
+  inputs, with compensated forms shared by the `lax` and `jnp` lowerings and
+  `jax.nn.log1mexp`. Build `jax.nn.log_sigmoid` on `log1p` instead of
+  `Log(Sigmoid(x))`, which returned `-inf` for `x <= -20` on ONNX Runtime, and
+  non-FP32 `sinh` on `expm1` instead of `(Exp(x) - Exp(-x)) / 2`. Results stay
+  within a few ulp in the input dtype without promoting the model; BF16
+  computes in FP32 internally so ONNX Runtime can run it, and
+  `jax.nn.log1mexp` now exports FP16 inputs. See
+  [Known Limitations](../user_guide/known_limitations.md#log1p-expm1-and-related-functions).
 * **Require ONNX IR 1.0.0 or newer:** Align the declared dependency floor,
   package metadata, developer guidance, and minimum-version CI coverage on
   `onnx-ir>=1.0.0`.

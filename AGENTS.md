@@ -38,14 +38,18 @@ Keep these handy—most deep-dives live there instead of here.
   - `poetry run pytest -q`
   - `poetry run mkdocs build --strict` for doc changes
 - Debug flags exist for the IR optimizer (`JAX2ONNX_*_DEBUG`); see the optimizer dev guide for the full matrix.
+- Format with the Black pinned in `.pre-commit-config.yaml` (25.1.0). The Black 26
+  in `poetry.lock` also rewrites untouched files (e.g. drops the blank line after
+  imports), so it is not the formatter the tree follows.
 - JAX 0.8+ specifics:
   - No `jax_dynamic_shapes` auto-toggle.
   - Primitive parameters must be hashable; `construct_and_call(...).with_dtype(...)` constructs modules once per dtype.
   - Flax NNX requires attributes that hold arrays to be wrapped in `nnx.List` / `nnx.data`.
-- **Two supported stacks.** `jax>=0.11`, `numpy>=2.5` and `scipy>=1.18` all require
-  Python 3.12+, so the resolver pins Python 3.11 to the older `jax 0.10.2` stack.
-  Both must keep working — route version-sensitive APIs through
-  `jax2onnx/_compat/jax.py` instead of importing them directly.
+- **Two supported stacks.** `poetry.lock` resolves Python 3.11 and 3.12 to the
+  older `jax 0.10.2` / `numpy 2.4` / `scipy 1.17` stack and Python 3.13+ to
+  `jax 0.11.x` (CI's 3.13/3.14 jobs assert this), so testing on 3.12 does not
+  exercise JAX 0.11. Both must keep working — route version-sensitive APIs
+  through `jax2onnx/_compat/jax.py` instead of importing them directly.
   (`[tool.mypy] python_version` is 3.12 because numpy's stubs need PEP 695 parsing.)
 - JAX 0.11 specifics:
   - `ClosedJaxpr` **is** `Jaxpr`, and `Jaxpr.jaxpr` returns `self`. Recursive
@@ -122,6 +126,18 @@ Keep these handy—most deep-dives live there instead of here.
 - Capture minimal reproductions under `tests/extra_tests/framework/`.
 - Enable the relevant `JAX2ONNX_*_DEBUG` env while running the failing test.
 - Verify mutations persist across graph mirrors (`graph.nodes`, `_nodes`, etc.) if you’re editing IR.
+- Plugins patch APIs such as `jnp.expm1` and `jax.nn.log1mexp` only during
+  conversion. Tests must look them up at call time (`lambda x: jnp.expm1(x)`);
+  passing a reference captured at import traces JAX's decomposition instead and
+  silently skips the plugin.
+- ONNX Runtime kernel gaps that shape lowerings (bfloat16 `Log`, float64
+  `Sinh`/`Cos`/`Erf`, `Where` and `-0.0`) are tracked in one table in
+  `docs/about/dependencies.md`; update it when a lowering works around a new
+  gap or when the locked or minimum ONNX Runtime changes. Graphs that hit a gap
+  fail at session creation. ONNX Runtime's NumPy binding also rejects bfloat16
+  arrays: feed raw `uint16` bits through
+  `OrtValue.ortvalue_from_numpy_with_onnx_type` and IO binding, as in
+  `tests/extra_tests/test_log1p_expm1_precision.py`.
 - Revisit the dev guide for the subsystem you’re touching—chances are the guardrail is documented there.
 
 ---

@@ -12,12 +12,15 @@ from jax2onnx._compat.jax import (
     ShapedArray,
 )
 import jax.numpy as jnp
+import numpy as np
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
+from jax2onnx.plugins.jax._log1p_expm1 import ElementwiseEmitter, emit_log1p
 from jax2onnx.plugins.jax.nn._builder_utils import register_unary_elementwise_batch_rule
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -34,11 +37,24 @@ _JAX_LOG_SIGMOID_ORIG: Final = jax.nn.log_sigmoid
     jaxpr_primitive=_LOG_SIGMOID_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.log_sigmoid.html",
     onnx=[
-        {
-            "component": "Sigmoid",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html",
-        },
+        {"component": "Abs", "doc": "https://onnx.ai/onnx/operators/onnx__Abs.html"},
+        {"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"},
+        {"component": "Exp", "doc": "https://onnx.ai/onnx/operators/onnx__Exp.html"},
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
         {"component": "Log", "doc": "https://onnx.ai/onnx/operators/onnx__Log.html"},
+        {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {"component": "Min", "doc": "https://onnx.ai/onnx/operators/onnx__Min.html"},
+        {
+            "component": "Equal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+        },
+        {"component": "Or", "doc": "https://onnx.ai/onnx/operators/onnx__Or.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
     ],
     since="0.12.1",
     context="primitives.nn",
@@ -47,9 +63,19 @@ _JAX_LOG_SIGMOID_ORIG: Final = jax.nn.log_sigmoid
         {
             "testcase": "jaxnn_log_sigmoid",
             "callable": lambda x: jax.nn.log_sigmoid(x),
-            "input_shapes": [(2, 5)],
+            # Log(Sigmoid(x)) gives -inf from -20 down on ONNX Runtime, and
+            # loses the tail from about 17 up, where sigmoid rounds to 1.
+            "input_values": [
+                np.array(
+                    [[-120.0, -30.0, -20.0, -1.0, -1e-3], [0.0, 1e-3, 1.0, 17.0, 30.0]],
+                    dtype=np.float32,
+                )
+            ],
+            "rtol_f32": 1e-6,
+            "rtol_f64": 1e-12,
+            "atol": 0.0,
             "post_check_onnx_graph": EG(
-                ["Sigmoid:2x5 -> Log:2x5"],
+                ["Abs:2x5 -> Neg:2x5 -> Exp:2x5 -> Add:2x5"],
                 no_unused_inputs=True,
             ),
         },
@@ -58,7 +84,7 @@ _JAX_LOG_SIGMOID_ORIG: Final = jax.nn.log_sigmoid
             "callable": lambda x: jax.nn.log_sigmoid(x),
             "input_shapes": [("B", 4)],
             "post_check_onnx_graph": EG(
-                ["Sigmoid:Bx4 -> Log:Bx4"],
+                ["Abs:Bx4 -> Neg:Bx4 -> Exp:Bx4 -> Add:Bx4"],
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
@@ -66,7 +92,7 @@ _JAX_LOG_SIGMOID_ORIG: Final = jax.nn.log_sigmoid
     ],
 )
 class LogSigmoidPlugin(PrimitiveLeafPlugin):
-    """Lower ``jax.nn.log_sigmoid`` via ONNX ``Sigmoid`` + ``Log``."""
+    """Lower ``jax.nn.log_sigmoid`` as ``min(x, 0) - log1p(exp(-|x|))``."""
 
     _PRIM: ClassVar[Primitive] = _LOG_SIGMOID_PRIM
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
@@ -75,46 +101,31 @@ class LogSigmoidPlugin(PrimitiveLeafPlugin):
     def abstract_eval(x: AbstractValue) -> ShapedArray:
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
-        x_var = eqn.invars[0]
-        out_var = eqn.outvars[0]
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
+        (x_var,) = eqn.invars
+        (out_var,) = eqn.outvars
 
-        x_val = ctx.get_value_for_var(
-            x_var,
-            name_hint=ctx.fresh_name("log_sigmoid_in"),
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("log_sigmoid_out")
         )
-        out_spec = ctx.get_value_for_var(
-            out_var,
-            name_hint=ctx.fresh_name("log_sigmoid_out"),
-        )
-
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
-            "log_sigmoid_out"
-        )
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("log_sigmoid_out")
-
-        out_type = getattr(out_spec, "type", None) or getattr(x_val, "type", None)
-        out_shape = getattr(out_spec, "shape", None) or getattr(x_val, "shape", None)
-
-        sig = ctx.builder.Sigmoid(
+        x_val = promote_float32_operand(
+            ctx,
             x_val,
-            _outputs=[ctx.fresh_name("log_sigmoid_sigmoid")],
+            target_dtype=out_spec.dtype,
+            name_hint="log_sigmoid_operand_double",
         )
-        if out_type is not None:
-            sig.type = out_type
-        if out_shape is not None:
-            sig.shape = out_shape
 
-        result = ctx.builder.Log(
-            sig,
-            _outputs=[desired_name],
+        emit = ElementwiseEmitter(ctx, x_val, out_spec, "log_sigmoid")
+        x_val = emit.input(x_val)
+        # Same formula as jax.nn.log_sigmoid, -softplus(-x): exp(-|x|) never
+        # overflows, and log1p keeps the tail where sigmoid rounds to 1.
+        neg_abs = emit.op("Neg", emit.op("Abs", x_val, name="abs"), name="neg_abs")
+        tail = emit_log1p(
+            ctx, emit.op("Exp", neg_abs, name="exp"), name_hint="log_sigmoid_log1p"
         )
-        if out_type is not None:
-            result.type = out_type
-        if out_shape is not None:
-            result.shape = out_shape
+        min_x_0 = emit.op("Min", x_val, emit.scalar(0.0), name="min")
+        result = emit.final("Sub", min_x_0, tail)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

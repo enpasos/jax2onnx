@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Final
+from typing import ClassVar, Final
 
 import jax
 from jax2onnx._compat.jax import (
@@ -12,11 +12,13 @@ from jax2onnx._compat.jax import (
 )
 import jax.numpy as jnp
 import numpy as np
+import onnx_ir as ir
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
+from jax2onnx.plugins.jax._log1p_expm1 import emit_sinh
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     jnp_binding_specs,
@@ -43,7 +45,24 @@ _SINH_PRIM: Final = make_jnp_primitive("jax.numpy.sinh")
         {
             "component": "Sinh",
             "doc": "https://onnx.ai/onnx/operators/onnx__Sinh.html",
-        }
+        },
+        {"component": "Abs", "doc": "https://onnx.ai/onnx/operators/onnx__Abs.html"},
+        {"component": "Exp", "doc": "https://onnx.ai/onnx/operators/onnx__Exp.html"},
+        {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
+        {"component": "Log", "doc": "https://onnx.ai/onnx/operators/onnx__Log.html"},
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {
+            "component": "Equal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+        },
+        {"component": "Less", "doc": "https://onnx.ai/onnx/operators/onnx__Less.html"},
+        {"component": "Or", "doc": "https://onnx.ai/onnx/operators/onnx__Or.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
     ],
     since="0.12.2",
     context="primitives.jnp",
@@ -52,9 +71,19 @@ _SINH_PRIM: Final = make_jnp_primitive("jax.numpy.sinh")
         {
             "testcase": "jnp_sinh_basic",
             "callable": lambda x: jnp.sinh(x),
-            "input_shapes": [(3,)],
+            # (Exp(x) - Exp(-x)) / 2 returns 0 or loses most digits for the
+            # small entries.
+            "input_values": [
+                np.array(
+                    [-20.0, -1.0, -1e-3, -(2.0**-30), 0.0, 2.0**-30, 1e-6, 1e-3, 1.0],
+                    dtype=np.float32,
+                )
+            ],
+            "rtol_f32": 1e-6,
+            "rtol_f64": 1e-12,
+            "atol": 0.0,
             "post_check_onnx_graph": EG(
-                ["Sinh:3", "Neg:3 -> Exp:3 -> Sub:3 -> Mul:3"],
+                ["Sinh:9", "Abs:9 -> Exp:9 -> Sub:9 -> Mul:9 -> Where:9 -> Where:9"],
                 mode="any",
                 no_unused_inputs=True,
             ),
@@ -65,7 +94,10 @@ _SINH_PRIM: Final = make_jnp_primitive("jax.numpy.sinh")
             "input_values": [np.array([0, 1, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.float32],
             "post_check_onnx_graph": EG(
-                ["Cast:3 -> Sinh:3", "Cast:3 -> Neg:3 -> Exp:3 -> Sub:3 -> Mul:3"],
+                [
+                    "Cast:3 -> Sinh:3",
+                    "Cast:3 -> Abs:3 -> Exp:3 -> Sub:3 -> Mul:3 -> Where:3 -> Where:3",
+                ],
                 mode="any",
                 no_unused_inputs=True,
             ),
@@ -96,14 +128,13 @@ class JnpSinhPlugin(PrimitiveLeafPlugin):
             x,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("jnp_sinh_in"))
-        out_spec = ctx.get_value_for_var(
-            out_var,
-            name_hint=ctx.fresh_name("jnp_sinh_out"),
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("jnp_sinh_out")
         )
         op_input = cast_input_to_output_dtype(
             ctx,
@@ -113,53 +144,11 @@ class JnpSinhPlugin(PrimitiveLeafPlugin):
             output_hint="jnp_sinh",
         )
 
-        out_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(out_var, "aval", None), "dtype", np.float32)
-        )
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("jnp_sinh_out")
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("jnp_sinh_out")
-
-        if np.issubdtype(out_dtype, np.floating):
-            neg_x = ctx.builder.Neg(
-                op_input,
-                _outputs=[ctx.fresh_name("jnp_sinh_neg")],
-            )
-            neg_x.type = op_input.type
-            neg_x.shape = op_input.shape
-
-            exp_pos = ctx.builder.Exp(
-                op_input,
-                _outputs=[ctx.fresh_name("jnp_sinh_exp_pos")],
-            )
-            exp_pos.type = op_input.type
-            exp_pos.shape = op_input.shape
-
-            exp_neg = ctx.builder.Exp(
-                neg_x,
-                _outputs=[ctx.fresh_name("jnp_sinh_exp_neg")],
-            )
-            exp_neg.type = op_input.type
-            exp_neg.shape = op_input.shape
-
-            diff = ctx.builder.Sub(
-                exp_pos,
-                exp_neg,
-                _outputs=[ctx.fresh_name("jnp_sinh_sub")],
-            )
-            diff.type = op_input.type
-            diff.shape = op_input.shape
-
-            half = ctx.bind_const_for_var(object(), np.asarray(0.5, dtype=out_dtype))
-            result = ctx.builder.Mul(diff, half, _outputs=[desired_name])
+        # ONNX Runtime has no float64 or bfloat16 Sinh kernel.
+        if out_spec.dtype == ir.DataType.FLOAT:
+            result = ctx.builder.op("Sinh", [op_input], output=out_spec)
         else:
-            result = ctx.builder.Sinh(op_input, _outputs=[desired_name])
-
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
+            result = emit_sinh(ctx, op_input, name_hint="jnp_sinh", output=out_spec)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
