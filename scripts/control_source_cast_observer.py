@@ -15,6 +15,7 @@ import json
 import math
 import os
 from pathlib import Path
+import platform
 import sys
 from typing import Any
 import xml.etree.ElementTree as ET
@@ -57,6 +58,266 @@ _PROCESS_FIELDS = (
     "cpu",
     "source_files",
 )
+_HIGH = "003c003c013c00bcff7b007c"
+_LOW = "003c003c003c00bcff7b007c"
+
+
+def _word_record(value: Any) -> dict[str, Any]:
+    fields = {
+        "dtype",
+        "dtype_str",
+        "shape",
+        "storage_hex",
+        "element_storage_hex",
+        "raw_storage_sha256",
+        "typed_sha256",
+    }
+    _require(
+        type(value) is dict and set(value) == fields, "OFF word record fields differ"
+    )
+    _require(
+        value["dtype"] == "float16"
+        and value["dtype_str"] == "<f2"
+        and type(value["shape"]) is list
+        and len(value["shape"]) == 1
+        and type(value["shape"][0]) is int
+        and value["shape"][0] == 6
+        and type(value["storage_hex"]) is str
+        and len(value["storage_hex"]) == 24,
+        "OFF word record typed shape differs",
+    )
+    raw = bytes.fromhex(value["storage_hex"])
+    _require(
+        len(raw) == 12
+        and raw.hex() == value["storage_hex"]
+        and value["element_storage_hex"]
+        == [raw[index : index + 2].hex() for index in range(0, 12, 2)],
+        "OFF word record storage differs",
+    )
+    header = {key: value[key] for key in ("dtype", "dtype_str", "shape")}
+    _require(
+        value["raw_storage_sha256"] == hashlib.sha256(raw).hexdigest()
+        and value["typed_sha256"]
+        == hashlib.sha256(
+            json.dumps(header, sort_keys=True).encode() + b"\0" + raw
+        ).hexdigest(),
+        "OFF word record fingerprints differ",
+    )
+    return {
+        **header,
+        "storage_hex": raw.hex(),
+        "raw_storage_sha256": value["raw_storage_sha256"],
+        "typed_sha256": value["typed_sha256"],
+    }
+
+
+def _word_comparison(
+    helper: Any, proof: dict[str, Any], receipt: dict[str, Any], result: dict[str, Any]
+) -> None:
+    # Separate from the failure-class finding. Only this complete same-call
+    # binding can establish that both unprofiled native vectors matched HIGH.
+    result["word_comparison_status"] = "UNVERIFIED"
+    try:
+        _require(
+            result.get("status") == "OBSERVER_NOT_NECESSARY"
+            and result.get("observer_disabled_verified") is True
+            and result.get("prefix_matched") is True,
+            "OFF full-request failure-class proof is incomplete",
+        )
+        post = receipt.get("off_postmortem")
+        _require(
+            type(post) is dict
+            and post["schema"] == "source-cast-off-postmortem-v1"
+            and post["status"] == "WORDS_OBSERVED"
+            and post["nodeid"] == helper.NODE_ID
+            and post["scope"]
+            == "Same supplemental OFF failed call, observed after its original report."
+            and post["errors"] == [],
+            "OFF same-call words are unavailable or unverified",
+        )
+        _require(
+            all(
+                post[name] is False
+                for name in (
+                    "source_called",
+                    "native_references_recomputed_by_postmortem",
+                    "native_source_recomputed_here",
+                    "runtime_called",
+                    "profile_installed",
+                    "raw_target_outputs_captured",
+                )
+            ),
+            "OFF postmortem passive scope differs",
+        )
+        _require(
+            type(post["fences"]) is dict
+            and set(post["fences"])
+            == {"code_binding_held", "source_held", "profiles_absent", "context_held"}
+            and all(value is True for value in post["fences"].values()),
+            "OFF postmortem fences differ",
+        )
+        for phase in ("before", "after"):
+            _require(
+                post["context_" + phase]
+                == receipt["target_context_" + phase]
+                == proof["contexts"]["target_context_" + phase],
+                "OFF captured context differs from matched original/control receipt",
+            )
+        context_helper = _load_script("_source_cast_postmortem")
+        _require(
+            post["context_transition"]
+            == context_helper.compare_contexts(
+                receipt["target_context_before"], receipt["target_context_after"]
+            ),
+            "OFF recorded lifecycle differs from actual receipt boundaries",
+        )
+        eager, compiled = _word_record(post["native_eager"]), _word_record(
+            post["native_fresh_jit"]
+        )
+        result["raw_native_words_captured"] = True
+        witness = proof["witness"]
+        observed = helper._json(witness["folder"] / helper.OBSERVATION)
+        _require(
+            eager == witness["references"]["native_eager"]
+            and compiled == witness["references"]["native_fresh_jit"]
+            and eager["storage_hex"] == compiled["storage_hex"] == _HIGH
+            and post["native_references_equal"] is True
+            and post["native_references_are_high"] is True,
+            "OFF complete native vectors differ from the original HIGH witness",
+        )
+        original_sources = witness["original_source_files"]
+        before, end = post["source_files_before"], post["source_files_end"]
+        _require(
+            type(before) is dict
+            and before == end
+            and set(before) == {*original_sources, "scripts/_source_cast_postmortem.py"}
+            and all(
+                before[name] == {key: value[key] for key in ("bytes", "sha256")}
+                for name, value in original_sources.items()
+            ),
+            "OFF original source digests differ",
+        )
+        stable = ("filename", "name", "firstlineno", "marshal_sha256")
+        _require(
+            all(
+                post["code_provenance"][role][key]
+                == observed["function_code_provenance"][role][key]
+                for role in ("artifact", "runtime", "compare")
+                for key in stable
+            ),
+            "OFF source/runtime/comparator code differs from original ON witness",
+        )
+        artifact = post["artifact"]
+        _require(
+            artifact["sha256"] == witness["artifact_sha256"]
+            and type(artifact["bytes"]) is int
+            and artifact["bytes"] == len(helper._read(witness["model"], 1024 * 1024)),
+            "OFF model identity differs from original witness",
+        )
+        validation = post["validation"]
+        _require(
+            validation["artifact_sha256"] == artifact["sha256"]
+            and type(validation["samples"]) is list
+            and len(validation["samples"]) == 1,
+            "OFF validation artifact/sample binding differs",
+        )
+        sample = validation["samples"][0]
+        _require(
+            type(sample["index"]) is int
+            and sample["index"] == 0
+            and sample["criteria"] == helper._CRITERIA
+            and [(item["category"], item["status"]) for item in validation["checks"]]
+            == [("artifact-load", "validated"), ("onnx-schema", "validated")]
+            and [(item["category"], item["status"]) for item in sample["checks"]]
+            == [("runtime-execution", "validated"), ("numerical-acceptance", "failed")]
+            and sample["checks"][1]["detail"]
+            == "Output 0: values fail bitwise comparison"
+            and post["exception"]
+            == {
+                "exact_type": "jax2onnx.precision.SampleAcceptanceError",
+                "message": "failed: Output 0: values fail bitwise comparison",
+            },
+            "OFF exact failure checks or criterion differ",
+        )
+        selection = post["selection"]
+        labels = observed["comparison_events"][-1]["labels"]
+        _require(
+            type(selection["reference_index"]) is int
+            and selection
+            == {key: labels[key] for key in ("optimization", "reference_index")},
+            "OFF selected original comparison differs",
+        )
+        native = (eager, compiled)[selection["reference_index"]]
+        actual = helper._record(observed["comparison_events"][-1]["actual"], "float16")
+        _require(
+            actual["storage_hex"] == _LOW
+            and post["target_typed_hash_matches_known_low"] is True,
+            "Original or OFF typed target does not identify LOW",
+        )
+        for key, dtype, digest in (
+            ("inputs", "float64", witness["inputs"]["typed_sha256"]),
+            ("references", "float16", native["typed_sha256"]),
+            ("outputs", "float16", actual["typed_sha256"]),
+        ):
+            values = sample[key]
+            _require(
+                type(values) is list
+                and len(values) == 1
+                and values[0]["dtype"] == dtype
+                and type(values[0]["shape"]) is list
+                and len(values[0]["shape"]) == 1
+                and type(values[0]["shape"][0]) is int
+                and values[0]["shape"][0] == 6
+                and values[0]["sha256"] == digest,
+                "OFF input/reference/output typed fingerprints differ",
+            )
+        _require(
+            witness["inputs"]["storage_hex"] == helper._INPUT_HEX,
+            "Original fixed input bytes differ",
+        )
+        target = validation["target"]
+        _require(
+            target["runtime_version"] == observed["distributions"]["onnxruntime"]
+            and target["architecture"] == platform.machine()
+            and target["providers"]
+            == observed["runtime_events"][-1]["providers"]
+            == ["CPUExecutionProvider"]
+            and target["optimization"]
+            == (
+                "ORT_DISABLE_ALL"
+                if selection["optimization"] == "disabled"
+                else "ORT_ENABLE_ALL"
+            )
+            and target["provider_options"] == [["CPUExecutionProvider", []]]
+            and type(target["intra_op_threads"]) is int
+            and target["intra_op_threads"] == 1
+            and type(target["inter_op_threads"]) is int
+            and target["inter_op_threads"] == 1
+            and target["execution_mode"] == "ORT_SEQUENTIAL"
+            and target["session_config"] == []
+            and target["deployment_observation"] is None,
+            "OFF recorded original CPU session settings differ",
+        )
+        result.update(
+            word_comparison_status="OFF_WORDS_MATCH_ORIGINAL_WITNESS",
+            word_comparison={
+                "scope": "Both same-call OFF native vectors match original ON HIGH; existing public typed evidence binds the fixed input, identical artifact and LOW target. No raw OFF target output was copied.",
+                "native_eager": eager,
+                "native_fresh_jit": compiled,
+                "artifact_sha256": artifact["sha256"],
+                "selection": selection,
+                "inputs": sample["inputs"],
+                "references": sample["references"],
+                "outputs": sample["outputs"],
+                "target": target,
+                "postmortem_sha256": hashlib.sha256(_wire(post)).hexdigest(),
+                "raw_target_outputs_captured": False,
+            },
+        )
+    except BaseException as error:
+        result["word_comparison_reason"] = (
+            type(error).__name__ + ": " + str(error)[:1024]
+        )
 
 
 def _load_script(name: str) -> Any:
@@ -441,8 +702,9 @@ def _classify(
         )
         result.update(
             status="OBSERVER_NOT_NECESSARY",
-            conclusion="The active observer is not necessary for this reproduced original bitwise failure; no raw native words were observed in this control.",
+            conclusion="The active observer is not necessary for this reproduced original bitwise failure class. Same-call word matching is a separate finding.",
         )
+        _word_comparison(helper, proof, receipt, result)
     else:
         _require(target[1]["outcome"] == "passed", "control target was skipped")
         _require(
@@ -497,6 +759,8 @@ def main(argv: list[str] | None = None) -> int:
         "native_source_recomputed": False,
         "native_source_recomputation_requested": True,
         "raw_native_words_captured": False,
+        "raw_target_outputs_captured": False,
+        "word_comparison_status": "UNVERIFIED",
         "numerical_repair_claimed": False,
         "child_invocations": 0,
         "processes": [],
@@ -508,6 +772,7 @@ def main(argv: list[str] | None = None) -> int:
         *(_ROOT / name for name in helper._SOURCE_FILES),
         Path(__file__).resolve(),
         Path(helper.__file__).resolve(),
+        Path(__file__).with_name("_source_cast_postmortem.py").resolve(),
         _ROOT / ".github/workflows/ci.yml",
     ]
     try:
@@ -548,6 +813,7 @@ def main(argv: list[str] | None = None) -> int:
     except BaseException as error:
         result.update(
             status="UNVERIFIED",
+            word_comparison_status="UNVERIFIED",
             error_type=type(error).__module__ + "." + type(error).__qualname__,
             reason=str(error),
         )
@@ -575,12 +841,17 @@ def main(argv: list[str] | None = None) -> int:
                 ):
                     result.update(
                         status="UNVERIFIED",
+                        word_comparison_status="UNVERIFIED",
                         reason="Original evidence/source changed during the control.",
                     )
             except Exception as error:
                 result.update(
-                    status="UNVERIFIED", fence_error_type=type(error).__name__
+                    status="UNVERIFIED",
+                    word_comparison_status="UNVERIFIED",
+                    fence_error_type=type(error).__name__,
                 )
+        if result["word_comparison_status"] != "OFF_WORDS_MATCH_ORIGINAL_WITNESS":
+            result.pop("word_comparison", None)
         helper._write(root / "run.json", result)
     return (
         0

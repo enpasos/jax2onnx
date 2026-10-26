@@ -1,9 +1,9 @@
 # Precision migration handoff — 2026-10-26
 
-This continues diagnostic commit `3d023218`, after native-file diagnostic
-`b8888c40` and annotation repair `87b2b3c6`. The user has explicitly requested
-merging current main `48054bb3` into this branch; its reviewed integration and
-finite qualification are recorded below. The observer-off control is pushed,
+This continues requested main-integration commit `a69d0730`, with parents
+`3d023218` and main `48054bb3`. It follows native-file diagnostic `b8888c40`
+and annotation repair `87b2b3c6`. The reviewed merge is pushed; its finite
+qualification is recorded below. The observer-off control is pushed,
 but precise same-call unprofiled word evidence and the full CI gate remain open.
 Continue on branch
 `precision-migration` in `/home/enpasos/projects/jax2onnx`.
@@ -209,6 +209,20 @@ The fetched main tip is `48054bb35681ecd18e4a8376bb7ccdeb8fe7aa8c`
 (#279), with merge base `4add8d2d` and branch parent `3d023218`.
 This is branch synchronization, not a merge of PR #277 into main.
 
+The integration is stored and pushed as
+`a69d0730197bcd917103c00536e7aa402fa80b04`. All seven actual pinned all-files
+hooks and all seven normal merge-commit hooks pass; strict MkDocs passes with
+output outside the source tree. Independent review accepts the final tree and
+closeout. The two in-flight diagnostic files are restored with identical bytes,
+modes, patch and status. Their temporary task-created stash was removed only
+after verified restoration; exact external backups and proof remain available.
+
+[CI #541](https://github.com/enpasos/jax2onnx/actions/runs/40405974553) is bound
+to exact head `a69d0730`. The PR merge ref is observed as `d2f5b60e`; actual job
+checkout receipts remain a separate verification. At **22:09 UTC**, all four
+support jobs are SUCCESS and all four full jobs are running. No earlier head's
+result qualifies this head.
+
 The two conflicts are resolved by combining both contracts. SOURCE initializer
 validation retains exact typed storage and duplicate handling; LEGACY takes
 main's float64-only narrowing, preserving float16 data. Where retains its
@@ -255,6 +269,67 @@ metadata/test rows; reconcile the new epoch explicitly rather than silently
 replacing old obligations. Public defaults remain LEGACY, and full migration,
 original model/resource gates and coordinated public transition remain open.
 
+## Precise same-call OFF diagnostic: finite local qualification
+
+The separate local follow-up reads the failed call's retained native NumPy
+references and its existing public validation report after the original pytest
+report exists. It installs no profiler, wraps no source/runtime operation,
+materializes no JAX input and makes no additional source or ORT call. Only two
+12-byte reference payloads are copied; OFF target output remains existing typed
+hash evidence, explicitly not a newly captured raw output.
+
+The original test and acceptance frames plus reference-producer bindings,
+native report/copy-method types, exception/traceback identity and bounded
+artifact are checked.
+SOURCE input/reference/output typed evidence, exact runtime/numerical checks and
+CPU session settings are bound. Artifact/runtime/comparison code provenance must
+match the original ON observation; local entrypoint/method bindings and code,
+source, profile and context fences must hold. Transient pins are cleared, and
+only bounded primitive JSON survives. Diagnostic failure never changes the
+original report or canonical failed job.
+
+Pytest legitimately changes `PYTEST_CURRENT_TEST` from the exact node's `setup`
+to `call` phase. A pure comparison helper proves that one exact transition and
+equality of every other environment/context field, retaining both snapshots.
+The coordinator binds those snapshots to actual OFF receipt boundaries already
+matched to ON and recomputes the transition. It does not ignore an environment
+prefix or treat unknown context as equal.
+
+At source-files
+`3ff74669c2aa44969b16066a3c36c3e98fe81a0d9f77e3bae97a3222d25bb943`
+and index tree `2b3ab51619f4ad2b1db97c2bf0cc619809ab7bd3`, the four complete
+diagnostic owners pass **203 identical ordered unique cases per locked cohort**,
+with zero failures/errors/skips. All original 139 and intermediate 192 test IDs
+remain. The new owner's 64 cases use explicitly synthetic words/native report
+containers; they qualify extraction, provenance and rejection controls, not
+native rounding behavior.
+
+The unchanged real original node passes once ON and once OFF on each cohort.
+The actual native pins succeed, corresponding four boundary contexts match,
+and the pure helper accepts the genuine recorded setup-to-call transition while
+leaving those snapshots unchanged. Passing original receipts are NOT_APPLICABLE
+to the failure-only controller with zero children; canonical validation rejects
+supplemental receipts. All guards retain source/Git/index, environment metadata
+and clean cleanup under unchanged caps. Independent Astra review accepts this
+finite packet. **No failed-call HIGH words have been observed by these passing
+baselines.** Precise hosted word evidence and numerical repair remain open.
+
+Predecessors retain their original scope/outcomes: modern v1 has one collection
+error before tests run (an adversarial object was constructed in parameter
+metadata); v2 has **190 passed / two failed** because NumPy's redundant
+`dtype.name` lookup imports a module. Constructing the object inside the test and
+using the equivalent exact `<f2` storage check fixes these without relaxing the
+guards. The 192-case pair passed, but the initial whole-context equality missed
+pytest's lifecycle transition; only the final 203-case epoch qualifies that
+relation. Its earlier modern ON/OFF pin check and older ON-only result remain
+separate from the final two complete native pairs.
+
+This packet is a local diagnostic follow-up to the already pushed merge;
+publication and all-eight exact-head CI remain separate gates. The original
+FP64-to-FP16 success assertion, six inputs, references and bitwise criteria are
+unchanged. The external target-contract proposal remains unapplied and requires
+precise OFF evidence and an explicit goal amendment before assertion changes.
+
 ## Preserved predecessor outcomes
 
 - Full NNX Transformer and generic callable preparation owners on actual Python
@@ -289,10 +364,10 @@ original model/resource gates and coordinated public transition remain open.
 
 ## Next concrete work
 
-Complete normal merge hook/documentation closeout, store and push the requested
-main integration, restore the separate in-flight diagnostic and inspect all
-eight checks on the exact new head. Continue qualifying the precise same-call
-postmortem before relying on any HIGH-specific causal inference.
+Inspect all eight checks on the exact `a69d0730` head. Complete and qualify the
+restored same-call postmortem packet before relying on any HIGH-specific causal
+inference; keep it separate from the already qualified merge. Preserve the
+original assertion and all historical interrupted/failed outcomes.
 Preserve original models, cases, inputs, assertions and criteria; a diagnostic
 commit alone does not repair the numerical mismatch.
 
@@ -343,10 +418,19 @@ check is `control-archive-b888-complete-v1/`. Current control qualifications are
 Requested-main merge proof is under `main-merge-20261026T212012/`,
 `main-merge-modern-v2` and `main-merge-python311-v1` (with combined JUnit and the
 separate canonical batch folders). That merge directory also contains exact
-backups of the two in-flight files and the WIP patch; their scoped stash is
-`fcbeb13b5b7ee9123a03eb47e9ba9f9152ef2e26` until verified restoration.
+backups of the two in-flight files and the WIP patch. Scoped stash object
+`fcbeb13b5b7ee9123a03eb47e9ba9f9152ef2e26` was applied, byte/mode/patch/status
+restoration verified in `wip-restoration.json`, then its temporary stash ref
+removed. `commit-closeout.json` binds both requested parents, the exact final
+tree, all normal hooks and the deliberate HEAD/status transition.
 The #539 Python 3.12 interruption log and compact triage are under
 `ci3d023218-python312/`.
+Precise postmortem proofs are `postmortem-owners-modern-v4`,
+`postmortem-owners-python311-v2`, and
+`postmortem-real-{modern,python311}-{on,off}-v2`. Their native branch audits are
+`actual-postmortem-{modern,python311}-off-v2/qualification.json`; aggregate
+`postmortem-packet-qualification-v1.json` retains the separate earlier epochs.
+`postmortem-dtype-metadata-probe-v1` records the metadata-only import finding.
 
 Preserve machine stability: one native test/build/hook job at a time, one pytest
 worker, native thread counts of one, CPUs 4–7, a 4 GiB aggregate process guard,

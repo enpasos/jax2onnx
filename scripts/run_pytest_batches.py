@@ -92,6 +92,7 @@ _WORKER_ENV_PREFIXES = (
 _WORKER_SOURCE_FILES = (
     "scripts/run_pytest_batches.py",
     "scripts/_source_cast_observer.py",
+    "scripts/_source_cast_postmortem.py",
     "tests/extra_tests/converter/test_source_conversion_semantics.py",
     "tests/extra_tests/converter/test_source_pointwise_mul_exp.py",
     "tests/extra_tests/converter/test_source_predicate_families.py",
@@ -602,6 +603,9 @@ def _worker(request_path: Path) -> int:
         }
 
     class Report:
+        postmortem_pin: Any = None
+        postmortem_module: Any = None
+
         def pytest_configure(self, config: Any) -> None:
             if getattr(config.option, "numprocesses", None) not in (None, 0):
                 raise pytest.UsageError("pytest batches require serial child processes")
@@ -675,6 +679,30 @@ def _worker(request_path: Path) -> int:
                     )
                 receipt["native_source_recomputed"] = True
                 try:
+                    from importlib.util import module_from_spec, spec_from_file_location
+
+                    path = Path(__file__).with_name("_source_cast_postmortem.py")
+                    spec = spec_from_file_location("_cast_off_postmortem", path)
+                    if spec is None or spec.loader is None:
+                        raise ValueError("postmortem loader unavailable")
+                    self.postmortem_module = module_from_spec(spec)
+                    spec.loader.exec_module(self.postmortem_module)
+                    self.postmortem_pin = self.postmortem_module.pin_postmortem(
+                        item, receipt["target_context_before"]
+                    )
+                except BaseException as error:
+                    receipt["off_postmortem"] = {
+                        "schema": "source-cast-off-postmortem-v1",
+                        "status": "UNVERIFIED",
+                        "nodeid": item.nodeid,
+                        "errors": [
+                            {
+                                "stage": "pre-call-pin",
+                                "error_type": type(error).__name__,
+                            }
+                        ],
+                    }
+                try:
                     yield
                 finally:
                     receipt["target_context_after"] = _worker_context()
@@ -728,6 +756,58 @@ def _worker(request_path: Path) -> int:
                         diagnostic_error("observer-finish-error", error)
                 receipt["target_context_after"] = _worker_context()
                 checkpoint()
+
+        @pytest.hookimpl(hookwrapper=True)
+        def pytest_runtest_makereport(self, item: Any, call: Any) -> Any:
+            outcome = yield
+            if (
+                control is None
+                or item.nodeid != _CAST_OBSERVER_NODE
+                or call.when != "call"
+            ):
+                return
+            try:
+                original_report = outcome.get_result()
+                if (
+                    self.postmortem_pin is not None
+                    and self.postmortem_module is not None
+                ):
+                    if original_report.outcome == "failed":
+                        receipt["off_postmortem"] = (
+                            self.postmortem_module.capture_postmortem(
+                                self.postmortem_pin,
+                                call,
+                                original_report,
+                                receipt["target_context_after"],
+                            )
+                        )
+                    else:
+                        receipt["off_postmortem"] = {
+                            "schema": "source-cast-off-postmortem-v1",
+                            "status": "UNVERIFIED",
+                            "nodeid": item.nodeid,
+                            "errors": [],
+                            "reason": "target-call-did-not-fail",
+                        }
+            except BaseException as error:
+                receipt["off_postmortem"] = {
+                    "schema": "source-cast-off-postmortem-v1",
+                    "status": "UNVERIFIED",
+                    "nodeid": item.nodeid,
+                    "errors": [
+                        {
+                            "stage": "post-report-copy",
+                            "error_type": type(error).__name__,
+                        }
+                    ],
+                }
+            finally:
+                self.postmortem_pin = self.postmortem_module = None
+                try:
+                    checkpoint()
+                except BaseException:
+                    # A post-report diagnostic write cannot replace the report.
+                    pass
 
         def pytest_runtest_logreport(self, report: Any) -> None:
             entry = {"when": report.when, "outcome": report.outcome}
