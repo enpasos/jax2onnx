@@ -48,3 +48,12 @@ functionality and one coherent public SOURCE UX without permanent selectors,
 fallbacks or capability loss. Public defaults remain LEGACY until the reviewed
 phase-F transition. CI health at one head qualifies that head's checks; it does
 not close the remaining model, capability or migration obligations.
+
+Full-suite CI uses fresh serial pytest batches. Every batch verifies the same
+full ordered collection before selecting its assigned items, preserving
+collection-time imports and registrations; each item executes intact in one
+process. PASS requires the completed node IDs to form an exact, disjoint union of
+the original collection, with original pytest outcome rules and complete
+phase/JUnit accounting. Receipts and passive resource observations document
+execution; they do not establish OOM as the cause of earlier interruptions or
+close the separate model resource gate.

@@ -407,6 +407,16 @@ def canonical_code_fingerprint(code: types.CodeType) -> str:
             return {"float64_be": struct.pack(">d", value).hex()}
         if type(value) is complex:
             return {"complex128_be": struct.pack(">dd", value.real, value.imag).hex()}
+        if type(value) is slice:
+            # CPython may retain constant subscription slices in co_consts.
+            # Only builtin descriptors are read; component values keep the same
+            # immutable grammar and recursion bound as every other constant.
+            return {
+                "slice": [
+                    encode(vars(slice)[name].__get__(value, slice), depth + 1)
+                    for name in ("start", "stop", "step")
+                ]
+            }
         if type(value) is tuple:
             return {"tuple": [encode(item, depth + 1) for item in value]}
         if type(value) is frozenset:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import sys
 from typing import Any
-from types import MemberDescriptorType, SimpleNamespace
+from types import CodeType, MemberDescriptorType, SimpleNamespace
 
 import numpy as np
 
@@ -1362,9 +1364,78 @@ def test_native_axisdata_frozen_closure_gap_reports_only_intrinsic_schema(
     assert invoked == []
 
 
-@pytest.mark.parametrize("hostile_leaf", (False, True))
-def test_code_fingerprint_keeps_unmeasured_slice_constants_outside_admission(
-    hostile_leaf: bool,
+def test_code_fingerprint_accepts_native_compiled_subscription_slice() -> None:
+    compiled = compile(
+        "def selected(value):\n    return value[1:]\n",
+        "<native-slice-constant>",
+        "exec",
+        dont_inherit=True,
+        optimize=0,
+    )
+    code = next(value for value in compiled.co_consts if type(value) is CodeType)
+    slices = [value for value in code.co_consts if type(value) is slice]
+    if sys.version_info >= (3, 14):
+        # Exercise the native compiler's retained slice on the actual CI runtime.
+        assert len(slices) == 1
+        assert slices[0].start == 1 and slices[0].stop is slices[0].step is None
+    else:
+        # Older interpreters still exercise the same exact CodeType adapter.
+        code = code.replace(co_consts=(*code.co_consts, slice(1, None, None)))
+    assert compat.canonical_code_fingerprint(code) == compat.canonical_code_fingerprint(
+        code.replace()
+    )
+
+
+def test_code_fingerprint_slice_constants_are_structural_and_deterministic() -> None:
+    def selected() -> None:
+        pass
+
+    def constants() -> tuple[Any, ...]:
+        return (
+            slice(1, None, None),
+            slice(("start", True), frozenset((2, 3)), slice(None, 4, -1)),
+            (slice(b"start", 2.0, complex(1, -0.0)), None),
+        )
+
+    first, second = constants(), constants()
+    assert first[0] is not second[0] and first[1] is not second[1]
+    code = selected.__code__
+    before = compat.canonical_code_fingerprint(code.replace(co_consts=first))
+    assert compat.canonical_code_fingerprint(code.replace(co_consts=second)) == before
+    assert compat.canonical_code_fingerprint(code.replace(co_consts=first)) == before
+
+
+@pytest.mark.parametrize("component", (0, 1, 2))
+@pytest.mark.parametrize("change", ("value", "type", "bool-int", "none-ellipsis"))
+def test_code_fingerprint_retains_each_slice_component_and_type(
+    component: int, change: str
+) -> None:
+    def selected() -> None:
+        pass
+
+    left: list[Any] = [1, 3, 2]
+    right = list(left)
+    if change == "value":
+        right[component] += 1
+    elif change == "type":
+        right[component] = float(left[component])
+    elif change == "bool-int":
+        left[component], right[component] = True, 1
+    else:
+        left[component], right[component] = None, Ellipsis
+    code = selected.__code__
+    assert compat.canonical_code_fingerprint(
+        code.replace(co_consts=(slice(*left),))
+    ) != compat.canonical_code_fingerprint(code.replace(co_consts=(slice(*right),)))
+    assert compat.canonical_code_fingerprint(
+        code.replace(co_consts=(slice(*left),))
+    ) != compat.canonical_code_fingerprint(code.replace(co_consts=(tuple(left),)))
+
+
+@pytest.mark.parametrize("component", (0, 1, 2))
+@pytest.mark.parametrize("nested", ("direct", "tuple", "slice", "code"))
+def test_code_fingerprint_rejects_hostile_slice_leaves_without_hooks(
+    component: int, nested: str
 ) -> None:
     invoked = []
 
@@ -1377,6 +1448,10 @@ def test_code_fingerprint_keeps_unmeasured_slice_constants_outside_admission(
             invoked.append("repr")
             raise AssertionError("foreign slice leaf representation ran")
 
+        def __str__(self) -> str:
+            invoked.append("str")
+            raise AssertionError("foreign slice leaf string conversion ran")
+
         def __eq__(self, other: Any) -> bool:
             invoked.append("equality")
             raise AssertionError("foreign slice leaf equality ran")
@@ -1385,14 +1460,113 @@ def test_code_fingerprint_keeps_unmeasured_slice_constants_outside_admission(
             invoked.append("hash")
             raise AssertionError("foreign slice leaf hashing ran")
 
+        def __index__(self) -> int:
+            invoked.append("index")
+            raise AssertionError("foreign slice leaf index conversion ran")
+
+        def __iter__(self) -> Any:
+            invoked.append("iter")
+            raise AssertionError("foreign slice leaf iteration ran")
+
+        def __bool__(self) -> bool:
+            invoked.append("bool")
+            raise AssertionError("foreign slice leaf truth conversion ran")
+
     def selected() -> None:
         pass
 
-    value = slice(Foreign() if hostile_leaf else 1, None, 2)
-    changed = selected.__code__.replace(co_consts=(*selected.__code__.co_consts, value))
+    leaf: Any = Foreign()
+    if nested == "tuple":
+        leaf = (leaf,)
+    elif nested == "slice":
+        leaf = slice(None, leaf, None)
+    elif nested == "code":
+        leaf = selected.__code__.replace(co_consts=(leaf,))
+    components: list[Any] = [None, None, None]
+    components[component] = leaf
+    changed = selected.__code__.replace(co_consts=(slice(*components),))
     with pytest.raises(TypeError, match="code constant type needs an exact adapter"):
         compat.canonical_code_fingerprint(changed)
     assert invoked == []
+
+
+@pytest.mark.parametrize("layers", (46, 47))
+@pytest.mark.parametrize("mixed", (False, True))
+def test_code_fingerprint_slice_components_retain_the_existing_depth_bound(
+    layers: int, mixed: bool
+) -> None:
+    def selected() -> None:
+        pass
+
+    value: Any = None
+    for index in range(layers):
+        value = (value,) if mixed and index % 2 else slice(value, None, None)
+    code = selected.__code__.replace(co_consts=(value,))
+    # The code is at depth0 and co_consts at depth1; the deepest leaf is
+    # layers+2. The existing maximum remains48 for both tuples and slices.
+    if layers == 46:
+        assert len(compat.canonical_code_fingerprint(code)) == 64
+    else:
+        with pytest.raises(ValueError, match="code constant nesting"):
+            compat.canonical_code_fingerprint(code)
+
+
+def test_code_fingerprint_preserves_old_constant_tags_and_adds_distinct_slice_tag(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured = []
+    original_sha256 = compat.hashlib.sha256
+
+    def observe(payload: bytes) -> Any:
+        captured.append(json.loads(payload))
+        return original_sha256(payload)
+
+    monkeypatch.setattr(compat.hashlib, "sha256", observe)
+
+    def selected() -> None:
+        pass
+
+    constants = (
+        None,
+        Ellipsis,
+        False,
+        True,
+        -1,
+        "x",
+        b"\x00",
+        1.0,
+        complex(1, -0.0),
+        (2,),
+        frozenset(("b", "a")),
+    )
+    compat.canonical_code_fingerprint(selected.__code__.replace(co_consts=constants))
+    assert captured[-1]["schema"] == "CodeType-structural-v1"
+    assert captured[-1]["value"]["code"]["co_consts"] == {
+        "tuple": [
+            {"none": True},
+            {"ellipsis": True},
+            {"bool": False},
+            {"bool": True},
+            {"int_hex": "-0x1"},
+            {"str": "x"},
+            {"bytes": "00"},
+            {"float64_be": "3ff0000000000000"},
+            {"complex128_be": "3ff00000000000008000000000000000"},
+            {"tuple": [{"int_hex": "0x2"}]},
+            {"frozenset": [{"str": "a"}, {"str": "b"}]},
+        ]
+    }
+    compat.canonical_code_fingerprint(
+        selected.__code__.replace(co_consts=(slice(1, None, 2),))
+    )
+    assert captured[-1]["value"]["code"]["co_consts"] == {
+        "tuple": [{"slice": [{"int_hex": "0x1"}, {"none": True}, {"int_hex": "0x2"}]}]
+    }
+
+
+def test_code_constant_slice_adapter_does_not_admit_generic_capture_state() -> None:
+    with pytest.raises(ValueError, match="unsupported native callable state type"):
+        compat._NativeCaptureGraph().take(slice(1, None, None))
 
 
 def test_native_interned_cache_accepts_distinct_plain_sharding_without_mutation() -> (
