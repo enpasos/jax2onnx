@@ -61,6 +61,24 @@
   with `enable_double_precision=True`, and `jax.nn.log1mexp` now exports FP16
   inputs. See
   [Known Limitations](../user_guide/known_limitations.md#log1p-expm1-and-related-functions).
+* **Compute `jax.nn.dot_product_attention` like JAX:** Combine the boolean,
+  causal, local-window, and sequence-length masks, and replace masked logits
+  with JAX's large finite negative value before `Softmax`, instead of masking
+  and renormalizing the weights afterwards. A large masked logit no longer zeroes
+  the allowed weights, fully masked rows get uniform weights like JAX instead of
+  zeros, and an explicit `mask` no longer drops `local_window_size`. Output rows
+  beyond `query_seq_lengths` are zeroed. FP16 and BF16 inputs compute the
+  logits and softmax in FP32 and cast the weights back before the value
+  product.
+* **Keep FP16 scalars and weakly typed `jnp.where` literals in the input
+  dtype:** Scalar initializers narrow only FP64 when double precision is off, so
+  FP16 graphs with scalar constants, such as the attention scale, stay valid.
+  `jnp.where(c, x, 0)` follows JAX's weak-type promotion: BF16 `x` exports
+  instead of failing, and FP16 `x` keeps FP16 instead of becoming FP32.
+* **Reject `lax.bitcast_convert_type` below opset 26:** ONNX `BitCast` exists
+  only from opset 26, so exports at lower opsets raise a clear error instead of
+  producing an invalid model. A bitcast to the operand's own dtype lowers to
+  `Identity` at any opset.
 * **Require ONNX IR 1.0.0 or newer:** Align the declared dependency floor,
   package metadata, developer guidance, and minimum-version CI coverage on
   `onnx-ir>=1.0.0`.

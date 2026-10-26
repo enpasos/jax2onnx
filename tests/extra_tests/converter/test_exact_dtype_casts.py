@@ -291,6 +291,41 @@ def test_low_precision_negation_retains_dtype_under_double_export(
         np.testing.assert_array_equal(actual, -x)
 
 
+@pytest.mark.parametrize("dtype_name", ["float16", "bfloat16"])
+def test_low_precision_masked_attention_retains_dtype_under_double_export(
+    dtype_name: str,
+) -> None:
+    dtype = getattr(jnp, dtype_name)
+    mask = np.tril(np.ones((1, 1, 4, 4), dtype=bool))
+    mask[..., 0, :] = False  # a fully masked query row
+
+    def attention(x: jax.Array) -> jax.Array:
+        return jax.nn.dot_product_attention(x, x, x, mask=mask)
+
+    model = to_onnx(
+        attention,
+        [jax.ShapeDtypeStruct((1, 4, 2, 8), dtype)],
+        enable_double_precision=True,
+    )
+    onnx.checker.check_model(model, full_check=True)
+
+    expected_type = (
+        onnx.TensorProto.FLOAT16
+        if dtype_name == "float16"
+        else onnx.TensorProto.BFLOAT16
+    )
+    assert model.graph.input[0].type.tensor_type.elem_type == expected_type
+    assert model.graph.output[0].type.tensor_type.elem_type == expected_type
+    if dtype_name == "float16":
+        # BF16 MatMul is not implemented by the tested CPU runtime.
+        x = np.random.default_rng(0).standard_normal((1, 4, 2, 8)).astype(np.float16)
+        (actual,) = _run_cpu_model(model, x)
+        assert actual.dtype == np.float16
+        np.testing.assert_allclose(
+            actual, np.asarray(attention(jnp.asarray(x))), rtol=2e-3, atol=2e-3
+        )
+
+
 def test_layout_outputs_preserve_float32_value_shared_with_double_consumer() -> None:
     x = (np.arange(24, dtype=np.float64) / 10).reshape((1, 2, 3, 4))
     model = to_onnx(
@@ -398,6 +433,7 @@ def test_bitcast_convert_type_preserves_explicit_float32_target_under_x64() -> N
         [jax.ShapeDtypeStruct((2,), np.uint32)],
         return_mode="ir",
         enable_double_precision=True,
+        opset=26,
     )
 
     assert model.graph.outputs[0].type is not None

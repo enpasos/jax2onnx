@@ -449,10 +449,8 @@ class IRBuilder:
 
             arr_existing = const_value_to_numpy(existing)
             arr_new = np.asarray(value)
-            # Respect dtype downcast policy for floats when comparing
-            if not self.enable_double_precision and np.issubdtype(
-                arr_new.dtype, np.floating
-            ):
+            # Respect the float64 downcast policy when comparing
+            if not self.enable_double_precision and arr_new.dtype == np.float64:
                 arr_new = arr_new.astype(np.float32)
             if arr_existing is not None:
                 try:
@@ -474,7 +472,8 @@ class IRBuilder:
             )
 
         arr = np.asarray(value)
-        if not self.enable_double_precision and np.issubdtype(arr.dtype, np.floating):
+        # Narrow float64 (including Python floats) only; float16 stays float16.
+        if not self.enable_double_precision and arr.dtype == np.float64:
             arr = arr.astype(np.float32)
         tensor = ir.tensor(arr)
         if self._function_mode:
