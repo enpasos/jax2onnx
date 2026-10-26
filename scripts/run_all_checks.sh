@@ -171,4 +171,4 @@ if [[ -n "${ONNXRUNTIME_WEB_RUNNER}" ]]; then
 fi
 
 echo "Using fresh serial pytest processes with complete collection accounting (at most 500 items each)."
-poetry run python scripts/run_pytest_batches.py -- "${PYTEST_DURATION_ARGS[@]}"
+poetry run -- python scripts/run_pytest_batches.py -- "${PYTEST_DURATION_ARGS[@]}"
