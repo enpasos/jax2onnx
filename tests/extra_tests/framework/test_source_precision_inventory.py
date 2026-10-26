@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 from scripts.source_precision_inventory import (
-    DEFAULT_BASELINE,
+    CURRENT_BASELINE,
+    HISTORICAL_BASELINE,
     build_inventory,
     retained_missing_cells,
     canonical_contract,
@@ -441,7 +442,7 @@ def test_generated_collection_preserves_all_raw_contracts_and_exact_preflight(
     monkeypatch.setattr(type(construct_and_call(forbidden)), "instantiate", forbidden)
 
     registrations, _ = raw_registrations()
-    baseline = json.loads(probe.DEFAULT_BASELINE.read_text())
+    baseline = json.loads(CURRENT_BASELINE.read_text())
     plan = probe.build_probe_plan(baseline)
     cases = frozenset(probe.FIRST_DIAGNOSTIC_CASES)
     probe.preflight_cases(plan, registrations, cases)
@@ -461,7 +462,8 @@ def test_generated_collection_preserves_all_raw_contracts_and_exact_preflight(
 
     before = snapshot()
     baseline_identities = {(row.origin, row.ordinal) for row in plan.rows}
-    assert len(baseline_identities) == 1852
+    assert len(baseline_identities) == 1856
+    assert len(plan.cells) == 3712
     assert before.keys() <= baseline_identities
     assert baseline_identities - before.keys() <= {
         (origin, ordinal)
@@ -632,7 +634,7 @@ def _omit_optional_cases(inventory, *, keep=frozenset(), unavailable=False):
 
 
 def test_all_fifty_optional_baseline_cells_survive_unconfigured_observation() -> None:
-    expected = json.loads(DEFAULT_BASELINE.read_text())
+    expected = json.loads(HISTORICAL_BASELINE.read_text())
     optional_origins = {
         origin
         for family in ("maxtext", "maxdiffusion")

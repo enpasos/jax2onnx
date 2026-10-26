@@ -324,7 +324,7 @@ pytest's lifecycle transition; only the final 203-case epoch qualifies that
 relation. Its earlier modern ON/OFF pin check and older ON-only result remain
 separate from the final two complete native pairs.
 
-This packet is a local diagnostic follow-up to the already pushed merge;
+This packet is stored as `b18abaa2`, separately from the requested merge;
 publication and all-eight exact-head CI remain separate gates. The original
 FP64-to-FP16 success assertion, six inputs, references and bitwise criteria are
 unchanged. The external target-contract proposal remains unapplied and requires
@@ -362,12 +362,66 @@ precise OFF evidence and an explicit goal amendment before assertion changes.
   collected items: 15,014 passed and 11 original skips (one Keras/backend gate
   and ten web gates). This older full-suite result does not qualify repair #536.
 
+## Main #279 inventory integration repair
+
+The published merge `a69d0730` fails the actual Python 3.14 full-suite job in
+[CI #541](https://github.com/enpasos/jax2onnx/actions/runs/40405974553):
+`test_generated_collection_preserves_all_raw_contracts_and_exact_preflight`,
+line 465, rejects newly added raw identities against the old 1,852-row inventory.
+Its original local owner has 48 passes / one failure. Hosted batch 40 has 108 passes
+and one failure; 3,661 of 15,162 collected IDs remain unexecuted. The cast already
+passed in that job. Preserve this failure and refresh the other jobs' status.
+
+The repair preserves the historical manifest SHA `b875cf3a` and adapter SHA
+`528be477` byte-for-byte. A separate current manifest has **1,856 rows / 3,712
+caller obligations**. Its complete documentary mapping retains all 1,852 old
+rows, four additions, seven ordinal moves, 752 anchors, 104 metadata-free entries,
+50 optional models and63 historical opaque obligations. Seven Equinox recipe
+representations change; the current 56 opaque rows do not close their historical
+capability obligations. See [current_inventory_epoch.md](current_inventory_epoch.md).
+
+The live completeness test and inventory CLI use current accounting; the probe
+and historical replay keep their old manifest/adapter pair and strict contract
+guards. No numerical criteria or production/public precision behavior change.
+Genuine complete optional collections on both framework cohorts use clean
+pinned upstream sources. Modern recollection equals the entire parsed current
+manifest, including 316 manual files/2,693functions; serialized bytes differ.
+Older recollection retains the one_minus_square absence and exactly one strict
+remat2 checkpoint-closure mismatch, not a passing current-baseline comparison.
+
+At source-files `c06219a4deafe208de5571b07e378bd5f671998ded049edaf2e3cad0803edff0`
+and index tree `5bbf0fe9`, all seven pinned all-files hooks pass. Eleven complete
+affected owners pass **1,111 cases on Python 3.14/JAX 0.12 and1,114 on
+Python 3.11/JAX 0.10**, zero failures/errors/skips. All 49 original inventory-owner
+IDs remain; 1,102 common IDs retain order, and the existing unchanged native-wrapper
+owner supplies the 9 / 12 environment-specific IDs. Source/Git/index and environment
+metadata hold, with empty cleanup. These are finite repair results, not full CI
+or B–F acceptance. The later documentation closeout has its separate receipt.
+
+Proofs are `inventory-epoch-qualification.json`,
+`inventory-epoch-owners-{modern,python311}-v1`,
+`inventory-epoch-recollection-modern-v1`, and
+`inventory-epoch-recollection-older-v2` under the existing proof directory.
+Older recollection v1 remains rejected: an external harness expected tuple
+identities from an API returning strings; the exact singleton expectation is
+corrected in v2 without repository/comparator changes. The formatting predecessor
+also remains distinct from the subsequent clean seven-hook run.
+
+The read-only MaxText source audit is saved separately as
+`main279-maxtext-source-reference-audit.md`. Its constructor and each wrapper
+call apply initializer replacements, including the incoming uniform patch.
+Matching that wrapped fixture would not establish unmodified upstream source,
+historical weights or full-size numerical model support. The plain-wrapper
+state-capture gap is a static finding, not a measured model outcome. These
+fixed-source/model obligations remain open B–F work.
+
 ## Next concrete work
 
-Inspect all eight checks on the exact `a69d0730` head. Complete and qualify the
-restored same-call postmortem packet before relying on any HIGH-specific causal
-inference; keep it separate from the already qualified merge. Preserve the
-original assertion and all historical interrupted/failed outcomes.
+Verify publication of the reviewed inventory-repair checkpoint and inspect all
+eight checks on its exact PR head. Do not inherit the failed `a69d0730` results.
+The precise postmortem packet has finite local qualification; hosted same-call
+unprofiled HIGH words remain missing. Preserve the original assertion and all
+historical interrupted/failed outcomes.
 Preserve original models, cases, inputs, assertions and criteria; a diagnostic
 commit alone does not repair the numerical mismatch.
 

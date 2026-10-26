@@ -31,8 +31,10 @@ REPOSITORY_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+# This executor and its default replay adapters retain the historical epoch.
+# Current live inventory membership has a separate baseline and no transported proof.
 from scripts.source_precision_inventory import (  # noqa: E402
-    DEFAULT_BASELINE,
+    HISTORICAL_BASELINE as DEFAULT_BASELINE,
     canonical_contract,
     raw_registrations,
 )

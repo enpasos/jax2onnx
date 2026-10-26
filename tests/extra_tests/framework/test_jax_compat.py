@@ -564,9 +564,12 @@ def test_native_logistic_metadata_uses_original_row_hash_guard_and_pending_crite
 ) -> None:
     import json
     from scripts import source_precision_probe as probe
-    from scripts.source_precision_inventory import DEFAULT_BASELINE, raw_registrations
+    from scripts.source_precision_inventory import (
+        HISTORICAL_BASELINE,
+        raw_registrations,
+    )
 
-    inventory = json.loads(DEFAULT_BASELINE.read_text())
+    inventory = json.loads(HISTORICAL_BASELINE.read_text())
     plan = probe.build_probe_plan(inventory)
     row = next(
         row

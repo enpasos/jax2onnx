@@ -3,7 +3,8 @@
 """Inventory existing functionality without treating legacy tests as SOURCE evidence.
 
 The default command compares the raw registry and handwritten regression identities
-with the reviewed baseline. ``--refresh`` deliberately updates that baseline; its
+with the reviewed current baseline. The predecessor manifest stays historical.
+``--refresh`` deliberately updates the selected current baseline; its
 diff still needs review. No generated-test precision rewrites or model execution
 are used here. Optional examples remain visible when their environment is absent.
 """
@@ -33,9 +34,16 @@ from typing import Any
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BASELINE = (
+HISTORICAL_BASELINE = (
     REPOSITORY_ROOT / "internal_docs/precision/source_migration_inventory.json"
 )
+CURRENT_BASELINE = (
+    REPOSITORY_ROOT / "internal_docs/precision/source_migration_inventory_current.json"
+)
+CURRENT_EPOCH_MAPPING = (
+    REPOSITORY_ROOT / "internal_docs/precision/source_inventory_epoch_mapping.json"
+)
+DEFAULT_BASELINE = CURRENT_BASELINE
 FEATURES = (
     "input_values",
     "input_dtypes",
