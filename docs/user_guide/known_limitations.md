@@ -80,18 +80,22 @@ ONNX has no `Log1p` or `Expm1` operator. `jnp.log1p`, `lax.log1p`,
 `Log(1 + x)` and `Exp(x) - 1`; the direct forms return zero or lose most digits
 for small `|x|`. Two functions build on them. `jax.nn.log_sigmoid` uses JAX's
 `min(x, 0) - log1p(exp(-|x|))`; `Log(Sigmoid(x))` returns `-inf` from `x = -20`
-down on ONNX Runtime. `lax.sinh` and `jnp.sinh` keep `Sinh` for float32, and
-other floating dtypes, which have no ONNX Runtime float64 or bfloat16 `Sinh`
-kernel, use the expm1-based libm form instead of `(Exp(x) - Exp(-x)) / 2`.
-The compensated forms compute in the input dtype with standard operators and
-rely on the runtime's `Log` being accurate near one. bfloat16 is the exception:
-it is computed in float32 and rounded back, because ONNX Runtime has no
-bfloat16 `Log` kernel; the model keeps its bfloat16 inputs and outputs. Their
-regression checks allow at most 8 ulp against a float64 reference for float32
-and float64 inputs, with and without graph optimizations, and 1 ulp for every
-bfloat16 input. They also cover NaN, infinities, the `log1p` domain boundary at
-`-1`, and `sinh` up to its overflow threshold. ONNX Runtime's CPU `Where`
-returns `+0.0` when it selects `-0.0`, so exported `expm1(-0.0)` is `+0.0`;
+down on ONNX Runtime. `jnp.sinh` uses the expm1-based libm form instead of
+`(Exp(x) - Exp(-x)) / 2` for every floating dtype, so it also runs on CUDA,
+which has no `Sinh` kernel. `lax.sinh` keeps `Sinh` for float32 and uses the
+same form for other floating dtypes, which have no ONNX Runtime float64 or
+bfloat16 `Sinh` kernel. The compensated forms compute in the input dtype with
+standard operators and rely on the runtime's `Log` being accurate near one.
+bfloat16 is the exception: it is computed in float32 and rounded back, because
+ONNX Runtime has no bfloat16 `Log` kernel; the model keeps its bfloat16 inputs
+and outputs. With `enable_double_precision=True`, float16 and bfloat16 models
+also keep their dtype. Their regression checks compare against a float64
+reference: at most 8 ulp for float16, float32, and float64 sweeps with and
+without graph optimizations and for every float16 input, and at most 1 ulp for
+every bfloat16 input, with `enable_double_precision` off and on. They also
+cover subnormal inputs, NaN, infinities, the `log1p` domain boundary at `-1`,
+and `sinh` up to its overflow threshold. ONNX Runtime's CPU `Where` returns
+`+0.0` when it selects `-0.0`, so exported `expm1(-0.0)` is `+0.0`;
 `log1p(-0.0)` and `sinh(-0.0)` keep their sign. These checks cover ONNX Runtime
 CPU; validate the actual deployment provider separately.
 

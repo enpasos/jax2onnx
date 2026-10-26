@@ -12,7 +12,6 @@ from jax2onnx._compat.jax import (
 )
 import jax.numpy as jnp
 import numpy as np
-import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -42,10 +41,6 @@ _SINH_PRIM: Final = make_jnp_primitive("jax.numpy.sinh")
     jaxpr_primitive=_SINH_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.sinh.html",
     onnx=[
-        {
-            "component": "Sinh",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Sinh.html",
-        },
         {"component": "Abs", "doc": "https://onnx.ai/onnx/operators/onnx__Abs.html"},
         {"component": "Exp", "doc": "https://onnx.ai/onnx/operators/onnx__Exp.html"},
         {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
@@ -83,8 +78,8 @@ _SINH_PRIM: Final = make_jnp_primitive("jax.numpy.sinh")
             "rtol_f64": 1e-12,
             "atol": 0.0,
             "post_check_onnx_graph": EG(
-                ["Sinh:9", "Abs:9 -> Exp:9 -> Sub:9 -> Mul:9 -> Where:9 -> Where:9"],
-                mode="any",
+                ["Abs:9 -> Exp:9 -> Sub:9 -> Mul:9 -> Where:9 -> Where:9"],
+                must_absent=["Sinh"],
                 no_unused_inputs=True,
             ),
         },
@@ -94,11 +89,8 @@ _SINH_PRIM: Final = make_jnp_primitive("jax.numpy.sinh")
             "input_values": [np.array([0, 1, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.float32],
             "post_check_onnx_graph": EG(
-                [
-                    "Cast:3 -> Sinh:3",
-                    "Cast:3 -> Abs:3 -> Exp:3 -> Sub:3 -> Mul:3 -> Where:3 -> Where:3",
-                ],
-                mode="any",
+                ["Cast:3 -> Abs:3 -> Exp:3 -> Sub:3 -> Mul:3 -> Where:3 -> Where:3"],
+                must_absent=["Sinh"],
                 no_unused_inputs=True,
             ),
         },
@@ -144,11 +136,8 @@ class JnpSinhPlugin(PrimitiveLeafPlugin):
             output_hint="jnp_sinh",
         )
 
-        # ONNX Runtime has no float64 or bfloat16 Sinh kernel.
-        if out_spec.dtype == ir.DataType.FLOAT:
-            result = ctx.builder.op("Sinh", [op_input], output=out_spec)
-        else:
-            result = emit_sinh(ctx, op_input, name_hint="jnp_sinh", output=out_spec)
+        # Keep jnp.sinh executable on CUDA, which has no native Sinh kernel.
+        result = emit_sinh(ctx, op_input, name_hint="jnp_sinh", output=out_spec)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

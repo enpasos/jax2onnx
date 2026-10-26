@@ -138,6 +138,13 @@ Keep these handy—most deep-dives live there instead of here.
   arrays: feed raw `uint16` bits through
   `OrtValue.ortvalue_from_numpy_with_onnx_type` and IO binding, as in
   `tests/extra_tests/test_log1p_expm1_precision.py`.
+- With `enable_double_precision=True`, `ctx.bind_const_for_var` promotes every
+  float constant to DOUBLE, also in float16/bfloat16 graphs that keep their own
+  dtype. Cast such constants explicitly to the compute dtype (see
+  `ElementwiseEmitter.scalar` in `plugins/jax/_log1p_expm1.py`): retyping them
+  in place, as `cast_param_like` does, is undone for FLOAT constants by the
+  later double-precision promotion. Export half-precision tests with the flag on
+  and off.
 - Revisit the dev guide for the subsystem you’re touching—chances are the guardrail is documented there.
 
 ---

@@ -53,10 +53,13 @@
   inputs, with compensated forms shared by the `lax` and `jnp` lowerings and
   `jax.nn.log1mexp`. Build `jax.nn.log_sigmoid` on `log1p` instead of
   `Log(Sigmoid(x))`, which returned `-inf` for `x <= -20` on ONNX Runtime, and
-  non-FP32 `sinh` on `expm1` instead of `(Exp(x) - Exp(-x)) / 2`. Results stay
-  within a few ulp in the input dtype without promoting the model; BF16
-  computes in FP32 internally so ONNX Runtime can run it, and
-  `jax.nn.log1mexp` now exports FP16 inputs. See
+  `jnp.sinh` and non-FP32 `lax.sinh` on `expm1` instead of
+  `(Exp(x) - Exp(-x)) / 2`; `jnp.sinh` keeps running on CUDA, which has no
+  `Sinh` kernel. Results stay within a few ulp in the input dtype without
+  promoting the model; BF16 computes in FP32 internally so ONNX Runtime can run
+  it. FP16 and BF16 exports of these functions stay valid and keep their dtype
+  with `enable_double_precision=True`, and `jax.nn.log1mexp` now exports FP16
+  inputs. See
   [Known Limitations](../user_guide/known_limitations.md#log1p-expm1-and-related-functions).
 * **Require ONNX IR 1.0.0 or newer:** Align the declared dependency floor,
   package metadata, developer guidance, and minimum-version CI coverage on
