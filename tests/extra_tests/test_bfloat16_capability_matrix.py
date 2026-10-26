@@ -49,12 +49,26 @@ BF16_CAPABILITY_CASES = [
         source=("primitives.jnp", "concatenate", "concatenate_basic"),
     ),
     CapabilityCase(
+        id="jnp_where_weak_int_else",
+        source=("primitives.jnp", "where", "jnp_where_float16_weak_int_else"),
+    ),
+    CapabilityCase(
         id="jnp_take",
         source=("primitives.jnp", "take", "take_data_dependent_indices"),
     ),
     CapabilityCase(
         id="jnp_matmul",
         source=("primitives.jnp", "matmul", "matmul_2d"),
+    ),
+    CapabilityCase(
+        id="nn_dot_product_attention_mask",
+        source=("primitives.nn", "dot_product_attention", "dpa_with_tensor_mask"),
+        # Like JAX, the logits and softmax are computed in float32 while
+        # bfloat16 is preserved at the public boundary.
+        require_all_float_tensors_dtype=False,
+        # The ONNX reference MatMul returns float32 for batched bfloat16
+        # operands and rejects the result.
+        numeric=False,
     ),
     CapabilityCase(
         id="linen_dense",

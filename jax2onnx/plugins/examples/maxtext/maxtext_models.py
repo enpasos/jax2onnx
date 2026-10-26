@@ -1367,7 +1367,7 @@ def _strip_nnx_rngs(obj: object, seen: set[int] | None = None) -> None:
             _strip_nnx_rngs(val, seen)
 
 
-def _patch_random_normal_to_zero() -> callable:
+def _patch_random_initializers() -> callable:
     import jax._src.random as _random  # noqa: PLC0415
 
     def _zero_normal(  # noqa: ARG001
@@ -1404,8 +1404,22 @@ def _patch_random_normal_to_zero() -> callable:
             shape = jnp.broadcast_shapes(jnp.shape(lower), jnp.shape(upper))
         return jnp.zeros(shape, dtype=dtype)
 
+    def _minval_uniform(  # noqa: ARG001
+        key,
+        shape=(),
+        dtype=jnp.float32,
+        minval=0.0,
+        maxval=1.0,
+        *,
+        out_sharding=None,
+    ):
+        # minval lies in the sampled range, so initializers such as
+        # log(uniform(...)) stay finite.
+        return jnp.broadcast_to(jnp.asarray(minval, dtype=dtype), shape)
+
     orig_normal = jax.random.normal
     orig_truncated = jax.random.truncated_normal
+    orig_uniform = jax.random.uniform
     missing = object()
     random_module_patches = (
         ("normal", _zero_normal),
@@ -1413,11 +1427,13 @@ def _patch_random_normal_to_zero() -> callable:
         ("_normal", _zero_normal),
         ("_normal_real", _zero_normal_real),
         ("_truncated_normal", _zero_truncated_normal),
+        ("uniform", _minval_uniform),
     )
     random_module_originals: list[tuple[str, object]] = []
 
     jax.random.normal = _zero_normal
     jax.random.truncated_normal = _zero_truncated_normal
+    jax.random.uniform = _minval_uniform
     for name, replacement in random_module_patches:
         original = getattr(_random, name, missing)
         if original is missing:
@@ -1428,6 +1444,7 @@ def _patch_random_normal_to_zero() -> callable:
     def _restore() -> None:
         jax.random.normal = orig_normal
         jax.random.truncated_normal = orig_truncated
+        jax.random.uniform = orig_uniform
         for name, original in random_module_originals:
             setattr(_random, name, original)
 
@@ -1446,7 +1463,7 @@ class MaxTextTextOnlyWrapper(nnx.Module):
             input_tokens.shape,
             1,
         )
-        restore_random = _patch_random_normal_to_zero()
+        restore_random = _patch_random_initializers()
         try:
             return self.model(
                 decoder_input_tokens=input_tokens,
@@ -1527,8 +1544,9 @@ def get_maxtext_model(
     if rngs is None:
         rngs = nnx.Rngs(0)
 
-    # Avoid tracing random normal initializers (erf_inv) during export.
-    restore_random = _patch_random_normal_to_zero()
+    # Avoid tracing random initializers during export: normals need erf_inv and
+    # uniforms bitcast their random bits, which ONNX supports only from opset 26.
+    restore_random = _patch_random_initializers()
     try:
         model = model_creation_utils.from_config(
             config,

@@ -258,6 +258,19 @@ def _create_problematic_where_sequence(
             ),
         },
         {
+            # The literal 0 is weakly typed, so JAX keeps the float16 dtype.
+            "testcase": "jnp_where_float16_weak_int_else",
+            "callable": lambda c, x: jnp.where(c, x, 0),
+            "input_shapes": [(2, 3), (2, 3)],
+            "input_dtypes": [np.bool_, np.float16],
+            "expected_output_dtypes": [np.float16],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [{"inputs": {2: {"const": 0.0}}, "path": "Where:2x3"}],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "where_vmap_batching",
             "callable": lambda x: jax.vmap(lambda y: jnp.where(y > 0, y, -y))(x),
             "input_shapes": [(3, 4)],
@@ -290,7 +303,8 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             raise TypeError("jnp.where expects ShapedArray inputs")
         if not isinstance(y, ShapedArray):
             raise TypeError("jnp.where expects ShapedArray inputs")
-        promoted = np.promote_types(x.dtype, y.dtype)
+        # JAX promotion honours weak types: where(c, bfloat16_x, 0) stays bfloat16.
+        promoted = jax.dtypes.result_type(x, y)
         out_shape = jnp.broadcast_shapes(cond.shape, x.shape, y.shape)
         return ShapedArray(out_shape, promoted)
 
@@ -319,10 +333,7 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(cond_val, tuple(getattr(cond_var.aval, "shape", ())))
             _ensure_value_metadata(ctx, cond_val)
 
-        target_dtype = np.promote_types(
-            np.dtype(getattr(x_var.aval, "dtype", np.float32)),
-            np.dtype(getattr(y_var.aval, "dtype", np.float32)),
-        )
+        target_dtype = np.dtype(getattr(out_var.aval, "dtype", np.float32))
         if (
             not ctx.builder.enable_double_precision
             and np.issubdtype(target_dtype, np.floating)
