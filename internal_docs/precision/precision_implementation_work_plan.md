@@ -14,6 +14,12 @@ features. It supplements this complete plan; the full B–F acceptance scope rem
 Current status snapshot: **2026-10-26**. Earlier observations retain their own
 2026-10-25 source epochs.
 
+The latest local CI repair after `3869ba31` is recorded in the
+[handoff](implementation_handoff.md) and
+[canonical checkpoint](poc/source_integration_findings.md#latest-ci-repair-qualification).
+Its affected-owner qualification does not replace normal quality/hooks or the
+all-eight exact-head CI gate. The detailed older epochs below remain historical.
+
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
 continues stored checkpoint `e4db1943`. The earlier generalized-dot **1,065-case

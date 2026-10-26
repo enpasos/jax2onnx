@@ -519,7 +519,7 @@ def test_cast_observer_preserves_profile_installed_by_original_call(
     monkeypatch.setattr(module.sys, "setprofile", lambda value: calls.append(value))
     monkeypatch.setattr(module, "_SOURCE_FILES", ())
     monkeypatch.setattr(module.importlib.metadata, "version", lambda name: "test")
-    monkeypatch.setattr(observation, "_native_module", lambda name: {"version": "test"})
+    monkeypatch.setattr(observation, "_native_modules", lambda: {})
     observation.active = True
     observation.compat = type(sys)("compat")
     observation.compat.require_native_context_restored = lambda context: None
@@ -533,6 +533,109 @@ def test_cast_observer_preserves_profile_installed_by_original_call(
     assert report["status"] == "UNVERIFIED"
     assert report["reason"] == "original-call-changed-profile-preserved"
     assert report["previous_profile_restored"] is False
+
+
+def _native_module_observation(
+    module: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, dict[str, Any], list[str]]:
+    observation = module._Observation(tmp_path, module.NODE_ID, type(sys)("owner"))
+    modules = {
+        name: type(sys)(name) for name in ("jax", "jaxlib", "numpy", "onnxruntime")
+    }
+    observed_sys = type(sys)("observed-sys")
+    observed_sys.modules = modules
+    monkeypatch.setattr(module, "sys", observed_sys)
+    checked = []
+
+    def proof(name: str) -> dict[str, Any]:
+        checked.append(name)
+        return {"version": "test", "record_digest_verified": True}
+
+    monkeypatch.setattr(observation, "_native_module", proof)
+    return observation, modules, checked
+
+
+@pytest.mark.parametrize("scipy_loaded", (False, True))
+def test_cast_observer_records_optional_module_presence_without_importing(
+    scipy_loaded: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _cast_observer_module()
+    observation, modules, checked = _native_module_observation(
+        module, tmp_path, monkeypatch
+    )
+    if scipy_loaded:
+        modules["scipy"] = type(sys)("scipy")
+    original_names = tuple(modules)
+    result = observation._native_modules()
+    snapshot = observation.report["runtime_module_snapshot"]
+    assert tuple(modules) == original_names
+    assert snapshot["scipy"]["sys_modules_contains_name"] is scipy_loaded
+    assert snapshot["scipy"]["exact_module_type"] is scipy_loaded
+    assert ("scipy" in checked) is scipy_loaded
+    if scipy_loaded:
+        assert result["scipy"]["status"] == "LOADED"
+        assert result["scipy"]["record_digest_verified"] is True
+    else:
+        assert snapshot["scipy"]["binding_identity"] is None
+        assert result["scipy"] == {
+            "status": "NOT_LOADED",
+            "record_digest_verified": False,
+            "wheel_archive_hash_claimed": False,
+        }
+    for name in ("jax", "jaxlib", "numpy", "onnxruntime"):
+        assert snapshot[name]["binding_identity"] == id(modules[name])
+        assert result[name]["status"] == "LOADED"
+        assert result[name]["record_digest_verified"] is True
+
+
+@pytest.mark.parametrize("missing", ("jax", "jaxlib", "numpy", "onnxruntime"))
+def test_cast_observer_requires_core_loaded_module_provenance(
+    missing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _cast_observer_module()
+    observation, modules, checked = _native_module_observation(
+        module, tmp_path, monkeypatch
+    )
+    del modules[missing]
+    with pytest.raises(ValueError, match="runtime module was not loaded: " + missing):
+        observation._native_modules()
+    assert missing not in checked
+    snapshot = observation.report["runtime_module_snapshot"]
+    assert set(snapshot) == {"jax", "jaxlib", "numpy", "scipy", "onnxruntime"}
+    assert snapshot[missing]["sys_modules_contains_name"] is False
+    assert observation.report["loaded_native_modules"] is not None
+
+
+@pytest.mark.parametrize("binding_kind", ("none", "foreign"))
+def test_cast_observer_rejects_non_module_optional_binding_without_coercion(
+    binding_kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _cast_observer_module()
+    observation, modules, checked = _native_module_observation(
+        module, tmp_path, monkeypatch
+    )
+    calls = []
+
+    class Foreign:
+        def __bool__(self) -> bool:
+            calls.append("bool")
+            raise AssertionError("diagnostic coerced a foreign module")
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("diagnostic rendered a foreign module")
+
+        def __eq__(self, other: Any) -> bool:
+            calls.append("eq")
+            raise AssertionError("diagnostic compared a foreign module")
+
+    modules["scipy"] = None if binding_kind == "none" else Foreign()
+    with pytest.raises(ValueError, match="runtime module was not loaded: scipy"):
+        observation._native_modules()
+    assert calls == [] and "scipy" not in checked
+    snapshot = observation.report["runtime_module_snapshot"]["scipy"]
+    assert snapshot["sys_modules_contains_name"] is True
+    assert snapshot["exact_module_type"] is False
 
 
 def test_cast_observer_reads_existing_literal_jax_config() -> None:
@@ -553,6 +656,34 @@ def test_cast_observer_reads_existing_literal_jax_config() -> None:
     assert module._config_values(config)["x64_enabled"] is True
 
 
+@pytest.mark.parametrize("promotion", ("standard", "strict"))
+def test_cast_observer_records_actual_jax_dtype_promotion_scope(promotion: str) -> None:
+    import jax
+
+    module = _cast_observer_module()
+    before = module._config_values(jax.config)
+    with jax.numpy_dtype_promotion(promotion):
+        native = jax.config.jax_numpy_dtype_promotion
+        snapshot = module._config_values(jax.config)
+        observed = snapshot["jax_numpy_dtype_promotion"]
+        if type(native) is str:
+            assert observed == promotion
+        else:
+            assert observed == {
+                "kind": "native-jax-enum",
+                "type_module": "jax._src.config",
+                "type_name": "NumpyDtypePromotion",
+                "type_identity": id(type(native)),
+                "member": promotion.upper(),
+                "member_identity": id(native),
+                "value": promotion,
+            }
+        assert json.loads(json.dumps(snapshot)) == snapshot
+    assert module._config_values(jax.config) == before
+    assert snapshot["jax_numpy_dtype_promotion"] == observed
+
+
+@pytest.mark.parametrize("foreign_kind", ("object", "str-subclass", "str-enum"))
 @pytest.mark.parametrize(
     "field",
     (
@@ -564,12 +695,12 @@ def test_cast_observer_reads_existing_literal_jax_config() -> None:
     ),
 )
 def test_cast_observer_config_rejects_foreign_values_without_coercion(
-    field: str,
+    field: str, foreign_kind: str
 ) -> None:
     module = _cast_observer_module()
     calls = []
 
-    class Foreign:
+    class CoercionGuard:
         def __bool__(self) -> bool:
             calls.append("bool")
             raise AssertionError("diagnostic coerced a foreign config")
@@ -582,6 +713,22 @@ def test_cast_observer_config_rejects_foreign_values_without_coercion(
             calls.append("eq")
             raise AssertionError("diagnostic compared a foreign config")
 
+    if foreign_kind == "str-enum":
+        from enum import StrEnum
+
+        class ForeignEnum(CoercionGuard, StrEnum):
+            STANDARD = "standard"
+
+        foreign = ForeignEnum.STANDARD
+    elif foreign_kind == "str-subclass":
+
+        class ForeignString(CoercionGuard, str):
+            pass
+
+        foreign = ForeignString("standard")
+    else:
+        foreign = CoercionGuard()
+
     config = type(sys)("existing-config")
     vars(config).update(
         x64_enabled=False,
@@ -590,7 +737,7 @@ def test_cast_observer_config_rejects_foreign_values_without_coercion(
         jax_numpy_dtype_promotion="standard",
         jax_numpy_rank_promotion="allow",
     )
-    vars(config)[field] = Foreign()
+    vars(config)[field] = foreign
     with pytest.raises(ValueError, match="original .*config"):
         module._config_values(config)
     assert calls == []

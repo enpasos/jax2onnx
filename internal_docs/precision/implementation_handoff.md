@@ -1,7 +1,8 @@
 # Precision migration handoff — 2026-10-26
 
-This is an intentionally incomplete local checkpoint, committed at the user's
-request. It is not a green-CI or migration-completion claim. Continue on branch
+This continues the intentionally incomplete committed checkpoint `3869ba31`.
+The CI repairs below have local test and quality qualification; the exact-head
+remote gate remains pending. Continue on branch
 `precision-migration` in `/home/enpasos/projects/jax2onnx`.
 
 ## Objective and immediate priority
@@ -29,18 +30,51 @@ automerge, force-push, release, post unsolicited comments, or cancel/rerun CI.
   methods on Python 3.14. Code-contract comparison, including method flags,
   remains strict. Generic callable compilation retains its existing default.
 - Add compiler/provenance regression tests and retain all original model tests.
+- Retain cold annotations through `AnnotationState.attach`, derive capture ports
+  from pinned parameters/native defaults, and avoid redundant class signature
+  reads. Prepared VALUE reads retain the existing shared-cache/stale guards.
 - Add passive, exact-node FP64-to-FP16 diagnostics to the existing batch runner,
   with outcome/profile noninterference tests. These diagnostics do not change
   conversion, inputs, references, assertions, test selection or acceptance.
 
 `main` was already merged **into** this PR branch as `ee45c6dc`; it was not a
-merge of the PR into main. That was also the last verified remote PR head before
-this local checkpoint. Refresh GitHub state before relying on any CI status.
+merge of the PR into main. At the earlier `70ea34ad` checkpoint, `ee45c6dc` was
+the last verified remote PR head. Later observations are recorded below;
+refresh GitHub state before relying on any CI status.
 
-## Verified results and remaining failures
+## Verified local repair qualification
+
+The locked framework cohorts are Python **3.14.9 / JAX 0.12.0.1 / Flax 0.12.10**
+and Python **3.12.9 / JAX 0.10.2 / Flax 0.12.8**. Each complete preparation pair
+passed **125 tests**, with the original Transformer cases first in fresh workers,
+at source-files `29dc0cefd33effbb6bad07ba38988844c4f53109199bc4ebeaba65a7ad3c108c`.
+The final complete 17-owner affected selection passed **410 tests on each cohort**
+at source-files
+`a16fd89ea3fecde320fa5b7e4645734221c5e52d4f641fb51e119e25a48ada01`.
+Both pairs have zero failures/errors/skips, complete JUnit, held source/Git/index
+and environment metadata, and empty owned-process cleanup. The 410-case pair is
+the final code qualification; the earlier 125-case source epoch stays distinct.
+
+The unchanged original FP64-to-FP16 tie node passed through the actual batch
+runner on each cohort. Both v2 diagnostics are **ORIGINAL_CALL_WORDS_OBSERVED**,
+with complete artifact/runtime/comparison words and provenance, restored
+profile/settings, and held source/code identity. SciPy is explicitly
+**NOT_LOADED**, rather than imported for observation. This repairs diagnostic
+coverage; it changes no numerical conversion and does not explain the hosted
+Python 3.12 bitwise disagreement.
+
+At source-files `08e434e7deee1680e5fe3d97ef72b01770fc1bdeb4f207f6cf7e18c325f5f0d8`,
+all seven actual pinned hooks pass over all files, including modern-stack mypy.
+Older-stack package mypy passes **579 files**; both RNG reports contain the
+same **17 entries**. Strict MkDocs also passes. These runs retain clean cleanup,
+source/Git/index and environment-metadata fences under the same resource caps.
+The final documentation-only closeout and normal commit hook retain their own
+command receipts; none of these results establishes full-suite CI success.
+
+## Preserved predecessor outcomes
 
 - Full NNX Transformer and generic callable preparation owners on actual Python
-  3.14.8: **119 passed, 3 failed, no errors/skips**. The remaining failures are
+  3.14.8: **119 passed, 3 failed, no errors/skips**. Those failures were
   both original native Transformer order cases and the first named original
   opset-23 case. Cold annotation metadata is materialized by eager signature or
   annotation reads. A previous focused success had warmed this metadata and
@@ -49,32 +83,29 @@ this local checkpoint. Refresh GitHub state before relying on any CI status.
   primary stack. Process cleanup and source fences held.
 - The unchanged FP64-to-FP16 tie case passed once through the actual batch hook
   on the secondary stack, with all three pytest phases. Its diagnostic remains
-  **UNVERIFIED**: a JAX config value does not satisfy the observer's current
+  **UNVERIFIED** at that epoch: a JAX config value did not satisfy the observer's
   literal-string-or-None schema. No comparison words were captured by that
-  integration. Fix the diagnostic and require actual word/provenance records.
+  integration. The later actual-hook v1 diagnostics also remain **UNVERIFIED**:
+  their finishing provenance lookup required an unloaded runtime module. Their
+  observed comparison words do not replace the complete v2 provenance result.
 - Earlier standalone observers passed locally on both JAX cohorts. They do not
   explain the hosted Python 3.12 bitwise failure. Do not invent a rounding fix
   or relax the bitwise test before observing the actual hosted disagreement.
 - Latest observed remote run `40361320761` (#533) had four support checks green,
   Python 3.14 failed and the other three full jobs running. This is historical
   status, not current verification. The implementation checkpoint `70ea34ad`
-  was subsequently observed as the PR head; inspect its actual checks rather
-  than carrying over the previous head's results.
+  was subsequently observed as the PR head. The later observed head is
+  `3869ba31`: at **2026-10-26 18:09 UTC**, four support checks were **SUCCESS**
+  and all four full Python jobs were **IN PROGRESS**. These are time-bound
+  observations, not terminal success for the repair or a later pushed head.
 
 ## Next concrete work
 
-Finish and independently review the cold-annotation repair. Reuse the existing
-`AnnotationState.attach` boundary, derive pinned capture-port information
-without evaluating annotations, and avoid the redundant signature query for
-registered class targets whose receiver handling is already known. Do not
-prewarm original annotations or weaken stale-metadata guards. Run the full NNX
-owner in a fresh worker, including the first original cases before added tests.
-
-Correct the diagnostic config schema using actual loaded JAX values; preserve
-the original call and all outcome/profile/source fences. Validate its complete
-word schema through the actual batch runner, not only synthetic controls.
-Then run relevant dual-JAX checks and normal pinned hooks, commit/push the
-reviewed repairs, and inspect all eight checks on that exact head.
+The cold-annotation and complete diagnostic repairs have independent review and
+the dual-cohort qualifications above. Store the reviewed repairs with unskipped
+normal commit hooks, push, and inspect all eight checks on that exact head.
+Preserve original models, cases, inputs,
+criteria and the unresolved hosted bitwise observation.
 
 Only after the CI gate is green, resume the held shared-comparison work and the
 remaining full migration. The full-model resource gate and final public
@@ -82,17 +113,20 @@ transition are still open; narrower profiles are intermediate milestones.
 
 ## Local evidence and execution constraints
 
-Detailed receipts, environments, candidate patches and handoff journals are in
-`/tmp/jax2onnx-restart-checkpoint-20261021` (local temporary evidence, not required
-for understanding the committed code). Start with `root-draft-pr-current-handoff-v35.json`
-and the later checkpoint handoff there. B-only candidate patches are not applied
-or qualified merely because they exist; recheck preimages and review state.
+Current receipts and complete JUnit are under
+`/tmp/jax2onnx-goal-validation`: `cold-annotations-{modern,minimum-jax}-v1`,
+`function-and-diagnostic-{modern,minimum-jax}-v2`, and
+`actual-cast-{modern,minimum-jax}-batch-v2`. The historical
+`/tmp/jax2onnx-restart-checkpoint-20261021` directory is absent in this container;
+its older receipts/candidate references remain historical, not reconstructed
+evidence. B-only candidates remain unapplied/unqualified until rechecked.
 
 Preserve machine stability: one native test/build/hook job at a time, one pytest
 worker, native thread counts of one, CPUs 4–7, a 4 GiB aggregate process guard,
 12 GiB available memory at startup/8 GiB live, and 4 GiB free disk. Reuse the
-sealed `source-resource-protected-serial-runner-sealed-v1/run_serial_v9_resource_protected.py`
-and ROOT wrappers in that evidence directory; do not change its caps or allocator.
+replacement `/tmp/jax2onnx-goal-validation/run_guarded.py` with these same caps.
+It records environment metadata fences, not complete installed-binary integrity
+or wheel archive verification. Do not change the caps or allocator.
 Do not mutate source/Git/environments during a native run. Require terminal
 receipts, complete JUnit, cleanup and source fences before the next mutation.
 

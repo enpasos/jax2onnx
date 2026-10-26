@@ -1059,8 +1059,11 @@ class FunctionPlugin(PrimitivePlugin):
 
     def _make_patch_fn(self, primitive: Primitive, is_class: bool) -> PatchCallable:
         def patch(original_call: Callable[..., Any]) -> Callable[..., Any]:
-            sig = inspect.signature(original_call)
-            params = list(sig.parameters.keys())
+            # Registered class targets already supply a receiver. Signature
+            # inspection would unnecessarily materialize lazy annotations.
+            params = (
+                [] if is_class else list(inspect.signature(original_call).parameters)
+            )
             self._unbound_orig_fn = original_call
 
             @functools.wraps(original_call)

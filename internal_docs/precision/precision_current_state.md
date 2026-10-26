@@ -10,6 +10,11 @@ Framework-floor and all-direct-minimum evidence remain separate.
 
 ## Current private implementation
 
+The latest local CI repair after `3869ba31` has its own
+[checkpoint](poc/source_integration_findings.md#latest-ci-repair-qualification)
+and [handoff](implementation_handoff.md). Local quality and exact-head CI retain
+separate evidence; the detailed qualification epochs below retain their own scope.
+
 Current private snapshot: **2026-10-26**. This unfinished LOCAL WIP continues
 stored **`e4db1943`**; **`fe214590`** remains the last fully green checkpoint.
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)

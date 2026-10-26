@@ -3,7 +3,10 @@
 ## Current checkpoint
 
 Snapshot: 2026-10-26; earlier observations retain their own source epochs.
-This unfinished LOCAL WIP continues stored checkpoint **`e4db1943`**.
+The latest local CI repair follows committed checkpoint **`3869ba31`**;
+Local quality is qualified below; all eight exact-head remote checks remain pending.
+The [current handoff](../implementation_handoff.md) records the next gate.
+Earlier unfinished LOCAL WIP below continues stored checkpoint **`e4db1943`**.
 The earlier generalized-dot **1,065-case pair and 575-file typing**
 retain source snapshot **`4845b6cb`**. The atomic-symbol evidence remains bound
 to **`7604c11a`** and stored checkpoint **`038dc9eb`**. The retained read-only GitHub
@@ -13,7 +16,7 @@ deployment-test and inventory-test snapshots are **`c9f5812b`** and **`b7eceac8`
 results below retain their own source epochs.
 Public routes and defaults remain **LEGACY**; the full **B–F** goal remains open.
 
-The measured WIP now qualifies the complete available Python 3.13/JAX 0.11
+The earlier measured WIP qualifies the complete available Python 3.13/JAX 0.11
 native-wrapper owner and current focused/broader pairs. This does not qualify
 locked modern-Python cohorts, ordinary full suites, original models or the full
 migration. Successor package typing passes on both local stacks, while current
@@ -23,6 +26,52 @@ on each of three installed stacks. Its separate large trial also stops at the
 unchanged 4 GiB guard in the first B=5 CPU-run interval. Earlier
 rows retain their own outcomes and source epochs, including the failed 56/226
 owner and all resource-stopped/crashed trials.
+
+### Latest CI repair qualification
+
+The complete affected **17-owner** selection passes **410 tests on each locked
+framework cohort**, Python 3.14.9/JAX 0.12.0.1/Flax 0.12.10 and Python
+3.12.9/JAX 0.10.2/Flax 0.12.8, with zero failures/errors/skips. Both final v2
+receipts hold source-files
+`a16fd89ea3fecde320fa5b7e4645734221c5e52d4f641fb51e119e25a48ada01`,
+source/Git/index and environment metadata; complete JUnit and empty process
+cleanup are recorded. Modern elapsed/peak RSS: **80.880751 s / 859,193,344 bytes**;
+older: **104.602902 s / 1,565,233,152 bytes**. This is a finite affected-owner
+qualification, not an ordinary full suite or full B–F acceptance.
+
+The earlier complete Transformer/callable preparation pair passes **125 per
+cohort** at source-files `29dc0cefd33effbb6bad07ba38988844c4f53109199bc4ebeaba65a7ad3c108c`,
+with the original cases first in fresh workers. The predecessor Python 3.14.8
+**119 PASS / 3 FAIL** remains failed history. Cold annotations now use the
+existing passive attachment boundary, pinned capture defaults remain intact,
+and original/prepared stale-metadata and exact compiler guards stay strict.
+
+Actual unchanged FP64-to-FP16 tie-node batch execution is **1 PASS per cohort**;
+both final v2 diagnostics are **ORIGINAL_CALL_WORDS_OBSERVED**, with complete
+word/provenance records and restored profile/settings/source/code fences.
+SciPy is explicitly **NOT_LOADED**. Actual-hook v1 provenance remains
+**UNVERIFIED** because a runtime module was not loaded; the earlier config-schema
+UNVERIFIED epoch also remains preserved. This is diagnostic qualification,
+with no conversion change or explanation of the hosted bitwise disagreement.
+
+Receipts/JUnit and observations are under `/tmp/jax2onnx-goal-validation`:
+`function-and-diagnostic-{modern,minimum-jax}-v2`,
+`cold-annotations-{modern,minimum-jax}-v1`, and
+`actual-cast-{modern,minimum-jax}-batch-v2`. The historical restart-checkpoint
+directory is absent here. The replacement guard preserves the same 4 GiB RSS,
+12/8 GiB available-memory, 4 GiB disk, CPU 4–7, one-worker/thread caps; metadata
+fences do not establish full binary/wheel integrity. Independent code review passes.
+At the subsequent documentation source-files `08e434e7deee1680e5fe3d97ef72b01770fc1bdeb4f207f6cf7e18c325f5f0d8`,
+all seven actual pinned hooks pass over all files, including modern-stack mypy;
+older-stack package mypy passes **579 files**, both RNG reports retain the same
+**17 entries**, and strict MkDocs passes. Cleanup and source/Git/index/environment
+metadata fences hold. Final documentation closeout and the normal commit hook
+have separate command receipts. Terminal remote CI remains pending. At the retained
+**2026-10-26 18:09 UTC** observation of head `3869ba31`, four support jobs were
+**SUCCESS** and four full Python jobs **IN PROGRESS**. Public defaults remain
+**LEGACY**; original full-model resource gates and the complete **B–F** scope stay open.
+
+### Retained earlier qualification epochs
 
 | Current gate | Actual source-bound result | Scope and remaining work |
 | --- | --- | --- |

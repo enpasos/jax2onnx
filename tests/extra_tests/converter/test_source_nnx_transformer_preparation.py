@@ -350,6 +350,7 @@ def test_pinned_method_class_context_preserves_original_code_contract(
     from jax2onnx._source_callable_preparation import (
         _cells,
         _code_contract,
+        _FunctionState,
         callable_preimage,
     )
     from jax2onnx._source_nnx_method_preparation import (
@@ -361,9 +362,6 @@ def test_pinned_method_class_context_preserves_original_code_contract(
 
     owner = vars(source)[owner_name]
     original = vars(owner)["__call__"]
-    # This compiler-only check explicitly copies annotations. Establish the
-    # original-side cache before capturing its pinned-role snapshot.
-    annotations = original.__annotations__
     roles = _pinned_original_roles(source, Path(source.__file__).read_text())
     (role,) = tuple(
         role
@@ -374,20 +372,28 @@ def test_pinned_method_class_context_preserves_original_code_contract(
     definition = ast.parse(callable_preimage(original).source).body[0]
     assert isinstance(definition, ast.FunctionDef)
     imported = _untouched(original, definition, class_name=role.compiler_class_name)
-    prepared = _copy_function(
+    prepared, prepared_annotations = _copy_function(
         original,
         definition,
         dict(original.__globals__),
         _cells(original),
         imported,
+        original_state=role.state,
         class_name=role.compiler_class_name,
     )
     assert _code_contract(prepared.__code__) == _code_contract(original.__code__)
     assert prepared.__defaults__ is original.__defaults__
     assert prepared.__kwdefaults__ is original.__kwdefaults__
     assert prepared.__closure__ == original.__closure__
+    role.assert_current()
+    prepared_annotations.assert_current()
+    annotations = prepared.__annotations__
     assert prepared.__annotations__ is annotations
     assert original.__annotations__ is annotations
+    prepared_annotations.assert_current()
+    _FunctionState.capture(
+        prepared, watch_globals=True, annotations=prepared_annotations
+    ).assert_current()
     role.assert_current()
 
 
@@ -397,6 +403,7 @@ def test_class_context_preserves_private_names_closures_and_unexecuted_headers()
     from jax2onnx._source_callable_preparation import (
         _cells,
         _code_contract,
+        _FunctionState,
         callable_preimage,
     )
     from jax2onnx._source_nnx_method_preparation import _copy_function, _untouched
@@ -422,12 +429,14 @@ def test_class_context_preserves_private_names_closures_and_unexecuted_headers()
     assert isinstance(definition, ast.FunctionDef)
     before = tuple(calls)
     imported = _untouched(original, definition, class_name="PrivateOwner")
-    prepared = _copy_function(
+    original_state = _FunctionState.capture(original, watch_globals=False)
+    prepared, prepared_annotations = _copy_function(
         original,
         definition,
         dict(original.__globals__),
         _cells(original),
         imported,
+        original_state=original_state,
         class_name="PrivateOwner",
     )
     assert tuple(calls) == before == ("default", "decorator")
@@ -439,6 +448,143 @@ def test_class_context_preserves_private_names_closures_and_unexecuted_headers()
         _cells(prepared)[name] is cell for name, cell in _cells(original).items()
     )
     assert prepared.__defaults__ is original.__defaults__
+    original_state.assert_current()
+    prepared_annotations.assert_current()
+
+
+def test_copied_methods_retain_cold_annotations_until_prepared_value_read() -> None:
+    from jax2onnx._source_callable_preparation import (
+        _cells,
+        _FunctionState,
+        callable_preimage,
+    )
+    from jax2onnx._source_nnx_method_preparation import _copy_function, _untouched
+
+    calls: list[str] = []
+
+    def annotation() -> object:
+        calls.append("annotation")
+        return object
+
+    class Owner:
+        def method(self, value: annotation()) -> annotation():
+            return value
+
+    original = vars(Owner)["method"]
+    definition = ast.parse(callable_preimage(original).source).body[0]
+    assert isinstance(definition, ast.FunctionDef)
+    original_state = _FunctionState.capture(original, watch_globals=False)
+    before = tuple(calls)
+    imported = _untouched(original, definition, class_name="Owner")
+    copies = tuple(
+        _copy_function(
+            original,
+            definition,
+            dict(original.__globals__),
+            _cells(original),
+            imported,
+            original_state=original_state,
+            class_name="Owner",
+        )
+        for _ in range(2)
+    )
+    states = tuple(
+        _FunctionState.capture(function, watch_globals=True, annotations=annotations)
+        for function, annotations in copies
+    )
+    assert tuple(calls) == before
+    for state in (original_state, *states):
+        state.assert_current()
+    shared = copies[0][0].__annotations__
+    assert shared is original.__annotations__ is copies[1][0].__annotations__
+    assert calls == ["annotation", "annotation"]
+    for state in (original_state, *states):
+        state.assert_current()
+    shared["return"] = int
+    for state in (original_state, *states):
+        with pytest.raises(
+            SourcePreparationError, match="annotation metadata bindings"
+        ):
+            state.assert_current()
+
+
+def test_copied_method_original_annotation_read_keeps_stale_guard() -> None:
+    from jax2onnx._source_callable_preparation import (
+        _cells,
+        _FunctionState,
+        PreparationRecord,
+        callable_preimage,
+    )
+    from jax2onnx._source_nnx_method_preparation import _copy_function, _untouched
+
+    class Owner:
+        def method(self, value: int) -> int:
+            return value
+
+    original = vars(Owner)["method"]
+    definition = ast.parse(callable_preimage(original).source).body[0]
+    assert isinstance(definition, ast.FunctionDef)
+    original_state = _FunctionState.capture(original, watch_globals=False)
+    imported = _untouched(original, definition, class_name="Owner")
+    prepared, annotations = _copy_function(
+        original,
+        definition,
+        dict(original.__globals__),
+        _cells(original),
+        imported,
+        original_state=original_state,
+        class_name="Owner",
+    )
+    prepared_state = _FunctionState.capture(
+        prepared, watch_globals=True, annotations=annotations
+    )
+    record = PreparationRecord("{}", original_state, prepared_state)
+    record.assert_current()
+    original_annotations = original.__annotations__
+    if sys.version_info < (3, 14):
+        original_annotations["return"] = float
+    with pytest.raises(SourcePreparationError, match="annotation metadata"):
+        record.assert_current()
+
+
+def test_registered_class_patching_preserves_cold_annotations_without_signature() -> (
+    None
+):
+    from jax2onnx._source_callable_preparation import _FunctionState
+    from jax2onnx.plugins.plugin_system import _ONNX_FN_HITS
+
+    calls: list[str] = []
+
+    def annotation() -> object:
+        calls.append("annotation")
+        return object
+
+    class Owner:
+        def __call__(self, value: annotation()) -> annotation():
+            return value
+
+    original = vars(Owner)["__call__"]
+    original_state = _FunctionState.capture(original, watch_globals=False)
+    before = tuple(calls)
+    plugin = FunctionPlugin("onnx_fn::cold_annotation_class", Owner)
+    with patch.object(
+        inspect, "signature", side_effect=AssertionError("class signature inspected")
+    ):
+        wrapped = plugin._make_patch_fn(plugin.primitive, True)(original)
+    assert tuple(calls) == before
+    original_state.assert_current()
+    owner, value = Owner(), object()
+    hits = _ONNX_FN_HITS.set(_ONNX_FN_HITS.get())
+    try:
+        with patch.object(plugin, "_bind_function_call", return_value=value) as bind:
+            assert wrapped(owner, value) is value
+        assert bind.call_args.args[2] == (value,)
+        assert bind.call_args.kwargs["owner"] is owner
+        assert bind.call_args.kwargs["unbound_method"] is original
+    finally:
+        _ONNX_FN_HITS.reset(hits)
+    assert tuple(calls) == before
+    original_state.assert_current()
 
 
 def test_pinned_original_method_flags_remain_part_of_code_contract() -> None:

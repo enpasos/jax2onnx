@@ -13,7 +13,6 @@ import ast
 import copy
 from dataclasses import asdict, dataclass, field, replace
 import hashlib
-import inspect
 import json
 from pathlib import Path
 from types import CellType, CodeType, FunctionType, ModuleType
@@ -30,6 +29,7 @@ from jax2onnx._source_callable_preparation import (
     HelperBinding,
     PreparationRecord,
     _FunctionState,
+    _annotation_errors,
     _cells,
     _code_contract,
     _compile_body,
@@ -41,6 +41,7 @@ from jax2onnx._source_callable_preparation import (
     callable_preimage,
     prepare_callable,
 )
+from jax2onnx._compat.python_annotations import AnnotationState
 from jax2onnx._source_preparation import SourcePreparationError
 from jax2onnx.plugins.flax.nnx._source_function_state import (
     NNXFunctionState,
@@ -311,8 +312,11 @@ def _copy_function(
     cells: dict[str, CellType],
     imported: tuple[str, ...],
     *,
+    original_state: _FunctionState,
     class_name: str | None = None,
-) -> FunctionType:
+) -> tuple[FunctionType, AnnotationState]:
+    if original_state.function is not original:
+        raise SourcePreparationError("prepared method original state changed")
     code = _compile_body(
         original,
         definition,
@@ -330,12 +334,16 @@ def _copy_function(
         tuple(cells[name] for name in code.co_freevars) or None,
     )
     prepared.__kwdefaults__ = original.__kwdefaults__
-    prepared.__annotations__ = original.__annotations__
     prepared.__qualname__ = original.__qualname__
     prepared.__module__ = original.__module__
     prepared.__doc__ = original.__doc__
     prepared.__dict__.update(original.__dict__)
-    return prepared
+    with _annotation_errors():
+        annotations = original_state.annotations.attach(
+            prepared, check_metadata=original_state._assert_metadata_current
+        )
+    original_state.assert_current()
+    return prepared, annotations
 
 
 def _prepare_method(
@@ -379,9 +387,13 @@ def _prepare_method(
     namespace["__builtins__"] = function.__builtins__
     changed = copy.deepcopy(definition)
     ports = tuple(
-        name
-        for name in inspect.signature(function).parameters
-        if name.startswith("capture_")
+        argument.arg
+        for argument in (
+            *definition.args.posonlyargs,
+            *definition.args.args,
+            *definition.args.kwonlyargs,
+        )
+        if argument.arg.startswith("capture_")
     )
     expected_ports = {
         "Transformer": (
@@ -395,8 +407,19 @@ def _prepare_method(
     }
     if ports != expected_ports.get(owner_type.__name__):
         raise SourcePreparationError("original method capture-port schema changed")
+    positional = (*definition.args.posonlyargs, *definition.args.args)
+    defaults = function.__defaults__ or ()
+    if len(defaults) > len(positional):
+        raise SourcePreparationError("original capture default schema changed")
+    actual_defaults = {
+        argument.arg: value
+        for argument, value in zip(
+            positional[len(positional) - len(defaults) :], defaults, strict=True
+        )
+    }
+    actual_defaults.update(function.__kwdefaults__ or {})
     for name in ports:
-        if inspect.signature(function).parameters[name].default is not None:
+        if name not in actual_defaults or actual_defaults[name] is not None:
             raise SourcePreparationError("original capture default changed")
     forbidden = (
         ast.FunctionDef,
@@ -488,8 +511,14 @@ def _prepare_method(
         ),
     )
     ast.fix_missing_locations(changed)
-    prepared = _copy_function(
-        function, changed, namespace, _cells(function), imported, class_name=class_name
+    prepared, prepared_annotations = _copy_function(
+        function,
+        changed,
+        namespace,
+        _cells(function),
+        imported,
+        original_state=original_state,
+        class_name=class_name,
     )
     payload = dict(
         schema_version=1,
@@ -509,7 +538,9 @@ def _prepare_method(
     record = PreparationRecord(
         json.dumps(payload, sort_keys=True, separators=(",", ":")),
         original_state,
-        _FunctionState.capture(prepared, watch_globals=True),
+        _FunctionState.capture(
+            prepared, watch_globals=True, annotations=prepared_annotations
+        ),
         tuple(dependencies),
     )
     result = prepare_nnx_function_state(receiver, prepared, 0)
@@ -762,8 +793,14 @@ def prepare_nnx_transformer_softmax64(
     call.args.insert(0, call.func)
     call.func = ast.copy_location(ast.Name(id=private, ctx=ast.Load()), call.func)
     ast.fix_missing_locations(changed)
-    prepared = _copy_function(
-        function, changed, namespace, {"module": CellType(owner)}, imported
+    original_entry_state = _FunctionState.capture(function, watch_globals=False)
+    prepared, prepared_annotations = _copy_function(
+        function,
+        changed,
+        namespace,
+        {"module": CellType(owner)},
+        imported,
+        original_state=original_entry_state,
     )
     entry_payload = dict(
         kind="original-nnx-transformer-entry-v1",
@@ -772,8 +809,10 @@ def prepare_nnx_transformer_softmax64(
     )
     entry = PreparationRecord(
         json.dumps(entry_payload, sort_keys=True),
-        _FunctionState.capture(function, watch_globals=False),
-        _FunctionState.capture(prepared, watch_globals=True),
+        original_entry_state,
+        _FunctionState.capture(
+            prepared, watch_globals=True, annotations=prepared_annotations
+        ),
         (root.record,),
     )
     payload = dict(

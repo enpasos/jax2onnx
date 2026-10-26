@@ -14,6 +14,12 @@ loading and execution; the broader precision contract remains a proposal.
 
 ## Local Branch Snapshot
 
+The latest finite CI repair qualification is recorded in the
+[handoff](implementation_handoff.md) and
+[technical checkpoint](poc/source_integration_findings.md#latest-ci-repair-qualification).
+Local quality and exact-head CI retain separate evidence. The older results below
+retain their own scope; public options and defaults remain unchanged.
+
 The supported floor remains **Python 3.11+, JAX/JAXLIB 0.10.2+, Flax 0.12.8+
 and ONNX IR 1.0.0+**. The user’s Poetry update retains the modern JAX 0.12.0.1 /
 IR 1.1.0 stack. Current public options, defaults and `enable_double_precision`

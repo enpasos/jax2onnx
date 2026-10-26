@@ -23,7 +23,11 @@ The supported floor is **Python >=3.11, JAX/JAXLIB >=0.10.2 and Flax >=0.12.8**.
 The exact framework-floor stack and the all-direct-dependency-minimum stack
 are separate validation targets; ORT 1.24.1 remains the declared runtime floor.
 
-This unfinished LOCAL WIP continues stored **`e4db1943`**; **`fe214590`** remains
+The latest local CI repair after `3869ba31` is recorded in the
+[handoff](implementation_handoff.md) and
+[canonical checkpoint](poc/source_integration_findings.md#latest-ci-repair-qualification);
+local quality and the exact-head CI gate retain separate evidence. The earlier
+unfinished LOCAL WIP below continues stored **`e4db1943`**; **`fe214590`** remains
 the last fully green checkpoint. Measured native-helper and typing layouts now
 pass the complete available Python 3.13/JAX 0.11 owner: **312 cases**, retaining
 all original 282 identities. Current focused checks pass **793/789** cases on

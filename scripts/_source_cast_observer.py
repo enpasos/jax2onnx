@@ -87,6 +87,47 @@ def _literal(value: Any, depth: int = 0) -> Any:
     raise ValueError("diagnostic return requires exact literal storage")
 
 
+def _dtype_promotion_enum(value: Any) -> dict[str, Any]:
+    # Newer JAX exposes this setting as a StrEnum. Accept only its actual,
+    # already-loaded native members; str()/equality on foreign values can run
+    # user code and would cease to be a passive observation.
+    native = sys.modules.get("jax._src.config")
+    _require(
+        type(native) is types.ModuleType,
+        "original JAX config enum module was not loaded",
+    )
+    enum_type = vars(native).get("NumpyDtypePromotion")
+    _require(
+        type(value) is enum_type,
+        "original JAX config requires its exact native dtype-promotion enum",
+    )
+    namespace = vars(enum_type)
+    member = next(
+        (name for name in ("STANDARD", "STRICT") if value is namespace.get(name)),
+        None,
+    )
+    _require(member is not None, "original JAX config enum member differs")
+    storage = object.__getattribute__(value, "__dict__")
+    _require(type(storage) is dict, "original JAX config enum storage differs")
+    name, literal = storage.get("_name_"), storage.get("_value_")
+    _require(
+        type(name) is str
+        and type(literal) is str
+        and name == member
+        and literal == {"STANDARD": "standard", "STRICT": "strict"}[member],
+        "original JAX config enum literal storage differs",
+    )
+    return {
+        "kind": "native-jax-enum",
+        "type_module": "jax._src.config",
+        "type_name": "NumpyDtypePromotion",
+        "type_identity": id(enum_type),
+        "member": name,
+        "member_identity": id(value),
+        "value": literal,
+    }
+
+
 def _config_values(config: Any) -> dict[str, Any]:
     values = {
         name: getattr(config, name)
@@ -103,10 +144,13 @@ def _config_values(config: Any) -> dict[str, Any]:
     )
     for name, value in values.items():
         if name != "x64_enabled":
+            if value is None or (type(value) is str and len(value) <= 256):
+                continue
             _require(
-                value is None or (type(value) is str and len(value) <= 256),
+                name == "jax_numpy_dtype_promotion",
                 "original JAX config requires literal string or None",
             )
+            values[name] = _dtype_promotion_enum(value)
     return values
 
 
@@ -481,7 +525,10 @@ class _Observation:
 
     def _native_module(self, name: str) -> dict[str, Any]:
         module = sys.modules.get(name)
-        _require(type(module) is types.ModuleType, "runtime module was not loaded")
+        _require(
+            type(module) is types.ModuleType,
+            "runtime module was not loaded: " + name,
+        )
         dist = importlib.metadata.distribution(name)
         filename = Path(vars(module)["__file__"]).resolve()
         files = dist.files or ()
@@ -507,6 +554,45 @@ class _Observation:
             "record_digest_verified": True,
             "wheel_archive_hash_claimed": False,
         }
+
+    def _native_modules(self) -> dict[str, Any]:
+        names = ("jax", "jaxlib", "numpy", "scipy", "onnxruntime")
+        snapshot = {
+            name: {
+                "sys_modules_contains_name": name in sys.modules,
+                "exact_module_type": type(sys.modules.get(name)) is types.ModuleType,
+                "binding_identity": (
+                    id(sys.modules[name]) if name in sys.modules else None
+                ),
+            }
+            for name in names
+        }
+        self.report["runtime_module_snapshot"] = snapshot
+        modules: dict[str, Any] = {}
+        # Retain successful proofs and the complete presence snapshot even if a
+        # later required module cannot be qualified.
+        self.report["loaded_native_modules"] = modules
+        for name in names:
+            if name == "scipy" and not snapshot[name]["sys_modules_contains_name"]:
+                # A cast need not import SciPy. Installed distribution metadata
+                # is reported separately; do not import code to manufacture a
+                # loaded-module proof or claim its RECORD has been verified.
+                modules[name] = {
+                    "status": "NOT_LOADED",
+                    "record_digest_verified": False,
+                    "wheel_archive_hash_claimed": False,
+                }
+                continue
+            _require(
+                snapshot[name]["exact_module_type"] is True,
+                "runtime module was not loaded: " + name,
+            )
+            _require(
+                id(sys.modules.get(name)) == snapshot[name]["binding_identity"],
+                "runtime module binding changed: " + name,
+            )
+            modules[name] = {"status": "LOADED", **self._native_module(name)}
+        return modules
 
     def finish(self) -> None:
         if not self.active:
@@ -555,10 +641,7 @@ class _Observation:
                     "jax2onnx",
                 )
             }
-            self.report["loaded_native_modules"] = {
-                name: self._native_module(name)
-                for name in ("jax", "jaxlib", "numpy", "scipy", "onnxruntime")
-            }
+            self._native_modules()
             complete = (
                 len(self.report["artifact_events"]) == 1
                 and self.report["runtime_events"]
