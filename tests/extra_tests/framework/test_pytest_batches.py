@@ -2,6 +2,10 @@
 
 """Exercise fresh-process suite accounting with tiny, real pytest suites."""
 
+import base64
+import builtins
+import csv
+import hashlib
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
@@ -520,6 +524,7 @@ def test_cast_observer_preserves_profile_installed_by_original_call(
     monkeypatch.setattr(module, "_SOURCE_FILES", ())
     monkeypatch.setattr(module.importlib.metadata, "version", lambda name: "test")
     monkeypatch.setattr(observation, "_native_modules", lambda: {})
+    monkeypatch.setattr(observation, "_installed_native_files", lambda: None)
     observation.active = True
     observation.compat = type(sys)("compat")
     observation.compat.require_native_context_restored = lambda context: None
@@ -636,6 +641,334 @@ def test_cast_observer_rejects_non_module_optional_binding_without_coercion(
     snapshot = observation.report["runtime_module_snapshot"]["scipy"]
     assert snapshot["sys_modules_contains_name"] is True
     assert snapshot["exact_module_type"] is False
+
+
+def _installed_manifest_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any, dict[str, Any], list[Any]]:
+    module = _cast_observer_module()
+    site = tmp_path / "site"
+    site.mkdir()
+    distributions = {}
+    records = {}
+    for name in module._NATIVE_DISTRIBUTIONS:
+        package = name.replace("-", "_")
+        info = site / f"{package}-1.0.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(f"Name: {name}\nVersion: 1.0\n\n")
+        paths = [f"{package}/native.so"]
+        if name == "jaxlib":
+            paths.append(f"{package}/libkernel.so.2.0")
+        if name == "numpy":
+            paths.append("numpy.libs/libsupport.so.1")
+        rows = []
+        for relative in paths:
+            path = site / relative
+            path.parent.mkdir(exist_ok=True)
+            payload = b"not executed: " + relative.encode()
+            path.write_bytes(payload)
+            digest = (
+                base64.urlsafe_b64encode(hashlib.sha256(payload).digest())
+                .rstrip(b"=")
+                .decode()
+            )
+            rows.append([relative, "sha256=" + digest, str(len(payload))])
+        with (info / "RECORD").open("w", newline="") as stream:
+            csv.writer(stream).writerows(rows)
+        distributions[name] = module.importlib.metadata.PathDistribution(info)
+        records[name] = {"info": info, "rows": rows, "site": site}
+    monkeypatch.setattr(
+        module.importlib.metadata, "distribution", distributions.__getitem__
+    )
+    observation = module._Observation(tmp_path, module.NODE_ID, type(sys)("owner"))
+    observation.report["artifact_events"] = [{"original": "words"}]
+    checkpoints = []
+    original_write = observation.write
+
+    def write() -> None:
+        checkpoints.append(json.loads(json.dumps(observation.report)))
+        original_write()
+
+    monkeypatch.setattr(observation, "write", write)
+    return module, observation, records, checkpoints
+
+
+def test_installed_native_manifest_verifies_real_record_files_without_imports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module, observation, records, checkpoints = _installed_manifest_fixture(
+        tmp_path, monkeypatch
+    )
+    imported = []
+    original_import = builtins.__import__
+
+    def guarded_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name.split(".")[0] in ("jax", "jaxlib", "numpy", "onnxruntime", "ml_dtypes"):
+            imported.append(name)
+            raise AssertionError("installed file proof imported a framework")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    observation._installed_native_files()
+    manifest = observation.report["installed_native_files"]
+    assert imported == [] and manifest["status"] == "VERIFIED"
+    assert manifest["evidence_kind"] == "INSTALLED_RECORD_FILE"
+    assert all(
+        manifest[name] is False
+        for name in (
+            "native_modules_imported_by_observer",
+            "loaded_native_binary_claimed",
+            "executed_kernel_claimed",
+            "wheel_archive_hash_claimed",
+        )
+    )
+    assert manifest["files_started"] == 6
+    assert manifest["declared_bytes"] == manifest["bytes_hashed"]
+    assert observation.report["artifact_events"] == [{"original": "words"}]
+    assert checkpoints and any(
+        p["installed_native_files"]["status"] == "UNVERIFIED" for p in checkpoints
+    )
+    for name, item in manifest["distributions"].items():
+        assert item["version"] == "1.0" and item["status"] == "VERIFIED"
+        for key in ("metadata_file", "record_file"):
+            assert (
+                item[key]["stat_before"]
+                == item[key]["stat_after"]
+                == item[key]["stat_end"]
+            )
+        assert len(item["files"]) == len(records[name]["rows"])
+        for proof in item["files"]:
+            assert proof["status"] == "VERIFIED"
+            assert (
+                proof["record_digest_verified"] is proof["record_size_verified"] is True
+            )
+            assert proof["stat_before"] == proof["stat_after"]
+            assert proof["sha256"] == proof["record_declared_sha256"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "file-digest",
+        "record-digest",
+        "record-size",
+        "duplicate",
+        "escape",
+        "symlink",
+        "directory",
+    ),
+)
+def test_installed_native_manifest_keeps_partial_proofs_on_corruption(
+    fault: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module, observation, records, checkpoints = _installed_manifest_fixture(
+        tmp_path, monkeypatch
+    )
+    record = records["jaxlib"]
+    rows = record["rows"]
+    path = record["site"] / rows[1][0]
+    if fault == "file-digest":
+        path.write_bytes(b"x" * path.stat().st_size)
+    elif fault == "record-digest":
+        rows[1][1] = "sha256=" + "A" * 43
+    elif fault == "record-size":
+        rows[1][2] = str(path.stat().st_size + 1)
+    elif fault == "duplicate":
+        rows[1] = rows[0][:]
+    elif fault == "escape":
+        rows[1][0] = "../escape.so"
+    else:
+        path.unlink()
+        if fault == "symlink":
+            path.symlink_to(record["site"] / rows[0][0])
+        else:
+            path.mkdir()
+    with (record["info"] / "RECORD").open("w", newline="") as stream:
+        csv.writer(stream).writerows(rows)
+    with pytest.raises(ValueError):
+        observation._installed_native_files()
+    manifest = observation.report["installed_native_files"]
+    assert manifest["status"] == "UNVERIFIED"
+    assert manifest["distributions"]["jaxlib"]["files"][0]["status"] == "VERIFIED"
+    assert manifest["distributions"]["jaxlib"]["error"]
+    assert checkpoints[-1]["artifact_events"] == [{"original": "words"}]
+
+
+@pytest.mark.parametrize("foreign_role", ("distribution", "path"))
+def test_installed_native_manifest_rejects_foreign_protocols(
+    foreign_role: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module, observation, _, _ = _installed_manifest_fixture(tmp_path, monkeypatch)
+    calls = []
+
+    class Foreign:
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("rendered foreign distribution metadata")
+
+        def __fspath__(self) -> str:
+            calls.append("fspath")
+            raise AssertionError("coerced foreign distribution path")
+
+    foreign = Foreign()
+    dist = (
+        foreign
+        if foreign_role == "distribution"
+        else module.importlib.metadata.PathDistribution(foreign)
+    )
+    monkeypatch.setattr(module.importlib.metadata, "distribution", lambda name: dist)
+    with pytest.raises(ValueError, match="exact"):
+        observation._installed_native_files()
+    assert calls == []
+    assert observation.report["installed_native_files"]["status"] == "UNVERIFIED"
+
+
+@pytest.mark.parametrize("mutation", ("inode", "stat", "record"))
+def test_installed_native_manifest_streams_and_fences_live_file_changes(
+    mutation: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module, observation, records, checkpoints = _installed_manifest_fixture(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(module, "_NATIVE_CHUNK_BYTES", 3)
+    monkeypatch.setattr(module, "_NATIVE_PROGRESS_BYTES", 3)
+    path = records["jaxlib"]["site"] / records["jaxlib"]["rows"][0][0]
+    original_read = module.os.read
+    changed = False
+
+    def read(descriptor: int, count: int) -> bytes:
+        nonlocal changed
+        assert count <= 3
+        chunk = original_read(descriptor, count)
+        proof = observation.report["installed_native_files"]["distributions"]["jaxlib"]
+        if chunk and proof["files"] and not changed:
+            changed = True
+            if mutation == "inode":
+                replacement = path.with_name("replacement")
+                replacement.write_bytes(path.read_bytes())
+                replacement.replace(path)
+            else:
+                target = (
+                    path if mutation == "stat" else records["jaxlib"]["info"] / "RECORD"
+                )
+                current = target.stat()
+                module.os.utime(
+                    target, ns=(current.st_atime_ns, current.st_mtime_ns + 1)
+                )
+        return chunk
+
+    observed_os = type(sys)("observed-os")
+    vars(observed_os).update(vars(module.os))
+    observed_os.read = read
+    monkeypatch.setattr(module, "os", observed_os)
+    with pytest.raises(ValueError, match="changed"):
+        observation._installed_native_files()
+    assert changed
+    assert any(
+        0 < state["installed_native_files"]["bytes_hashed"] < path.stat().st_size
+        for state in checkpoints
+    )
+    assert observation.report["installed_native_files"]["status"] == "UNVERIFIED"
+
+
+@pytest.mark.parametrize(
+    "bound,value",
+    (
+        ("_MAX_NATIVE_RECORD_BYTES", 1),
+        ("_MAX_NATIVE_RECORD_ROWS", 1),
+        ("_MAX_NATIVE_FILES", 1),
+        ("_MAX_NATIVE_FILE_BYTES", 1),
+        ("_MAX_NATIVE_TOTAL_BYTES", 1),
+        ("_MAX_NATIVE_MANIFEST_BYTES", 4096),
+    ),
+)
+def test_installed_native_manifest_enforces_finite_bounds(
+    bound: str, value: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module, observation, _, checkpoints = _installed_manifest_fixture(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(module, bound, value)
+    with pytest.raises(ValueError, match="bound"):
+        observation._installed_native_files()
+    assert observation.report["installed_native_files"]["status"] == "UNVERIFIED"
+    assert observation.report["artifact_events"] == [{"original": "words"}]
+    assert checkpoints
+
+
+@pytest.mark.parametrize(
+    "change", ("unchanged", "source", "code", "settings", "context", "profile", "error")
+)
+def test_cast_observer_rechecks_original_fences_after_installed_audit(
+    change: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _cast_observer_module()
+    observation = module._Observation(tmp_path, module.NODE_ID, type(sys)("owner"))
+    profile = {"value": observation.callback}
+    monkeypatch.setattr(module.sys, "getprofile", lambda: profile["value"])
+    monkeypatch.setattr(
+        module.sys, "setprofile", lambda value: profile.update(value=value)
+    )
+    monkeypatch.setattr(module, "_ROOT", tmp_path)
+    monkeypatch.setattr(module, "_SOURCE_FILES", ("original.py",))
+    source = tmp_path / "original.py"
+    source.write_text("before")
+    observation.before_files = {"original.py": module._file(source)}
+    observation.active = True
+    observation.compat = type(sys)("compat")
+    context_state = {"restored": True}
+
+    def require_context(context: Any) -> None:
+        if not context_state["restored"]:
+            raise ValueError("original native context changed")
+
+    observation.compat.require_native_context_restored = require_context
+    state = {"value": "before"}
+    observation.settings = "before"
+    monkeypatch.setattr(observation, "_settings", lambda: state["value"])
+    monkeypatch.setattr(module.importlib.metadata, "version", lambda name: "test")
+    monkeypatch.setattr(observation, "_native_modules", lambda: {})
+
+    def original() -> None:
+        return None
+
+    observation.functions = {"original": original}
+    observation.codes = {"original": original.__code__}
+    for name in ("artifact_events", "runtime_events", "comparison_events"):
+        observation.report[name] = [{"original": "words"}]
+
+    def audit() -> None:
+        if change in ("source", "error"):
+            source.write_text("after")
+        elif change == "settings":
+            state["value"] = "after"
+        elif change == "profile":
+            profile["value"] = object()
+        elif change == "context":
+            context_state["restored"] = False
+        elif change == "code":
+            original.__code__ = (lambda: 1).__code__
+        if change == "error":
+            raise ValueError("installed audit sentinel")
+
+    monkeypatch.setattr(observation, "_installed_native_files", audit)
+    observation.finish()
+    assert observation.report["status"] == (
+        "ORIGINAL_CALL_WORDS_OBSERVED" if change == "unchanged" else "UNVERIFIED"
+    )
+    for name in ("artifact_events", "runtime_events", "comparison_events"):
+        assert observation.report[name] == [{"original": "words"}]
+    if change == "unchanged":
+        return
+    field = {
+        "source": "source_fence_held",
+        "error": "source_fence_held",
+        "code": "code_identity_fence_held",
+        "settings": "source_settings_restored",
+        "context": "native_context_restored",
+        "profile": "previous_profile_restored",
+    }[change]
+    assert observation.report[field] is False
 
 
 def test_cast_observer_reads_existing_literal_jax_config() -> None:

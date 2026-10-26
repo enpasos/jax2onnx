@@ -272,6 +272,13 @@ jobs:
         JAX2ONNX_MAXDIFFUSION_MODELS: ""
       run: ./scripts/run_all_checks.sh
 
+    - name: Replay frozen references after an original cast failure
+      if: failure()
+      timeout-minutes: 5
+      run: |
+        poetry run python -B scripts/replay_source_cast_failure.py \
+          --receipts-dir "$RUNNER_TEMP/jax2onnx-pytest-batches"
+
     - name: Upload full-suite pytest receipts
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -9,12 +9,17 @@ The batch runner owns selection, pytest phases, original outcomes and uploads.
 from __future__ import annotations
 
 import base64
+import csv
+from email.parser import Parser
 import hashlib
 import importlib.metadata
+import io
 import json
 import marshal
 import os
 from pathlib import Path
+import re
+import stat
 import sys
 import sysconfig
 import types
@@ -40,6 +45,87 @@ _SOURCE_FILES = (
 )
 _MAX_FILE_BYTES = 2 * 1024 * 1024
 _MAX_REPORT_BYTES = 4 * 1024 * 1024
+_NATIVE_DISTRIBUTIONS = ("jaxlib", "onnxruntime", "numpy", "ml-dtypes")
+_MAX_NATIVE_RECORD_BYTES = 8 * 1024 * 1024
+_MAX_NATIVE_RECORD_ROWS = 20000
+_MAX_NATIVE_FILES = 128
+_MAX_NATIVE_FILE_BYTES = 512 * 1024 * 1024
+_MAX_NATIVE_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+_MAX_NATIVE_MANIFEST_BYTES = 256 * 1024
+_NATIVE_CHUNK_BYTES = 1024 * 1024
+_NATIVE_PROGRESS_BYTES = 64 * 1024 * 1024
+
+
+def _installed_stat(path: Path) -> dict[str, int]:
+    observed = path.lstat()
+    _require(stat.S_ISREG(observed.st_mode), "installed proof requires a regular file")
+    _require(path.resolve(strict=True) == path, "installed proof path is not canonical")
+    return _stat_fields(observed)
+
+
+def _stat_fields(observed: os.stat_result) -> dict[str, int]:
+    return {
+        name: getattr(observed, name)
+        for name in (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+    }
+
+
+def _read_installed_file(
+    path: Path,
+    bound: int,
+    proof: dict[str, Any],
+    *,
+    collect: bool = False,
+    progress: Any = None,
+    checkpoint: Any = None,
+) -> bytes:
+    before = _installed_stat(path)
+    proof["stat_before"] = before
+    _require(before["st_size"] <= bound, "installed file exceeds byte bound")
+    descriptor = os.open(
+        path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC
+    )
+    digest = hashlib.sha256()
+    parts = []
+    count = 0
+    next_checkpoint = _NATIVE_PROGRESS_BYTES
+    try:
+        _require(
+            _stat_fields(os.fstat(descriptor)) == before,
+            "installed file changed before open",
+        )
+        while True:
+            chunk = os.read(descriptor, min(_NATIVE_CHUNK_BYTES, bound - count + 1))
+            if not chunk:
+                break
+            count += len(chunk)
+            proof["bytes_hashed"] = count
+            _require(count <= bound, "installed file grew beyond byte bound")
+            digest.update(chunk)
+            if collect:
+                parts.append(chunk)
+            if progress is not None:
+                progress(len(chunk))
+            if checkpoint is not None and count >= next_checkpoint:
+                checkpoint()
+                next_checkpoint += _NATIVE_PROGRESS_BYTES
+        after = _stat_fields(os.fstat(descriptor))
+        proof["stat_after"] = _installed_stat(path)
+        _require(
+            before == after == proof["stat_after"] and count == before["st_size"],
+            "installed file identity or stat changed while hashing",
+        )
+        proof.update(sha256=digest.hexdigest(), file_identity_held=True)
+    finally:
+        os.close(descriptor)
+    return b"".join(parts)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -594,6 +680,239 @@ class _Observation:
             modules[name] = {"status": "LOADED", **self._native_module(name)}
         return modules
 
+    def _installed_native_files(self) -> None:
+        manifest: dict[str, Any] = {
+            "status": "UNVERIFIED",
+            "evidence_kind": "INSTALLED_RECORD_FILE",
+            "native_modules_imported_by_observer": False,
+            "loaded_native_binary_claimed": False,
+            "executed_kernel_claimed": False,
+            "wheel_archive_hash_claimed": False,
+            "files_started": 0,
+            "declared_bytes": 0,
+            "bytes_hashed": 0,
+            "distributions": {},
+        }
+        self.report["installed_native_files"] = manifest
+
+        def checkpoint() -> None:
+            _require(
+                len(json.dumps(manifest).encode()) <= _MAX_NATIVE_MANIFEST_BYTES,
+                "installed manifest exceeds report bound",
+            )
+            self.write()
+
+        def progress(amount: int) -> None:
+            manifest["bytes_hashed"] += amount
+            _require(
+                manifest["bytes_hashed"] <= _MAX_NATIVE_TOTAL_BYTES,
+                "installed files exceed aggregate actual byte bound",
+            )
+
+        for name in _NATIVE_DISTRIBUTIONS:
+            item: dict[str, Any] = {"status": "UNVERIFIED", "files": []}
+            manifest["distributions"][name] = item
+            try:
+                dist = importlib.metadata.distribution(name)
+                _require(
+                    type(dist) is importlib.metadata.PathDistribution,
+                    "installed proof requires an exact filesystem distribution",
+                )
+                native_path = vars(dist).get("_path")
+                _require(
+                    type(native_path) is type(Path()),
+                    "installed distribution path requires an exact native Path",
+                )
+                located = dist.locate_file("")
+                _require(
+                    type(located) is type(Path()), "installed root is not a native Path"
+                )
+                root, metadata = located.resolve(strict=True), native_path.resolve(
+                    strict=True
+                )
+                _require(
+                    metadata.parent == root,
+                    "installed metadata escapes distribution root",
+                )
+                metadata_path, record_path = metadata / "METADATA", metadata / "RECORD"
+                item.update(root=str(root), metadata_file={}, record_file={})
+                payload = _read_installed_file(
+                    metadata_path, _MAX_FILE_BYTES, item["metadata_file"], collect=True
+                )
+                fields = Parser().parsestr(payload.decode("utf-8"), headersonly=True)
+                names, versions = fields.get_all("Name", []), fields.get_all(
+                    "Version", []
+                )
+                _require(
+                    len(names) == len(versions) == 1
+                    and type(names[0]) is str
+                    and type(versions[0]) is str
+                    and len(names[0]) <= 256
+                    and len(versions[0]) <= 256
+                    and names[0].lower().replace("_", "-") == name,
+                    "installed distribution metadata differs",
+                )
+                item["version"] = versions[0]
+                payload = _read_installed_file(
+                    record_path,
+                    _MAX_NATIVE_RECORD_BYTES,
+                    item["record_file"],
+                    collect=True,
+                )
+                seen: set[str] = set()
+                item["record_entries"] = 0
+                for row in csv.reader(io.StringIO(payload.decode("utf-8"))):
+                    item["record_entries"] += 1
+                    _require(
+                        item["record_entries"] <= _MAX_NATIVE_RECORD_ROWS,
+                        "installed RECORD row bound exceeded",
+                    )
+                    _require(
+                        len(row) == 3 and all(len(field) <= 4096 for field in row),
+                        "installed RECORD fields exceed schema bounds",
+                    )
+                    relative, recorded_digest, recorded_size = row
+                    if re.search(r"\.so(?:\.[0-9]+)*$", relative) is None:
+                        continue
+                    parts = relative.split("/")
+                    _require(
+                        len(relative) <= 1024
+                        and parts
+                        and all(part not in ("", ".", "..") for part in parts)
+                        and not Path(relative).is_absolute()
+                        and relative not in seen,
+                        "installed native RECORD path is unsafe or duplicated",
+                    )
+                    seen.add(relative)
+                    path = root.joinpath(*parts)
+                    _require(
+                        path.resolve(strict=True).is_relative_to(root),
+                        "installed native file escapes distribution root",
+                    )
+                    _require(
+                        len(str(path)) <= 4096, "installed native path exceeds bound"
+                    )
+                    _require(
+                        recorded_digest.startswith("sha256=")
+                        and len(recorded_digest) == 50,
+                        "installed native file lacks SHA256 RECORD digest",
+                    )
+                    encoded = recorded_digest[7:]
+                    expected = base64.b64decode(
+                        encoded + "=", altchars=b"-_", validate=True
+                    )
+                    _require(
+                        base64.urlsafe_b64encode(expected).rstrip(b"=").decode()
+                        == encoded
+                        and len(expected) == 32,
+                        "installed RECORD digest is not canonical SHA256",
+                    )
+                    _require(
+                        recorded_size.isascii()
+                        and recorded_size.isdecimal()
+                        and len(recorded_size) <= 20,
+                        "installed native file lacks exact RECORD size",
+                    )
+                    size = int(recorded_size)
+                    _require(
+                        size <= _MAX_NATIVE_FILE_BYTES,
+                        "installed native file exceeds per-file bound",
+                    )
+                    _require(
+                        manifest["files_started"] < _MAX_NATIVE_FILES,
+                        "installed native file count exceeds bound",
+                    )
+                    _require(
+                        manifest["declared_bytes"] + size <= _MAX_NATIVE_TOTAL_BYTES,
+                        "installed files exceed aggregate declared byte bound",
+                    )
+                    proof: dict[str, Any] = {
+                        "status": "UNVERIFIED",
+                        "evidence_kind": "INSTALLED_RECORD_FILE",
+                        "distribution_path": relative,
+                        "path": str(path),
+                        "record_declared_bytes": size,
+                        "record_declared_sha256": expected.hex(),
+                        "bytes_hashed": 0,
+                    }
+                    _require(
+                        len(json.dumps(manifest).encode())
+                        + len(json.dumps(proof).encode())
+                        + 4096
+                        <= _MAX_NATIVE_MANIFEST_BYTES,
+                        "installed manifest exceeds report bound",
+                    )
+                    item["files"].append(proof)
+                    manifest["files_started"] += 1
+                    manifest["declared_bytes"] += size
+                    checkpoint()
+                    _read_installed_file(
+                        path, size, proof, progress=progress, checkpoint=checkpoint
+                    )
+                    _require(
+                        proof["bytes_hashed"] == size,
+                        "installed native size differs from RECORD",
+                    )
+                    _require(
+                        proof["sha256"] == expected.hex(),
+                        "installed native digest differs from RECORD",
+                    )
+                    proof.update(
+                        status="VERIFIED",
+                        record_digest_verified=True,
+                        record_size_verified=True,
+                    )
+                    checkpoint()
+                _require(
+                    bool(item["files"]),
+                    "installed distribution has no native RECORD files",
+                )
+                for path, key in (
+                    (metadata_path, "metadata_file"),
+                    (record_path, "record_file"),
+                ):
+                    item[key]["stat_end"] = _installed_stat(path)
+                    _require(
+                        item[key]["stat_end"] == item[key]["stat_before"],
+                        "installed metadata or RECORD changed during audit",
+                    )
+                item["status"] = "VERIFIED"
+                checkpoint()
+            except BaseException as error:
+                item["error"] = _error(error)
+                self.write()
+                raise
+        manifest["status"] = "VERIFIED"
+        checkpoint()
+
+    def _end_fences(self) -> None:
+        self.report["previous_profile_restored"] = (
+            self.report.get("previous_profile_restored") is True
+            and sys.getprofile() is self.previous
+        )
+        for name in (
+            "native_context_restored",
+            "source_settings_restored",
+            "source_fence_held",
+            "code_identity_fence_held",
+        ):
+            self.report[name] = False
+        vars(self.compat)["require_native_context_restored"](self.context)
+        self.report["native_context_restored"] = True
+        self.report["jax_config_end"] = self._settings()
+        self.report["source_settings_restored"] = (
+            self.report["jax_config_end"] == self.settings
+        )
+        self.report["source_files_end"] = {
+            relative: _file(_ROOT / relative) for relative in _SOURCE_FILES
+        }
+        self.report["source_fence_held"] = (
+            self.report["source_files_end"] == self.before_files
+        )
+        self.report["code_identity_fence_held"] = all(
+            self.functions[role].__code__ is code for role, code in self.codes.items()
+        )
+
     def finish(self) -> None:
         if not self.active:
             self.write()
@@ -642,6 +961,7 @@ class _Observation:
                 )
             }
             self._native_modules()
+            self._installed_native_files()
             complete = (
                 len(self.report["artifact_events"]) == 1
                 and self.report["runtime_events"]
@@ -664,6 +984,21 @@ class _Observation:
         except BaseException as error:
             self.error("finish", error)
         finally:
+            try:
+                self._end_fences()
+                if not all(
+                    self.report.get(name) is True
+                    for name in (
+                        "previous_profile_restored",
+                        "native_context_restored",
+                        "source_settings_restored",
+                        "source_fence_held",
+                        "code_identity_fence_held",
+                    )
+                ):
+                    self.report["status"] = "UNVERIFIED"
+            except BaseException as error:
+                self.error("finish-final-fences", error)
             self.write()
 
 

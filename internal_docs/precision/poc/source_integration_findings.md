@@ -71,6 +71,61 @@ have separate command receipts. Terminal remote CI remains pending. At the retai
 **SUCCESS** and four full Python jobs **IN PROGRESS**. Public defaults remain
 **LEGACY**; original full-model resource gates and the complete **B–F** scope stay open.
 
+### Hosted follow-up at repair `87b2b3c6`
+
+The reviewed cold-annotation/original-call diagnostic repair was committed with
+all seven normal hooks passing, strict documentation passing on the committed
+tree, and a normal non-force push. [CI #536](https://github.com/enpasos/jax2onnx/actions/runs/40377107687)
+is bound to exact head `87b2b3c6e444f751cf2eaac5522b3dd340e3044e`; checkout/event
+merge `d7aa9052be9160beacd626036b532ef6a90ebafe` stays separate. At **18:50 UTC**,
+four support jobs were **SUCCESS**, Python 3.11 **FAILURE**, and three full jobs
+still running. This is not an eight-check acceptance.
+
+The original FP64-to-FP16 tie witness now supplies actual hosted words: native
+eager/fresh JIT return `0x3c01` at index 2 while ORT returns `0x3c00`, for exact
+FP64 `1 + 2^-11 + 2^-52`. All five observation fences hold, with no observer
+errors. It stops at the first comparison. Artifact SHA
+`f48469e1bf98d5d1f7f2b1b59a1c1b1c172237eccb778aa68f7d802b9dfadd8e`,
+bytes of all six inputs and target output bytes match the local passing integration.
+
+A new local **Python 3.11.17** locked cohort also passes the unchanged node,
+with eager/JIT/ORT all choosing `0x3c00`. Guard receipt
+`cast-hook-python311-v1` records **1 PASS**, all three phases, **7.635816 s**,
+peak **552,919,040 bytes**, held source/Git/environment metadata and clean
+cleanup. Its complete observer has one artifact and four runtime/comparison
+events. Same Python version is insufficient to establish native binary or CPU
+causality; compiler builds, flags and installed/executed-file claims stay distinct.
+
+Local dump-enabled observation retains the same artifact and all native/target
+words: **1 PASS**, **4.859237 s**, peak **532,021,248 bytes**, held fences and
+clean cleanup. The attributed original `f64[6] -> f16[6]` module has LLVM
+`fptrunc` and object relocations to `__truncdfhf2`; this alone does not establish
+the executed helper or hosted instructions. A separate local replay of frozen
+hosted references records four runtime-valid/numerically-failed reports with
+acceptance errors. Its v1 raw-versus-typed hash audit error stays failed history;
+corrected v2 is not evidence for unattempted hosted calls.
+
+Original production conversion, inputs, references, bitwise criteria and success
+assertions remain unchanged. The diagnostic-only follow-up adds bounded native
+file provenance and a separate failure-only four-comparison replay. Independent
+review accepts its code and controls; at source-files
+`c9c7fe2bffee1833fef2591a690efc4ced423fc660949ebe07246071b527aafd`,
+both complete owners pass **107 identical cases each**, zero failures/errors/skips,
+on Python 3.14.9/JAX 0.12.0.1 and Python 3.11.17/JAX 0.10.2. Both actual original
+batch cases pass with complete word records and installed RECORD/file manifests
+verified: **58 files / 436,383,598 bytes** modern; **57 / 458,165,086 bytes** 3.11.
+
+The actual new replay CLI consumes the unchanged hosted archive on both local
+cohorts: four runtime-valid/numerically-failed reports and acceptance exceptions
+per cohort, original/replay identity kept separate. A passing original batch
+returns NOT_APPLICABLE. Full source/Git/environment metadata fences and cleanup
+hold throughout. This qualifies the diagnostic, not the unattempted hosted
+comparisons or a numerical repair. Hooks/docs/normal commit closeout retain
+separate receipts; the original failure must stay red.
+Current proof paths and primary contract references are in the
+[handoff](../implementation_handoff.md#actual-hosted-fp64-to-fp16-failure).
+Public **LEGACY**, model/resource and full **B–F** gates remain open.
+
 ### Retained earlier qualification epochs
 
 | Current gate | Actual source-bound result | Scope and remaining work |
