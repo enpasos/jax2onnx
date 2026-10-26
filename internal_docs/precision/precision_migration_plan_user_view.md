@@ -6,18 +6,26 @@ consistent rule across all existing functionality and fixed supplied sources,
 without a permanent selector or capability loss.
 
 Public behavior and `enable_double_precision` remain unchanged. This unfinished
-WIP continues stored **`3deb083a`**; **`fe214590`** remains the last fully green
-checkpoint. The current private work checks more original computations and
-returned-model cases while keeping original comparison criteria. Paired scoped
-checks qualify their recorded cases; actual local checks and closeout outcomes
-belong to this cut's commit record. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
-keeps exact sources and outcomes. Four-setting restoration remains bounded;
-these private changes do not change public flag behavior or complete support.
+WIP continues stored **`e4db1943`**; **`fe214590`** remains the last fully green
+checkpoint. The available Python 3.13/JAX 0.11 native-callable owner now passes
+312 cases with all original 282 identities retained. The current focused and
+broader pairs pass their recorded finite scopes; locked modern-Python, model and
+ordinary full-suite qualification remain open. Current package typing passes on
+both local stacks within its package scope; local closeout keeps its own
+gates. The [technical ledger](poc/source_integration_findings.md#current-checkpoint)
+keeps exact sources and outcomes. Original comparison criteria and bounded
+four-setting restoration remain binding; public flag behavior is unchanged.
 
 An intermediate WIP does not complete the full inventory, fixed-source,
-numerical or public transition work. The interrupted full run remains incomplete;
-software resource guards do not prove general stability. SimpleLinear's original
-failed structure check remains binding, and public options stay LEGACY until
+numerical or public transition work. The first original-model case still stops
+at the default 4 GiB guard: eight B=2 run/comparison bodies returned before the
+first B=5 run remained unfinished. No completed model or numerical acceptance
+follows. Six memory-pattern configuration controls now pass on each of three
+installed stacks, including the declared ORT floor. Its later large trial also
+stops at 4 GiB during the first B=5 run; no memory repair or all-model result is
+established. The interrupted full
+run remains incomplete; software resource guards do not prove general stability.
+SimpleLinear's original failed structure check remains binding, and public options stay LEGACY until
 complete acceptance of the coordinated B–F transition.
 
 The plan below describes the completed experience independently of checkpoints.

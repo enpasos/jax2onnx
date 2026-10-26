@@ -535,7 +535,11 @@ def test_gather_is_one_exact_mapping_in_unchanged_26_cell_selector() -> None:
     )
     assert len(oracles.CORPUS_REPLAY_CASES) == 13
     assert len(oracles.DOT_COUNTERPARTS) == 4 and len(oracles.LINEAR_COUNTERPARTS) == 2
-    assert probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v7"
+    assert probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v8"
+    assert (
+        probe.HISTORICAL_CORPUS_CONTROL_REVISION_V7
+        == "source-static-add-ordinary-dot-v7"
+    )
     assert (
         probe.HISTORICAL_CORPUS_CONTROL_REVISION_V6
         == "source-static-add-ordinary-dot-v6"

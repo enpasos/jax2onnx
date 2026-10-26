@@ -23,16 +23,28 @@ The supported floor is **Python >=3.11, JAX/JAXLIB >=0.10.2 and Flax >=0.12.8**.
 The exact framework-floor stack and the all-direct-dependency-minimum stack
 are separate validation targets; ORT 1.24.1 remains the declared runtime floor.
 
-This unfinished LOCAL WIP continues stored **`3deb083a`**; **`fe214590`** remains
-the last fully green checkpoint. Applied private work extends shared source
-structure checks, diagnostics for the actual returned artifact, original-row
-metadata accounting and exact native-callable capture. Paired focused and broader
-checks qualify their recorded scopes; actual quality and local closeout outcomes
-belong to this cut's commit record. Four caller settings remain preserved across
-the private in-call
-facade. Public behavior stays **LEGACY**. Full-suite, model, fixed-source and
-B–F acceptance remain open; failed and resource-stopped epochs retain their
-actual outcomes.
+This unfinished LOCAL WIP continues stored **`e4db1943`**; **`fe214590`** remains
+the last fully green checkpoint. Measured native-helper and typing layouts now
+pass the complete available Python 3.13/JAX 0.11 owner: **312 cases**, retaining
+all original 282 identities. Current focused checks pass **793/789** cases on
+the two local stacks, and the broader 35-owner pair passes **2,389 identical
+cases each** at its recorded source. These finite results do not qualify locked
+modern-Python cohorts, full suites or models. At successor source `1b5ad590`,
+package typing passes 577 files and 17 identical RNG entries on both local
+stacks; local quality/docs/hooks and closeout retain their own gates.
+
+The first original-model case still stops at the default **4 GiB** guard. Its
+synchronous phase ledger records eight B=2 CPU-run/comparison bodies returning
+before the first B=5 CPU-run interval remained unfinished. This supplies no
+allocation cause or completed model/numerical acceptance. The separate
+memory-pattern configuration now passes six small controls on each of three
+installed stacks, including direct-minimum ORT 1.24.1. The later trial with that
+setting also stops at 4 GiB in the first B=5 CPU-run interval. Resource closure
+and the earlier crash cause remain open; these controls establish configuration,
+not a memory repair or model result. Four caller settings remain preserved across the private
+in-call facade. Public behavior
+stays **LEGACY**; full-suite, model, fixed-source and B–F acceptance remain open.
+Historical failed and resource-stopped epochs retain their actual outcomes.
 
 The [canonical current status and evidence ledger](poc/source_integration_findings.md#current-checkpoint)
 owns exact source/dependency epochs, result scopes and next gates. The

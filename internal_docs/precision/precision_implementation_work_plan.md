@@ -12,7 +12,7 @@ Current status snapshot: **2026-10-26**. Earlier observations retain their own
 
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
 exact source/stack counts and historical failures. This unfinished LOCAL WIP
-continues stored checkpoint `3deb083a`. The earlier generalized-dot **1,065-case
+continues stored checkpoint `e4db1943`. The earlier generalized-dot **1,065-case
 pair and 575-file typing** retain their own source snapshot `4845b6cb`; the
 atomic-symbol pair and typing retain `7604c11a` and stored checkpoint `038dc9eb`.
 The retained read-only GitHub observation of 2026-10-25 recorded Draft PR #277
@@ -35,7 +35,7 @@ binds this finite result. All **seven normal hooks passed unskipped** in
 **139.493 s**, peak **1,064,837,120 bytes**; source/Git/index held and descendant
 cleanup completed. Actual documentation/link and closeout outcomes belong to the local commit record.
 
-The applied five-candidate cut adds bounded shared reduction and
+The five-candidate cut stored at `e4db1943` adds bounded shared reduction and
 reshape/broadcast rules, exact proto/IR artifact diagnostics in raw/probe
 validation, original-row metadata execution/accounting and native AxisData
 capture. Follow-through propagates shape-helper dtypes from matching known
@@ -45,6 +45,52 @@ bridge is private; general file/external-storage and serialized public-report
 integration remain open. The metadata lane has actual evidence for two original
 raw add caller cells, not positive acceptance of all 3,704 frozen caller cells.
 Original factories, contexts and criteria remain authoritative.
+
+Stored checkpoint `e4db1943` retains strict docs, exact staged review and all
+seven normal commit hooks passed unskipped (**81.819 s**, peak **456,253,440
+bytes**); its recorded source snapshot is `f282417f`. These completed closeout
+checks qualify that stored cut, not the later WIP.
+
+The current WIP adds the measured Python 3.13 helper-class and typing-cache
+adapters and the test-owned synchronous phase observer. Their finite qualification
+retains source-files snapshot
+`8fe576a54b4948f6b33800fb70ac3205ea10535d05017e75287df98bb2a2cd12`:
+
+| Actual current qualification | Recorded result and boundary |
+| --- | --- |
+| Available Python 3.13/JAX 0.11 complete native-wrapper owner | **312 PASS**, zero failures/errors/skips; all original **282 identities** retained plus **30 controls**; **27.867976 s**, peak **674,492,416 bytes**, source/Git held and clean cleanup. Prior **56 PASS / 226 FAIL** remains a separate historical epoch. This is not locked modern-Python qualification. |
+| Complete focused seven-owner pair | **793 PRIMARY / 789 SECONDARY PASS**, zero failures/errors/skips, every previous focused identity retained. The same four actual Python 3.12 native dataclass-slot controls explain the difference; no selection was removed. |
+| Complete broader 35-owner pair | **2,389 identical unique PASS per stack**, zero failures/errors/skips, complete consistent JUnit, source/Git held and clean cleanup. PRIMARY **287.268567 s**, peak **1,294,880,768 bytes**; SECONDARY **286.444027 s**, peak **2,908,368,896 bytes**. |
+| Successor package typing, source-files `1b5ad590` | **577 package files PASS and 17 identical RNG entries per stack**; PRIMARY **66.534301 s**, peak **409,243,648 bytes**; SECONDARY **49.111634 s**, peak **435,548,160 bytes**; source/Git held and clean cleanup, proof `0184d307`. This excludes edited scripts/tests/generator. The prior typing pair remains at `8b03e5c4`; current local quality/docs/hooks and WIP closeout retain their own gates. |
+
+The phase helper separately passes **eight controls** at `65665faa`, with the
+whole original owner AST projection held. Its isolated first-case trial then
+stops at the unchanged default **4 GiB** guard: **212.765559 s**, peak
+**4,313,317,376 bytes**, source/diagnostic inputs held, clean cleanup and no
+JUnit. The ledger records eight **B=2 CPU-run/comparison pairs returning**; the
+first **B=5 CPU-run** interval has an enter and no return. These are stage-body
+observations, not completed test/model/numerical acceptance or an allocation
+cause. The earlier SIG11 remains unexplained.
+
+The memory-pattern diagnostic is now applied at successor source-files snapshot
+`1b5ad590494d1b5c4184a920aa852f6d068a7be2a4b124bb94e4a042614cedf9`.
+**Six identical small controls PASS on each of PRIMARY, SECONDARY and the
+direct-minimum ORT 1.24.1 stack**, zero failures/errors/skips, complete JUnit,
+source/Git held and clean cleanup. Proof `abaacd46` records the actual ORT
+memory-pattern option false, not a memory repair or large-model result. The
+large configuration trial then also stops at the unchanged **4 GiB** guard:
+**229.681656 s**, peak **4,385,005,568 bytes > 4,294,967,296 bytes**; at the stop,
+host MemAvailable is **11,966,070,784 bytes** and disk free **7,634,534,400 bytes**.
+Source/Git and diagnostic inputs held, cleanup completed, and no JUnit was
+produced. Proof `7256e6b9` records **63 complete events**, eight B=2 CPU-run and
+eight comparison returns, followed by the first B=5 CPU-run enter with no return
+(optimization disabled, replay 0, position 0). This option did not close the
+resource gate. The earlier phase baseline predates the native-boundary changes; these
+full source epochs differ, so this is not an established single-variable causal
+comparison. No further budget increase, cache reset or source/data change
+follows from the earlier observation.
+
+The earlier stored-cut results retain their own epochs:
 
 At source-files snapshot `12ac4c06`, the complete six-owner focus passes
 **760 cases on PRIMARY and 756 on SECONDARY**, zero failures/errors/skips.
@@ -106,9 +152,10 @@ bytes**, above **6,442,450,944 bytes**. At the stop, host MemAvailable was
 diagnostic inputs held, the default 4 GiB policy stayed unchanged, cleanup left
 no owned processes, and no JUnit was produced. No SIG11 was seen before
 censoring; this does not explain the earlier crash or prove a leak, OOM or cache
-cause. The next reviewed resource action is synchronous phase-ledger
-observation after the product checkpoint, not a further budget raise or retry;
-that diagnostic is not yet applied or executed.
+cause. At that historical epoch, synchronous phase-ledger observation was the
+reviewed next action and remained unapplied/unexecuted. Its later actual
+fixed-4-GiB trial is recorded above; no further budget raise or retry follows
+from the earlier result.
 
 The shared structure foundation and its follow-through check finite flat SOURCE IR graphs
 through ordinary dispatch and final facade validation. Typed source equations,
@@ -220,15 +267,18 @@ remains unverified, the original raw callback remains failed, and original
 `None` criteria leave numerical acceptance unverified. This older retained-sample
 runtime feasibility remains separate from the fresh source-`366a4d08` exports.
 
-1. Retain the repaired 35-owner broader pair and paired package typing, then
-   complete quality/docs, hooks and exact staged review for the applied cut. Keep the
-   qualified focused pair at its own source epoch and preserve the failed
-   focused/broader predecessors. Modern-Python native ownership still requires
-   actual evidence; local Python 3.11/3.12 passes do not qualify locked 3.13/3.14.
-   After the product checkpoint, use the approved synchronous phase-ledger
-   diagnostic to investigate the separate original-case resource/crash epochs.
-   Neither a further budget increase nor a repeated full trial is authorized
-   by those observations.
+1. Retain the current 312-case available-3.13 owner, 793/789 focused pair and
+   identical 2,389-case broader pair at their exact source epoch. Retain the
+   source-`1b5ad590` package typing/RNG pair and complete local quality/docs,
+   hooks and staged review, preserving the
+   stored `e4db1943` closeout and every failed predecessor separately. Locked
+   3.13/3.14, actual primary-user CI cohorts and full-suite evidence remain open.
+   Retain the source-`1b5ad590` six-case memory-pattern controls on each of three
+   installed stacks and its separate resource-stopped large trial. Review both
+   complete phase ledgers before proposing another resource action; do not infer
+   a single-variable cause across differing full source epochs. No budget
+   increase, automatic retry, cache reset or source/data sample change follows
+   from the returned phase bodies or censored trials.
    Retain the source-bound six-owner shared-opset-21 pair and four-owner portable
    deployment pair with their unchanged semantic/type/precision/placement guards.
    Continue shared reduction and shape-carrier rules, with authoring kept
@@ -248,9 +298,17 @@ runtime feasibility remains separate from the fresh source-`366a4d08` exports.
    Retain the earlier v1 workload's Protobuf preflight error: it created no
    sessions and establishes no model runtime failure.
 2. Require actual full CI for the primary user cohorts Python 3.11 **and** 3.12.
+   At 2026-10-26 03:23:54 UTC, current PR run `40261583117` at remote `e4db1943`
+   has four support jobs passed and all four full Python jobs still in progress.
+   Partial logs already contain failed/error markers; their lower-bound counts
+   are in the canonical ledger. No remote terminal summary or full CI/local-WIP
+   qualification is claimed. A separate local two-selector reproduction records
+   Gather FAIL from the stale v7 expectation against current v8 and unsupported-
+   exclusive PASS; the independently approved fixture-only repair retains its
+   separate pending whole-owner qualification gate. That local pass does not explain the remote cumsum failure.
    The local modern Python 3.12 stack does not substitute for locked older-JAX
    Python 3.12 CI or minimum-version evidence. Remote run `40215501332` tests
-   stored `73f4a7a5`; the latest read-only refresh records four support jobs
+   stored `73f4a7a5`; its retained 2026-10-25 read-only refresh records four support jobs
    passed and all four full jobs completed with failure. Python 3.11 ends
    abruptly at 40%, with 5,720 passed markers, no failed marker and no terminal
    summary. Python 3.12 records runner shutdown and exit 143 at 79%, with 11,364

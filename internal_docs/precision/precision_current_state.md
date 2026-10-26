@@ -11,7 +11,7 @@ Framework-floor and all-direct-minimum evidence remain separate.
 ## Current private implementation
 
 Current private snapshot: **2026-10-26**. This unfinished LOCAL WIP continues
-stored **`3deb083a`**; **`fe214590`** remains the last fully green checkpoint.
+stored **`e4db1943`**; **`fe214590`** remains the last fully green checkpoint.
 The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
 owns exact source epochs, paired qualifications, failed predecessors and gates.
 
@@ -25,16 +25,38 @@ public precision report.
 
 The metadata lane reuses original registered factories, caller contexts and
 criteria, with bounded actual raw-cell execution and terminal accounting.
-Native callable capture retains defining provenance and exact carrier state;
-the AxisData adapter's locked modern-Python qualification remains separate. This
-does not establish positive acceptance of the full inventory or fill missing
+Native callable capture retains defining provenance and exact carrier state.
+The measured helper-class and typing-cache adapters now qualify the complete
+available Python 3.13/JAX 0.11 owner: **312 PASS**, retaining all original 282
+identities plus 30 controls. Locked modern-Python qualification remains separate.
+This does not establish positive acceptance of the full inventory or fill missing
 numerical criteria. The established private facade still restores exactly x64,
 matrix precision and both NumPy promotion settings across in-call handling and
 finalization, including errors; it promises no broader configuration coverage.
 
-Paired focused and broader checks and package typing pass within the ledger's
-recorded scopes. Typing does not cover the edited scripts/tests/generator;
-actual quality/docs/hooks and staged-review outcomes belong to this cut's local
+At source-files snapshot `8fe576a5`, the complete focused pair passes
+**793 PRIMARY / 789 SECONDARY** cases, with the same four authenticated Python
+3.12 native dataclass-slot controls accounting for the difference. The broader
+35-owner pair passes **2,389 identical unique cases each**, with zero failures,
+errors or skips. At successor source `1b5ad590`, package typing passes **577 files** and
+**17 identical RNG entries** on each local stack. This does not type-check the
+edited scripts/tests/generator; the earlier typing pair retains its older epoch.
+
+The synchronous phase observer passes eight small controls. Its separate first
+original-model trial stops at the unchanged **4 GiB** guard during the first B=5
+CPU-run interval, after eight B=2 CPU-run/comparison bodies returned. Returned
+bodies do not establish a test terminal, model or numerical acceptance, or an
+allocation cause. At successor source `1b5ad590`, the original22 diagnostic
+session's ORT memory-pattern setting is false, and six small controls pass on
+each of PRIMARY, SECONDARY
+and the direct-minimum ORT 1.24.1 stack. Its separately reviewed large trial also
+stops at 4 GiB: **229.681656 s**, peak **4,385,005,568 bytes**, with no JUnit.
+Eight B=2 run/comparison pairs returned before the first B=5 CPU-run interval
+remained unfinished. Source/Git and diagnostic pins held; cleanup completed.
+The earlier phase trial predates the native-boundary changes, so source
+epochs differ and no single-variable causal comparison is established. Full
+resource closure and the earlier SIG11 cause remain open.
+Actual quality/docs/hooks and staged-review outcomes belong to this cut's local
 commit record.
 Public LEGACY routes, defaults and enclosing-local flag precedence are unchanged.
 Full existing-functionality, fixed-source, numerical, inventory and B–F work

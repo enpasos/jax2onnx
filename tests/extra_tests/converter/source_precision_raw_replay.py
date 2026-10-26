@@ -1604,7 +1604,7 @@ class _NativeTypingAnnotationBoundary:
             for name, module in self.modules
         }
         self.variant = sys.version_info[:2]
-        if self.variant not in ((3, 11), (3, 12)):
+        if self.variant not in ((3, 11), (3, 12), (3, 13)):
             # Keep unrelated replay imports usable. Any selected alias on an
             # unmeasured interpreter still needs its exact storage adapter.
             self.union_class = self.namespaces["typing"].get("_UnionGenericAlias")
@@ -1615,6 +1615,11 @@ class _NativeTypingAnnotationBoundary:
             for name in ("type", "int", "bool", "str", "tuple", "list", "dict")
         )
         self.native_int = type(0)
+        literal_origin_name = (
+            "_TypedCacheSpecialForm"
+            if self.variant == (3, 13)
+            else "_LiteralSpecialForm"
+        )
         self.classes = tuple(
             (name, self.namespaces["typing"][name])
             for name in (
@@ -1625,14 +1630,14 @@ class _NativeTypingAnnotationBoundary:
                 "_Final",
                 "_NotIterable",
                 "_SpecialForm",
-                "_LiteralSpecialForm",
+                literal_origin_name,
             )
         )
         classes = dict(self.classes)
         self.union_class = classes["_UnionGenericAlias"]
         self.literal_class = classes["_LiteralGenericAlias"]
         self.special_class = classes["_SpecialForm"]
-        self.literal_origin_class = classes["_LiteralSpecialForm"]
+        self.literal_origin_class = classes[literal_origin_name]
         self.alias_dictionaries = (
             (self.union_class, self.union_class, vars(self.union_class)["__dict__"]),
             (
@@ -1662,6 +1667,7 @@ class _NativeTypingAnnotationBoundary:
                 "__dict__",
                 "__annotations__",
             )
+            + (("__type_params__",) if self.variant == (3, 13) else ())
         }
         self.cell_type = types.CellType
         self.cell_contents = vars(types.CellType)["cell_contents"]
@@ -1681,6 +1687,12 @@ class _NativeTypingAnnotationBoundary:
         )
         self.cache_type = self.namespaces["functools"]["_lru_cache_wrapper"]
         self.cache_dictionary = vars(self.cache_type)["__dict__"]
+        if self.variant == (3, 13):
+            # The selected wrappers read this exact global dictionary. Retain
+            # only their two key/value edges, not unrelated stdlib cache state.
+            self.typing_caches = self.namespaces["typing"].get("_caches")
+            if self.type(self.typing_caches) is not dict:
+                self.fail("native cache dictionary")
         self.alias_fields = (
             (
                 "_inst",
@@ -1830,7 +1842,14 @@ class _NativeTypingAnnotationBoundary:
         take("cache-class", self.cache_type)
         take("cache-dictionary-descriptor", self.cache_dictionary)
 
-        def function(value: Any, role: str, mode: str) -> dict[str, Any]:
+        if self.variant == (3, 13):
+            if self.namespaces["typing"].get("_caches") is not self.typing_caches:
+                self.fail("native cache dictionary binding")
+            take("typing-cache-dictionary", self.typing_caches)
+
+        def function(
+            value: Any, role: str, mode: str, *, typed: bool = True
+        ) -> dict[str, Any]:
             if self.type(value) is not self.function_type:
                 self.fail("native getitem function")
             take(role, value)
@@ -1841,7 +1860,11 @@ class _NativeTypingAnnotationBoundary:
             expected_name = (
                 "<lambda>"
                 if mode == "parameters"
-                else ("Union" if mode == "union" else "Literal")
+                else (
+                    "__getitem__"
+                    if mode in ("union-method", "union-method-body", "literal-method")
+                    else ("Union" if mode == "union" else "Literal")
+                )
             )
             expected_module = "functools" if mode == "parameters" else "typing"
             if (
@@ -1851,6 +1874,17 @@ class _NativeTypingAnnotationBoundary:
                 or fields["__module__"] != expected_module
             ):
                 self.fail("native getitem symbol")
+            if mode in ("union-method", "union-method-body", "literal-method"):
+                expected_qualname = (
+                    "_TypedCacheSpecialForm.__getitem__"
+                    if mode == "literal-method"
+                    else "_SpecialForm.__getitem__"
+                )
+                if (
+                    self.type(fields["__qualname__"]) is not str
+                    or fields["__qualname__"] != expected_qualname
+                ):
+                    self.fail("native getitem qualified symbol")
             if fields["__globals__"] is not self.namespaces[expected_module]:
                 self.fail("native getitem globals")
             code = fields["__code__"]
@@ -1864,15 +1898,21 @@ class _NativeTypingAnnotationBoundary:
                     self.fail("native getitem defaults")
                 metadata[key] = {"none": True}
             self.dictionary(fields["__annotations__"], ())
+            if self.variant == (3, 13):
+                parameters = fields["__type_params__"]
+                if self.type(parameters) is not tuple or parameters:
+                    self.fail("native function type parameters")
+                metadata["__type_params__"] = []
             attributes = self.dictionary(
-                fields["__dict__"], ("__wrapped__",) if mode == "literal" else ()
+                fields["__dict__"],
+                ("__wrapped__",) if mode in ("literal", "union-method") else (),
             )
             for key, item in fields.items():
                 take(role + ":" + key, item)
             metadata["code_sha256"] = canonical_code_fingerprint(code)
             metadata["function_dictionary_keys"] = list(attributes)
             closure = fields["__closure__"]
-            if mode in ("union", "body"):
+            if mode in ("union", "body", "union-method-body", "literal-method"):
                 if closure is not None:
                     self.fail("native getitem closure")
                 metadata["closure"] = None
@@ -1900,7 +1940,7 @@ class _NativeTypingAnnotationBoundary:
                     if (
                         self.type(values[0]) is not self.native_int
                         or values[0] != 128
-                        or values[1] is not True
+                        or values[1] is not typed
                     ):
                         self.fail("native Literal cache parameters")
                     metadata["closure"] = [self.scalar(item) for item in values]
@@ -1909,13 +1949,34 @@ class _NativeTypingAnnotationBoundary:
                     if attributes["__wrapped__"] is not body:
                         self.fail("native Literal wrapped function")
                     take(role + ":wrapped", body)
-                    metadata["body"] = function(body, role + ":body", "body")
+                    body_mode = (
+                        "union-method-body" if mode == "union-method" else "body"
+                    )
+                    metadata["body"] = function(body, role + ":body", body_mode)
                     if self.variant == (3, 11):
                         metadata["cache"] = cache(values[0], body, role + ":cache")
+                    elif self.variant == (3, 13):
+                        # The wrapper's actual globals and closure key are
+                        # already pinned above; never invoke the cache itself.
+                        for key, selected in dict.items(self.typing_caches):
+                            if key is body:
+                                break
+                        else:
+                            self.fail("native selected cache entry")
+                        take(role + ":cache-key", body)
+                        take(role + ":cache-value", selected)
+                        metadata["cache"] = cache(
+                            selected,
+                            body,
+                            role + ":cache",
+                            typed=mode != "union-method",
+                        )
                     metadata["closure"] = list(expected_freevars)
             return metadata
 
-        def cache(value: Any, body: Any, role: str) -> dict[str, Any]:
+        def cache(
+            value: Any, body: Any, role: str, *, typed: bool = True
+        ) -> dict[str, Any]:
             if self.type(value) is not self.cache_type:
                 self.fail("native Literal cache wrapper")
             take(role, value)
@@ -1928,8 +1989,9 @@ class _NativeTypingAnnotationBoundary:
                     "__qualname__",
                     "__doc__",
                     "__annotations__",
-                    "__wrapped__",
-                ),
+                )
+                + (("__type_params__",) if self.variant == (3, 13) else ())
+                + ("__wrapped__",),
             )
             take(role + ":dictionary", namespace)
             if namespace["__wrapped__"] is not body:
@@ -1938,11 +2000,21 @@ class _NativeTypingAnnotationBoundary:
             for key, item in namespace.items():
                 take(role + ":field:" + key, item)
                 if key == "cache_parameters":
-                    result[key] = function(item, role + ":parameters", "parameters")
+                    result[key] = function(
+                        item, role + ":parameters", "parameters", typed=typed
+                    )
                 elif key == "__wrapped__":
-                    result[key] = "native-Literal-body"
+                    result[key] = (
+                        "native-selected-body"
+                        if self.variant == (3, 13)
+                        else "native-Literal-body"
+                    )
                 elif key == "__annotations__":
                     self.dictionary(item, ())
+                    result[key] = []
+                elif key == "__type_params__":
+                    if self.type(item) is not tuple or item:
+                        self.fail("native cache type parameters")
                     result[key] = []
                 else:
                     result[key] = self.scalar(item)
@@ -1993,6 +2065,13 @@ class _NativeTypingAnnotationBoundary:
             storage["getitem"] = function(
                 getitem, "origin:" + name + ":getitem", name.lower()
             )
+            if self.variant == (3, 13):
+                method = vars(expected_class).get("__getitem__")
+                storage["method"] = function(
+                    method,
+                    "origin:" + name + ":method",
+                    "union-method" if name == "Union" else "literal-method",
+                )
             origins.append([name, storage])
         return {
             "python": list(self.variant),
@@ -2007,7 +2086,7 @@ class _NativeTypingAnnotationBoundary:
         location: tuple[str, ...],
         witness: _ReplayReferenceWitness | None,
     ) -> dict[str, Any]:
-        if self.variant not in ((3, 11), (3, 12)):
+        if self.variant not in ((3, 11), (3, 12), (3, 13)):
             self.fail("unmeasured interpreter alias storage")
         state, edges = self.read_boundary()
         if state != self.baseline_state or len(edges) != len(self.baseline_edges):

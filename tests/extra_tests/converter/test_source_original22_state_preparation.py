@@ -46,6 +46,9 @@ from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.precision import CheckStatus, get_precision_report
 from scripts.source_precision_inventory import canonical_contract
 from tests.extra_tests.converter.source_eqx18_default_anchor import Eqx18DefaultAnchor
+from tests.extra_tests.converter.source_original22_phase_observation import (
+    phase as _phase,
+)
 from tests.extra_tests.converter.source_precision_support import (
     SourceProvenance,
     _input_data,
@@ -521,6 +524,7 @@ def _audit_artifact(model: Any, index: int, prepared: Any) -> None:
 
 def _session(blob: bytes, optimize: bool) -> Any:
     options = ort.SessionOptions()
+    options.enable_mem_pattern = False
     options.intra_op_num_threads = options.inter_op_num_threads = 1
     options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
     options.graph_optimization_level = (
@@ -531,10 +535,25 @@ def _session(blob: bytes, optimize: bool) -> Any:
     session = ort.InferenceSession(blob, options, providers=["CPUExecutionProvider"])
     assert session.get_providers() == ["CPUExecutionProvider"]
     observed = session.get_session_options()
+    assert observed.enable_mem_pattern is False
     assert observed.intra_op_num_threads == observed.inter_op_num_threads == 1
     assert observed.execution_mode == ort.ExecutionMode.ORT_SEQUENTIAL
     assert observed.graph_optimization_level == options.graph_optimization_level
     return session
+
+
+def _target_session_options(session: Any, optimize: bool) -> dict[str, Any]:
+    observed = session.get_session_options()
+    return dict(
+        optimize=optimize,
+        providers=list(session.get_providers()),
+        enable_mem_pattern=observed.enable_mem_pattern,
+        enable_cpu_mem_arena=observed.enable_cpu_mem_arena,
+        intra_op_num_threads=observed.intra_op_num_threads,
+        inter_op_num_threads=observed.inter_op_num_threads,
+        execution_mode=str(observed.execution_mode),
+        graph_optimization_level=str(observed.graph_optimization_level),
+    )
 
 
 @pytest.mark.parametrize("index", range(len(_CONTRACTS)))
@@ -581,6 +600,7 @@ def test_original22_source_state_preparation_cpu_feedback_and_reset(
         status="UNVERIFIED",
         exports=0,
         sessions=0,
+        target_session_options=[],
         target_runs=0,
         batches=batches,
         references={},
@@ -600,28 +620,37 @@ def test_original22_source_state_preparation_cpu_feedback_and_reset(
         # Explicitly bound once by the caller for the raw Eqx lambda. The
         # preparation layer neither creates this key nor advances it.
         key = jax.random.key(20261021, impl="threefry2x32") if index == 18 else None
-        target = _bound_original(case, index, key, default_anchor=default_anchor)
-        baseline, identities = _snapshot(target), _identities(target)
-        bridge_key = getattr(target, "_rngs", None)
-        if default_anchor is not None:
-            default_anchor.validate(case)
-            receipt["supplemental_native_default_anchor"] = default_anchor.evidence()
-        prepared = None if index == 20 else _prepare(index, target)
-        initial = (
-            () if prepared is None else tuple(_host(v) for v in prepared.initial_words)
-        )
-        if prepared is not None:
-            assert isinstance(prepared, PreparedStatefulCall)
-            assert (
-                len(initial) == len(prepared.state_names) == len(prepared.state_specs)
+        with _phase("factory", index=index, caller_x64=caller_x64):
+            target = _bound_original(case, index, key, default_anchor=default_anchor)
+        with _phase("initial-state-checks", index=index, caller_x64=caller_x64):
+            baseline, identities = _snapshot(target), _identities(target)
+            bridge_key = getattr(target, "_rngs", None)
+            if default_anchor is not None:
+                default_anchor.validate(case)
+                receipt["supplemental_native_default_anchor"] = (
+                    default_anchor.evidence()
+                )
+        with _phase("preparation", index=index, caller_x64=caller_x64):
+            prepared = None if index == 20 else _prepare(index, target)
+            initial = (
+                ()
+                if prepared is None
+                else tuple(_host(v) for v in prepared.initial_words)
             )
-            assert len(set(prepared.state_names)) == len(initial)
-            _same_words(initial, _observed_words(target, prepared.state_specs))
-            _same_words(prepared.words_from_target(target), initial)
-            clone = prepared.fresh_original()
-            assert _snapshot(clone) == baseline
-            if _module(target) is not None:
-                assert _module(clone) is not _module(target)
+            if prepared is not None:
+                assert isinstance(prepared, PreparedStatefulCall)
+                assert (
+                    len(initial)
+                    == len(prepared.state_names)
+                    == len(prepared.state_specs)
+                )
+                assert len(set(prepared.state_names)) == len(initial)
+                _same_words(initial, _observed_words(target, prepared.state_specs))
+                _same_words(prepared.words_from_target(target), initial)
+                clone = prepared.fresh_original()
+                assert _snapshot(clone) == baseline
+                if _module(target) is not None:
+                    assert _module(clone) is not _module(target)
         export_target = partial(target, update_stats=False) if index == 20 else prepared
         if index == 20:
             assert export_target.func is target and export_target.args == ()
@@ -684,24 +713,36 @@ def test_original22_source_state_preparation_cpu_feedback_and_reset(
                         raw = _instantiate(case["callable"])
                         with pytest.raises(ModifyScopeVariableError):
                             raw(x, update_stats=True)
-                    refs, held = _native_references(
-                        case,
-                        index,
-                        key,
-                        x,
-                        prepared,
-                        baseline,
-                        tmp_path,
-                        default_anchor=default_anchor,
-                    )
+                    with _phase(
+                        "native-references",
+                        index=index,
+                        caller_x64=caller_x64,
+                        batch=batch,
+                    ):
+                        refs, held = _native_references(
+                            case,
+                            index,
+                            key,
+                            x,
+                            prepared,
+                            baseline,
+                            tmp_path,
+                            default_anchor=default_anchor,
+                        )
                     references[batch] = refs
                     owners.extend(held)
                     if prepared is not None:
                         if default_anchor is not None:
                             default_anchor.validate(case)
-                        compiled_owners.append(
-                            _prepared_native(prepared, index, x, refs)
-                        )
+                        with _phase(
+                            "prepared-native",
+                            index=index,
+                            caller_x64=caller_x64,
+                            batch=batch,
+                        ):
+                            compiled_owners.append(
+                                _prepared_native(prepared, index, x, refs)
+                            )
                     receipt["references"][str(batch)] = {
                         role: [
                             dict(
@@ -730,51 +771,69 @@ def test_original22_source_state_preparation_cpu_feedback_and_reset(
                 # a static False partial; no dynamic-True or mutable-stats claim.
                 if default_anchor is not None:
                     default_anchor.validate(case)
-                model = ui._to_onnx(
-                    export_target,
-                    export_specs,
-                    input_params=None,
-                    input_names=names,
-                    precision_policy=PrecisionPolicy.SOURCE,
-                    return_mode="proto",
-                    opset=23,
-                )
+                with _phase("source-export", index=index, caller_x64=caller_x64):
+                    model = ui._to_onnx(
+                        export_target,
+                        export_specs,
+                        input_params=None,
+                        input_names=names,
+                        precision_policy=PrecisionPolicy.SOURCE,
+                        return_mode="proto",
+                        opset=23,
+                    )
                 receipt["exports"] += 1
                 assert isinstance(model, onnx.ModelProto)
                 path = tmp_path / "original22.onnx"
-                onnx.save_model(model, path)
-                model = onnx.load_model(path)
-                onnx.checker.check_model(model, full_check=True)
-                _audit_artifact(model, index, prepared)
-                input_shape = tuple(
-                    str(dim) if not isinstance(dim, int) else dim
-                    for dim in specs[0].shape
-                )
-                _port(model.graph.input[0], specs[0].dtype, input_shape)
-                first = references[batches[0]][_ROLES[0]][0]
-                native_output = _load_outputs(first)
-                count = len(native_output)
-                assert len(model.graph.output) == count + len(initial)
-                for port, value in zip(
-                    model.graph.output[:count], native_output, strict=True
-                ):
-                    shape = ("B", *value.shape[1:]) if symbolic else value.shape
-                    _port(port, value.dtype, shape)
-                for position, value in enumerate(initial):
-                    _port(model.graph.input[position + 2], value.dtype, value.shape)
-                    _port(
-                        model.graph.output[count + position], value.dtype, value.shape
+                with _phase("artifact-save", index=index, caller_x64=caller_x64):
+                    onnx.save_model(model, path)
+                with _phase("artifact-reload", index=index, caller_x64=caller_x64):
+                    model = onnx.load_model(path)
+                with _phase("schema-check", index=index, caller_x64=caller_x64):
+                    onnx.checker.check_model(model, full_check=True)
+                with _phase("artifact-audit", index=index, caller_x64=caller_x64):
+                    _audit_artifact(model, index, prepared)
+                with _phase("port-source-checks", index=index, caller_x64=caller_x64):
+                    input_shape = tuple(
+                        str(dim) if not isinstance(dim, int) else dim
+                        for dim in specs[0].shape
                     )
-                unchanged()
+                    _port(model.graph.input[0], specs[0].dtype, input_shape)
+                    first = references[batches[0]][_ROLES[0]][0]
+                    native_output = _load_outputs(first)
+                    count = len(native_output)
+                    assert len(model.graph.output) == count + len(initial)
+                    for port, value in zip(
+                        model.graph.output[:count], native_output, strict=True
+                    ):
+                        shape = ("B", *value.shape[1:]) if symbolic else value.shape
+                        _port(port, value.dtype, shape)
+                    for position, value in enumerate(initial):
+                        _port(model.graph.input[position + 2], value.dtype, value.shape)
+                        _port(
+                            model.graph.output[count + position],
+                            value.dtype,
+                            value.shape,
+                        )
+                    unchanged()
             assert not attempts
-            blob = model.SerializeToString()
+            with _phase("serialization", index=index, caller_x64=caller_x64):
+                blob = model.SerializeToString()
             receipt["artifact_sha256"] = hashlib.sha256(blob).hexdigest()
             receipt["same_artifact_all_batches"] = True
             for optimize in (False, True):
                 if default_anchor is not None:
                     default_anchor.validate(case)
-                session = _session(blob, optimize)
+                with _phase(
+                    "cpu-session",
+                    index=index,
+                    caller_x64=caller_x64,
+                    optimize=optimize,
+                ):
+                    session = _session(blob, optimize)
                 receipt["sessions"] += 1
+                receipt["target_session_options"].append(
+                    _target_session_options(session, optimize)
+                )
                 assert [value.name for value in session.get_inputs()] == names
                 for batch, x in feeds.items():
                     for _ in range(2):
@@ -792,28 +851,54 @@ def test_original22_source_state_preparation_cpu_feedback_and_reset(
                             replay_owners.append(feed)
                             if default_anchor is not None:
                                 default_anchor.validate(case)
-                            outputs = tuple(session.run(None, feed))
+                            with _phase(
+                                "cpu-run",
+                                index=index,
+                                caller_x64=caller_x64,
+                                batch=batch,
+                                optimize=optimize,
+                                replay=_,
+                                position=position,
+                            ):
+                                outputs = tuple(session.run(None, feed))
                             replay_owners.append(outputs)
                             receipt["target_runs"] += 1
-                            actual, after = outputs[:count], outputs[count:]
-                            assert len(outputs) == count + len(initial)
-                            for role in _ROLES:
-                                reference = references[batch][role][position]
-                                _same_words(words, reference.before)
-                                expected = _load_outputs(reference)
-                                _compare(actual, expected, index)
-                                _direct_mask(index, flag, x, actual, expected)
-                                _same_words(after, reference.after)
-                                # Reconstruct only at the export boundary. The
-                                # native preparation itself retains this tree.
-                                restored = jax.tree.unflatten(
-                                    reference.tree, list(actual)
-                                )
-                                assert jax.tree.structure(restored) == reference.tree
-                            if flag is True or index in _GPT:
-                                _same_words(after, words)
-                            words = after
-                unchanged()
+                            with _phase(
+                                "runtime-comparisons",
+                                index=index,
+                                caller_x64=caller_x64,
+                                batch=batch,
+                                optimize=optimize,
+                                replay=_,
+                                position=position,
+                            ):
+                                actual, after = outputs[:count], outputs[count:]
+                                assert len(outputs) == count + len(initial)
+                                for role in _ROLES:
+                                    reference = references[batch][role][position]
+                                    _same_words(words, reference.before)
+                                    expected = _load_outputs(reference)
+                                    _compare(actual, expected, index)
+                                    _direct_mask(index, flag, x, actual, expected)
+                                    _same_words(after, reference.after)
+                                    # Reconstruct only at the export boundary. The
+                                    # native preparation itself retains this tree.
+                                    restored = jax.tree.unflatten(
+                                        reference.tree, list(actual)
+                                    )
+                                    assert (
+                                        jax.tree.structure(restored) == reference.tree
+                                    )
+                                if flag is True or index in _GPT:
+                                    _same_words(after, words)
+                                words = after
+                with _phase(
+                    "runtime-source-checks",
+                    index=index,
+                    caller_x64=caller_x64,
+                    optimize=optimize,
+                ):
+                    unchanged()
             assert receipt["exports"] == 1 and receipt["sessions"] == 2
             assert receipt["target_runs"] == 4 * len(batches) * len(_flags(index))
             receipt["status"] = "supplementary finite outputs/state validated"

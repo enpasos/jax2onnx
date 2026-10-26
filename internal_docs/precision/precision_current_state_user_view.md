@@ -25,9 +25,14 @@ original callable state. It also accounts for original registered cases without
 changing their supplied comparison criteria. These bounded checks establish
 neither all-model support nor a general numerical guarantee.
 
-This unfinished local WIP continues stored **`3deb083a`**; **`fe214590`** remains
-the last fully green checkpoint. Paired scoped results and remaining gates are
-recorded in the [technical ledger](poc/source_integration_findings.md#current-checkpoint).
+This unfinished local WIP continues stored **`e4db1943`**; **`fe214590`** remains
+the last fully green checkpoint. The complete available Python 3.13/JAX 0.11
+native-callable test owner now passes 312 cases, including all original 282
+identities; this is not locked modern-Python or all-model support. Current
+focused and broader pairs pass their recorded scopes. Current package typing
+passes on both local stacks within its package scope. Local closeout keeps its
+own gates in the
+[technical ledger](poc/source_integration_findings.md#current-checkpoint).
 The private path still restores x64, matrix precision and both NumPy promotion
 settings across in-call handling and finalization, including errors; it makes no
 promise about every JAX setting. Actual local checks and checkpoint closeout
@@ -35,8 +40,15 @@ outcomes belong to this cut's commit record.
 
 Public options remain LEGACY, including the enclosing-local setting's precedence
 over the flag's temporary global value. The flag discussion below assumes no
-local override. The interrupted full run remains incomplete, and focused passes
-or software resource guards do not establish full support or general stability.
+local override. The first original-model case still stops at the default 4 GiB
+guard: its phase ledger records eight B=2 run/comparison bodies returning before
+an unfinished B=5 run. This is no completed model or numerical result. The
+memory-pattern configuration passes six small controls on each of three
+installed stacks, including the declared ORT floor. Its later large trial also
+stops at 4 GiB during the first B=5 run. This establishes neither a memory repair
+nor all-model support. The
+interrupted full run remains incomplete, and focused passes or software resource
+guards do not establish full support or general stability.
 The full inventory, fixed-source and numerical workflows and public transition
 remain required.
 

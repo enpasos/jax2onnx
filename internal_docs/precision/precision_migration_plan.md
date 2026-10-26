@@ -7,12 +7,16 @@ public precision mode/profile selector or capability loss. The private
 source-static milestone is implementation scaffolding, not completion scope.
 
 Current implementation snapshot: **2026-10-26**. Public precision behavior
-remains LEGACY. This unfinished WIP continues stored `3deb083a`;
+remains LEGACY. This unfinished WIP continues stored `e4db1943`;
 `fe214590` remains the last fully green checkpoint. The
 [canonical ledger](poc/source_integration_findings.md#current-checkpoint) records
 the applied private structural, artifact-diagnostic, metadata and native-capture
-work and its scoped paired qualifications. Actual local quality and closeout
-outcomes belong to this cut's commit record.
+work and its scoped paired qualifications. The measured available Python
+3.13/JAX 0.11 owner now passes all 312 cases, retaining its original 282 test
+identities. Current focused/broader pairs qualify finite scopes, and successor
+package typing passes on both local stacks. Local closeout retains its own gates.
+Locked modern-Python, full-model and ordinary full-suite qualification remain
+open.
 Four-setting facade preservation remains bounded to its recorded contract.
 No public flag, route or default changes. Failed and resource-stopped epochs
 remain binding; no checkpoint reduces full B–F, assigns a release or deadline.
@@ -102,13 +106,25 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
-This unfinished LOCAL WIP continues stored **`3deb083a`**; **`fe214590`** remains
+This unfinished LOCAL WIP continues stored **`e4db1943`**; **`fe214590`** remains
 the last fully green checkpoint. The
 [canonical ledger](poc/source_integration_findings.md#current-checkpoint) owns
-the applied private changes, exact scoped results and remaining modern-Python
-and migration work. Package typing has its own bounded coverage; actual local
-closeout outcomes belong to this cut's commit record. Finite qualification does not
-complete the acceptance requirements below.
+the applied private changes and exact finite results: the 312-case available
+Python 3.13 owner, 793/789 focused pair and broader pair with 2,389 identical
+cases per stack.
+At successor source `1b5ad590`, package typing passes 577 files and 17 identical
+RNG entries per stack; edited scripts/tests/generator remain outside that typing
+scope. The first original-model phase diagnostic stops at the default
+4 GiB guard after eight B=2 run/comparison returns, during the first B=5 run;
+resource closure, crash cause and completed model/numerical acceptance remain
+open. At source `1b5ad590`, six memory-pattern configuration controls pass on
+each of PRIMARY, SECONDARY and direct-minimum ORT 1.24.1. The later large trial
+with memory-pattern false also stops at 4 GiB in the first B=5 CPU-run interval,
+after eight B=2 run/comparison returns. There is no JUnit or completed test/model
+result. Source epochs differ from the earlier phase baseline, so no
+single-variable causal comparison or memory repair is established. Actual
+local quality and closeout outcomes belong to this cut's commit record. Finite
+qualification does not complete the acceptance requirements below.
 
 Complete current inventory/probe reconciliation, opaque/metadata-free/manual
 accounting, fixed-source and numerical workflows and every remaining B–F gate.

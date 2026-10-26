@@ -3333,6 +3333,14 @@ def _initial_native_helper_default_roles() -> dict[str, Any]:
         expected = frozenset(("__module__", "__dict__", "__weakref__", "__doc__"))
         if not keyword:
             expected |= {"__repr__"}
+        if sys.version_info[:2] == (3, 13):
+            expected |= {"__firstlineno__", "__static_attributes__"}
+            firstline = namespace.get("__firstlineno__")
+            static = namespace.get("__static_attributes__")
+            if type(firstline) is not int or type(static) is not tuple or static:
+                raise ValueError(
+                    "native helper compiler metadata needs an exact adapter"
+                )
         bases, mro = (
             vars(type)[field].__get__(cls) for field in ("__bases__", "__mro__")
         )

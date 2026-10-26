@@ -1020,6 +1020,16 @@ def test_native_helper_default_loaded_layout_and_complete_capture(
     expected = {"__module__", "__dict__", "__weakref__", "__doc__"}
     if name == "format_exception_only":
         expected.add("__repr__")
+    if sys.version_info[:2] == (3, 13):
+        expected.update(("__firstlineno__", "__static_attributes__"))
+        assert type(vars(entry["class"])["__firstlineno__"]) is int
+        assert type(vars(entry["class"])["__static_attributes__"]) is tuple
+        assert vars(entry["class"])["__static_attributes__"] == ()
+        for field in ("__firstlineno__", "__static_attributes__"):
+            value = vars(entry["class"])[field]
+            assert graph.retained[id(value)] is value
+            assert field in dict(entry["members"])
+            assert '"' + field + '"' in json.dumps(graph.nodes)
     assert set(vars(entry["class"])) == expected
     assert type(entry["class"]) is type
     assert entry["class"].__bases__ == (object,)
@@ -1224,19 +1234,107 @@ def test_native_helper_class_schema_and_descriptor_changes_fail_before_hooks(
                     entry["role"]
                 ).take_selected_helper(entry["function"], name)
         return
-    if field == "missing-member":
-        monkeypatch.delattr(entry["class"], "__weakref__")
-    else:
-        monkeypatch.setattr(
-            entry["class"],
-            field,
-            replacement,
-            raising=field not in ("extra", "__repr__"),
-        )
-    with pytest.raises(ValueError, match="native helper"):
-        compat._NativeHelperDefaultCaptureGraph(entry["role"]).take_selected_helper(
-            entry["function"], name
-        )
+    cls = entry["class"]
+    namespace = vars(type)["__dict__"].__get__(cls)
+    prior_firstline = ("__firstlineno__" in namespace, namespace.get("__firstlineno__"))
+    try:
+        if field == "missing-member":
+            monkeypatch.delattr(cls, "__weakref__")
+        else:
+            monkeypatch.setattr(
+                cls,
+                field,
+                replacement,
+                raising=field not in ("extra", "__repr__"),
+            )
+        with pytest.raises(ValueError, match="native helper"):
+            compat._NativeHelperDefaultCaptureGraph(entry["role"]).take_selected_helper(
+                entry["function"], name
+            )
+    finally:
+        # Undo __module__ first, then restore the exact prior compiler field.
+        monkeypatch.undo()
+        if prior_firstline[0]:
+            if namespace.get("__firstlineno__") is not prior_firstline[1]:
+                type.__setattr__(cls, "__firstlineno__", prior_firstline[1])
+        elif "__firstlineno__" in namespace:
+            type.__delattr__(cls, "__firstlineno__")
+    assert all(namespace[key] is value for key, value in entry["members"])
+
+
+@pytest.mark.parametrize("name", ("debug_info", "format_exception_only"))
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "line-value",
+        "line-bool",
+        "line-type",
+        "static-type",
+        "static-nonempty",
+        "drop-line",
+        "drop-static",
+        "drop-both",
+        "partial",
+        "extra",
+    ),
+)
+def test_native_helper_compiler_metadata_is_exact_and_retained(
+    name: str, mutation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = compat._NATIVE_HELPER_DEFAULT_ROLES[name]
+    cls = entry["class"]
+    baseline = compat._NativeHelperDefaultCaptureGraph(entry["role"])
+    baseline.take_selected_helper(entry["function"], name)
+    with monkeypatch.context() as change:
+        if mutation == "line-value":
+            change.setattr(
+                cls,
+                "__firstlineno__",
+                vars(cls).get("__firstlineno__", 0) + 1,
+                raising=False,
+            )
+        elif mutation == "line-bool":
+            change.setattr(cls, "__firstlineno__", True, raising=False)
+        elif mutation == "line-type":
+            change.setattr(cls, "__firstlineno__", "line", raising=False)
+        elif mutation == "static-type":
+            change.setattr(cls, "__static_attributes__", [], raising=False)
+        elif mutation == "static-nonempty":
+            change.setattr(cls, "__static_attributes__", ("state",), raising=False)
+        elif mutation == "extra":
+            change.setattr(cls, "unknown_compiler_metadata", (), raising=False)
+        elif sys.version_info[:2] == (3, 13):
+            fields = {
+                "drop-line": ("__firstlineno__",),
+                "drop-static": ("__static_attributes__",),
+                "drop-both": ("__firstlineno__", "__static_attributes__"),
+                "partial": ("__static_attributes__",),
+            }[mutation]
+            for field in fields:
+                change.delattr(cls, field)
+        else:
+            # Older layouts must not acquire either a partial or the complete
+            # 3.13 schema merely because its field names are known.
+            change.setattr(cls, "__firstlineno__", 1, raising=False)
+            if mutation == "drop-both":
+                change.setattr(cls, "__static_attributes__", (), raising=False)
+        with pytest.raises(ValueError, match="native helper"):
+            compat._NativeHelperDefaultCaptureGraph(entry["role"]).take_selected_helper(
+                entry["function"], name
+            )
+        if mutation == "line-value" and sys.version_info[:2] == (3, 13):
+            # Source line numbers are retained state, not cross-JAX constants.
+            fresh = compat._initial_native_helper_default_roles()[name]
+            assert (
+                dict(fresh["members"])["__firstlineno__"]
+                is vars(cls)["__firstlineno__"]
+            )
+        else:
+            with pytest.raises(ValueError, match="native helper"):
+                compat._initial_native_helper_default_roles()
+    restored = compat._NativeHelperDefaultCaptureGraph(entry["role"])
+    restored.take_selected_helper(entry["function"], name)
+    assert restored.nodes == baseline.nodes
 
 
 @pytest.mark.parametrize(
@@ -2150,6 +2248,274 @@ def test_native_typing_binding_descriptor_and_implementation_changes_reject(
     assert rejected
     assert raw._capture_target_state(alias) == capture.target_state
     assert capture.check_target("restored-typing-binding")
+
+
+def _native_typing_executables() -> dict[str, Any]:
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    union, literal = (origin for _, origin in boundary.origins)
+    union_body = boundary.origin_slots["_getitem"].__get__(union, type(union))
+    literal_wrapper = boundary.origin_slots["_getitem"].__get__(literal, type(literal))
+    selected = {
+        "union-body": union_body,
+        "literal-wrapper": literal_wrapper,
+        "literal-body": vars(literal_wrapper)["__wrapped__"],
+    }
+    if boundary.variant == (3, 13):
+        union_method = vars(boundary.special_class)["__getitem__"]
+        selected.update(
+            {
+                "union-method": union_method,
+                "union-method-body": vars(union_method)["__wrapped__"],
+                "literal-method": vars(boundary.literal_origin_class)["__getitem__"],
+            }
+        )
+        for name, wrapper in (("literal", literal_wrapper), ("union", union_method)):
+            body = _closure(wrapper, "func").cell_contents
+            cached = boundary.typing_caches[body]
+            namespace = boundary.cache_dictionary.__get__(cached, type(cached))
+            selected[name + "-parameters"] = namespace["cache_parameters"]
+    return selected
+
+
+@pytest.mark.parametrize(
+    "role",
+    ("union-body", "literal-wrapper", "literal-body")
+    + (
+        (
+            "union-method",
+            "union-method-body",
+            "literal-method",
+            "literal-parameters",
+            "union-parameters",
+        )
+        if sys.version_info[:2] == (3, 13)
+        else ()
+    ),
+)
+def test_native_typing_each_selected_executable_envelope_is_frozen(
+    role: str, tmp_path: Path
+) -> None:
+    alias = _native_typing_alias()
+    capture = _capture(alias, tmp_path)
+    function = _native_typing_executables()[role]
+    witness = capture.target_witness
+    assert witness is not None
+    assert any(value is function for _, value in witness.edges)
+    replacements = {
+        "__code__": function.__code__.replace(),
+        "__defaults__": (None,),
+        "__kwdefaults__": {"changed": None},
+        "__annotations__": {"changed": int},
+        "__dict__": dict(vars(function)),
+    }
+    if sys.version_info[:2] == (3, 13):
+        assert (
+            type(function.__type_params__) is tuple and function.__type_params__ == ()
+        )
+        assert any(value is function.__type_params__ for _, value in witness.edges)
+        replacements["__type_params__"] = (int,)
+    for field, replacement in replacements.items():
+        original = getattr(function, field)
+        try:
+            setattr(function, field, replacement)
+            rejected = not capture.check_target(role + ":" + field)
+        finally:
+            setattr(function, field, original)
+        assert rejected, (role, field)
+        assert capture.check_target("restored-" + role + ":" + field)
+    original_annotations = function.__annotations__
+    try:
+        original_annotations["changed-in-place"] = int
+        rejected = not capture.check_target(role + ":annotations-in-place")
+    finally:
+        original_annotations.pop("changed-in-place")
+    assert rejected
+    assert capture.check_target("restored-in-place-" + role)
+
+
+def test_native_typing_unrelated_cache_population_preserves_selected_boundary(
+    tmp_path: Path,
+) -> None:
+    alias = _native_typing_alias()
+    capture = _capture(alias, tmp_path)
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    if boundary.variant == (3, 13):
+        selected = [
+            (role, value)
+            for role, value in boundary.baseline_edges
+            if role.endswith((":cache-key", ":cache-value"))
+        ]
+        assert len(selected) == 4
+        assert any(
+            value is boundary.typing_caches for _, value in capture.target_witness.edges
+        )
+    # These ordinary stdlib subscriptions can populate caches. No cache is
+    # cleared, rewritten, or declared semantically equivalent from its contents.
+    unrelated = (
+        typing.Literal["unrelated-boundary-control"],
+        typing.Union[str, float],
+        typing.Tuple[int, str],
+    )
+    assert len(unrelated) == 3
+    assert capture.check_target("unrelated-stdlib-cache-population")
+    assert raw._capture_target_state(alias) == capture.target_state
+    if boundary.variant == (3, 13):
+        current = dict(boundary.read_boundary()[1])
+        assert all(current[role] is value for role, value in selected)
+        for role in ("literal", "union"):
+            functions = _native_typing_executables()
+            wrapper = functions[
+                "literal-wrapper" if role == "literal" else "union-method"
+            ]
+            body = _closure(wrapper, "func").cell_contents
+            cached = boundary.typing_caches[body]
+            fields = boundary.cache_dictionary.__get__(cached, type(cached))
+            assert tuple(fields) == (
+                "cache_parameters",
+                "__module__",
+                "__name__",
+                "__qualname__",
+                "__doc__",
+                "__annotations__",
+                "__type_params__",
+                "__wrapped__",
+            )
+            assert fields["__wrapped__"] is body
+            assert (
+                type(fields["__type_params__"]) is tuple
+                and fields["__type_params__"] == ()
+            )
+            assert _closure(fields["cache_parameters"], "maxsize").cell_contents == 128
+            assert _closure(fields["cache_parameters"], "typed").cell_contents is (
+                role == "literal"
+            )
+        # Deliberately place an unrelated colliding key before a selected key.
+        # Only setup/cleanup permit its equality; capture must never call it.
+        calls = []
+        armed = False
+        selected_hash = hash(body)
+
+        class CollidingKey:
+            def __hash__(self) -> int:
+                return selected_hash
+
+            def __eq__(self, other: Any) -> bool:
+                if armed:
+                    calls.append("equality")
+                    raise AssertionError("foreign cache key equality executed")
+                return False
+
+        key = CollidingKey()
+        del boundary.typing_caches[body]
+        boundary.typing_caches[key] = object()
+        boundary.typing_caches[body] = cached
+        try:
+            armed = True
+            unchanged = capture.check_target("unrelated-colliding-cache-key")
+        finally:
+            armed = False
+            del boundary.typing_caches[key]
+        assert unchanged and calls == []
+        assert capture.check_target("restored-colliding-cache-key")
+
+
+def test_native_typing_selected_global_cache_and_method_aliases_reject_mutations(
+    tmp_path: Path,
+) -> None:
+    alias = _native_typing_alias()
+    capture = _capture(alias, tmp_path)
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    functions = _native_typing_executables()
+    # Every measured interpreter exercises an actual native wrapper/body alias;
+    # 3.13 additionally exercises its two measured global cache lookup paths.
+    wrappers = [("literal", functions["literal-wrapper"])]
+    if boundary.variant == (3, 13):
+        wrappers.append(("union", functions["union-method"]))
+        caches = boundary.typing_caches
+        namespace = vars(typing)
+        for change in ("dictionary-replace", "dictionary-delete"):
+            try:
+                if change == "dictionary-replace":
+                    namespace["_caches"] = dict(caches)
+                else:
+                    del namespace["_caches"]
+                rejected = not capture.check_target(change)
+            finally:
+                namespace["_caches"] = caches
+            assert rejected, change
+            assert capture.check_target("restored-" + change)
+    for role, wrapper in wrappers:
+        cell = _closure(wrapper, "func")
+        body = cell.cell_contents
+        cloned = types.FunctionType(body.__code__, body.__globals__, body.__name__)
+        for edge in ("wrapped", "closure"):
+            try:
+                if edge == "wrapped":
+                    vars(wrapper)["__wrapped__"] = cloned
+                else:
+                    cell.cell_contents = cloned
+                rejected = not capture.check_target(role + ":" + edge)
+            finally:
+                vars(wrapper)["__wrapped__"] = body
+                cell.cell_contents = body
+            assert rejected, (role, edge)
+            assert capture.check_target("restored-" + role + ":" + edge)
+        if boundary.variant != (3, 13):
+            continue
+        cached = caches[body]
+        fields = boundary.cache_dictionary.__get__(cached, type(cached))
+        for change in (
+            "entry-delete",
+            "entry-rebind",
+            "field-order",
+            "type-params-type",
+            "type-params-value",
+            "wrapped",
+            "annotations",
+            "parameters-type",
+            "maxsize",
+            "typed",
+        ):
+            items = tuple(fields.items())
+            parameters = fields["cache_parameters"]
+            size_cell = _closure(parameters, "maxsize")
+            typed_cell = _closure(parameters, "typed")
+            original_size, original_typed = (
+                size_cell.cell_contents,
+                typed_cell.cell_contents,
+            )
+            try:
+                if change == "entry-delete":
+                    del caches[body]
+                elif change == "entry-rebind":
+                    caches[body] = object()
+                elif change == "field-order":
+                    fields["cache_parameters"] = fields.pop("cache_parameters")
+                elif change == "type-params-type":
+                    fields["__type_params__"] = []
+                elif change == "type-params-value":
+                    fields["__type_params__"] = (int,)
+                elif change == "wrapped":
+                    fields["__wrapped__"] = cloned
+                elif change == "annotations":
+                    fields["__annotations__"] = {"changed": int}
+                elif change == "parameters-type":
+                    fields["cache_parameters"] = object()
+                elif change == "maxsize":
+                    size_cell.cell_contents = 129
+                else:
+                    typed_cell.cell_contents = not original_typed
+                rejected = not capture.check_target(role + ":cache:" + change)
+            finally:
+                caches[body] = cached
+                fields.clear()
+                fields.update(items)
+                size_cell.cell_contents, typed_cell.cell_contents = (
+                    original_size,
+                    original_typed,
+                )
+            assert rejected, (role, change)
+            assert capture.check_target("restored-" + role + ":cache:" + change)
 
 
 @contextmanager
