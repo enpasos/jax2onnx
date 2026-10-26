@@ -29,7 +29,9 @@ def _run_suite(
     suite = tmp_path / "suite"
     suite.mkdir()
     for name, content in files.items():
-        (suite / name).write_text(content)
+        destination = suite / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(content)
     receipts = tmp_path / "receipts"
     result = subprocess.run(
         [
@@ -354,3 +356,241 @@ def test_phase_accounting_rejects_duplicate_missing_or_inconsistent_completion(
         receipt["completed"] = []
     with pytest.raises(ValueError, match="completed|completion"):
         module._validate(receipt, ["test.py::case"], ["test.py::case"], [])
+
+
+def _cast_observer_module() -> Any:
+    path = _RUNNER.with_name("_source_cast_observer.py")
+    spec = spec_from_file_location("_cast_observer_under_test", path)
+    assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    "diagnostic,original_pass",
+    (
+        ("start-error", False),
+        ("start-error", True),
+        ("finish-error", False),
+        ("finish-error", True),
+        ("preexisting-profile", False),
+        ("unmatched-node", True),
+    ),
+)
+def test_cast_diagnostic_preserves_one_original_call_and_pytest_outcome(
+    diagnostic: str,
+    original_pass: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copied = tmp_path / "runner"
+    copied.mkdir()
+    runner = copied / "run_pytest_batches.py"
+    runner.write_text(_RUNNER.read_text())
+    imported = copied / "observer-imported"
+    observer = (
+        "from pathlib import Path\n"
+        "Path(__file__).with_name('observer-imported').write_text('imported')\n"
+    )
+    if diagnostic == "start-error":
+        observer += (
+            "def start_observation(*args):\n"
+            "    raise RuntimeError('diagnostic setup sentinel')\n"
+        )
+    elif diagnostic == "finish-error":
+        observer += (
+            "class Observation:\n"
+            "    def finish(self):\n"
+            "        raise RuntimeError('diagnostic finish sentinel')\n"
+            "def start_observation(*args):\n"
+            "    return Observation()\n"
+        )
+    else:
+        observer += "raise AssertionError('unselected diagnostic was imported')\n"
+    (copied / "_source_cast_observer.py").write_text(observer)
+    monkeypatch.setitem(globals(), "_RUNNER", runner)
+    if diagnostic == "unmatched-node":
+        owner = "test_cases.py"
+        content = (
+            "from pathlib import Path\n"
+            "def test_once():\n"
+            "    path = Path('original-calls')\n"
+            "    path.write_text(path.read_text() + 'x' if path.exists() else 'x')\n"
+        )
+    else:
+        owner = "tests/extra_tests/converter/test_source_conversion_semantics.py"
+        content = (
+            "from pathlib import Path\n"
+            "import pytest\n"
+            "@pytest.mark.parametrize('source', ['float64'])\n"
+            "@pytest.mark.parametrize('target', ['float16'])\n"
+            "@pytest.mark.parametrize('group', ['ties'])\n"
+            "def test_floating_conversion_rounding_and_strict_special_value_gates(source, target, group):\n"
+            "    path = Path('original-calls')\n"
+            "    path.write_text(path.read_text() + 'x' if path.exists() else 'x')\n"
+        )
+        if diagnostic == "preexisting-profile":
+            content += (
+                "    import sys, conftest\n"
+                "    assert sys.getprofile() is conftest.PROFILE\n"
+            )
+        if not original_pass:
+            content += "    assert False, 'original failure sentinel'\n"
+    files = {owner: content}
+    if diagnostic == "preexisting-profile":
+        files["conftest.py"] = (
+            "import sys, pytest\n"
+            "def PROFILE(*args):\n"
+            "    return None\n"
+            "@pytest.fixture(autouse=True)\n"
+            "def existing_profile():\n"
+            "    before = sys.getprofile()\n"
+            "    sys.setprofile(PROFILE)\n"
+            "    try:\n"
+            "        yield\n"
+            "    finally:\n"
+            "        sys.setprofile(before)\n"
+        )
+    result, run, folder = _run_suite(tmp_path, files)
+    assert (tmp_path / "suite" / "original-calls").read_text() == "x"
+    receipt = json.loads((folder / "batch-0001" / "receipt.json").read_text())
+    assert len(receipt["phases"]) == 1
+    reports = next(iter(receipt["phases"].values()))
+    assert [report["when"] for report in reports] == ["setup", "call", "teardown"]
+    if original_pass:
+        assert result.returncode == 0 and run["status"] == "PASS"
+        assert all(report["outcome"] == "passed" for report in reports)
+    else:
+        assert result.returncode != 0 and run["status"] == "FAIL"
+        assert reports[1]["outcome"] == "failed"
+        assert "original failure sentinel" in reports[1]["longrepr"]
+    if diagnostic == "unmatched-node":
+        assert not imported.exists()
+        assert not (
+            folder / "batch-0001" / "source-f64-f16-cast-observation.json"
+        ).exists()
+    else:
+        observation = json.loads(
+            (folder / "batch-0001" / "source-f64-f16-cast-observation.json").read_text()
+        )
+        assert observation["status"] == "UNVERIFIED"
+        expected = {
+            "start-error": "observer-start-error",
+            "finish-error": "observer-finish-error",
+            "preexisting-profile": "preexisting-profile-preserved",
+        }
+        assert observation["reason"] == expected[diagnostic]
+        assert imported.exists() is (diagnostic != "preexisting-profile")
+
+
+def test_cast_observer_preexisting_profile_skips_before_native_or_source_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _cast_observer_module()
+    existing = object()
+    calls = []
+    monkeypatch.setattr(module.sys, "getprofile", lambda: existing)
+    monkeypatch.setattr(module.sys, "setprofile", lambda value: calls.append(value))
+
+    def unexpected(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("skipped diagnostic performed source/runtime work")
+
+    monkeypatch.setattr(module, "_file", unexpected)
+    monkeypatch.setattr(module.importlib.metadata, "distribution", unexpected)
+    owner = type(sys)("unloaded-owner")
+    observation = module.start_observation(tmp_path, module.NODE_ID, owner)
+    observation.finish()
+    report = json.loads((tmp_path / module.REPORT_NAME).read_text())
+    assert report["status"] == "UNVERIFIED"
+    assert report["reason"] == "preexisting-profile-preserved"
+    assert report["artifact_events"] == report["runtime_events"] == []
+    assert report["comparison_events"] == [] and calls == []
+
+
+def test_cast_observer_preserves_profile_installed_by_original_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _cast_observer_module()
+    observation = module._Observation(tmp_path, module.NODE_ID, type(sys)("owner"))
+    installed = object()
+    calls = []
+    monkeypatch.setattr(module.sys, "getprofile", lambda: installed)
+    monkeypatch.setattr(module.sys, "setprofile", lambda value: calls.append(value))
+    monkeypatch.setattr(module, "_SOURCE_FILES", ())
+    monkeypatch.setattr(module.importlib.metadata, "version", lambda name: "test")
+    monkeypatch.setattr(observation, "_native_module", lambda name: {"version": "test"})
+    observation.active = True
+    observation.compat = type(sys)("compat")
+    observation.compat.require_native_context_restored = lambda context: None
+    monkeypatch.setattr(observation, "_settings", lambda: None)
+    observation.report["artifact_events"] = [{"existing": "artifact"}]
+    observation.report["runtime_events"] = [{"existing": "runtime"}]
+    observation.report["comparison_events"] = [{"existing": "comparison"}]
+    observation.finish()
+    report = json.loads((tmp_path / module.REPORT_NAME).read_text())
+    assert calls == [] and module.sys.getprofile() is installed
+    assert report["status"] == "UNVERIFIED"
+    assert report["reason"] == "original-call-changed-profile-preserved"
+    assert report["previous_profile_restored"] is False
+
+
+def test_cast_observer_reads_existing_literal_jax_config() -> None:
+    module = _cast_observer_module()
+    config = type(sys)("existing-config")
+    values = {
+        "x64_enabled": False,
+        "jax_default_matmul_precision": None,
+        "jax_platforms": "cpu",
+        "jax_numpy_dtype_promotion": "standard",
+        "jax_numpy_rank_promotion": "allow",
+    }
+    vars(config).update(values)
+    snapshot = module._config_values(config)
+    assert snapshot == values
+    config.x64_enabled = True
+    assert snapshot["x64_enabled"] is False
+    assert module._config_values(config)["x64_enabled"] is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "x64_enabled",
+        "jax_default_matmul_precision",
+        "jax_platforms",
+        "jax_numpy_dtype_promotion",
+        "jax_numpy_rank_promotion",
+    ),
+)
+def test_cast_observer_config_rejects_foreign_values_without_coercion(
+    field: str,
+) -> None:
+    module = _cast_observer_module()
+    calls = []
+
+    class Foreign:
+        def __bool__(self) -> bool:
+            calls.append("bool")
+            raise AssertionError("diagnostic coerced a foreign config")
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("diagnostic rendered a foreign config")
+
+        def __eq__(self, other: Any) -> bool:
+            calls.append("eq")
+            raise AssertionError("diagnostic compared a foreign config")
+
+    config = type(sys)("existing-config")
+    vars(config).update(
+        x64_enabled=False,
+        jax_default_matmul_precision=None,
+        jax_platforms="cpu",
+        jax_numpy_dtype_promotion="standard",
+        jax_numpy_rank_promotion="allow",
+    )
+    vars(config)[field] = Foreign()
+    with pytest.raises(ValueError, match="original .*config"):
+        module._config_values(config)
+    assert calls == []

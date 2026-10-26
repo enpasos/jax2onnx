@@ -7,6 +7,7 @@ It is separate from raw metadata and is not an FP64 error bound. The original
 FP32 calculation is retained separately from the intentionally prepared one.
 """
 
+import ast
 from dataclasses import asdict
 import hashlib
 import inspect
@@ -308,6 +309,17 @@ def test_full_original_transformer_native_prepared_state_and_same_warmed_jit(
             and second_record.prepared_owner is not owner
         )
         assert record.prepared_owner is not second_record.prepared_owner
+        for item in (record, second_record):
+            for role in _roles(item.root):
+                bindings = tuple(
+                    name
+                    for name in role.method.__globals__
+                    if name.startswith("__jax2onnx_nnx_")
+                )
+                assert bindings and all(
+                    name.endswith("__") and name in role.method.__code__.co_names
+                    for name in bindings
+                )
         snapshots = {
             "original": baseline,
             "prepared": _state(record.prepared_owner),
@@ -327,6 +339,129 @@ def test_full_original_transformer_native_prepared_state_and_same_warmed_jit(
         for name, item in (("prepared", record), ("second", second_record)):
             (tmp_path / f"{name}-record.json").write_text(item.to_json())
         assert record.to_dict()["parameter_storage"] == "retained"
+
+
+@pytest.mark.parametrize(
+    "owner_name", ["AttentionCore", "MLPBlockCore", "TransformerBlock", "Transformer"]
+)
+def test_pinned_method_class_context_preserves_original_code_contract(
+    owner_name: str,
+) -> None:
+    from jax2onnx._source_callable_preparation import (
+        _cells,
+        _code_contract,
+        callable_preimage,
+    )
+    from jax2onnx._source_nnx_method_preparation import (
+        _copy_function,
+        _pinned_original_roles,
+        _untouched,
+    )
+    from jax2onnx.plugins.examples.nnx import gpt_oss_flax as source
+
+    owner = vars(source)[owner_name]
+    original = vars(owner)["__call__"]
+    # This compiler-only check explicitly copies annotations. Establish the
+    # original-side cache before capturing its pinned-role snapshot.
+    annotations = original.__annotations__
+    roles = _pinned_original_roles(source, Path(source.__file__).read_text())
+    (role,) = tuple(
+        role
+        for role in roles
+        if role.owner is owner and role.state.function is original
+    )
+    assert role.compiler_class_name == owner_name
+    definition = ast.parse(callable_preimage(original).source).body[0]
+    assert isinstance(definition, ast.FunctionDef)
+    imported = _untouched(original, definition, class_name=role.compiler_class_name)
+    prepared = _copy_function(
+        original,
+        definition,
+        dict(original.__globals__),
+        _cells(original),
+        imported,
+        class_name=role.compiler_class_name,
+    )
+    assert _code_contract(prepared.__code__) == _code_contract(original.__code__)
+    assert prepared.__defaults__ is original.__defaults__
+    assert prepared.__kwdefaults__ is original.__kwdefaults__
+    assert prepared.__closure__ == original.__closure__
+    assert prepared.__annotations__ is annotations
+    assert original.__annotations__ is annotations
+    role.assert_current()
+
+
+def test_class_context_preserves_private_names_closures_and_unexecuted_headers() -> (
+    None
+):
+    from jax2onnx._source_callable_preparation import (
+        _cells,
+        _code_contract,
+        callable_preimage,
+    )
+    from jax2onnx._source_nnx_method_preparation import _copy_function, _untouched
+
+    calls: list[str] = []
+    capture = object()
+
+    def default() -> object:
+        calls.append("default")
+        return object()
+
+    def decorate(function: FunctionType) -> FunctionType:
+        calls.append("decorator")
+        return function
+
+    class PrivateOwner:
+        @decorate
+        def method(self, value=default()):
+            return self.__payload, capture, __class__, value
+
+    original = vars(PrivateOwner)["method"]
+    definition = ast.parse(callable_preimage(original).source).body[0]
+    assert isinstance(definition, ast.FunctionDef)
+    before = tuple(calls)
+    imported = _untouched(original, definition, class_name="PrivateOwner")
+    prepared = _copy_function(
+        original,
+        definition,
+        dict(original.__globals__),
+        _cells(original),
+        imported,
+        class_name="PrivateOwner",
+    )
+    assert tuple(calls) == before == ("default", "decorator")
+    assert _code_contract(prepared.__code__) == _code_contract(original.__code__)
+    assert "_PrivateOwner__payload" in prepared.__code__.co_names
+    assert prepared.__code__.co_freevars == original.__code__.co_freevars
+    assert "__class__" in prepared.__code__.co_freevars
+    assert all(
+        _cells(prepared)[name] is cell for name, cell in _cells(original).items()
+    )
+    assert prepared.__defaults__ is original.__defaults__
+
+
+def test_pinned_original_method_flags_remain_part_of_code_contract() -> None:
+    from jax2onnx._source_nnx_method_preparation import _pinned_original_roles
+    from jax2onnx.plugins.examples.nnx import gpt_oss_flax as source
+
+    original = vars(source.AttentionCore)["__call__"]
+    retained = original.__code__
+    # CO_METHOD is the measured 3.14 class-scope flag. Older interpreters retain
+    # the equivalent negative control for an existing required function flag.
+    flag = 0x8000000 if sys.version_info[:2] >= (3, 14) else inspect.CO_NEWLOCALS
+    assert retained.co_flags & flag
+    text = Path(source.__file__).read_text()
+    try:
+        original.__code__ = retained.replace(co_flags=retained.co_flags ^ flag)
+        with pytest.raises(
+            SourcePreparationError, match="pinned original GPT role code"
+        ):
+            _pinned_original_roles(source, text)
+    finally:
+        original.__code__ = retained
+    assert original.__code__ is retained
+    assert len(_pinned_original_roles(source, text)) == 14
 
 
 def _prepared_softmax_chains(graph: Any, values: dict[str, int]) -> None:

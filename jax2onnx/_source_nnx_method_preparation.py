@@ -88,6 +88,7 @@ class _PinnedRole:
     attribute: str
     state: _FunctionState = field(repr=False, compare=False)
     source_ast_sha256: str
+    compiler_class_name: str | None
 
     def assert_current(self) -> None:
         self.state.assert_current()
@@ -221,6 +222,7 @@ def _pinned_original_roles(source: ModuleType, text: str) -> tuple[_PinnedRole, 
             parts[-1],
             _FunctionState.capture(function, watch_globals=True),
             _sha(expected.encode()),
+            parts[0] if len(parts) == 2 else None,
         )
         role.assert_current()
         roles.append(role)
@@ -274,9 +276,16 @@ class _PreparedMethod:
         return _call_prepared_nnx_method(self, receiver, args, kwargs)
 
 
-def _untouched(function: FunctionType, definition: ast.FunctionDef) -> tuple[str, ...]:
+def _untouched(
+    function: FunctionType,
+    definition: ast.FunctionDef,
+    *,
+    class_name: str | None = None,
+) -> tuple[str, ...]:
     imported: tuple[str, ...] = ()
-    original = _compile_body(function, definition, function.__code__.co_filename)
+    original = _compile_body(
+        function, definition, function.__code__.co_filename, class_name=class_name
+    )
     if _code_contract(original) != _code_contract(function.__code__):
         imported = tuple(
             name
@@ -288,6 +297,7 @@ def _untouched(function: FunctionType, definition: ast.FunctionDef) -> tuple[str
             definition,
             function.__code__.co_filename,
             imported_globals=imported,
+            class_name=class_name,
         )
     if _code_contract(original) != _code_contract(function.__code__):
         raise SourcePreparationError("original method source/live code changed")
@@ -300,12 +310,15 @@ def _copy_function(
     namespace: dict[str, Any],
     cells: dict[str, CellType],
     imported: tuple[str, ...],
+    *,
+    class_name: str | None = None,
 ) -> FunctionType:
     code = _compile_body(
         original,
         definition,
         f"<jax2onnx-prepared-nnx:{_sha(ast.dump(definition).encode())}>",
         imported_globals=imported,
+        class_name=class_name,
     )
     if any(name not in cells for name in code.co_freevars):
         raise SourcePreparationError("prepared method introduced an unknown closure")
@@ -328,6 +341,7 @@ def _copy_function(
 def _prepare_method(
     receiver: object,
     *,
+    original_roles: tuple[_PinnedRole, ...],
     helpers: tuple[HelperBinding, ...] = (),
     children: tuple[tuple[str, _PreparedMethod], ...] = (),
 ) -> _PreparedMethod:
@@ -335,6 +349,18 @@ def _prepare_method(
     function = vars(owner_type)["__call__"]
     if type(function) is not FunctionType:
         raise SourcePreparationError("original NNX method is not an unpatched function")
+    pinned_roles = tuple(
+        role
+        for role in original_roles
+        if role.owner is owner_type
+        and role.attribute == "__call__"
+        and role.state.function is function
+    )
+    if len(pinned_roles) != 1 or pinned_roles[0].compiler_class_name is None:
+        raise SourcePreparationError("original NNX method has no pinned class scope")
+    pinned_role = pinned_roles[0]
+    pinned_role.assert_current()
+    class_name = pinned_role.compiler_class_name
     preimage = callable_preimage(function)
     tree = ast.parse(preimage.source)
     if (
@@ -344,7 +370,7 @@ def _prepare_method(
     ):
         raise SourcePreparationError("original method source definition changed")
     definition = tree.body[0]
-    imported = _untouched(function, definition)
+    imported = _untouched(function, definition, class_name=class_name)
     original_state = _FunctionState.capture(function, watch_globals=False)
     for key, value in _runtime_bindings(function).items():
         if not _immutable(value):
@@ -429,7 +455,7 @@ def _prepare_method(
         if len(matches) != 1:
             raise SourcePreparationError("original child-method call site changed")
         path, call = matches[0]
-        private = f"__jax2onnx_nnx_child_{index}"
+        private = f"__jax2onnx_nnx_child_{index}__"
         while private in reserved:
             private += "_"
         reserved.add(private)
@@ -445,7 +471,7 @@ def _prepare_method(
         call.args.insert(0, call.func)
         call.func = ast.copy_location(ast.Name(id=private, ctx=ast.Load()), call.func)
         dependencies.append(child.record)
-    guard = "__jax2onnx_nnx_none_ports"
+    guard = "__jax2onnx_nnx_none_ports__"
     while guard in reserved:
         guard += "_"
     namespace[guard] = _none_capture_ports
@@ -462,7 +488,9 @@ def _prepare_method(
         ),
     )
     ast.fix_missing_locations(changed)
-    prepared = _copy_function(function, changed, namespace, _cells(function), imported)
+    prepared = _copy_function(
+        function, changed, namespace, _cells(function), imported, class_name=class_name
+    )
     payload = dict(
         schema_version=1,
         kind="original-nnx-method-preparation-v1",
@@ -673,6 +701,7 @@ def prepare_nnx_transformer_softmax64(
         raise SourcePreparationError("original nested Transformer owner types changed")
     attention = _prepare_method(
         block.attention,
+        original_roles=original_roles,
         helpers=(
             _helper(
                 _function(source.AttentionCore.__call__),
@@ -684,6 +713,7 @@ def prepare_nnx_transformer_softmax64(
     )
     mlp = _prepare_method(
         block.mlp,
+        original_roles=original_roles,
         helpers=(
             _helper(
                 _function(source.MLPBlockCore.__call__),
@@ -694,7 +724,9 @@ def prepare_nnx_transformer_softmax64(
         ),
     )
     block_role = _prepare_method(
-        block, children=(("self.attention", attention), ("self.mlp", mlp))
+        block,
+        original_roles=original_roles,
+        children=(("self.attention", attention), ("self.mlp", mlp)),
     )
     # Different masks are ordinary numeric state; their graph/spec schema must
     # match without capturing either block's actual payload in the dispatch role.
@@ -703,7 +735,9 @@ def prepare_nnx_transformer_softmax64(
         attention.assert_receiver(candidate.attention)
         mlp.assert_receiver(candidate.mlp)
     root = replace(
-        _prepare_method(owner, children=(("block", block_role),)),
+        _prepare_method(
+            owner, original_roles=original_roles, children=(("block", block_role),)
+        ),
         original_roles=original_roles,
     )
     if (

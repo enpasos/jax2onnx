@@ -388,6 +388,7 @@ def _compile_body(
     filename: str,
     *,
     imported_globals: tuple[str, ...] = (),
+    class_name: str | None = None,
 ) -> CodeType:
     """Compile code constants only; no def/default/decorator expression executes."""
     target = copy.deepcopy(definition)
@@ -411,12 +412,25 @@ def _compile_body(
         )
         for name in fn.__code__.co_freevars
     ]
+    # An already-qualified NNX role can supply its original class compiler
+    # scope. The carrier supplies only lexical context, including private-name
+    # mangling and native method flags; its body and headers never execute.
+    container: ast.FunctionDef | ast.ClassDef = target
+    if class_name is not None:
+        container = ast.ClassDef(
+            name=class_name,
+            bases=[],
+            keywords=[],
+            body=[target],
+            decorator_list=[],
+            type_params=[],
+        )
     factory = ast.FunctionDef(
         name="__prepared_closure_factory__",
         args=ast.arguments(
             posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]
         ),
-        body=[*assignments, target],
+        body=[*assignments, container],
         decorator_list=[],
         type_params=[],
     )
@@ -447,6 +461,12 @@ def _compile_body(
         for value in compiled.co_consts
         if isinstance(value, CodeType) and value.co_name == factory.name
     )
+    if class_name is not None:
+        outer = next(
+            value
+            for value in outer.co_consts
+            if isinstance(value, CodeType) and value.co_name == class_name
+        )
     return next(
         value
         for value in outer.co_consts

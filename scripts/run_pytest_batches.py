@@ -28,6 +28,12 @@ import xml.etree.ElementTree as ET
 
 _MAX_BATCH_SIZE = 500
 _ISOLATED_OWNER = "test_source_model_native_bindings_exports.py"
+_CAST_OBSERVER_NODE = (
+    "tests/extra_tests/converter/test_source_conversion_semantics.py::"
+    "test_floating_conversion_rounding_and_strict_special_value_gates"
+    "[ties-float16-float64]"
+)
+_CAST_DIAGNOSTIC_NAME = "source-f64-f16-cast-observation.json"
 
 
 def _now() -> str:
@@ -298,6 +304,58 @@ def _worker(request_path: Path) -> int:
                 pytest.exit(
                     "batch collection differs from assigned node IDs", returncode=4
                 )
+
+        @pytest.hookimpl(hookwrapper=True)
+        def pytest_runtest_call(self, item: Any) -> Any:
+            if request["kind"] != "batch" or item.nodeid != _CAST_OBSERVER_NODE:
+                yield
+                return
+            observer: Any = None
+
+            def diagnostic_error(
+                stage: str, error: BaseException | None = None
+            ) -> None:
+                record = {
+                    "status": "UNVERIFIED",
+                    "nodeid": item.nodeid,
+                    "reason": stage,
+                    "original_test_outcome_authoritative": True,
+                }
+                if error is not None:
+                    record["error_type"] = type(error).__name__
+                try:
+                    _write(folder / _CAST_DIAGNOSTIC_NAME, record)
+                except BaseException:
+                    # An unavailable diagnostic must not change pytest outcome.
+                    pass
+
+            if sys.getprofile() is not None:
+                diagnostic_error("preexisting-profile-preserved")
+            else:
+                try:
+                    # Load only at this original call, after ordinary complete
+                    # collection and selection. No framework import or retry.
+                    from importlib.util import module_from_spec, spec_from_file_location
+
+                    path = Path(__file__).with_name("_source_cast_observer.py")
+                    spec = spec_from_file_location("_jax2onnx_cast_observer", path)
+                    if spec is None or spec.loader is None:
+                        raise ValueError("cast observer module loader unavailable")
+                    module = module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    observer = module.start_observation(
+                        folder, item.nodeid, item.module
+                    )
+                except BaseException as error:
+                    diagnostic_error("observer-start-error", error)
+            try:
+                yield
+            finally:
+                if observer is not None:
+                    try:
+                        observer.finish()
+                    except BaseException as error:
+                        diagnostic_error("observer-finish-error", error)
 
         def pytest_runtest_logreport(self, report: Any) -> None:
             entry = {"when": report.when, "outcome": report.outcome}
