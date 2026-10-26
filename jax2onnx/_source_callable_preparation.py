@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import __future__
 import ast
+from collections.abc import Iterator
+from contextlib import contextmanager
 import copy
 from dataclasses import dataclass, field
 import dis
@@ -28,6 +30,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jax2onnx._source_preparation import SourcePreparationError
+from jax2onnx._compat.python_annotations import AnnotationState, AnnotationStateError
 
 
 Scope = Literal["global", "closure"]
@@ -115,12 +118,9 @@ def _function(value: object) -> FunctionType:
         raise SourcePreparationError(
             "wrapped function source correspondence needs separate support"
         )
-    if getattr(fn, "__annotate__", None) is not None or getattr(
-        fn, "__type_params__", False
-    ):
-        raise SourcePreparationError(
-            "lazy annotations and generic function headers need separate support"
-        )
+    type_params = getattr(fn, "__type_params__", ())
+    if not issubclass(type(type_params), tuple) or tuple.__len__(type_params):
+        raise SourcePreparationError("generic function headers need separate support")
     if fn.__code__.co_flags & (
         inspect.CO_GENERATOR | inspect.CO_COROUTINE | inspect.CO_ASYNC_GENERATOR
     ):
@@ -540,6 +540,15 @@ def _runtime_bindings(fn: FunctionType) -> dict[tuple[SharedScope, str | int], o
     return values
 
 
+@contextmanager
+def _annotation_errors() -> Iterator[None]:
+    """Translate the stdlib adapter error at this preparation boundary."""
+    try:
+        yield
+    except AnnotationStateError as exc:
+        raise SourcePreparationError(str(exc)) from exc
+
+
 @dataclass(frozen=True)
 class _FunctionState:
     function: FunctionType = field(repr=False, compare=False)
@@ -549,24 +558,30 @@ class _FunctionState:
     )
     cells: tuple[tuple[CellType, object], ...] = field(repr=False, compare=False)
     globals: tuple[tuple[str, object], ...] = field(repr=False, compare=False)
+    annotations: AnnotationState = field(repr=False, compare=False)
 
     @classmethod
-    def capture(cls, fn: FunctionType, *, watch_globals: bool) -> _FunctionState:
+    def capture(
+        cls,
+        fn: FunctionType,
+        *,
+        watch_globals: bool,
+        annotations: AnnotationState | None = None,
+    ) -> _FunctionState:
         attributes = (
             fn.__code__,
             fn.__globals__,
             fn.__builtins__,
             fn.__defaults__,
             fn.__kwdefaults__,
-            fn.__annotations__,
             fn.__name__,
             fn.__qualname__,
             fn.__module__,
             fn.__doc__,
         )
         mappings = tuple(
-            (mapping, tuple(mapping.items()))
-            for mapping in (fn.__dict__, fn.__annotations__, fn.__kwdefaults__)
+            (mapping, tuple(dict.items(mapping)))
+            for mapping in (fn.__dict__, fn.__kwdefaults__)
             if mapping is not None
         )
         cells = tuple((cell, cell.cell_contents) for cell in fn.__closure__ or ())
@@ -578,9 +593,17 @@ class _FunctionState:
             if watch_globals
             else ()
         )
-        return cls(fn, attributes, mappings, cells, globals_)
+        if annotations is None:
+            with _annotation_errors():
+                annotations = AnnotationState.capture(fn)
+        return cls(fn, attributes, mappings, cells, globals_, annotations)
 
     def assert_current(self) -> None:
+        self._assert_metadata_current()
+        with _annotation_errors():
+            self.annotations.assert_current()
+
+    def _assert_metadata_current(self) -> None:
         fn = self.function
         actual = (
             fn.__code__,
@@ -588,7 +611,6 @@ class _FunctionState:
             fn.__builtins__,
             fn.__defaults__,
             fn.__kwdefaults__,
-            fn.__annotations__,
             fn.__name__,
             fn.__qualname__,
             fn.__module__,
@@ -599,8 +621,12 @@ class _FunctionState:
                 "prepared dependency function metadata or code changed"
             )
         for mapping, entries in self.mappings:
-            if tuple(mapping) != tuple(name for name, _ in entries) or any(
-                mapping[name] is not value for name, value in entries
+            actual_entries = tuple(dict.items(mapping))
+            if len(actual_entries) != len(entries) or any(
+                key is not expected_key or value is not expected_value
+                for (key, value), (expected_key, expected_value) in zip(
+                    actual_entries, entries, strict=True
+                )
             ):
                 raise SourcePreparationError(
                     "prepared dependency metadata bindings changed"
@@ -843,11 +869,14 @@ def prepare_callable(
         tuple(cells[name] for name in code.co_freevars) or None,
     )
     prepared.__kwdefaults__ = fn.__kwdefaults__
-    prepared.__annotations__ = fn.__annotations__
     prepared.__qualname__ = fn.__qualname__
     prepared.__module__ = fn.__module__
     prepared.__doc__ = fn.__doc__
     prepared.__dict__.update(fn.__dict__)
+    with _annotation_errors():
+        prepared_annotations = original_state.annotations.attach(
+            prepared, check_metadata=original_state._assert_metadata_current
+        )
     original_state.assert_current()
     payload = {
         "schema_version": 1,
@@ -874,7 +903,9 @@ def prepare_callable(
     record = PreparationRecord(
         json.dumps(payload, sort_keys=True, separators=(",", ":")),
         original_state,
-        _FunctionState.capture(prepared, watch_globals=True),
+        _FunctionState.capture(
+            prepared, watch_globals=True, annotations=prepared_annotations
+        ),
         tuple(helper.record for helper in recipe.helpers),
     )
     record.assert_current()

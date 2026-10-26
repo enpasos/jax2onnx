@@ -637,6 +637,8 @@ def test_default_annotation_and_identity_decorator_factories_are_not_reexecuted(
         prepare_callable(target, _recipe(target))
     prepared, record = prepare_callable(target, _recipe(target, shared=shared))
     assert tuple(calls) == before
+    record.assert_current()
+    assert tuple(calls) == before
     assert prepared.__defaults__ is target.__defaults__
     assert prepared.__kwdefaults__ is target.__kwdefaults__
     assert prepared.__annotations__ is target.__annotations__
@@ -645,6 +647,33 @@ def test_default_annotation_and_identity_decorator_factories_are_not_reexecuted(
         entry["ownership"] == "shared-reference" for entry in record.to_dict()["shared"]
     )
     record.assert_current()
+
+
+def test_annotation_dict_subclass_uses_native_snapshot_without_mapping_hooks() -> None:
+    class AnnotationDict(dict):
+        def items(self):
+            raise AssertionError("annotation items override executed")
+
+        def __iter__(self):
+            raise AssertionError("annotation iteration override executed")
+
+        def __getitem__(self, key):
+            raise AssertionError("annotation lookup override executed")
+
+    def target(x):
+        return x.astype(jnp.float32)
+
+    mapping = AnnotationDict({"x": object, "return": object})
+    target.__annotations__ = mapping
+    before = _owner_snapshot(target)
+    prepared, record = prepare_callable(target, _recipe(target))
+    record.assert_current()
+    assert prepared.__annotations__ is target.__annotations__ is mapping
+    record.assert_current()
+    assert _owner_snapshot(target) == before
+    dict.__setitem__(mapping, "x", int)
+    with pytest.raises(SourcePreparationError, match="annotation metadata bindings"):
+        record.assert_current()
 
 
 def test_numpy_capture_requires_explicit_shared_ownership_without_copying_or_mutation() -> (
