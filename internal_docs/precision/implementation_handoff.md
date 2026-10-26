@@ -57,7 +57,9 @@ this local checkpoint. Refresh GitHub state before relying on any CI status.
   or relax the bitwise test before observing the actual hosted disagreement.
 - Latest observed remote run `40361320761` (#533) had four support checks green,
   Python 3.14 failed and the other three full jobs running. This is historical
-  status, not current verification. This checkpoint was not pushed.
+  status, not current verification. The implementation checkpoint `70ea34ad`
+  was subsequently observed as the PR head; inspect its actual checks rather
+  than carrying over the previous head's results.
 
 ## Next concrete work
 
