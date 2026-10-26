@@ -1096,13 +1096,30 @@ def _require_manual_stripped_aval_cache(aval: Any) -> None:
         or any(
             strong[name] is not original[name]
             for name in (
-                "sharding",
                 "manual_axis_type",
                 "memory_space",
             )
         )
     ):
-        raise TypeError("native signature has invalid stripped weak-type cache")
+        # Report only fixed predicate labels from already authenticated reads.
+        failures = (
+            ("self_cycle", cached is aval),
+            ("base_weakness", original["weak_type"] is not True),
+            ("cached_weakness", strong["weak_type"] is not False),
+            ("cached_terminal", strong["_stripped_weak_type"] is not None),
+            (
+                "manual_axis_identity",
+                strong["manual_axis_type"] is not original["manual_axis_type"],
+            ),
+            (
+                "memory_space_identity",
+                strong["memory_space"] is not original["memory_space"],
+            ),
+        )
+        raise TypeError(
+            "native signature has invalid stripped weak-type cache: "
+            + ", ".join(label for label, failed in failures if failed)
+        )
     if not (
         issubclass(type(original["dtype"]), np.dtype)
         and issubclass(type(strong["dtype"]), np.dtype)
@@ -1151,6 +1168,60 @@ def _require_manual_stripped_aval_cache(aval: Any) -> None:
                 raise TypeError(
                     "native signature stripped cache symbolic identity changed"
                 )
+
+    # Equal native placement keys can reuse an older interned strong aval.
+    # Prove its plain placement independently; no arbitrary sharding equality.
+    from jax.sharding import NamedSharding, PartitionSpec
+
+    sharding = strong["sharding"]
+    if (
+        type(sharding) is not NamedSharding
+        or type(original["sharding"]) is not NamedSharding
+    ):
+        raise TypeError(
+            "native signature stripped cache requires native plain sharding"
+        )
+    # Native interning can change the NamedSharding object, while its equal
+    # AbstractMesh key retains identity. Reuse the outer guard's owned mesh.
+    if sharding.mesh is not original["sharding"].mesh:
+        raise TypeError("native signature stripped cache mesh identity changed")
+    spec = sharding.spec
+    if type(spec) is not PartitionSpec:
+        raise TypeError(
+            "native signature stripped cache requires native partition spec"
+        )
+    storage = {}
+    for name in ("_partitions", "unreduced", "reduced", "unreduced_kind"):
+        descriptor = vars(PartitionSpec).get(name)
+        if (
+            type(descriptor) is not types.MemberDescriptorType
+            or descriptor.__objclass__ is not PartitionSpec
+            or descriptor.__name__ != name
+        ):
+            raise TypeError("native signature stripped cache partition storage changed")
+        try:
+            storage[name] = descriptor.__get__(spec, PartitionSpec)
+        except AttributeError as error:
+            raise TypeError(
+                "native signature stripped cache partition storage is uninitialized"
+            ) from error
+    partitions = storage["_partitions"]
+    if not (
+        type(partitions) is tuple
+        and len(partitions) == len(right)
+        and all(axis is None for axis in partitions)
+        and type(storage["unreduced"]) is frozenset
+        and not storage["unreduced"]
+        and type(storage["reduced"]) is frozenset
+        and not storage["reduced"]
+        and storage["unreduced_kind"] is None
+    ):
+        raise TypeError(
+            "native signature stripped cache has nonplain partition storage"
+        )
+    # Its exact False weakness and terminal None cache were established above,
+    # so this existing shared validator cannot recurse into another cache edge.
+    _require_plain_native_aval(cached)
 
 
 def _require_plain_native_aval(aval: Any) -> None:
@@ -2951,14 +3022,29 @@ def _initial_native_axisdata_roles() -> dict[str, Any]:
     closures = []
     for name in ("__setattr__", "__delattr__"):
         function = namespace[name]
-        if type(
-            function
-        ) is not types.FunctionType or function.__code__.co_freevars != (
-            "FrozenInstanceError",
-            "cls",
+        is_function = type(function) is types.FunctionType
+        freevars = function.__code__.co_freevars if is_function else None
+        literal_freevars = type(freevars) is tuple and all(
+            type(symbol) is str for symbol in freevars
+        )
+        if (
+            not is_function
+            or not literal_freevars
+            or freevars != ("FrozenInstanceError", "cls")
         ):
+            if not is_function:
+                detail = name + ": non-function"
+            elif not literal_freevars:
+                detail = name + ": non-literal-freevars"
+            else:
+                detail = (
+                    name
+                    + f": co_freevars={freevars!r}, "
+                    + f"closure_length={len(function.__closure__ or ())}"
+                )
             raise ValueError(
-                "native AxisData generated frozen closure needs an exact adapter"
+                "native AxisData generated frozen closure needs an exact adapter: "
+                + detail
             )
         closures.append(
             tuple(cell.cell_contents for cell in function.__closure__ or ())

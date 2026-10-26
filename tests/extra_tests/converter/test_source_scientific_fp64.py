@@ -2,9 +2,11 @@
 
 """Native scientific FP64 contracts and the unchanged issue52 SOURCE payload.
 
-The original payload, helper, three inputs, opset21 and rtol1e-5/atol1e-6 are
-fixed. Structural admission is separate from both CPU optimization profiles and
-from the independently captured original eager and JIT numerical references.
+The serialized payload, three inputs, opset21 and rtol1e-5/atol1e-6 remain fixed.
+The immutable predecessor helper is named below; the reviewed compatibility
+revision has its own pin and removes global primitive-binding wrappers.
+Structural admission remains separate from both CPU optimization profiles and
+the independently captured original eager and JIT numerical references.
 """
 
 from collections.abc import Callable, Iterator
@@ -50,10 +52,14 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
 
 
 _CRITERIA = SampleCriteria("tolerant", rtol=1e-5, atol=1e-6)
+_ISSUE52_HELPER_PREDECESSOR_SHA256 = (
+    "4e1b3100642ae02dc3e5cc1f2a32cb4c21c9cc03a3451d0636920065ccce6e55"
+)
+_ISSUE52_COMPAT_HELPER_SHA256 = (
+    "afb5a3c5967f54fdfe434d3647094bb50c758ac20ff1e1bd5d52e5170b61cd1b"
+)
 _ISSUE52_HASHES = {
-    "helpers/issue52_scatter_payload_fixture.py": (
-        "4e1b3100642ae02dc3e5cc1f2a32cb4c21c9cc03a3451d0636920065ccce6e55"
-    ),
+    "helpers/issue52_scatter_payload_fixture.py": _ISSUE52_COMPAT_HELPER_SHA256,
     "payloads/issue52_feedforward_payload.npz": (
         "c87923703463d7d6129d1c053a3f1d651312ee296fcbed47aaca698f5e6083f8"
     ),
@@ -84,7 +90,8 @@ def _restore_configuration() -> Iterator[None]:
         ):
             yield
     finally:
-        # The immutable issue52 helper enables x64 at import. Import it only
+        # The issue52 compatibility helper retains its historical x64 import
+        # setting. Import it only
         # inside this fixture and restore the caller's actual global settings.
         for name, value in before[0].items():
             jax.config.update(name, value)
@@ -406,6 +413,9 @@ def _rejected(graph: Any, primitives: set[str]) -> None:
 
 
 def test_issue52_helper_and_payload_are_the_original_immutable_inputs() -> None:
+    # Keep the historical node identity while distinguishing the actual revised
+    # helper from its immutable predecessor; the serialized payload is unchanged.
+    assert _ISSUE52_COMPAT_HELPER_SHA256 != _ISSUE52_HELPER_PREDECESSOR_SHA256
     root = Path(__file__).resolve().parents[1]
     for relative, expected in _ISSUE52_HASHES.items():
         assert hashlib.sha256((root / relative).read_bytes()).hexdigest() == expected
@@ -1395,7 +1405,7 @@ def _issue52_loop_boundary_corruption_controls(
 def test_original_issue52_fp64_payload_source21_against_eager_and_jit_both_cpu_profiles(
     tmp_path: Path,
 ) -> None:
-    # Import the unmodified helper within the configuration-restoring fixture.
+    # Import the reviewed helper within the configuration-restoring fixture.
     from tests.extra_tests.helpers import issue52_scatter_payload_fixture as original
 
     fixture_root = Path(original.__file__).resolve().parents[1]

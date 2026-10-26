@@ -1195,8 +1195,26 @@ def test_native_stripped_cache_rejects_stale_foreign_and_cyclic_state_without_ho
         base_before, cached_before = _native_aval_slot_state(
             isolated
         ), _native_aval_slot_state(cached)
-        with pytest.raises(TypeError, match="native signature.*stripped"):
+        with pytest.raises(TypeError, match="native signature.*stripped") as caught:
             compat.native_typed_array_payload(value)
+        labels = {
+            "weak": "cached_weakness",
+            "weak-type": "cached_weakness",
+            "manual": "manual_axis_identity",
+            "memory": "memory_space_identity",
+            "self": "self_cycle, cached_weakness, cached_terminal",
+            "nested": "cached_terminal",
+            "strong-base": "base_weakness",
+        }
+        if fault in labels:
+            assert str(caught.value) == (
+                "native signature has invalid stripped weak-type cache: "
+                + labels[fault]
+            )
+        if fault == "sharding":
+            assert str(caught.value) == (
+                "native signature stripped cache requires native plain sharding"
+            )
         assert invoked == [], fault
         _assert_native_typed_constant_state(value, before)
         _assert_original_native_aval_untouched((isolated, base_before, *audit[2:]))
@@ -1264,3 +1282,268 @@ def test_native_stripped_cache_symbolic_identity_retains_scope_without_foreign_h
         a[0] == b[0] and all(x is y for x, y in zip(a[1:], b[1:], strict=True))
         for a, b in zip(_native_aval_slot_state(original), original_state, strict=True)
     )
+
+
+@pytest.mark.parametrize("method", ("__setattr__", "__delattr__"))
+@pytest.mark.parametrize("kind", ("function", "non-function", "hostile-freevar"))
+def test_native_axisdata_frozen_closure_gap_reports_only_intrinsic_schema(
+    monkeypatch: MonkeyPatch, method: str, kind: str
+) -> None:
+    invoked = []
+
+    class Foreign:
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("foreign frozen member reflection ran")
+
+        def __repr__(self) -> str:
+            invoked.append("repr")
+            raise AssertionError("foreign frozen member representation ran")
+
+    class HostileName(str):
+        def __eq__(self, other: Any) -> bool:
+            invoked.append("equality")
+            raise AssertionError("foreign freevar equality ran")
+
+        def __repr__(self) -> str:
+            invoked.append("name-repr")
+            raise AssertionError("foreign freevar representation ran")
+
+    def accepted_member() -> Any:
+        FrozenInstanceError, cls = object(), object()
+
+        def member(*args: Any) -> Any:
+            return FrozenInstanceError, cls
+
+        return member
+
+    secret = Foreign()
+
+    def mismatched_member(*args: Any) -> Any:
+        return secret
+
+    diagnostic = "co_freevars=('secret',), closure_length=1"
+    member: Any = mismatched_member
+    if kind == "non-function":
+        member = Foreign()
+        diagnostic = "non-function"
+    elif kind == "hostile-freevar":
+        # Some native CodeType constructors reject or canonicalize subclasses.
+        # The catch covers construction alone, never the compatibility guard.
+        try:
+            changed = mismatched_member.__code__.replace(
+                co_freevars=(HostileName("secret"),)
+            )
+        except (TypeError, SystemError):
+            assert invoked == []
+            return
+        mismatched_member.__code__ = changed
+        actual = mismatched_member.__code__.co_freevars
+        if type(actual) is tuple and all(type(symbol) is str for symbol in actual):
+            assert actual == ("secret",)
+        else:
+            assert type(actual) is tuple
+            assert len(actual) == 1 and type(actual[0]) is HostileName
+            diagnostic = "non-literal-freevars"
+    namespace = {name: accepted_member() for name in ("__setattr__", "__delattr__")}
+    namespace[method] = member
+    selected = type("DiagnosticAxisData", (), namespace)
+    monkeypatch.setitem(
+        compat._NATIVE_WRAPPER_CLASSES, ("vmap_f", "AxisData"), selected
+    )
+    with pytest.raises(ValueError, match="generated frozen closure") as caught:
+        compat._initial_native_axisdata_roles()
+    assert str(caught.value) == (
+        "native AxisData generated frozen closure needs an exact adapter: "
+        + method
+        + ": "
+        + diagnostic
+    )
+    assert invoked == []
+
+
+def test_native_interned_cache_accepts_distinct_plain_sharding_without_mutation() -> (
+    None
+):
+    if compat.native_aval_metadata_schema() != "manual-stripped":
+        with pytest.raises(TypeError, match="exact schema"):
+            compat._require_manual_stripped_aval_cache(
+                compat.ShapedArray((2,), np.float32)
+            )
+        return
+    from jax import export
+    from jax.sharding import NamedSharding, PartitionSpec
+    from jax._src.mesh import empty_abstract_mesh
+
+    scope = export.SymbolicScope()
+    (dim,) = export.symbolic_shape("B", scope=scope)
+    explicit = NamedSharding(empty_abstract_mesh, PartitionSpec(None))
+    strong = compat.ShapedArray((dim,), np.float32, weak_type=False, sharding=explicit)
+    # Explicit placement uses get_sharding; the default has its separate native cache.
+    base = compat.ShapedArray((dim,), np.float32, weak_type=True)
+    first, second = strong.sharding, base.sharding
+    assert type(first) is NamedSharding and type(second) is NamedSharding
+    assert first is not second
+    assert base.strip_weak_type() is strong
+    assert base._stripped_weak_type is strong and strong._stripped_weak_type is None
+    assert strong.weak_type is False and base.weak_type is True
+    before = (_native_aval_slot_state(base), _native_aval_slot_state(strong))
+    for _ in range(3):
+        compat._require_plain_native_aval(base)
+        compat._require_plain_native_aval(strong)
+        for aval, expected in zip((base, strong), before, strict=True):
+            actual = _native_aval_slot_state(aval)
+            assert len(actual) == len(expected)
+            assert all(
+                a[0] == z[0] and all(x is y for x, y in zip(a[1:], z[1:], strict=True))
+                for a, z in zip(actual, expected, strict=True)
+            )
+    assert type(base.shape) is tuple and type(strong.shape) is tuple
+    assert len(base.shape) == len(strong.shape) == 1
+    assert base.shape[0] is dim and strong.shape[0] is dim and dim.scope is scope
+    assert first is not second and base.sharding is second and strong.sharding is first
+
+
+def test_native_interned_cache_rejects_nonplain_native_and_foreign_spec_state() -> None:
+    if compat.native_aval_metadata_schema() != "manual-stripped":
+        with pytest.raises(TypeError, match="exact schema"):
+            compat._require_manual_stripped_aval_cache(
+                compat.ShapedArray((2,), np.float32)
+            )
+        return
+    from jax.sharding import NamedSharding, PartitionSpec
+    from jax._src.mesh import AbstractMesh, empty_abstract_mesh
+
+    base = compat.ShapedArray((2,), np.float32, weak_type=True)
+    strong = base.strip_weak_type()
+    originals = (_native_aval_slot_state(base), _native_aval_slot_state(strong))
+    slots = {name: slot for name, slot, _, _ in originals[0]}
+    canonical_spec = PartitionSpec(None)
+    spec_slots = {}
+    for name in ("_partitions", "unreduced", "reduced", "unreduced_kind"):
+        descriptor = vars(PartitionSpec)[name]
+        assert type(descriptor) is MemberDescriptorType
+        assert descriptor.__objclass__ is PartitionSpec and descriptor.__name__ == name
+        spec_slots[name] = descriptor
+    spec_before = {
+        name: slot.__get__(canonical_spec, PartitionSpec)
+        for name, slot in spec_slots.items()
+    }
+    invoked = []
+
+    class Foreign:
+        def __getattribute__(self, name: str) -> Any:
+            invoked.append(name)
+            raise AssertionError("foreign partition reflection ran")
+
+        def __eq__(self, other: Any) -> bool:
+            invoked.append("equality")
+            raise AssertionError("foreign partition equality ran")
+
+        def __repr__(self) -> str:
+            invoked.append("repr")
+            raise AssertionError("foreign partition representation ran")
+
+        def __len__(self) -> int:
+            invoked.append("len")
+            raise AssertionError("foreign partition length ran")
+
+        def __iter__(self) -> Any:
+            invoked.append("iter")
+            raise AssertionError("foreign partition iteration ran")
+
+        def __bool__(self) -> bool:
+            invoked.append("bool")
+            raise AssertionError("foreign partition truth ran")
+
+    def clone(original: Any) -> Any:
+        copied = object.__new__(compat.ShapedArray)
+        for _, slot, ready, item in _native_aval_slot_state(original):
+            if ready:
+                slot.__set__(copied, item)
+        return copied
+
+    nonempty_mesh = AbstractMesh((1,), ("cache_axis",))
+    faults = (
+        "native-mesh",
+        "native-axis",
+        "native-rank",
+        "native-memory-kind",
+        "native-manual",
+        "native-memory",
+        "foreign-mesh-size",
+        "foreign-leaf",
+        "foreign-partitions",
+        "foreign-unreduced",
+        "foreign-reduced",
+        "foreign-kind",
+        "uninitialized",
+    )
+    for fault in faults:
+        isolated, cached = clone(base), clone(strong)
+        slots["_stripped_weak_type"].__set__(isolated, cached)
+        spec_copy = object.__new__(PartitionSpec)
+        for name, descriptor in spec_slots.items():
+            descriptor.__set__(spec_copy, spec_before[name])
+        placement = NamedSharding(empty_abstract_mesh, spec_copy)
+        assert placement.spec is spec_copy
+        if fault == "native-mesh":
+            placement = NamedSharding(nonempty_mesh, canonical_spec)
+        elif fault == "native-axis":
+            placement = NamedSharding(nonempty_mesh, PartitionSpec("cache_axis"))
+        elif fault == "native-rank":
+            placement = NamedSharding(empty_abstract_mesh, PartitionSpec())
+        elif fault == "native-memory-kind":
+            placement = NamedSharding(
+                empty_abstract_mesh, canonical_spec, memory_kind="device"
+            )
+        elif fault == "native-manual":
+            slots["manual_axis_type"].__set__(
+                cached,
+                compat._native_core.ManualAxisType(varying=frozenset({"cache_axis"})),
+            )
+        elif fault == "native-memory":
+            slots["memory_space"].__set__(cached, compat._native_core.MemorySpace.Host)
+        elif fault == "foreign-mesh-size":
+            mesh_copy = object.__new__(AbstractMesh)
+            for name in (
+                "axis_sizes",
+                "axis_names",
+                "axis_types",
+                "abstract_device",
+                "size",
+            ):
+                object.__setattr__(mesh_copy, name, vars(empty_abstract_mesh)[name])
+            placement = NamedSharding(mesh_copy, canonical_spec)
+            assert placement.mesh is mesh_copy
+            object.__setattr__(mesh_copy, "size", Foreign())
+        elif fault == "foreign-leaf":
+            spec_slots["_partitions"].__set__(spec_copy, (Foreign(),))
+        elif fault == "uninitialized":
+            spec_slots["_partitions"].__delete__(spec_copy)
+        else:
+            field = {
+                "foreign-partitions": "_partitions",
+                "foreign-unreduced": "unreduced",
+                "foreign-reduced": "reduced",
+                "foreign-kind": "unreduced_kind",
+            }[fault]
+            spec_slots[field].__set__(spec_copy, Foreign())
+        slots["sharding"].__set__(cached, placement)
+        before = (_native_aval_slot_state(isolated), _native_aval_slot_state(cached))
+        with pytest.raises(TypeError, match="native signature"):
+            compat._require_plain_native_aval(isolated)
+        assert invoked == [], fault
+        for aval, expected in zip(
+            (base, strong, isolated, cached), (*originals, *before), strict=True
+        ):
+            actual = _native_aval_slot_state(aval)
+            assert len(actual) == len(expected)
+            assert all(
+                a[0] == z[0] and all(x is y for x, y in zip(a[1:], z[1:], strict=True))
+                for a, z in zip(actual, expected, strict=True)
+            )
+        assert all(
+            slot.__get__(canonical_spec, PartitionSpec) is spec_before[name]
+            for name, slot in spec_slots.items()
+        )

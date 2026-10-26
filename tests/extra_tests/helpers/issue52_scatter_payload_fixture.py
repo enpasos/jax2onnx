@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -220,8 +219,8 @@ def _scan_params_for_running_jax(
     """Translate the payload's legacy ``scan`` params to the running JAX's shape.
 
     The recorded payload stores ``num_consts``/``num_carry``, which JAX 0.11
-    replaced with the ``ft_in``/``ft_out`` flat-tree descriptors. The generic
-    kwarg-stripping fallback below cannot synthesise those, so build them here.
+    replaced with the ``ft_in``/``ft_out`` flat-tree descriptors. Build those
+    explicitly here without changing native primitive binding methods.
     """
 
     if "num_consts" not in params:
@@ -248,50 +247,11 @@ def _scan_params_for_running_jax(
     return translated
 
 
-def _wrap_primitive_bind(primitive: _PrimitiveType) -> None:
-    if getattr(primitive, "_sharding_bind_wrapped", False):
-        return
-    orig_bind = primitive.bind
-
-    def _compat_bind(*args, **params):
-        current = params
-        while True:
-            try:
-                return orig_bind(*args, **current)
-            except TypeError as exc:
-                message = str(exc)
-                unexpected = re.search(
-                    r"unexpected keyword argument '([^']+)'", message
-                )
-                if unexpected:
-                    key = unexpected.group(1)
-                    if key in current:
-                        new_params = dict(current)
-                        new_params.pop(key, None)
-                        current = new_params
-                        continue
-                missing = re.search(
-                    r"required keyword-only argument: '([^']+)'", message
-                )
-                if missing:
-                    key = missing.group(1)
-                    if key not in current:
-                        new_params = dict(current)
-                        new_params[key] = None
-                        current = new_params
-                        continue
-                raise
-
-    primitive.bind = _compat_bind  # type: ignore[assignment]
-    primitive._sharding_bind_wrapped = True  # type: ignore[attr-defined]
-
-
 @lru_cache(maxsize=1)
 def _primitive_registry() -> Dict[str, _PrimitiveType]:
     def _collect(module: Any, registry: Dict[str, _PrimitiveType]) -> None:
         for attr in getattr(module, "__dict__", {}).values():
             if isinstance(attr, _PrimitiveType):
-                _wrap_primitive_bind(attr)
                 registry.setdefault(attr.name, attr)
 
     registry: Dict[str, _PrimitiveType] = {}
@@ -337,7 +297,6 @@ def _primitive_registry() -> Dict[str, _PrimitiveType]:
 def _build_fallback_primitive(name: str, fn: Callable[..., Any]) -> _PrimitiveType:
     prim = _PrimitiveType(name)
     prim.def_impl(fn)
-    _wrap_primitive_bind(prim)
     return prim
 
 

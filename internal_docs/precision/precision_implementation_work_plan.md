@@ -7,6 +7,10 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 
 ## Current implementation and next gates
 
+The [binding CI priority and ongoing gate](precision_ci_gate.md) requires fixing
+PR #277 now and checking every pushed revision before publishing further
+features. It supplements this complete plan; the full B–F acceptance scope remains.
+
 Current status snapshot: **2026-10-26**. Earlier observations retain their own
 2026-10-25 source epochs.
 

@@ -250,6 +250,9 @@ jobs:
         )
         PY
 
+    - name: Report native AxisData compatibility metadata
+      run: poetry run python -B scripts/observe_native_axisdata.py
+
     - name: Run full checks (with MaxText and MaxDiffusion)
       if: matrix.python-version == '3.12'
       env:
