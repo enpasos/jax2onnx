@@ -3622,7 +3622,7 @@ def _initial_native_helper_default_roles() -> dict[str, Any]:
         expected = frozenset(("__module__", "__dict__", "__weakref__", "__doc__"))
         if not keyword:
             expected |= {"__repr__"}
-        if sys.version_info[:2] == (3, 13):
+        if sys.version_info[:2] in ((3, 13), (3, 14)):
             expected |= {"__firstlineno__", "__static_attributes__"}
             firstline = namespace.get("__firstlineno__")
             static = namespace.get("__static_attributes__")
@@ -3891,10 +3891,556 @@ class _NativeHelperDefaultCaptureGraph(_NativeCaptureGraph):
         }
 
 
+def _uses_native_signature_default() -> bool:
+    # Keep the measured 3.14 path checked under the project's 3.12 mypy target.
+    return sys.version_info[:2] == (3, 14)
+
+
+def _initial_native_signature_default_role() -> dict[str, Any] | None:
+    """Own CPython 3.14's original inspect.signature annotation-format edge."""
+    if not _uses_native_signature_default():
+        return None
+    if sys.implementation.name != "cpython":
+        raise ValueError("native signature default needs its exact interpreter")
+    annotation_module, enum_module = (
+        import_module(name) for name in ("annotationlib", "enum")
+    )
+    edges = tuple(
+        edge
+        for module, paths in (
+            (_native_api, ("inspect.signature", "inspect.Format")),
+            (annotation_module, ("Format",)),
+            (enum_module, ("EnumType", "IntEnum", "ReprEnum", "Enum")),
+        )
+        for path in paths
+        for edge in _native_wrapper_slot(module, path)
+    )
+    inspect_namespace = _native_module_dictionary(inspect)
+    enum_namespace = _native_module_dictionary(enum_module)
+    annotation_namespace = _native_module_dictionary(annotation_module)
+    if (
+        inspect_namespace is None
+        or enum_namespace is None
+        or annotation_namespace is None
+        or vars(_native_api).get("inspect") is not inspect
+    ):
+        raise ValueError("native signature original module aliases changed")
+    function = inspect_namespace.get("signature")
+    container = (
+        function.__kwdefaults__ if type(function) is types.FunctionType else None
+    )
+    if (
+        type(function) is not types.FunctionType
+        or function.__globals__ is not inspect_namespace
+        or type(container) is not dict
+        or not _NativeCaptureGraph._schema(
+            container,
+            frozenset(
+                ("follow_wrapped", "globals", "locals", "eval_str", "annotation_format")
+            ),
+        )
+        or container["follow_wrapped"] is not True
+        or container["globals"] is not None
+        or container["locals"] is not None
+        or container["eval_str"] is not False
+    ):
+        raise ValueError(
+            "native signature keyword-default schema needs an exact adapter"
+        )
+    cls = annotation_namespace.get("Format")
+    if (
+        enum_namespace["EnumType"] is not type(Enum)
+        or enum_namespace["Enum"] is not Enum
+        or type(cls) is not type(Enum)
+        or inspect_namespace.get("Format") is not cls
+    ):
+        raise ValueError("native signature original Format aliases changed")
+    namespace = vars(type)["__dict__"].__get__(cls, type(cls))
+    names = ("VALUE", "VALUE_WITH_FAKE_GLOBALS", "FORWARDREF", "STRING")
+    expected = frozenset(
+        (
+            "_generate_next_value_",
+            "__module__",
+            "__firstlineno__",
+            "__static_attributes__",
+            "_new_member_",
+            "_use_args_",
+            "_member_names_",
+            "_member_map_",
+            "_value2member_map_",
+            "_hashable_values_",
+            "_unhashable_values_",
+            "_unhashable_values_map_",
+            "_member_type_",
+            "_value_repr_",
+            "__doc__",
+            "__format__",
+            "__new__",
+            *names,
+        )
+    )
+    bases = (enum_namespace["IntEnum"],)
+    mro = (
+        cls,
+        enum_namespace["IntEnum"],
+        int,
+        enum_namespace["ReprEnum"],
+        enum_namespace["Enum"],
+        object,
+    )
+    symbols = tuple(
+        (field_name, vars(type)[field_name].__get__(cls, type(cls)))
+        for field_name in ("__name__", "__qualname__")
+    )
+    enum_new = vars(type)["__dict__"].__get__(Enum, type(Enum)).get("__new__")
+    if (
+        not _NativeCaptureGraph._schema(namespace, expected)
+        or any(type(value) is not str or value != "Format" for _, value in symbols)
+        or type(namespace["__module__"]) is not str
+        or namespace["__module__"] != "annotationlib"
+        or type(namespace["__firstlineno__"]) is not int
+        or type(namespace["__static_attributes__"]) is not tuple
+        or namespace["__static_attributes__"]
+        or namespace["__doc__"] is not None
+        or namespace["_use_args_"] is not True
+        or namespace["_member_type_"] is not int
+        or namespace["_new_member_"] is not vars(int)["__new__"]
+        or namespace["_value_repr_"] is not vars(int)["__repr__"]
+        or namespace["__format__"] is not vars(int)["__format__"]
+        or type(namespace["_generate_next_value_"]) is not staticmethod
+        or type(namespace["__new__"]) is not types.FunctionType
+        or type(enum_new) is not staticmethod
+        or namespace["__new__"] is not enum_new.__func__
+    ):
+        raise ValueError("native signature Format class schema needs an exact adapter")
+    for field_name, expected_classes in (("__bases__", bases), ("__mro__", mro)):
+        actual = vars(type)[field_name].__get__(cls, type(cls))
+        if len(actual) != len(expected_classes) or any(
+            a is not b for a, b in zip(actual, expected_classes)
+        ):
+            raise ValueError("native signature Format inheritance changed")
+    descriptors = tuple(
+        (owner, vars(type)["__dict__"].__get__(owner, type(owner)).get("__dict__"))
+        for owner in (enum_namespace["IntEnum"], Enum)
+    )
+    for owner, descriptor in descriptors:
+        if (
+            type(descriptor) is not types.GetSetDescriptorType
+            or descriptor.__objclass__ is not owner
+            or descriptor.__name__ != "__dict__"
+        ):
+            raise ValueError(
+                "native signature Format needs original dictionary descriptors"
+            )
+    members = []
+    for index, name in enumerate(names):
+        member = namespace[name]
+        if type(member) is not cls:
+            raise ValueError("native signature Format original member changed")
+        dictionary = descriptors[0][1].__get__(member, cls)
+        if (
+            type(dictionary) is not dict
+            or not _NativeCaptureGraph._schema(
+                dictionary,
+                frozenset(("_name_", "_value_", "__objclass__", "_sort_order_")),
+            )
+            or type(dictionary["_name_"]) is not str
+            or dictionary["_name_"] != name
+            or type(dictionary["_value_"]) is not int
+            or dictionary["_value_"] != index + 1
+            or int.__int__(cast(int, member)) != index + 1
+            or dictionary["__objclass__"] is not cls
+            or type(dictionary["_sort_order_"]) is not int
+            or dictionary["_sort_order_"] != index
+            or descriptors[1][1].__get__(member, cls) is not dictionary
+        ):
+            raise ValueError(
+                "native signature Format member schema needs an exact adapter"
+            )
+        members.append((name, member, dictionary, tuple(dictionary.items())))
+    if container["annotation_format"] is not members[0][1]:
+        raise ValueError(
+            "native signature annotation-format default is not original VALUE"
+        )
+    mutable = []
+    for name, kind in (
+        ("_member_names_", list),
+        ("_member_map_", dict),
+        ("_value2member_map_", dict),
+        ("_hashable_values_", list),
+        ("_unhashable_values_", list),
+        ("_unhashable_values_map_", dict),
+    ):
+        value = namespace[name]
+        if type(value) is not kind:
+            raise ValueError("native signature Format bookkeeping schema changed")
+        if type(value) is list:
+            wanted = (
+                names
+                if name == "_member_names_"
+                else ((1, 2, 3, 4) if name == "_hashable_values_" else ())
+            )
+            if len(value) != len(wanted) or any(
+                type(a) is not type(b) or a != b for a, b in zip(value, wanted)
+            ):
+                raise ValueError("native signature Format bookkeeping list changed")
+            items = tuple(value)
+        else:
+            if type(value) is not dict:
+                raise ValueError("native signature Format bookkeeping map type changed")
+            wanted_keys = (
+                names
+                if name == "_member_map_"
+                else ((1, 2, 3, 4) if name == "_value2member_map_" else ())
+            )
+            if len(value) != len(wanted_keys) or any(
+                type(a) is not type(b) or a != b for a, b in zip(value, wanted_keys)
+            ):
+                raise ValueError("native signature Format bookkeeping map keys changed")
+            if any(
+                item is not member[1] for item, member in zip(value.values(), members)
+            ):
+                raise ValueError(
+                    "native signature Format bookkeeping map aliases changed"
+                )
+            items = tuple(value.items())
+        mutable.append((name, value, items))
+    return {
+        "function": function,
+        "code": function.__code__,
+        "globals": function.__globals__,
+        "container": container,
+        "class": cls,
+        "metaclass": type(cls),
+        "symbols": symbols,
+        "bases": bases,
+        "mro": mro,
+        "class_members": tuple(namespace.items()),
+        "members": tuple(members),
+        "mutable": tuple(mutable),
+        "descriptors": descriptors,
+        "enum_new_descriptor": enum_new,
+        "edges": edges,
+        "module_names": tuple(
+            (owner, dictionary, dictionary["__name__"])
+            for owner, dictionary, _, _ in edges
+        ),
+    }
+
+
+try:
+    _NATIVE_SIGNATURE_DEFAULT_ROLE = _initial_native_signature_default_role()
+except (
+    AttributeError,
+    ImportError,
+    KeyError,
+    TypeError,
+    ValueError,
+) as _signature_default_error:
+    _NATIVE_SIGNATURE_DEFAULT_ROLE = None
+    _NATIVE_SIGNATURE_DEFAULT_GAP: str | None = str(_signature_default_error)
+else:
+    _NATIVE_SIGNATURE_DEFAULT_GAP = None
+
+
+class _NativeSignatureDefaultCaptureGraph(_NativeHelperDefaultCaptureGraph):
+    """Admit Format only at the selected vmap inspect.signature default edge."""
+
+    def __init__(self, role: str) -> None:
+        super().__init__(role)
+        self._active_signature = False
+
+    def take(self, value: Any) -> Any:
+        entry = _NATIVE_SIGNATURE_DEFAULT_ROLE
+        if entry is not None and value is entry["container"]:
+            raise ValueError(
+                "native signature default container occurred outside its exact edge"
+            )
+        if (
+            entry is not None
+            and value is entry["function"]
+            and (not self._active_signature or str(id(value)) in self.nodes)
+        ):
+            raise ValueError(
+                "native signature function occurred outside its exact edge"
+            )
+        return super().take(value)
+
+    def _signature_entry(self) -> dict[str, Any]:
+        if _NATIVE_SIGNATURE_DEFAULT_GAP is not None:
+            raise ValueError(_NATIVE_SIGNATURE_DEFAULT_GAP)
+        entry = _NATIVE_SIGNATURE_DEFAULT_ROLE
+        if entry is None or self.role != "vmap_f":
+            raise ValueError("native signature default used outside its selected role")
+        function = entry["function"]
+        if (
+            function.__code__ is not entry["code"]
+            or function.__globals__ is not entry["globals"]
+        ):
+            raise ValueError("native signature original code/globals changed")
+        container = function.__kwdefaults__
+        if (
+            container is not entry["container"]
+            or not self._schema(
+                container,
+                frozenset(
+                    (
+                        "follow_wrapped",
+                        "globals",
+                        "locals",
+                        "eval_str",
+                        "annotation_format",
+                    )
+                ),
+            )
+            or container["annotation_format"] is not entry["members"][0][1]
+        ):
+            raise ValueError("native signature exact keyword-default edge changed")
+        for owner, original_namespace, original_name in entry["module_names"]:
+            current_namespace = _native_module_dictionary(owner)
+            if (
+                current_namespace is None
+                or current_namespace is not original_namespace
+                or type(original_name) is not str
+                or current_namespace.get("__name__") is not original_name
+                or sys.modules.get(original_name) is not owner
+            ):
+                raise ValueError(
+                    "native signature original defining module binding changed"
+                )
+            self.retain(original_name)
+        for owner, original_namespace, slot, original in entry["edges"]:
+            current_namespace = _native_module_dictionary(owner)
+            if (
+                current_namespace is None
+                or current_namespace is not original_namespace
+                or type(slot) is not str
+                or current_namespace.get(slot) is not original
+            ):
+                raise ValueError(
+                    "native signature original module/default alias changed"
+                )
+            for item in (owner, current_namespace, original):
+                self.retain(item)
+            self.bindings.append((owner, slot, original))
+        cls = entry["class"]
+        if type(cls) is not entry["metaclass"]:
+            raise ValueError("native signature Format original metaclass changed")
+        if (
+            vars(type)["__dict__"].__get__(Enum, type(Enum)).get("__new__")
+            is not entry["enum_new_descriptor"]
+        ):
+            raise ValueError(
+                "native signature Format original Enum declaration alias changed"
+            )
+        self.retain(entry["enum_new_descriptor"])
+        namespace = vars(type)["__dict__"].__get__(cls, type(cls))
+        if not self._schema(
+            namespace, frozenset(name for name, _ in entry["class_members"])
+        ) or any(
+            namespace[name] is not original for name, original in entry["class_members"]
+        ):
+            raise ValueError("native signature Format original class members changed")
+        for field_name, expected in (
+            ("__bases__", entry["bases"]),
+            ("__mro__", entry["mro"]),
+        ):
+            actual = vars(type)[field_name].__get__(cls, type(cls))
+            if len(actual) != len(expected) or any(
+                a is not b for a, b in zip(actual, expected)
+            ):
+                raise ValueError("native signature Format original inheritance changed")
+            self.retain(actual)
+        for field_name, original in entry["symbols"]:
+            if vars(type)[field_name].__get__(cls, type(cls)) is not original:
+                raise ValueError("native signature Format original symbols changed")
+        for owner, descriptor in entry["descriptors"]:
+            if (
+                vars(type)["__dict__"].__get__(owner, type(owner)).get("__dict__")
+                is not descriptor
+            ):
+                raise ValueError(
+                    "native signature Format original dictionary descriptor changed"
+                )
+            self.retain(owner)
+            self.retain(descriptor)
+        for name, value, expected_items in entry["mutable"]:
+            if type(value) is list:
+                unchanged = len(value) == len(expected_items) and all(
+                    a is b for a, b in zip(value, expected_items)
+                )
+            else:
+                unchanged = len(value) == len(expected_items) and all(
+                    key is old_key and item is old_item
+                    for (key, item), (old_key, old_item) in zip(
+                        value.items(), expected_items
+                    )
+                )
+            if not unchanged:
+                raise ValueError(
+                    "native signature Format original bookkeeping state changed"
+                )
+        for _, member, dictionary, expected_items in entry["members"]:
+            if (
+                type(member) is not cls
+                or any(
+                    descriptor.__get__(member, cls) is not dictionary
+                    for _, descriptor in entry["descriptors"]
+                )
+                or len(dictionary) != len(expected_items)
+                or any(
+                    key is not old_key or item is not old_item
+                    for (key, item), (old_key, old_item) in zip(
+                        dictionary.items(), expected_items
+                    )
+                )
+            ):
+                raise ValueError(
+                    "native signature Format original member state changed"
+                )
+        for item in (
+            function,
+            entry["code"],
+            entry["globals"],
+            container,
+            cls,
+            type(cls),
+            *entry["bases"],
+            *entry["mro"],
+        ):
+            self.retain(item)
+        return entry
+
+    def take_selected_signature(self, function: Any) -> Any:
+        if (
+            _NATIVE_SIGNATURE_DEFAULT_ROLE is None
+            and _NATIVE_SIGNATURE_DEFAULT_GAP is None
+        ):
+            return self.take(function)
+        entry = self._signature_entry()
+        if function is not entry["function"]:
+            raise ValueError("native signature selected function identity changed")
+        if str(id(function)) in self.nodes:
+            raise ValueError(
+                "native signature function occurred outside its exact edge"
+            )
+        previous = self._active_signature
+        self._active_signature = True
+        try:
+            return self.take(function)
+        finally:
+            self._active_signature = previous
+
+    def _function_defaults(self, function: types.FunctionType, keyword: bool) -> Any:
+        selected = _NATIVE_SIGNATURE_DEFAULT_ROLE
+        if (
+            not self._active_signature
+            or not keyword
+            or selected is None
+            or function is not selected["function"]
+        ):
+            return super()._function_defaults(function, keyword)
+        entry = self._signature_entry()
+        container = entry["container"]
+        key = str(id(container))
+        if key in self.nodes:
+            raise ValueError(
+                "native signature default container occurred outside its exact edge"
+            )
+        self.retain(container)
+        node = {
+            "type": self.typename(container),
+            "items": sorted(
+                [
+                    [
+                        self.take(name),
+                        (
+                            self._signature_format(entry)
+                            if name == "annotation_format"
+                            else self.take(item)
+                        ),
+                    ]
+                    for name, item in container.items()
+                ],
+                key=lambda pair: json.dumps(pair[0], sort_keys=True),
+            ),
+        }
+        self.nodes[key] = node
+        return {"ref": key}
+
+    def _signature_format(self, entry: dict[str, Any]) -> Any:
+        cls = entry["class"]
+        member_records = []
+        for name, member, dictionary, items in entry["members"]:
+            self.retain(name)
+            self.retain(member)
+            self.retain(dictionary)
+            for field_name, item in items:
+                self.retain(field_name)
+                self.retain(item)
+            member_records.append(
+                {
+                    "identity": id(member),
+                    "name": name,
+                    "dictionary_identity": id(dictionary),
+                    "fields": {
+                        field_name: (
+                            {"native_signature_format_class_identity": id(cls)}
+                            if field_name == "__objclass__"
+                            else self.take(item)
+                        )
+                        for field_name, item in items
+                    },
+                }
+            )
+        class_records: dict[str, Any] = {}
+        for name, item in entry["class_members"]:
+            self.retain(name)
+            self.retain(item)
+            record: dict[str, Any]
+            if any(item is member for _, member, _, _ in entry["members"]):
+                record = {"native_signature_format_member_identity": id(item)}
+            elif name in ("_member_map_", "_value2member_map_"):
+                record = {
+                    "container_identity": id(item),
+                    "type": self.typename(item),
+                    "items": [
+                        [
+                            self.take(key),
+                            {"native_signature_format_member_identity": id(value)},
+                        ]
+                        for key, value in item.items()
+                    ],
+                }
+            else:
+                record = self.take(item)
+            class_records[name] = record
+        for _, value in entry["symbols"]:
+            self.retain(value)
+        return {
+            "native_signature_format_default_identity": id(entry["members"][0][1]),
+            "class_identity": id(cls),
+            "metaclass_identity": id(type(cls)),
+            "bases": [id(item) for item in entry["bases"]],
+            "mro": [id(item) for item in entry["mro"]],
+            "symbols": {
+                name: {"identity": id(value), "value": value}
+                for name, value in entry["symbols"]
+            },
+            "class_members": class_records,
+            "members": member_records,
+            "dictionary_descriptors": [
+                {"owner_identity": id(owner), "descriptor": self.take(descriptor)}
+                for owner, descriptor in entry["descriptors"]
+            ],
+            "enum_new_descriptor": self.take(entry["enum_new_descriptor"]),
+        }
+
+
 def _native_wrapper_implementation(
     role: str,
 ) -> tuple[dict[str, Any], tuple[object, ...], tuple[Any, ...]]:
-    graph = _NativeHelperDefaultCaptureGraph(role)
+    graph = _NativeSignatureDefaultCaptureGraph(role)
     builtin_state = _native_wrapper_builtin_state(role, graph)
     edges: list[Any] = []
     classes = {}
@@ -3928,7 +4474,11 @@ def _native_wrapper_implementation(
                 else (
                     graph.take_selected_helper(function, "debug_info")
                     if role == "vmap_f" and path == "debug_info"
-                    else graph.take(function)
+                    else (
+                        graph.take_selected_signature(function)
+                        if role == "vmap_f" and path == "inspect.signature"
+                        else graph.take(function)
+                    )
                 )
             )
         graph.retain(function)

@@ -1184,7 +1184,7 @@ def test_native_helper_default_loaded_layout_and_complete_capture(
     expected = {"__module__", "__dict__", "__weakref__", "__doc__"}
     if name == "format_exception_only":
         expected.add("__repr__")
-    if sys.version_info[:2] == (3, 13):
+    if sys.version_info[:2] in ((3, 13), (3, 14)):
         expected.update(("__firstlineno__", "__static_attributes__"))
         assert type(vars(entry["class"])["__firstlineno__"]) is int
         assert type(vars(entry["class"])["__static_attributes__"]) is tuple
@@ -1467,7 +1467,7 @@ def test_native_helper_compiler_metadata_is_exact_and_retained(
             change.setattr(cls, "__static_attributes__", ("state",), raising=False)
         elif mutation == "extra":
             change.setattr(cls, "unknown_compiler_metadata", (), raising=False)
-        elif sys.version_info[:2] == (3, 13):
+        elif sys.version_info[:2] in ((3, 13), (3, 14)):
             fields = {
                 "drop-line": ("__firstlineno__",),
                 "drop-static": ("__static_attributes__",),
@@ -1478,7 +1478,7 @@ def test_native_helper_compiler_metadata_is_exact_and_retained(
                 change.delattr(cls, field)
         else:
             # Older layouts must not acquire either a partial or the complete
-            # 3.13 schema merely because its field names are known.
+            # 3.13/3.14 schema merely because its field names are known.
             change.setattr(cls, "__firstlineno__", 1, raising=False)
             if mutation == "drop-both":
                 change.setattr(cls, "__static_attributes__", (), raising=False)
@@ -1486,7 +1486,7 @@ def test_native_helper_compiler_metadata_is_exact_and_retained(
             compat._NativeHelperDefaultCaptureGraph(entry["role"]).take_selected_helper(
                 entry["function"], name
             )
-        if mutation == "line-value" and sys.version_info[:2] == (3, 13):
+        if mutation == "line-value" and sys.version_info[:2] in ((3, 13), (3, 14)):
             # Source line numbers are retained state, not cross-JAX constants.
             fresh = compat._initial_native_helper_default_roles()[name]
             assert (
@@ -1811,6 +1811,43 @@ def test_unchanged_simple_linear_union_annotation_capture_keeps_native_work_unat
         target = factory.instantiate()
         assert type(target) is types.FunctionType
         annotations = target.__annotations__
+        if sys.version_info[:2] == (3, 14):
+            from jax2onnx._compat import python_annotations
+
+            owner = vars(target)["__wrapped__"]
+            owner_class = type(owner)
+            namespace = vars(type)["__dict__"].__get__(owner_class, type(owner_class))
+            # The native owner already holds evaluated class annotations in
+            # this intrinsic cache. No class annotation getter is evaluated.
+            cache = namespace["__annotations_cache__"]
+            assert type(cache) is dict
+            assert tuple(cache) == (
+                "weight",
+                "bias",
+                "in_features",
+                "out_features",
+                "use_bias",
+            )
+            cache_items = tuple(cache.items())
+            class_annotation_slots = tuple(
+                (name, name in namespace, namespace.get(name))
+                for name in ("__annotations__", "__annotate__", "__annotate_func__")
+            )
+            method = namespace["__call__"]
+            assert type(method) is types.FunctionType
+            annotate_descriptor = vars(types.FunctionType)["__annotate__"]
+            annotator = annotate_descriptor.__get__(method, types.FunctionType)
+            assert type(annotator) is types.FunctionType
+            cached_method_annotations = python_annotations._cached_annotations(method)
+            assert (
+                cached_method_annotations is python_annotations._ABSENT
+                or type(cached_method_annotations) is dict
+            )
+            method_annotation_items = (
+                tuple(cached_method_annotations.items())
+                if type(cached_method_annotations) is dict
+                else ()
+            )
         capture = _capture(target, tmp_path)
         assert capture.check_target("unchanged")
         assert target.__annotations__ is annotations
@@ -1819,13 +1856,103 @@ def test_unchanged_simple_linear_union_annotation_capture_keeps_native_work_unat
         unions = [
             (path, value) for path, value in witness.edges if path[-1:] == ("union",)
         ]
+        union_witness = witness
+        if sys.version_info[:2] == (3, 14):
+            # The actual 3.14 wrappers have separate empty dictionaries. Keep
+            # their original identity evidence and verify equal-copy rejection.
+            assert annotations == {} and unions == []
+            assert target.__annotate__ is None
+            inner = _closure(target, "fun").cell_contents
+            assert type(inner) is types.FunctionType
+            assert compat.native_transformed_function_role(inner) == "vmap_f"
+            assert inner.__annotate__ is None
+            inner_annotations = inner.__annotations__
+            assert inner_annotations == {} and inner_annotations is not annotations
+            edges = dict(witness.edges)
+            assert edges[("root", "metadata:annotations")] is annotations
+            assert (
+                edges[("root", "capture:fun", "metadata:annotations")]
+                is inner_annotations
+            )
+            assert _closure(inner, "fun").cell_contents is owner
+            assert annotate_descriptor.__get__(method, types.FunctionType) is annotator
+            assert (
+                python_annotations._cached_annotations(method)
+                is cached_method_annotations
+            )
+            try:
+                target.__annotations__ = dict(annotations)
+                assert target.__annotations__ == annotations
+                assert target.__annotations__ is not annotations
+                assert not capture.check_target(
+                    "replaced-native-empty-annotation-container"
+                )
+            finally:
+                target.__annotations__ = annotations
+            assert capture.check_target("restored-native-empty-annotation-container")
+            assert target.__annotations__ is annotations
+            assert inner.__annotations__ is inner_annotations
+            # Retain positive union coverage through this same actual owner's
+            # original cached bias annotation, captured as a separate target.
+            bias_union = cache["bias"]
+            annotation_capture = _capture(
+                bias_union, tmp_path, "actual-owner-bias-annotation"
+            )
+            assert annotation_capture.check_target("unchanged-original-owner-bias")
+            assert annotation_capture.target_state["kind"] == "native-union-type"
+            union_witness = annotation_capture.target_witness
+            assert union_witness is not None
+            assert union_witness.selected == {("root",): "native-union-annotation"}
+            unions = [
+                (path, value)
+                for path, value in union_witness.edges
+                if path[-1:] == ("union",)
+            ]
+            assert len(unions) == 1 and unions[0][1] is bias_union
+            assert (
+                annotation_capture.records["instantiated-target-state"]["status"]
+                == "captured"
+            )
+            assert annotation_capture.records["native_outcomes"] == {}
+            assert annotation_capture.records["product_admission"] == "not-attempted"
+            assert (
+                annotation_capture.records["raw_callback"]["status"] == "not-executed"
+            )
+            assert annotation_capture.readiness is CheckStatus.UNVERIFIED
+            assert namespace["__annotations_cache__"] is cache
+            assert len(cache) == len(cache_items)
+            assert all(
+                key is old_key and value is old_value
+                for (key, value), (old_key, old_value) in zip(
+                    cache.items(), cache_items, strict=True
+                )
+            )
+            assert all(
+                (name in namespace) is present and namespace.get(name) is original
+                for name, present, original in class_annotation_slots
+            )
+            assert annotate_descriptor.__get__(method, types.FunctionType) is annotator
+            assert (
+                python_annotations._cached_annotations(method)
+                is cached_method_annotations
+            )
+            if type(cached_method_annotations) is dict:
+                assert len(cached_method_annotations) == len(method_annotation_items)
+                assert all(
+                    key is old_key and value is old_value
+                    for (key, value), (old_key, old_value) in zip(
+                        cached_method_annotations.items(),
+                        method_annotation_items,
+                        strict=True,
+                    )
+                )
         assert unions
         for path, union in unions:
             assert type(union) is types.UnionType
             arguments = raw._NATIVE_UNION_ARGS.__get__(union, types.UnionType)
             assert len(arguments) == 2
             assert arguments[0] is compat.Array and arguments[1] is type(None)
-            edges = dict(witness.edges)
+            edges = dict(union_witness.edges)
             base = path[:-1]
             assert edges[base + ("union-args",)] is arguments
             assert edges[base + ("union-arg[0]",)] is compat.Array
@@ -2028,12 +2155,27 @@ def _native_typing_alias(reverse: bool = False) -> Any:
 
 def _native_typing_storage(value: Any) -> tuple[Any, dict[str, Any]]:
     boundary = raw._NATIVE_TYPING_BOUNDARY
-    index = 0 if type(value) is boundary.union_class else 1
-    descriptor = boundary.alias_dictionaries[index][2]
-    return descriptor, descriptor.__get__(value, type(value))
+    for cls, _, descriptor in boundary.alias_dictionaries:
+        if type(value) is cls:
+            return descriptor, descriptor.__get__(value, cls)
+    raise AssertionError("selected alias has no mutable native dictionary storage")
+
+
+def _native_typing_arguments(value: Any) -> tuple[Any, ...]:
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    if boundary.immutable_union and type(value) is boundary.union_class:
+        return boundary.union_descriptors["__args__"].__get__(value, type(value))
+    return _native_typing_storage(value)[1]["__args__"]
 
 
 def _clone_native_typing_alias(value: Any) -> Any:
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    if boundary.immutable_union and type(value) is boundary.union_class:
+        # CPython 3.14's immutable C union has no instance dictionary or object
+        # constructor. Its ordinary subscription retains the actual arguments.
+        cloned = typing.Union[_native_typing_arguments(value)]
+        assert cloned == value and cloned is not value
+        return cloned
     descriptor, namespace = _native_typing_storage(value)
     cloned = object.__new__(type(value))
     descriptor.__set__(cloned, dict(namespace))
@@ -2049,15 +2191,23 @@ def test_native_typing_annotation_order_storage_and_strong_selected_edges(
         if kind == "literal"
         else _native_typing_alias(kind == "reverse")
     )
-    descriptor, namespace = _native_typing_storage(alias)
-    original_items = tuple(namespace.items())
-    arguments = namespace["__args__"]
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    immutable = boundary.immutable_union and type(alias) is boundary.union_class
+    arguments = _native_typing_arguments(alias)
+    if immutable:
+        expected_fields = ["__origin__", "__args__", "__parameters__"]
+        original_origin = typing.Union
+    else:
+        descriptor, namespace = _native_typing_storage(alias)
+        original_items = tuple(namespace.items())
+        expected_fields = list(namespace)
+        original_origin = namespace["__origin__"]
     capture = _capture(alias, tmp_path)
     assert capture.check_target("unchanged-typing")
     assert capture.target_state["kind"] == "native-typing-annotation"
-    assert [key for key, _ in capture.target_state["alias"]["fields"]] == list(
-        namespace
-    )
+    assert [
+        key for key, _ in capture.target_state["alias"]["fields"]
+    ] == expected_fields
     fields = dict(capture.target_state["alias"]["fields"])
     kinds = [argument["kind"] for argument in fields["__args__"]]
     expected = (
@@ -2069,15 +2219,28 @@ def test_native_typing_annotation_order_storage_and_strong_selected_edges(
     assert witness.selected == {("root",): "native-typing-annotation"}
     edges = dict(witness.edges)
     assert edges[("root", "typing-alias")] is alias
-    assert edges[("root", "typing-dictionary")] is namespace
+    if immutable:
+        assert capture.target_state["alias"]["storage"] == "native-immutable-union"
+        assert ("root", "typing-dictionary") not in edges
+        assert edges[("root", "typing-union-class")] is types.UnionType
+        assert typing.Union is types.UnionType
+        for name, descriptor in boundary.union_descriptors.items():
+            assert edges[("root", "typing-union-descriptor:" + name)] is descriptor
+        with pytest.raises(AttributeError):
+            object.__getattribute__(alias, "__dict__")
+    else:
+        assert edges[("root", "typing-dictionary")] is namespace
     assert edges[("root", "typing-field:__args__")] is arguments
-    assert edges[("root", "typing-field:__origin__")] is namespace["__origin__"]
+    assert edges[("root", "typing-field:__origin__")] is original_origin
     for index, argument in enumerate(arguments):
         assert edges[("root", f"typing-arg[{index}]")] is argument
     assert any(value is typing for _, value in witness.edges)
     assert any(type(value) is types.CodeType for _, value in witness.edges)
-    assert descriptor.__get__(alias, type(alias)) is namespace
-    assert tuple(namespace.items()) == original_items
+    if immutable:
+        assert _native_typing_arguments(alias) is arguments
+    else:
+        assert descriptor.__get__(alias, type(alias)) is namespace
+        assert tuple(namespace.items()) == original_items
     assert capture.records["native_outcomes"] == {}
     assert capture.records["product_admission"] == "not-attempted"
     assert capture.records["raw_callback"]["status"] == "not-executed"
@@ -2100,7 +2263,12 @@ def test_native_typing_equal_replacements_and_shared_alias_splits_are_observed(
     mutation: str, tmp_path: Path
 ) -> None:
     alias = _native_typing_alias()
-    descriptor, namespace = _native_typing_storage(alias)
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    union_arguments = _native_typing_arguments(alias)
+    # The immutable union keeps its original nested Literal. Mutable-storage
+    # controls therefore exercise that actual owned Literal on CPython 3.14.
+    storage_alias = union_arguments[1] if boundary.immutable_union else alias
+    descriptor, namespace = _native_typing_storage(storage_alias)
     items = tuple(namespace.items())
     arguments = namespace["__args__"]
     shared = [alias]
@@ -2115,15 +2283,22 @@ def test_native_typing_equal_replacements_and_shared_alias_splits_are_observed(
         if mutation == "alias":
             capture.target = _clone_native_typing_alias(alias)
         elif mutation == "dictionary":
-            descriptor.__set__(alias, dict(namespace))
+            descriptor.__set__(storage_alias, dict(namespace))
         elif mutation == "args":
             namespace["__args__"] = tuple(list(arguments))
             assert namespace["__args__"] is not arguments
         elif mutation == "nested-literal":
-            namespace["__args__"] = (
-                arguments[0],
-                _clone_native_typing_alias(arguments[1]),
-            )
+            if boundary.immutable_union:
+                cloned_literal = _clone_native_typing_alias(union_arguments[1])
+                replacement = typing.Union[union_arguments[0], cloned_literal]
+                assert replacement == alias and replacement is not alias
+                assert _native_typing_arguments(replacement)[1] is cloned_literal
+                target["right"] = replacement
+            else:
+                namespace["__args__"] = (
+                    arguments[0],
+                    _clone_native_typing_alias(arguments[1]),
+                )
         elif mutation == "container":
             capture.target = dict(target)
         elif mutation == "shared-alias":
@@ -2134,11 +2309,12 @@ def test_native_typing_equal_replacements_and_shared_alias_splits_are_observed(
         assert any(value is alias for _, value in capture.target_witness.edges)
         assert any(value is namespace for _, value in capture.target_witness.edges)
     finally:
-        descriptor.__set__(alias, namespace)
+        descriptor.__set__(storage_alias, namespace)
         namespace.clear()
         namespace.update(items)
-    assert descriptor.__get__(alias, type(alias)) is namespace
+    assert descriptor.__get__(storage_alias, type(storage_alias)) is namespace
     assert namespace["__args__"] is arguments
+    assert _native_typing_arguments(alias) is union_arguments
 
 
 @pytest.mark.parametrize(
@@ -2176,7 +2352,11 @@ def test_native_typing_saved_snapshot_corruption_reaches_actual_check(
     elif mutation == "omission":
         alias["fields"].pop()
     else:
-        fields["__module__"]["str"] = "foreign"
+        if raw._NATIVE_TYPING_BOUNDARY.immutable_union:
+            nested = dict(fields["__args__"][1]["fields"])
+            nested["__module__"]["str"] = "foreign"
+        else:
+            fields["__module__"]["str"] = "foreign"
     assert not capture.check_target("saved-typing-" + mutation)
 
 
@@ -2199,7 +2379,11 @@ def test_native_typing_saved_snapshot_corruption_reaches_actual_check(
 def test_native_typing_actual_alias_storage_schema_is_exact(
     mutation: str, tmp_path: Path
 ) -> None:
-    alias = _native_typing_alias()
+    alias = (
+        typing.Literal["scalar"]
+        if raw._NATIVE_TYPING_BOUNDARY.immutable_union
+        else _native_typing_alias()
+    )
     descriptor, namespace = _native_typing_storage(alias)
     original = tuple(namespace.items())
     capture = _capture(alias, tmp_path)
@@ -2215,7 +2399,11 @@ def test_native_typing_actual_alias_storage_schema_is_exact(
         elif mutation == "name":
             namespace["_name"] = "Union"
         elif mutation == "origin":
-            namespace["__origin__"] = typing.Literal
+            namespace["__origin__"] = (
+                typing.Union
+                if raw._NATIVE_TYPING_BOUNDARY.immutable_union
+                else typing.Literal
+            )
         elif mutation == "slots":
             namespace["__slots__"] = ()
         elif mutation == "args-type":
@@ -2275,11 +2463,16 @@ def test_native_typing_unmeasured_alias_grammar_remains_an_explicit_gap(
     elif kind == "annotated":
         target = typing.Annotated[int, "scalar"]
     else:
+        original_alias = (
+            typing.Literal["scalar"]
+            if raw._NATIVE_TYPING_BOUNDARY.immutable_union
+            else _native_typing_alias()
+        )
         derived = types.new_class(
-            "ForeignAlias", (type(_native_typing_alias()),), {"_root": True}
+            "ForeignAlias", (type(original_alias),), {"_root": True}
         )
         target = object.__new__(derived)
-        descriptor, original = _native_typing_storage(_native_typing_alias())
+        descriptor, original = _native_typing_storage(original_alias)
         descriptor.__set__(target, dict(original))
     capture = raw.RawReplayCapture(tmp_path / "capture")
     with pytest.raises(
@@ -2318,7 +2511,10 @@ def test_native_typing_binding_descriptor_and_implementation_changes_reject(
     capture = _capture(alias, tmp_path)
     boundary = raw._NATIVE_TYPING_BOUNDARY
     union = boundary.origins[0][1]
-    getitem = boundary.origin_slots["_getitem"].__get__(union, type(union))
+    implementation_origin = typing.Literal if boundary.immutable_union else union
+    getitem = boundary.origin_slots["_getitem"].__get__(
+        implementation_origin, type(implementation_origin)
+    )
 
     def restore() -> None:
         return None
@@ -2332,9 +2528,14 @@ def test_native_typing_binding_descriptor_and_implementation_changes_reject(
             sys.modules["typing"] = types.ModuleType("typing")
             restore = functools.partial(sys.modules.__setitem__, "typing", original)
         elif mutation == "class":
-            original = typing._UnionGenericAlias
-            typing._UnionGenericAlias = type("Foreign", (), {})
-            restore = functools.partial(setattr, typing, "_UnionGenericAlias", original)
+            class_name = (
+                "_LiteralGenericAlias"
+                if boundary.immutable_union
+                else "_UnionGenericAlias"
+            )
+            original = vars(typing)[class_name]
+            setattr(typing, class_name, type("Foreign", (), {}))
+            restore = functools.partial(setattr, typing, class_name, original)
         elif mutation == "origin":
             original = typing.Union
             typing.Union = object()
@@ -2348,9 +2549,13 @@ def test_native_typing_binding_descriptor_and_implementation_changes_reject(
             typing._SpecialForm._name = object()
             restore = functools.partial(setattr, typing._SpecialForm, "_name", original)
         elif mutation == "getitem":
-            boundary.origin_slots["_getitem"].__set__(union, lambda *args: None)
+            boundary.origin_slots["_getitem"].__set__(
+                implementation_origin, lambda *args: None
+            )
             restore = functools.partial(
-                boundary.origin_slots["_getitem"].__set__, union, getitem
+                boundary.origin_slots["_getitem"].__set__,
+                implementation_origin,
+                getitem,
             )
         elif mutation in ("code", "same-code"):
             original = getitem.__code__
@@ -2417,13 +2622,15 @@ def test_native_typing_binding_descriptor_and_implementation_changes_reject(
 def _native_typing_executables() -> dict[str, Any]:
     boundary = raw._NATIVE_TYPING_BOUNDARY
     union, literal = (origin for _, origin in boundary.origins)
-    union_body = boundary.origin_slots["_getitem"].__get__(union, type(union))
     literal_wrapper = boundary.origin_slots["_getitem"].__get__(literal, type(literal))
     selected = {
-        "union-body": union_body,
         "literal-wrapper": literal_wrapper,
         "literal-body": vars(literal_wrapper)["__wrapped__"],
     }
+    if not boundary.immutable_union:
+        selected["union-body"] = boundary.origin_slots["_getitem"].__get__(
+            union, type(union)
+        )
     if boundary.variant == (3, 13):
         union_method = vars(boundary.special_class)["__getitem__"]
         selected.update(
@@ -2438,12 +2645,23 @@ def _native_typing_executables() -> dict[str, Any]:
             cached = boundary.typing_caches[body]
             namespace = boundary.cache_dictionary.__get__(cached, type(cached))
             selected[name + "-parameters"] = namespace["cache_parameters"]
+    elif boundary.immutable_union:
+        selected["literal-method"] = vars(boundary.literal_origin_class)["__getitem__"]
+        body = _closure(literal_wrapper, "func").cell_contents
+        cached = boundary.typing_caches[body]
+        namespace = boundary.cache_dictionary.__get__(cached, type(cached))
+        selected["literal-parameters"] = namespace["cache_parameters"]
     return selected
 
 
 @pytest.mark.parametrize(
     "role",
-    ("union-body", "literal-wrapper", "literal-body")
+    ("literal-wrapper", "literal-body")
+    + (
+        ("literal-method", "literal-parameters")
+        if sys.version_info[:2] == (3, 14)
+        else ("union-body",)
+    )
     + (
         (
             "union-method",
@@ -2472,12 +2690,22 @@ def test_native_typing_each_selected_executable_envelope_is_frozen(
         "__annotations__": {"changed": int},
         "__dict__": dict(vars(function)),
     }
-    if sys.version_info[:2] == (3, 13):
+    if sys.version_info[:2] in ((3, 13), (3, 14)):
         assert (
             type(function.__type_params__) is tuple and function.__type_params__ == ()
         )
         assert any(value is function.__type_params__ for _, value in witness.edges)
         replacements["__type_params__"] = (int,)
+    annotation_calls = []
+
+    def forbidden_annotate(*args: Any, **kwargs: Any) -> Any:
+        annotation_calls.append("annotation callback")
+        raise AssertionError("selected typing annotation callback executed")
+
+    original_annotations = function.__annotations__
+    if sys.version_info[:2] == (3, 14):
+        assert function.__annotate__ is None
+        replacements["__annotate__"] = forbidden_annotate
     for field, replacement in replacements.items():
         original = getattr(function, field)
         try:
@@ -2485,7 +2713,10 @@ def test_native_typing_each_selected_executable_envelope_is_frozen(
             rejected = not capture.check_target(role + ":" + field)
         finally:
             setattr(function, field, original)
+            if field == "__annotate__":
+                function.__annotations__ = original_annotations
         assert rejected, (role, field)
+        assert annotation_calls == []
         assert capture.check_target("restored-" + role + ":" + field)
     original_annotations = function.__annotations__
     try:
@@ -2503,13 +2734,13 @@ def test_native_typing_unrelated_cache_population_preserves_selected_boundary(
     alias = _native_typing_alias()
     capture = _capture(alias, tmp_path)
     boundary = raw._NATIVE_TYPING_BOUNDARY
-    if boundary.variant == (3, 13):
+    if boundary.global_literal_cache:
         selected = [
             (role, value)
             for role, value in boundary.baseline_edges
             if role.endswith((":cache-key", ":cache-value"))
         ]
-        assert len(selected) == 4
+        assert len(selected) == (2 if boundary.immutable_union else 4)
         assert any(
             value is boundary.typing_caches for _, value in capture.target_witness.edges
         )
@@ -2523,10 +2754,10 @@ def test_native_typing_unrelated_cache_population_preserves_selected_boundary(
     assert len(unrelated) == 3
     assert capture.check_target("unrelated-stdlib-cache-population")
     assert raw._capture_target_state(alias) == capture.target_state
-    if boundary.variant == (3, 13):
+    if boundary.global_literal_cache:
         current = dict(boundary.read_boundary()[1])
         assert all(current[role] is value for role, value in selected)
-        for role in ("literal", "union"):
+        for role in ("literal",) if boundary.immutable_union else ("literal", "union"):
             functions = _native_typing_executables()
             wrapper = functions[
                 "literal-wrapper" if role == "literal" else "union-method"
@@ -2540,11 +2771,13 @@ def test_native_typing_unrelated_cache_population_preserves_selected_boundary(
                 "__name__",
                 "__qualname__",
                 "__doc__",
-                "__annotations__",
+                "__annotate__" if boundary.immutable_union else "__annotations__",
                 "__type_params__",
                 "__wrapped__",
             )
             assert fields["__wrapped__"] is body
+            if boundary.immutable_union:
+                assert fields["__annotate__"] is None
             assert (
                 type(fields["__type_params__"]) is tuple
                 and fields["__type_params__"] == ()
@@ -2590,11 +2823,18 @@ def test_native_typing_selected_global_cache_and_method_aliases_reject_mutations
     capture = _capture(alias, tmp_path)
     boundary = raw._NATIVE_TYPING_BOUNDARY
     functions = _native_typing_executables()
+    annotation_calls = []
+
+    def foreign_annotate(*args: Any, **kwargs: Any) -> Any:
+        annotation_calls.append("cache annotation callback")
+        raise AssertionError("selected cache annotation callback executed")
+
     # Every measured interpreter exercises an actual native wrapper/body alias;
     # 3.13 additionally exercises its two measured global cache lookup paths.
     wrappers = [("literal", functions["literal-wrapper"])]
-    if boundary.variant == (3, 13):
-        wrappers.append(("union", functions["union-method"]))
+    if boundary.global_literal_cache:
+        if not boundary.immutable_union:
+            wrappers.append(("union", functions["union-method"]))
         caches = boundary.typing_caches
         namespace = vars(typing)
         for change in ("dictionary-replace", "dictionary-delete"):
@@ -2607,6 +2847,7 @@ def test_native_typing_selected_global_cache_and_method_aliases_reject_mutations
             finally:
                 namespace["_caches"] = caches
             assert rejected, change
+            assert annotation_calls == []
             assert capture.check_target("restored-" + change)
     for role, wrapper in wrappers:
         cell = _closure(wrapper, "func")
@@ -2623,8 +2864,9 @@ def test_native_typing_selected_global_cache_and_method_aliases_reject_mutations
                 vars(wrapper)["__wrapped__"] = body
                 cell.cell_contents = body
             assert rejected, (role, edge)
+            assert annotation_calls == []
             assert capture.check_target("restored-" + role + ":" + edge)
-        if boundary.variant != (3, 13):
+        if not boundary.global_literal_cache:
             continue
         cached = caches[body]
         fields = boundary.cache_dictionary.__get__(cached, type(cached))
@@ -2662,7 +2904,10 @@ def test_native_typing_selected_global_cache_and_method_aliases_reject_mutations
                 elif change == "wrapped":
                     fields["__wrapped__"] = cloned
                 elif change == "annotations":
-                    fields["__annotations__"] = {"changed": int}
+                    if boundary.immutable_union:
+                        fields["__annotate__"] = foreign_annotate
+                    else:
+                        fields["__annotations__"] = {"changed": int}
                 elif change == "parameters-type":
                     fields["cache_parameters"] = object()
                 elif change == "maxsize":
@@ -2679,6 +2924,7 @@ def test_native_typing_selected_global_cache_and_method_aliases_reject_mutations
                     original_typed,
                 )
             assert rejected, (role, change)
+            assert annotation_calls == []
             assert capture.check_target("restored-" + role + ":cache:" + change)
 
 
@@ -2780,3 +3026,710 @@ def test_native_array_unmeasured_initial_symbol_is_a_local_explicit_gap(
         assert capture.target_witness is None
         assert capture.records["native_outcomes"] == {}
         assert capture.readiness is CheckStatus.UNVERIFIED
+
+
+def _signature_default_document() -> tuple[dict[str, Any], Any]:
+    graph = compat._NativeSignatureDefaultCaptureGraph("vmap_f")
+    root = graph.take_selected_signature(compat.inspect.signature)
+    return {"root": root, "nodes": graph.nodes}, graph
+
+
+def test_native_signature_default_exact_loaded_edge_without_execution(
+    tmp_path: Path,
+) -> None:
+    assert compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if sys.version_info[:2] != (3, 14):
+        assert entry is None
+        document, _ = _signature_default_document()
+        assert document["nodes"]
+        return
+    assert entry is not None
+    function = entry["function"]
+    forbidden_codes = [entry["code"]]
+    for _, value in entry["class_members"]:
+        if type(value) is staticmethod:
+            value = value.__func__
+        if type(value) is types.FunctionType:
+            forbidden_codes.append(value.__code__)
+    calls = []
+
+    def observe(frame: Any, event: str, argument: Any) -> None:
+        if event == "call" and any(frame.f_code is code for code in forbidden_codes):
+            calls.append(frame.f_code.co_name)
+
+    previous = sys.getprofile()
+    try:
+        sys.setprofile(observe)
+        document, graph = _signature_default_document()
+    finally:
+        sys.setprofile(previous)
+    assert sys.getprofile() is previous
+    assert calls == []
+    assert graph._active_signature is False
+    assert function is compat.inspect.signature
+    assert function.__kwdefaults__ is entry["container"]
+    assert entry["container"]["annotation_format"] is entry["members"][0][1]
+    assert len(entry["class_members"]) == 21
+    assert len(entry["members"]) == 4
+    assert len(entry["mutable"]) == 6
+    assert len(entry["descriptors"]) == 2
+    assert compat._NATIVE_WRAPPER_IMPLEMENTATION_GAPS == {}
+    for value in (
+        function,
+        entry["code"],
+        entry["globals"],
+        entry["container"],
+        entry["class"],
+        entry["metaclass"],
+    ):
+        assert graph.retained[id(value)] is value
+    for _, value in entry["symbols"]:
+        assert graph.retained[id(value)] is value
+    for _, member, dictionary, fields in entry["members"]:
+        assert graph.retained[id(member)] is member
+        assert graph.retained[id(dictionary)] is dictionary
+        for name, value in fields:
+            assert graph.retained[id(name)] is name
+            assert graph.retained[id(value)] is value
+    for _, dictionary, _, value in entry["edges"]:
+        assert graph.retained[id(dictionary)] is dictionary
+        assert graph.retained[id(value)] is value
+    (tmp_path / "native-signature-format-loaded-layout.json").write_text(
+        json.dumps(document, indent=2)
+    )
+    assert _signature_default_document()[0] == document
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "container",
+        "equal-int",
+        "other-member",
+        "foreign-enum",
+        "hostile",
+        "extra-key",
+        "missing-key",
+        "function-alias",
+        "function-code",
+        "inspect-format",
+        "annotation-format",
+        "enum-type",
+        "enum-class",
+        "enum-intenum",
+        "jax-inspect",
+    ),
+)
+def test_native_signature_default_exact_edge_rejects_changes_before_hooks(
+    fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+
+    class Hostile:
+        def __getattribute__(self, name: str) -> Any:
+            raise AssertionError("unowned signature default attribute hook executed")
+
+        def __repr__(self) -> str:
+            raise AssertionError("unowned signature default repr executed")
+
+        def __eq__(self, other: Any) -> bool:
+            raise AssertionError("unowned signature default equality executed")
+
+        def __hash__(self) -> int:
+            raise AssertionError("unowned signature default hash executed")
+
+    from enum import IntEnum
+
+    class Foreign(IntEnum):
+        VALUE = 1
+
+    container = entry["container"]
+    enum_module = sys.modules["enum"]
+    try:
+        if fault == "container":
+            monkeypatch.setattr(entry["function"], "__kwdefaults__", dict(container))
+        elif fault in ("equal-int", "other-member", "foreign-enum", "hostile"):
+            replacement = {
+                "equal-int": 1,
+                "other-member": entry["members"][1][1],
+                "foreign-enum": Foreign.VALUE,
+                "hostile": object.__new__(Hostile),
+            }[fault]
+            monkeypatch.setitem(container, "annotation_format", replacement)
+        elif fault == "extra-key":
+            monkeypatch.setitem(container, "foreign", object.__new__(Hostile))
+        elif fault == "missing-key":
+            monkeypatch.delitem(container, "annotation_format")
+        elif fault == "function-alias":
+            function = entry["function"]
+            clone = types.FunctionType(
+                function.__code__,
+                function.__globals__,
+                function.__name__,
+                function.__defaults__,
+                function.__closure__,
+            )
+            clone.__kwdefaults__ = container
+            monkeypatch.setattr(compat.inspect, "signature", clone)
+        elif fault == "function-code":
+            monkeypatch.setattr(entry["function"], "__code__", entry["code"].replace())
+        elif fault == "inspect-format":
+            monkeypatch.setitem(vars(compat.inspect), "Format", object.__new__(Hostile))
+        elif fault == "annotation-format":
+            monkeypatch.setitem(
+                vars(sys.modules["annotationlib"]), "Format", object.__new__(Hostile)
+            )
+        elif fault in ("enum-type", "enum-class", "enum-intenum"):
+            name = {
+                "enum-type": "EnumType",
+                "enum-class": "Enum",
+                "enum-intenum": "IntEnum",
+            }[fault]
+            monkeypatch.setitem(vars(enum_module), name, object.__new__(Hostile))
+        else:
+            monkeypatch.setitem(
+                vars(compat._native_api), "inspect", object.__new__(Hostile)
+            )
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+    finally:
+        monkeypatch.undo()
+    assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize("index", (0, 1, 2, 3))
+@pytest.mark.parametrize(
+    "field", ("_name_", "_value_", "__objclass__", "_sort_order_", "foreign")
+)
+def test_native_signature_default_all_original_member_state_is_owned(
+    index: int, field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    dictionary = entry["members"][index][2]
+    replacement = {
+        "_name_": "changed",
+        "_value_": True,
+        "__objclass__": int,
+        "_sort_order_": -1,
+        "foreign": object(),
+    }[field]
+    try:
+        monkeypatch.setitem(dictionary, field, replacement)
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+    finally:
+        monkeypatch.undo()
+    assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "_member_names_",
+        "_member_map_",
+        "_value2member_map_",
+        "_hashable_values_",
+        "_unhashable_values_",
+        "_unhashable_values_map_",
+    ),
+)
+def test_native_signature_default_all_original_bookkeeping_state_is_owned(
+    name: str,
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    _, container, original = next(item for item in entry["mutable"] if item[0] == name)
+    try:
+        if type(container) is list:
+            container.append(object())
+        else:
+            container[5 if name == "_value2member_map_" else "foreign"] = object()
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+        with pytest.raises(ValueError, match="native signature"):
+            compat._initial_native_signature_default_role()
+    finally:
+        if type(container) is list:
+            container[:] = original
+        else:
+            container.clear()
+            container.update(original)
+    assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "__name__",
+        "__qualname__",
+        "__firstlineno__",
+        "__static_attributes__",
+        "__doc__",
+        "_use_args_",
+        "_member_type_",
+        "_generate_next_value_",
+        "__new__",
+        "_new_member_",
+        "_value_repr_",
+        "__format__",
+        "VALUE",
+        "foreign",
+        "missing",
+    ),
+)
+def test_native_signature_default_complete_class_members_are_owned(field: str) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    cls = entry["class"]
+    if field in ("__name__", "__qualname__"):
+        with _changed_class_symbol(cls, field, "changed"):
+            with pytest.raises(ValueError, match="native signature"):
+                _signature_default_document()
+    else:
+        namespace = vars(type)["__dict__"].__get__(cls, type(cls))
+        name = "__format__" if field == "missing" else field
+        present, original = name in namespace, namespace.get(name)
+        try:
+            if field == "missing":
+                type.__delattr__(cls, name)
+            else:
+                type.__setattr__(cls, name, object())
+            with pytest.raises(ValueError, match="native signature"):
+                _signature_default_document()
+        finally:
+            if present:
+                type.__setattr__(cls, name, original)
+            else:
+                type.__delattr__(cls, name)
+    assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize("binding", ("jax", "inspect", "annotationlib", "enum"))
+def test_native_signature_default_original_module_registration_is_owned(
+    binding: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    name = compat._native_api.__name__ if binding == "jax" else binding
+    try:
+        monkeypatch.setitem(sys.modules, name, object())
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+    finally:
+        monkeypatch.undo()
+    assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize("name", ("_generate_next_value_", "__new__"))
+@pytest.mark.parametrize(
+    "field",
+    ("__code__", "__defaults__", "__kwdefaults__", "__annotations__", "__dict__"),
+)
+def test_native_signature_default_owned_function_envelopes_are_not_discarded(
+    name: str, field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    function = dict(entry["class_members"])[name]
+    if type(function) is staticmethod:
+        function = function.__func__
+    replacement = {
+        "__code__": function.__code__.replace(),
+        "__defaults__": (1,),
+        "__kwdefaults__": {"state": 1},
+        "__annotations__": {"value": int},
+        "__dict__": {"state": 1},
+    }[field]
+    try:
+        monkeypatch.setattr(function, field, replacement)
+        assert _signature_default_document()[0] != baseline
+    finally:
+        monkeypatch.undo()
+    assert _signature_default_document()[0] == baseline
+
+
+def test_native_signature_default_permission_cannot_escape_selected_edge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, graph = _signature_default_document()
+    graph_type = compat._NativeSignatureDefaultCaptureGraph
+    function, container = entry["function"], entry["container"]
+    with pytest.raises(ValueError, match="selected role"):
+        graph_type("reraise_with_filtered_traceback").take_selected_signature(function)
+    for target in (graph_type("vmap_f"), graph):
+        for value in (entry["members"][0][1], entry["class"], container, function):
+            with pytest.raises(
+                ValueError, match="unsupported native callable|native signature"
+            ):
+                target.take(value)
+    with pytest.raises(ValueError, match="native signature"):
+        graph_type("vmap_f").take(function)
+
+    def foreign(value: Any = entry["members"][0][1]) -> Any:
+        raise AssertionError("foreign signature helper executed")
+
+    def reused() -> Any:
+        raise AssertionError("reused signature helper executed")
+
+    reused.__kwdefaults__ = container
+    for value in (foreign, reused):
+        with pytest.raises(
+            ValueError, match="unsupported native callable|native signature"
+        ):
+            graph_type("vmap_f").take(value)
+    for _, member, _, _ in entry["members"]:
+        with pytest.raises(ValueError, match="unsupported native callable"):
+            compat._NativeCaptureGraph().take(member)
+    for alias in (
+        function,
+        container,
+        dict(entry["class_members"])["_member_map_"],
+        entry["members"][0][2],
+    ):
+        try:
+            monkeypatch.setitem(vars(function), "foreign_role", alias)
+            fresh = graph_type("vmap_f")
+            with pytest.raises(
+                ValueError, match="unsupported native callable|native signature"
+            ):
+                fresh.take_selected_signature(function)
+            assert fresh._active_signature is False
+        finally:
+            monkeypatch.undo()
+        assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize("index", (0, 1, 2, 3))
+def test_native_signature_default_equal_member_dictionary_replacement_is_rejected(
+    index: int,
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, graph = _signature_default_document()
+    _, member, original, _ = entry["members"][index]
+    descriptor = entry["descriptors"][0][1]
+    replacement = dict(original)
+    try:
+        descriptor.__set__(member, replacement)
+        assert descriptor.__get__(member, entry["class"]) is replacement
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+    finally:
+        descriptor.__set__(member, original)
+    assert graph.retained[id(original)] is original
+    assert descriptor.__get__(member, entry["class"]) is original
+    assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "_member_names_",
+        "_member_map_",
+        "_value2member_map_",
+        "_hashable_values_",
+        "_unhashable_values_",
+        "_unhashable_values_map_",
+    ),
+)
+def test_native_signature_default_equal_class_bookkeeping_replacement_is_rejected(
+    name: str,
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    cls = entry["class"]
+    original = dict(entry["class_members"])[name]
+    replacement = list(original) if type(original) is list else dict(original)
+    try:
+        type.__setattr__(cls, name, replacement)
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+    finally:
+        type.__setattr__(cls, name, original)
+    assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize(
+    "name",
+    ("_member_names_", "_member_map_", "_value2member_map_", "_hashable_values_"),
+)
+def test_native_signature_default_same_length_bookkeeping_alias_changes_are_rejected(
+    name: str,
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    _, container, original = next(item for item in entry["mutable"] if item[0] == name)
+    try:
+        if type(container) is list:
+            container[0], container[1] = container[1], container[0]
+        else:
+            first, second = tuple(container)[:2]
+            container[first], container[second] = container[second], container[first]
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+        with pytest.raises(ValueError, match="native signature"):
+            compat._initial_native_signature_default_role()
+    finally:
+        if type(container) is list:
+            container[:] = original
+        else:
+            container.clear()
+            container.update(original)
+    assert _signature_default_document()[0] == baseline
+
+
+def test_native_signature_default_class_module_and_compiler_metadata_restore_exactly() -> (
+    None
+):
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    cls = entry["class"]
+    namespace = vars(type)["__dict__"].__get__(cls, type(cls))
+    original_module, original_line = (
+        namespace["__module__"],
+        namespace["__firstlineno__"],
+    )
+    try:
+        type.__setattr__(cls, "__module__", "changed")
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+        with pytest.raises(ValueError, match="native signature"):
+            compat._initial_native_signature_default_role()
+    finally:
+        type.__setattr__(cls, "__module__", original_module)
+        type.__setattr__(cls, "__firstlineno__", original_line)
+    assert namespace["__module__"] is original_module
+    assert namespace["__firstlineno__"] is original_line
+    assert _signature_default_document()[0] == baseline
+
+
+@pytest.mark.parametrize(
+    "binding", ("Enum", "EnumType", "IntEnum", "Format", "jax-inspect")
+)
+def test_native_signature_default_initializer_rejects_hostile_aliases_without_hooks(
+    binding: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+
+    class HostileMeta(type):
+        def __getattribute__(self, name: str) -> Any:
+            raise AssertionError("hostile signature metaclass attribute hook executed")
+
+        def __repr__(self) -> str:
+            raise AssertionError("hostile signature metaclass repr executed")
+
+        def __eq__(self, other: Any) -> bool:
+            raise AssertionError("hostile signature metaclass equality executed")
+
+        def __hash__(self) -> int:
+            raise AssertionError("hostile signature metaclass hash executed")
+
+    class Hostile(metaclass=HostileMeta):
+        pass
+
+    try:
+        if binding == "Format":
+            monkeypatch.setitem(vars(compat.inspect), "Format", Hostile)
+            monkeypatch.setitem(vars(sys.modules["annotationlib"]), "Format", Hostile)
+        elif binding == "jax-inspect":
+            monkeypatch.setitem(vars(compat._native_api), "inspect", Hostile)
+        else:
+            monkeypatch.setitem(vars(sys.modules["enum"]), binding, Hostile)
+        with pytest.raises(ValueError, match="native"):
+            compat._initial_native_signature_default_role()
+    finally:
+        monkeypatch.undo()
+    assert _signature_default_document()[0] == baseline
+
+
+def test_native_signature_default_enum_declaration_descriptor_alias_is_owned() -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    baseline, _ = _signature_default_document()
+    enum_class = sys.modules["enum"].Enum
+    original = entry["enum_new_descriptor"]
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("replaced Enum declaration executed")
+
+    try:
+        type.__setattr__(enum_class, "__new__", staticmethod(forbidden))
+        with pytest.raises(ValueError, match="native signature"):
+            _signature_default_document()
+    finally:
+        type.__setattr__(enum_class, "__new__", original)
+    assert _signature_default_document()[0] == baseline
+
+
+def test_native_signature_default_does_not_admit_an_ordinary_source_class(
+    tmp_path: Path,
+) -> None:
+    entry = compat._NATIVE_SIGNATURE_DEFAULT_ROLE
+    if entry is None:
+        assert (
+            sys.version_info[:2] != (3, 14)
+            and compat._NATIVE_SIGNATURE_DEFAULT_GAP is None
+        )
+        return
+    capture = raw.RawReplayCapture(tmp_path / "ordinary-format-class")
+    with pytest.raises(
+        source.SourcePreparationError, match="exact state capture adapter"
+    ):
+        capture.bind_target(entry["class"])
+    assert capture.gaps
+    assert capture.records["native_outcomes"] == {}
+    assert capture.records["replay_readiness"]["status"] == "unverified"
+    assert capture.records["product_admission"] == "not-attempted"
+
+
+@pytest.mark.parametrize(
+    "mutation", ("global-args-descriptor", "global-union-type", "public-union-type")
+)
+def test_native_typing_immutable_union_selector_rejects_drift_before_callbacks(
+    mutation: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    if not boundary.immutable_union:
+        assert boundary.variant in ((3, 11), (3, 12), (3, 13))
+        return
+    alias = _native_typing_alias()
+    capture = _capture(alias, tmp_path)
+    calls = []
+
+    class HostileDescriptor:
+        def __get__(self, value: Any, owner: Any) -> Any:
+            calls.append("union args descriptor")
+            raise AssertionError("unowned union descriptor callback executed")
+
+    try:
+        if mutation == "global-args-descriptor":
+            monkeypatch.setattr(raw, "_NATIVE_UNION_ARGS", HostileDescriptor())
+        elif mutation == "global-union-type":
+            monkeypatch.setattr(raw, "_NATIVE_UNION_TYPE", type("ForeignUnion", (), {}))
+        else:
+            monkeypatch.setattr(types, "UnionType", type("ForeignUnion", (), {}))
+        with pytest.raises(
+            source.SourcePreparationError, match="Native typing annotation"
+        ):
+            raw._capture_target_state(alias)
+        assert not capture.check_target("immutable-union-selector-" + mutation)
+        assert calls == []
+    finally:
+        monkeypatch.undo()
+    assert raw._capture_target_state(alias) == capture.target_state
+    assert capture.check_target("restored-immutable-union-selector-" + mutation)
+    assert calls == []
+
+
+def test_native_typing_and_array_none_union_grammars_remain_distinct(
+    tmp_path: Path,
+) -> None:
+    boundary = raw._NATIVE_TYPING_BOUNDARY
+    array_alias = jax.Array | None
+    typing_alias = _native_typing_alias()
+    assert boundary.matches(typing_alias)
+    assert not boundary.matches(array_alias)
+    if boundary.immutable_union:
+        assert type(array_alias) is type(typing_alias) is types.UnionType
+    array_capture = _capture(array_alias, tmp_path, "array-none-grammar")
+    typing_capture = _capture(typing_alias, tmp_path, "int-literal-grammar")
+    assert array_capture.target_state["kind"] == "native-union-type"
+    assert typing_capture.target_state["kind"] == "native-typing-annotation"
+    assert array_capture.target_witness.selected == {
+        ("root",): "native-union-annotation"
+    }
+    assert typing_capture.target_witness.selected == {
+        ("root",): "native-typing-annotation"
+    }
+    mixed = typing.Union[jax.Array, int, None]
+    unsupported = raw.RawReplayCapture(tmp_path / "mixed-union-grammar")
+    with pytest.raises(
+        source.SourcePreparationError, match="exact state capture adapter"
+    ):
+        unsupported.bind_target(mixed)
+    assert unsupported.gaps and unsupported.target_witness is None
+    assert unsupported.records["native_outcomes"] == {}
+    assert unsupported.readiness is CheckStatus.UNVERIFIED
+    assert array_capture.check_target("unchanged-array-none-grammar")
+    assert typing_capture.check_target("unchanged-int-literal-grammar")

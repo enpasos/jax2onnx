@@ -1586,6 +1586,29 @@ def _capture_native_union(
 class _NativeTypingAnnotationBoundary:
     """Only the measured native int/Literal annotation and its stdlib storage."""
 
+    _IMMUTABLE_UNION_FIELDS = (
+        "__repr__",
+        "__hash__",
+        "__getattribute__",
+        "__lt__",
+        "__le__",
+        "__eq__",
+        "__ne__",
+        "__gt__",
+        "__ge__",
+        "__or__",
+        "__ror__",
+        "__getitem__",
+        "__mro_entries__",
+        "__class_getitem__",
+        "__args__",
+        "__name__",
+        "__qualname__",
+        "__origin__",
+        "__parameters__",
+        "__doc__",
+    )
+
     def __init__(self) -> None:
         self.type = type
         self.module_descriptor = vars(types.ModuleType)["__dict__"]
@@ -1604,7 +1627,10 @@ class _NativeTypingAnnotationBoundary:
             for name, module in self.modules
         }
         self.variant = sys.version_info[:2]
-        if self.variant not in ((3, 11), (3, 12), (3, 13)):
+        self.immutable_union = self.variant == (3, 14)
+        self.global_literal_cache = self.variant in ((3, 13), (3, 14))
+        self.function_type_parameters = self.variant in ((3, 13), (3, 14))
+        if self.variant not in ((3, 11), (3, 12), (3, 13), (3, 14)):
             # Keep unrelated replay imports usable. Any selected alias on an
             # unmeasured interpreter still needs its exact storage adapter.
             self.union_class = self.namespaces["typing"].get("_UnionGenericAlias")
@@ -1613,17 +1639,20 @@ class _NativeTypingAnnotationBoundary:
         self.builtin_types = tuple(
             (name, self.namespaces["builtins"][name])
             for name in ("type", "int", "bool", "str", "tuple", "list", "dict")
+            + (("object",) if self.immutable_union else ())
         )
         self.native_int = type(0)
         literal_origin_name = (
             "_TypedCacheSpecialForm"
-            if self.variant == (3, 13)
+            if self.global_literal_cache
             else "_LiteralSpecialForm"
         )
         self.classes = tuple(
             (name, self.namespaces["typing"][name])
             for name in (
-                "_UnionGenericAlias",
+                ("Union",) if self.immutable_union else ("_UnionGenericAlias",)
+            )
+            + (
                 "_LiteralGenericAlias",
                 "_GenericAlias",
                 "_BaseGenericAlias",
@@ -1634,17 +1663,41 @@ class _NativeTypingAnnotationBoundary:
             )
         )
         classes = dict(self.classes)
-        self.union_class = classes["_UnionGenericAlias"]
+        self.union_class = classes[
+            "Union" if self.immutable_union else "_UnionGenericAlias"
+        ]
         self.literal_class = classes["_LiteralGenericAlias"]
         self.special_class = classes["_SpecialForm"]
         self.literal_origin_class = classes[literal_origin_name]
         self.alias_dictionaries = (
-            (self.union_class, self.union_class, vars(self.union_class)["__dict__"]),
+            ()
+            if self.immutable_union
+            else (
+                (
+                    self.union_class,
+                    self.union_class,
+                    vars(self.union_class)["__dict__"],
+                ),
+            )
+        ) + (
             (
                 self.literal_class,
                 classes["_BaseGenericAlias"],
                 vars(classes["_BaseGenericAlias"])["__dict__"],
             ),
+        )
+        self.union_descriptors = (
+            {
+                name: vars(self.union_class)[name]
+                for name in ("__origin__", "__args__", "__parameters__")
+            }
+            if self.immutable_union
+            else {}
+        )
+        self.union_layout_descriptors = (
+            {name: vars(type)[name] for name in ("__flags__", "__dictoffset__")}
+            if self.immutable_union
+            else {}
         )
         self.literal_dictionary = vars(self.literal_origin_class)["__dict__"]
         self.origin_slots = {
@@ -1667,7 +1720,8 @@ class _NativeTypingAnnotationBoundary:
                 "__dict__",
                 "__annotations__",
             )
-            + (("__type_params__",) if self.variant == (3, 13) else ())
+            + (("__type_params__",) if self.function_type_parameters else ())
+            + (("__annotate__",) if self.immutable_union else ())
         }
         self.cell_type = types.CellType
         self.cell_contents = vars(types.CellType)["cell_contents"]
@@ -1684,12 +1738,13 @@ class _NativeTypingAnnotationBoundary:
                 "GetSetDescriptorType",
                 "MemberDescriptorType",
             )
+            + (("UnionType",) if self.immutable_union else ())
         )
         self.cache_type = self.namespaces["functools"]["_lru_cache_wrapper"]
         self.cache_dictionary = vars(self.cache_type)["__dict__"]
-        if self.variant == (3, 13):
+        if self.global_literal_cache:
             # The selected wrappers read this exact global dictionary. Retain
-            # only their two key/value edges, not unrelated stdlib cache state.
+            # only their selected key/value edges, not unrelated cache state.
             self.typing_caches = self.namespaces["typing"].get("_caches")
             if self.type(self.typing_caches) is not dict:
                 self.fail("native cache dictionary")
@@ -1802,6 +1857,57 @@ class _NativeTypingAnnotationBoundary:
             mro = self.type_descriptors["__mro__"].__get__(original, self.type)
             take("class:" + name + ":mro", mro)
             class_state.append([symbol, fields])
+        immutable_union_state = None
+        if self.immutable_union:
+            namespace = self.type_descriptors["__dict__"].__get__(
+                self.union_class, self.type
+            )
+            mro = self.type_descriptors["__mro__"].__get__(self.union_class, self.type)
+            if (
+                self.union_class is not _NATIVE_UNION_TYPE
+                or self.namespaces["types"].get("UnionType") is not self.union_class
+                or tuple(namespace) != self._IMMUTABLE_UNION_FIELDS
+                or self.type(mro) is not tuple
+                or len(mro) != 2
+                or mro[0] is not self.union_class
+                or mro[1] is not self.namespaces["builtins"]["object"]
+            ):
+                self.fail("native immutable Union class layout")
+            layout = {}
+            for name, descriptor in self.union_layout_descriptors.items():
+                if vars(type).get(name) is not descriptor:
+                    self.fail("native Union type layout descriptor")
+                item = descriptor.__get__(self.union_class, self.type)
+                if self.type(item) is not self.native_int:
+                    self.fail("native Union type layout scalar")
+                layout[name] = item
+                take("union-layout-descriptor:" + name, descriptor)
+            flags = layout["__flags__"]
+            if (
+                not flags & (1 << 8)
+                or flags & ((1 << 9) | (1 << 10))
+                or layout["__dictoffset__"] != 0
+            ):
+                self.fail("native immutable Union flags or dictionary")
+            for name, descriptor in self.union_descriptors.items():
+                expected = (
+                    types.MemberDescriptorType
+                    if name == "__args__"
+                    else types.GetSetDescriptorType
+                )
+                if (
+                    namespace.get(name) is not descriptor
+                    or self.type(descriptor) is not expected
+                ):
+                    self.fail("native immutable Union storage descriptor")
+                take("union-storage-descriptor:" + name, descriptor)
+            immutable_union_state = {
+                "symbol": ["typing", "Union"],
+                "namespace_fields": list(self._IMMUTABLE_UNION_FIELDS),
+                "storage_fields": list(self.union_descriptors),
+                "immutable": True,
+                "instance_dictionary": "absent",
+            }
         for cls, owner, descriptor in self.alias_dictionaries:
             if (
                 self.type_descriptors["__dict__"]
@@ -1842,7 +1948,7 @@ class _NativeTypingAnnotationBoundary:
         take("cache-class", self.cache_type)
         take("cache-dictionary-descriptor", self.cache_dictionary)
 
-        if self.variant == (3, 13):
+        if self.global_literal_cache:
             if self.namespaces["typing"].get("_caches") is not self.typing_caches:
                 self.fail("native cache dictionary binding")
             take("typing-cache-dictionary", self.typing_caches)
@@ -1853,6 +1959,12 @@ class _NativeTypingAnnotationBoundary:
             if self.type(value) is not self.function_type:
                 self.fail("native getitem function")
             take(role, value)
+            if self.immutable_union:
+                annotate = self.function_descriptors["__annotate__"].__get__(
+                    value, self.function_type
+                )
+                if annotate is not None:
+                    self.fail("native getitem lazy annotation callback")
             fields = {
                 name: descriptor.__get__(value, self.function_type)
                 for name, descriptor in self.function_descriptors.items()
@@ -1898,7 +2010,9 @@ class _NativeTypingAnnotationBoundary:
                     self.fail("native getitem defaults")
                 metadata[key] = {"none": True}
             self.dictionary(fields["__annotations__"], ())
-            if self.variant == (3, 13):
+            if self.immutable_union:
+                metadata["__annotate__"] = {"none": True}
+            if self.function_type_parameters:
                 parameters = fields["__type_params__"]
                 if self.type(parameters) is not tuple or parameters:
                     self.fail("native function type parameters")
@@ -1955,7 +2069,7 @@ class _NativeTypingAnnotationBoundary:
                     metadata["body"] = function(body, role + ":body", body_mode)
                     if self.variant == (3, 11):
                         metadata["cache"] = cache(values[0], body, role + ":cache")
-                    elif self.variant == (3, 13):
+                    elif self.global_literal_cache:
                         # The wrapper's actual globals and closure key are
                         # already pinned above; never invoke the cache itself.
                         for key, selected in dict.items(self.typing_caches):
@@ -1988,9 +2102,9 @@ class _NativeTypingAnnotationBoundary:
                     "__name__",
                     "__qualname__",
                     "__doc__",
-                    "__annotations__",
+                    "__annotate__" if self.immutable_union else "__annotations__",
                 )
-                + (("__type_params__",) if self.variant == (3, 13) else ())
+                + (("__type_params__",) if self.function_type_parameters else ())
                 + ("__wrapped__",),
             )
             take(role + ":dictionary", namespace)
@@ -2006,9 +2120,13 @@ class _NativeTypingAnnotationBoundary:
                 elif key == "__wrapped__":
                     result[key] = (
                         "native-selected-body"
-                        if self.variant == (3, 13)
+                        if self.global_literal_cache
                         else "native-Literal-body"
                     )
+                elif key == "__annotate__":
+                    if item is not None:
+                        self.fail("native cache lazy annotation callback")
+                    result[key] = {"none": True}
                 elif key == "__annotations__":
                     self.dictionary(item, ())
                     result[key] = []
@@ -2022,6 +2140,15 @@ class _NativeTypingAnnotationBoundary:
 
         origins = []
         for name, origin in self.origins:
+            if name == "Union" and self.immutable_union:
+                if (
+                    self.namespaces["typing"].get("Union") is not self.union_class
+                    or origin is not self.union_class
+                ):
+                    self.fail("native public immutable Union binding")
+                take("origin:Union", origin)
+                origins.append(["Union", {"native_class": ["typing", "Union"]}])
+                continue
             expected_class = (
                 self.special_class if name == "Union" else self.literal_origin_class
             )
@@ -2065,7 +2192,7 @@ class _NativeTypingAnnotationBoundary:
             storage["getitem"] = function(
                 getitem, "origin:" + name + ":getitem", name.lower()
             )
-            if self.variant == (3, 13):
+            if self.global_literal_cache:
                 method = vars(expected_class).get("__getitem__")
                 storage["method"] = function(
                     method,
@@ -2073,11 +2200,14 @@ class _NativeTypingAnnotationBoundary:
                     "union-method" if name == "Union" else "literal-method",
                 )
             origins.append([name, storage])
-        return {
+        state: dict[str, Any] = {
             "python": list(self.variant),
             "classes": class_state,
             "origins": origins,
-        }, edges
+        }
+        if immutable_union_state is not None:
+            state["immutable_union"] = immutable_union_state
+        return state, edges
 
     def capture(
         self,
@@ -2086,7 +2216,7 @@ class _NativeTypingAnnotationBoundary:
         location: tuple[str, ...],
         witness: _ReplayReferenceWitness | None,
     ) -> dict[str, Any]:
-        if self.variant not in ((3, 11), (3, 12), (3, 13)):
+        if self.variant not in ((3, 11), (3, 12), (3, 13), (3, 14)):
             self.fail("unmeasured interpreter alias storage")
         state, edges = self.read_boundary()
         if state != self.baseline_state or len(edges) != len(self.baseline_edges):
@@ -2114,12 +2244,18 @@ class _NativeTypingAnnotationBoundary:
     ) -> dict[str, Any]:
         cls = self.type(value)
         if cls is self.union_class:
-            index, kind, origin = 0, "union", self.origins[0][1]
+            if self.immutable_union:
+                return self.immutable_alias(value, location, witness)
+            kind, origin = "union", self.origins[0][1]
         elif cls is self.literal_class:
-            index, kind, origin = 1, "literal", self.origins[1][1]
+            kind, origin = "literal", self.origins[1][1]
         else:
             self.fail("exact alias class")
-        descriptor = self.alias_dictionaries[index][2]
+        descriptor = next(
+            descriptor
+            for alias_class, _, descriptor in self.alias_dictionaries
+            if alias_class is cls
+        )
         namespace = self.dictionary(descriptor.__get__(value, cls), self.alias_fields)
         if (
             namespace["_inst"] is not True
@@ -2149,6 +2285,106 @@ class _NativeTypingAnnotationBoundary:
             for key, item in namespace.items():
                 witness.take(location + ("typing-key:" + key,), key)
                 witness.take(location + ("typing-field:" + key,), item)
+        leaves = self.arguments(arguments, kind, location, witness)
+        fields = []
+        for key, item in namespace.items():
+            if key == "__origin__":
+                encoded = {"native-origin": kind}
+            elif key == "__args__":
+                encoded = leaves
+            elif key == "__parameters__":
+                encoded = []
+            else:
+                encoded = self.scalar(item)
+            fields.append([key, encoded])
+        return {"kind": kind, "fields": fields}
+
+    def matches(self, value: Any) -> bool:
+        cls = self.type(value)
+        if cls is self.literal_class:
+            return True
+        if cls is not self.union_class:
+            return False
+        if not self.immutable_union:
+            return True
+        # In 3.14 typing.Union and Array|None share the same immutable C type.
+        # Read only its pinned member storage to select the bounded grammar;
+        # no parameter computation, constructor, equality or foreign callbacks.
+        if (
+            _NATIVE_UNION_TYPE is not self.union_class
+            or _NATIVE_UNION_ARGS is not self.union_descriptors["__args__"]
+            or self.type_descriptors["__dict__"]
+            .__get__(self.union_class, self.type)
+            .get("__args__")
+            is not _NATIVE_UNION_ARGS
+        ):
+            self.fail("native immutable Union selector descriptor")
+        arguments = _NATIVE_UNION_ARGS.__get__(value, _NATIVE_UNION_TYPE)
+        return (
+            self.type(arguments) is tuple
+            and len(arguments) == 2
+            and (
+                (
+                    arguments[0] is self.native_int
+                    and self.type(arguments[1]) is self.literal_class
+                )
+                or (
+                    self.type(arguments[0]) is self.literal_class
+                    and arguments[1] is self.native_int
+                )
+            )
+        )
+
+    def immutable_alias(
+        self,
+        value: Any,
+        location: tuple[str, ...],
+        witness: _ReplayReferenceWitness | None,
+    ) -> dict[str, Any]:
+        arguments = self.union_descriptors["__args__"].__get__(value, self.union_class)
+        if self.type(arguments) is not tuple or len(arguments) != 2:
+            self.fail("ordered immutable Union arguments")
+        # Validate the complete actual Literal namespace before touching the
+        # C parameter getset, which can consult its member annotations.
+        leaves = self.arguments(arguments, "union", location, witness)
+        origin = self.union_descriptors["__origin__"].__get__(value, self.union_class)
+        parameters = self.union_descriptors["__parameters__"].__get__(
+            value, self.union_class
+        )
+        if origin is not self.union_class:
+            self.fail("immutable Union origin")
+        if self.type(parameters) is not tuple or parameters:
+            self.fail("immutable Union parameters")
+        if witness is not None:
+            witness.take(location + ("typing-alias",), value)
+            witness.take(location + ("typing-union-class",), self.union_class)
+            for name, item in (
+                ("__origin__", origin),
+                ("__args__", arguments),
+                ("__parameters__", parameters),
+            ):
+                witness.take(location + ("typing-field:" + name,), item)
+                witness.take(
+                    location + ("typing-union-descriptor:" + name,),
+                    self.union_descriptors[name],
+                )
+        return {
+            "kind": "union",
+            "storage": "native-immutable-union",
+            "fields": [
+                ["__origin__", {"native-origin": "union"}],
+                ["__args__", leaves],
+                ["__parameters__", []],
+            ],
+        }
+
+    def arguments(
+        self,
+        arguments: tuple[Any, ...],
+        kind: str,
+        location: tuple[str, ...],
+        witness: _ReplayReferenceWitness | None,
+    ) -> list[dict[str, Any]]:
         leaves = []
         for index, argument in enumerate(arguments):
             if witness is not None:
@@ -2170,18 +2406,7 @@ class _NativeTypingAnnotationBoundary:
             ["native-int-class", "literal"],
         ):
             self.fail("exact Union grammar")
-        fields = []
-        for key, item in namespace.items():
-            if key == "__origin__":
-                encoded = {"native-origin": kind}
-            elif key == "__args__":
-                encoded = leaves
-            elif key == "__parameters__":
-                encoded = []
-            else:
-                encoded = self.scalar(item)
-            fields.append([key, encoded])
-        return {"kind": kind, "fields": fields}
+        return leaves
 
 
 _NATIVE_TYPING_BOUNDARY = _NativeTypingAnnotationBoundary()
@@ -2222,10 +2447,7 @@ def _capture_target_state(
             witness=witness if retain else None,
         )
 
-    if (
-        type(value) is _NATIVE_TYPING_BOUNDARY.union_class
-        or type(value) is _NATIVE_TYPING_BOUNDARY.literal_class
-    ):
+    if _NATIVE_TYPING_BOUNDARY.matches(value):
         return _NATIVE_TYPING_BOUNDARY.capture(
             value, location=location, witness=witness
         )
