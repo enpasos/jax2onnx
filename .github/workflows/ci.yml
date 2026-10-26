@@ -125,7 +125,8 @@ jobs:
           tests/primitives/test_linen.py \
           tests/extra_tests/test_bfloat16_capability_matrix.py \
           tests/extra_tests/test_cos_precision.py \
-          tests/extra_tests/test_float16_cpu_inference.py
+          tests/extra_tests/test_float16_cpu_inference.py \
+          tests/extra_tests/test_log1p_expm1_precision.py
 
   normalization-accuracy:
     name: normalization accuracy (Python ${{ matrix.python-version }})

@@ -38,12 +38,15 @@ Keep these handy—most deep-dives live there instead of here.
   - `poetry run pytest -q`
   - `poetry run mkdocs build --strict` for doc changes
 - Debug flags exist for the IR optimizer (`JAX2ONNX_*_DEBUG`); see the optimizer dev guide for the full matrix.
+- Format with the Black pinned in `.pre-commit-config.yaml` (25.1.0). The Black 26
+  in `poetry.lock` also rewrites untouched files (e.g. drops the blank line after
+  imports), so it is not the formatter the tree follows.
 - JAX 0.8+ specifics:
   - No `jax_dynamic_shapes` auto-toggle.
   - Primitive parameters must be hashable; `construct_and_call(...).with_dtype(...)` constructs modules once per dtype.
   - Flax NNX requires attributes that hold arrays to be wrapped in `nnx.List` / `nnx.data`.
 - **Locked framework variants.** Poetry selects JAX/JAXLIB `0.10.2` and Flax
-  `0.12.8` on Python 3.11/3.12, and JAX/JAXLIB `0.12.0` and Flax `0.12.10` on
+  `0.12.8` on Python 3.11/3.12, and JAX/JAXLIB `0.12.0.1` and Flax `0.12.10` on
   Python 3.13/3.14. `uv.lock` selects JAX/JAXLIB `0.10.2` on Python 3.11 and
   `0.12.0` on Python 3.12+, retaining Flax `0.12.8`.
   Preserve each lock's versions and markers. Python 3.11 remains supported; route
@@ -125,6 +128,30 @@ Keep these handy—most deep-dives live there instead of here.
 - Capture minimal reproductions under `tests/extra_tests/framework/`.
 - Enable the relevant `JAX2ONNX_*_DEBUG` env while running the failing test.
 - Verify mutations persist across graph mirrors (`graph.nodes`, `_nodes`, etc.) if you’re editing IR.
+- Plugins patch APIs such as `jnp.expm1` and `jax.nn.log1mexp` only during
+  conversion. Legacy plugin-lowering tests must look them up at call time
+  (`lambda x: jnp.expm1(x)`);
+  passing a reference captured at import traces JAX's decomposition instead and
+  silently skips the plugin. Private SOURCE tests intentionally retain original
+  JAX semantics; do not rewrite fixed supplied callables to force a plugin path.
+- ONNX Runtime kernel gaps that shape lowerings (bfloat16 `Log`, float64
+  `Sinh`/`Cos`/`Erf`, `Where` and `-0.0`) are tracked in one table in
+  `docs/about/dependencies.md`; update it when a lowering works around a new
+  gap or when the locked or minimum ONNX Runtime changes. Missing kernels can
+  fail at session creation; behavior gaps also require numerical and signed-zero
+  checks. The table distinguishes public LEGACY handling from private SOURCE
+  algorithms. ONNX Runtime's NumPy binding also rejects bfloat16
+  arrays: feed raw `uint16` bits through
+  `OrtValue.ortvalue_from_numpy_with_onnx_type` and IO binding, as in
+  `tests/extra_tests/test_log1p_expm1_precision.py`.
+- In LEGACY exports with `enable_double_precision=True`,
+  `ctx.bind_const_for_var` can promote floating constants to DOUBLE, also in
+  float16/bfloat16 graphs that keep their own dtype. Cast such constants
+  explicitly to the compute dtype (see
+  `ElementwiseEmitter.scalar` in `plugins/jax/_log1p_expm1.py`): retyping them
+  in place, as `cast_param_like` does, is undone for FLOAT constants by the
+  later double-precision promotion. Export half-precision tests with the flag on
+  and off.
 - Revisit the dev guide for the subsystem you’re touching—chances are the guardrail is documented there.
 
 ---

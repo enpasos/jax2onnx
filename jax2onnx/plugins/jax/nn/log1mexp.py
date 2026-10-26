@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
 import jax
 from jax2onnx._compat.jax import (
@@ -15,10 +15,16 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
+from jax2onnx.plugins.jax._log1p_expm1 import (
+    ElementwiseEmitter,
+    emit_expm1,
+    emit_log1p,
+)
 from jax2onnx.plugins.jax.nn._builder_utils import register_unary_elementwise_batch_rule
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -39,7 +45,15 @@ _JAX_LOG1MEXP_ORIG: Final = jax.nn.log1mexp
         {"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"},
         {"component": "Exp", "doc": "https://onnx.ai/onnx/operators/onnx__Exp.html"},
         {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
         {"component": "Log", "doc": "https://onnx.ai/onnx/operators/onnx__Log.html"},
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {
+            "component": "Equal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+        },
+        {"component": "Or", "doc": "https://onnx.ai/onnx/operators/onnx__Or.html"},
         {
             "component": "Where",
             "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
@@ -52,9 +66,15 @@ _JAX_LOG1MEXP_ORIG: Final = jax.nn.log1mexp
         {
             "testcase": "jaxnn_log1mexp_basic",
             "callable": lambda x: jax.nn.log1mexp(x),
-            "input_values": [np.array([0.2, 0.8, 2.0], dtype=np.float32)],
+            # Uncompensated expm1/log1p give -inf at 1e-8 and 0 at 20.
+            "input_values": [
+                np.array([1e-8, 1e-4, 0.2, 0.8, 2.0, 20.0], dtype=np.float32)
+            ],
+            "rtol_f32": 1e-6,
+            "rtol_f64": 1e-12,
+            "atol": 0.0,
             "post_check_onnx_graph": EG(
-                ["Less -> Where:3"],
+                ["Less -> Where:6"],
                 no_unused_inputs=True,
             ),
         },
@@ -71,7 +91,7 @@ _JAX_LOG1MEXP_ORIG: Final = jax.nn.log1mexp
     ],
 )
 class Log1mexpPlugin(PrimitiveLeafPlugin):
-    """Lower ``jax.nn.log1mexp`` as a numerically-stable ONNX branch."""
+    """Lower ``jax.nn.log1mexp`` through compensated expm1/log1p branches."""
 
     _PRIM: ClassVar[Primitive] = _LOG1MEXP_PRIM
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
@@ -82,98 +102,33 @@ class Log1mexpPlugin(PrimitiveLeafPlugin):
         out = jax.eval_shape(_JAX_LOG1MEXP_ORIG, spec)
         return ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("log1mexp_in"))
-        out_spec = ctx.get_value_for_var(
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("log1mexp_out")
         )
-
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("log1mexp_out")
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("log1mexp_out")
-
-        out_type = getattr(out_spec, "type", None) or getattr(x_val, "type", None)
-        out_shape = getattr(out_spec, "shape", None) or getattr(x_val, "shape", None)
-        x_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        x_val = promote_float32_operand(
+            ctx, x_val, target_dtype=out_spec.dtype, name_hint="log1mexp_operand_double"
         )
 
-        one_const = ctx.builder.add_initializer_from_array(
-            name=ctx.fresh_name("log1mexp_one"),
-            array=np.asarray(1.0, dtype=x_dtype),
+        emit = ElementwiseEmitter(ctx, x_val, out_spec, "log1mexp")
+        x_val = emit.input(x_val)
+        mask = emit.op(
+            "Less", x_val, emit.scalar(np.log(2.0)), boolean=True, name="mask"
         )
-        ln2_const = ctx.builder.add_initializer_from_array(
-            name=ctx.fresh_name("log1mexp_ln2"),
-            array=np.asarray(np.log(2.0), dtype=x_dtype),
-        )
+        neg_x = emit.op("Neg", x_val, name="neg_x")
 
-        mask = ctx.builder.Less(
-            x_val,
-            ln2_const,
-            _outputs=[ctx.fresh_name("log1mexp_mask")],
-        )
-        neg_x = ctx.builder.Neg(
-            x_val,
-            _outputs=[ctx.fresh_name("log1mexp_neg_x")],
-        )
-        exp_neg_x = ctx.builder.Exp(
-            neg_x,
-            _outputs=[ctx.fresh_name("log1mexp_exp_neg_x")],
-        )
-        expm1_neg_x = ctx.builder.Sub(
-            exp_neg_x,
-            one_const,
-            _outputs=[ctx.fresh_name("log1mexp_expm1_neg_x")],
-        )
-        neg_expm1 = ctx.builder.Neg(
-            expm1_neg_x,
-            _outputs=[ctx.fresh_name("log1mexp_neg_expm1")],
-        )
-        left = ctx.builder.Log(
-            neg_expm1,
-            _outputs=[ctx.fresh_name("log1mexp_left")],
-        )
+        # Same branches as jax.nn.log1mexp: log(-expm1(-x)) below ln 2,
+        # log1p(-exp(-x)) above.
+        expm1_neg_x = emit_expm1(ctx, neg_x, name_hint="log1mexp_expm1")
+        left = emit.op("Log", emit.op("Neg", expm1_neg_x, name="neg_expm1"))
+        neg_exp = emit.op("Neg", emit.op("Exp", neg_x, name="exp_neg_x"))
+        right = emit_log1p(ctx, neg_exp, name_hint="log1mexp_log1p")
 
-        neg_exp = ctx.builder.Neg(
-            exp_neg_x,
-            _outputs=[ctx.fresh_name("log1mexp_neg_exp")],
-        )
-        one_plus_neg_exp = ctx.builder.Add(
-            one_const,
-            neg_exp,
-            _outputs=[ctx.fresh_name("log1mexp_one_plus_neg_exp")],
-        )
-        right = ctx.builder.Log(
-            one_plus_neg_exp,
-            _outputs=[ctx.fresh_name("log1mexp_right")],
-        )
-
-        result = ctx.builder.Where(
-            mask,
-            left,
-            right,
-            _outputs=[desired_name],
-        )
-        for val in (
-            neg_x,
-            exp_neg_x,
-            expm1_neg_x,
-            neg_expm1,
-            left,
-            neg_exp,
-            one_plus_neg_exp,
-            right,
-            result,
-        ):
-            if out_type is not None:
-                val.type = out_type
-            if out_shape is not None:
-                val.shape = out_shape
-
+        result = emit.final("Where", mask, left, right)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

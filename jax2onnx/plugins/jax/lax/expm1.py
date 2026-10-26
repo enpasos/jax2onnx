@@ -5,10 +5,11 @@ import jax
 import numpy as np
 from jax2onnx._compat.jax import JaxprEqn
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.jax.lax._source_elementary import lower_source_elementary
-from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
+from jax2onnx.plugins.jax._log1p_expm1 import emit_expm1
+from jax2onnx.plugins.jax.lax._source_elementary import lower_source_elementary
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -21,6 +22,18 @@ from jax2onnx.plugins.plugin_system import (
     onnx=[
         {"component": "Exp", "doc": "https://onnx.ai/onnx/operators/onnx__Exp.html"},
         {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
+        {"component": "Log", "doc": "https://onnx.ai/onnx/operators/onnx__Log.html"},
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {
+            "component": "Equal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+        },
+        {"component": "Or", "doc": "https://onnx.ai/onnx/operators/onnx__Or.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
     ],
     since="0.12.1",
     context="primitives.lax",
@@ -29,53 +42,40 @@ from jax2onnx.plugins.plugin_system import (
         {
             "testcase": "expm1",
             "callable": lambda x: jax.lax.expm1(x),
-            "input_values": [np.array([-1.0, 0.0, 1.0], dtype=np.float32)],
+            # Exp(x) - 1 returns 0 or loses most digits for the small entries.
+            "input_values": [
+                np.array(
+                    [-20.0, -1.0, -1e-3, -(2.0**-30), 0.0, 2.0**-30, 1e-6, 1e-3, 1.0],
+                    dtype=np.float32,
+                )
+            ],
+            "rtol_f32": 1e-6,
+            "rtol_f64": 1e-12,
+            "atol": 0.0,
             "post_check_onnx_graph": EG(
-                ["Exp:3 -> Sub:3"],
+                ["Exp:9 -> Sub:9 -> Mul:9 -> Where:9 -> Where:9"],
                 no_unused_inputs=True,
             ),
         }
     ],
 )
 class Expm1Plugin(PrimitiveLeafPlugin):
-    """Lower ``lax.expm1`` to ONNX via Exp + Sub."""
+    """Lower ``lax.expm1`` with a compensated ``Exp(x) - 1``."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
         if lower_source_elementary(ctx, eqn, operation="expm1"):
             return
 
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("expm1_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("expm1_out"))
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("expm1_out")
+        )
+        x_val = promote_float32_operand(
+            ctx, x_val, target_dtype=out_spec.dtype, name_hint="expm1_operand_double"
+        )
 
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("expm1_out")
-        producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("expm1_out")
-
-        exp_val = ctx.builder.Exp(x_val, _outputs=[ctx.fresh_name("expm1_exp")])
-        if getattr(x_val, "type", None) is not None:
-            exp_val.type = x_val.type
-        if getattr(x_val, "shape", None) is not None:
-            exp_val.shape = x_val.shape
-
-        dtype_enum = getattr(getattr(exp_val, "type", None), "dtype", None)
-        np_dtype = ir_dtype_to_numpy(dtype_enum, default=None)
-        if np_dtype is None:
-            aval = getattr(x_var, "aval", None)
-            np_dtype = np.dtype(getattr(aval, "dtype", np.float32))
-
-        one_scalar = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
-
-        result = ctx.builder.Sub(exp_val, one_scalar, _outputs=[desired_name])
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        elif getattr(exp_val, "type", None) is not None:
-            result.type = exp_val.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
-        elif getattr(exp_val, "shape", None) is not None:
-            result.shape = exp_val.shape
+        result = emit_expm1(ctx, x_val, name_hint="expm1", output=out_spec)
         ctx.bind_value_for_var(out_var, result)
