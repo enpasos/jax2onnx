@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import jax
 import jax.numpy as jnp
@@ -17,6 +17,8 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
+_BITCAST_MIN_OPSET: Final[int] = 26
+
 
 @register_native_primitive(
     jaxpr_primitive="bitcast_convert_type",
@@ -25,7 +27,11 @@ from jax2onnx.plugins.plugin_system import (
         {
             "component": "BitCast",
             "doc": "https://onnx.ai/onnx/operators/onnx__BitCast.html",
-        }
+        },
+        {
+            "component": "Identity",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
+        },
     ],
     since="0.7.2",
     context="primitives.lax",
@@ -40,7 +46,7 @@ from jax2onnx.plugins.plugin_system import (
                 ["BitCast"],
                 no_unused_inputs=True,
             ),
-            "skip_numeric_validation": True,
+            "opset_version": 26,
             "run_only_f32_variant": True,
         },
         {
@@ -54,7 +60,20 @@ from jax2onnx.plugins.plugin_system import (
                 ["BitCast:2"],
                 no_unused_inputs=True,
             ),
-            "skip_numeric_validation": True,
+            "opset_version": 26,
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "bitcast_same_dtype_is_identity",
+            "callable": lambda x: jax.lax.bitcast_convert_type(
+                x, new_dtype=jnp.float32
+            ),
+            "input_values": [np.array([1.5, -2.0], dtype=np.float32)],
+            "post_check_onnx_graph": EG(
+                ["Identity:2"],
+                must_absent=["BitCast"],
+                no_unused_inputs=True,
+            ),
             "run_only_f32_variant": True,
         },
     ],
@@ -81,14 +100,28 @@ class BitcastConvertTypePlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("BitCast")
 
-        result = cast(
-            ir.Value,
-            ctx.builder.BitCast(
-                operand_val,
-                _outputs=[desired_name],
-                to=int(target_dtype.value),
-            ),
-        )
+        operand_dtype = getattr(getattr(operand_val, "type", None), "dtype", None)
+        if operand_dtype == target_dtype:
+            # Reinterpreting a value as its own dtype is the identity.
+            result = cast(
+                ir.Value, ctx.builder.Identity(operand_val, _outputs=[desired_name])
+            )
+        else:
+            opset = int(getattr(ctx.builder, "opset", 21))
+            if opset < _BITCAST_MIN_OPSET:
+                raise NotImplementedError(
+                    "lax.bitcast_convert_type lowers to ONNX BitCast, which "
+                    f"requires opset {_BITCAST_MIN_OPSET} or newer; got opset "
+                    f"{opset}"
+                )
+            result = cast(
+                ir.Value,
+                ctx.builder.BitCast(
+                    operand_val,
+                    _outputs=[desired_name],
+                    to=int(target_dtype.value),
+                ),
+            )
         result.type = ir.TensorType(target_dtype)
         result.shape = operand_val.shape
         _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))

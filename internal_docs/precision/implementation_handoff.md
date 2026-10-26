@@ -1,10 +1,11 @@
 # Precision migration handoff — 2026-10-26
 
-This continues diagnostic commit `b8888c40`, after annotation repair `87b2b3c6`.
-The annotation repair and original-call diagnostic have local qualification.
-The current CI gate is red at the exact FP64-to-FP16 witness below; the
-observer-off control has independently reviewed local qualification; its
-actual hosted experiment remains pending. Continue on branch
+This continues diagnostic commit `3d023218`, after native-file diagnostic
+`b8888c40` and annotation repair `87b2b3c6`. The user has explicitly requested
+merging current main `48054bb3` into this branch; its reviewed integration and
+finite qualification are recorded below. The observer-off control is pushed,
+but precise same-call unprofiled word evidence and the full CI gate remain open.
+Continue on branch
 `precision-migration` in `/home/enpasos/projects/jax2onnx`.
 
 ## Objective and immediate priority
@@ -201,6 +202,59 @@ canonical/startup metadata. The controller does not infer missing context.
 An earlier local check used a sparse extraction and established only
 missing-file rejection; its scope correction is retained separately.
 
+## Requested merge of current main
+
+On 2026-10-26 the user explicitly requested **main into precision-migration**.
+The fetched main tip is `48054bb35681ecd18e4a8376bb7ccdeb8fe7aa8c`
+(#279), with merge base `4add8d2d` and branch parent `3d023218`.
+This is branch synchronization, not a merge of PR #277 into main.
+
+The two conflicts are resolved by combining both contracts. SOURCE initializer
+validation retains exact typed storage and duplicate handling; LEGACY takes
+main's float64-only narrowing, preserving float16 data. Where retains its
+SOURCE dtype/weak-type overrides and strict output aval while taking JAX's
+weak-type promotion and traced output dtype for LEGACY. Incoming attention
+lowering is retained; its existing SOURCE wrapper still calls original JAX.
+Independent Astra review accepts these resolutions.
+
+One old LEGACY fixture expected float16 widening to float32, contrary to #279's
+documented fix. Its expectation now narrows only float64; all original test IDs,
+inputs, dtype/shape/storage comparisons and SOURCE assertions remain. The first
+modern run remains **159 passed / one failed**, with its original receipt.
+This adaptation does not amend the separate FP64-to-FP16 parity gate.
+
+At source-files
+`240c8d92f0edad68541169d68b99317d9a457a01c1c616aa40faf473b83e3e8a`
+and index tree `790cfaff606fc8374fcadc9130ea16038fb989e4`, **1,550 identical
+ordered unique cases pass on each locked cohort** (Python 3.14.9/JAX 0.12.0.1
+and Python 3.11.17/JAX 0.10.2), with zero failures/errors/skips. All 29 selected
+complete owners/classes run in four serial batches, preserving both merge
+parents, source/Git/index, environment metadata and clean process cleanup.
+These include all affected generated attention/Where/BitCast classes and the
+relevant SOURCE/builder owners. BF16 schema-only cases are not numerical proof;
+optional MaxText model loading and full exact-head CI remain separate gates.
+
+Run #539 is bound to head `3d023218`; its Python 3.12 cast case explicitly passes
+in the log. That full job later receives a runner shutdown during batch 30/49:
+the full-check step is CANCELLED and the job concludes FAILURE. Control/replay
+and artifact upload are skipped; no original failed-cast witness or ZIP is
+available for that job. It does not satisfy full-suite acceptance. Predecessor
+#537 is terminal seven SUCCESS and its recorded Python 3.11 FAILURE.
+
+The in-flight postmortem helper/worker changes are separately preserved while
+the merge is qualified. The next diagnostic reads retained NumPy references and
+the existing validation report **after** an unprofiled failure, without source
+execution, JAX input materialization, profiling or additional ORT execution. Generic OFF
+bitwise failure alone does not prove the same HIGH reference words. Require
+same-call original producer/code/source bindings, both complete native HIGH
+vectors and original input/model/target typed hashes before making that precise
+word-specific inference. No assertion amendment is authorized.
+
+The historical full B–F inventory denominators remain historical. Main adds
+metadata/test rows; reconcile the new epoch explicitly rather than silently
+replacing old obligations. Public defaults remain LEGACY, and full migration,
+original model/resource gates and coordinated public transition remain open.
+
 ## Preserved predecessor outcomes
 
 - Full NNX Transformer and generic callable preparation owners on actual Python
@@ -235,9 +289,10 @@ missing-file rejection; its scope correction is retained separately.
 
 ## Next concrete work
 
-Store the observer-off control only after actual pinned hooks, an external-output
-strict documentation build and normal unskipped commit hooks pass. Then inspect
-all eight checks and the actual controlled outcome on that exact pushed head.
+Complete normal merge hook/documentation closeout, store and push the requested
+main integration, restore the separate in-flight diagnostic and inspect all
+eight checks on the exact new head. Continue qualifying the precise same-call
+postmortem before relying on any HIGH-specific causal inference.
 Preserve original models, cases, inputs, assertions and criteria; a diagnostic
 commit alone does not repair the numerical mismatch.
 
@@ -284,6 +339,14 @@ check is `control-archive-b888-complete-v1/`. Current control qualifications are
 `control-real-archived-rejection-v2`; their aggregate is
 `control-packet-qualification-v1.json`. The real ON/OFF branch audits are
 `actual-control-{modern,python311}-off-v1/qualification.json`.
+
+Requested-main merge proof is under `main-merge-20261026T212012/`,
+`main-merge-modern-v2` and `main-merge-python311-v1` (with combined JUnit and the
+separate canonical batch folders). That merge directory also contains exact
+backups of the two in-flight files and the WIP patch; their scoped stash is
+`fcbeb13b5b7ee9123a03eb47e9ba9f9152ef2e26` until verified restoration.
+The #539 Python 3.12 interruption log and compact triage are under
+`ci3d023218-python312/`.
 
 Preserve machine stability: one native test/build/hook job at a time, one pytest
 worker, native thread counts of one, CPUs 4–7, a 4 GiB aggregate process guard,

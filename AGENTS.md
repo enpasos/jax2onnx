@@ -11,7 +11,7 @@ This page is the quick briefing for automated agents (or humans) dropping into t
 - **Tooling:** Python 3.11+, Poetry, Ruff, Black, mypy, pytest. Supported runtime stack is **JAX/JAXLIB ≥0.10.2** and **Flax/NNX ≥0.12.8**.
 - **Recent heads-up (2025-10-02):**
   - NNX examples construct RNGs via `with_rng_seed(...)`; avoid inline lambdas so callables stay hashable under current JAX releases.
-  - Attention plugins normalise masked weights to avoid float32 NaNs; tests rely on that behaviour.
+  - `jax.nn.dot_product_attention` follows JAX's reference: masked logits get JAX's finite large negative before `Softmax` (fully masked rows are uniform, never NaN), and FP16/BF16 logits and softmax run in FP32. The Linen plugin still renormalises masked weights after `Softmax`.
 
 ---
 
@@ -152,6 +152,13 @@ Keep these handy—most deep-dives live there instead of here.
   in place, as `cast_param_like` does, is undone for FLOAT constants by the
   later double-precision promotion. Export half-precision tests with the flag on
   and off.
+- `examples.maxtext` testcases skip numeric validation, so an export ONNX
+  Runtime cannot load still passes; check the written model with
+  `onnx.checker.check_model(..., full_check=True)` when a lowering change may
+  reach them. They trace parameter initializers, so
+  `_patch_random_initializers` in `maxtext_models.py` replaces random
+  normals/uniforms with constants to keep `erf_inv` and `BitCast` (opset 26+)
+  out of the graph.
 - Revisit the dev guide for the subsystem you’re touching—chances are the guardrail is documented there.
 
 ---

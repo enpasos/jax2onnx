@@ -316,11 +316,12 @@ def test_source_function_constant_reuse_reads_attribute_without_cached_payload()
 def test_legacy_initializer_normalization_remains_unchanged(
     double: bool, dtype: Any
 ) -> None:
+    """Retain main's float64-only narrowing and exact low-precision storage."""
     builder = IRBuilder(opset=23, enable_double_precision=double)
     payload = np.asarray([1 + 2**-30, -0.0], dtype=dtype)
     expected = (
         payload.astype(np.float32)
-        if not double and np.issubdtype(payload.dtype, np.floating)
+        if not double and payload.dtype == np.float64
         else payload
     )
     value = builder.add_initializer_from_array(name="legacy", array=payload)

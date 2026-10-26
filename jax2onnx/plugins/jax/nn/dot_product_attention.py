@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import (
     Any,
     Callable,
     ClassVar,
-    DefaultDict,
     Dict,
     Final,
     Optional,
@@ -50,50 +48,12 @@ from jax2onnx.plugins.jax.lax.scatter_utils import (
     _shape_of,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _builder_op
+from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 _DPA_PRIM: Final[Primitive] = Primitive("jax.nn.dot_product_attention")
 _DPA_PRIM.multiple_results = False
 _ORIG_DOT_PRODUCT_ATTENTION: Final = jax_nn.dot_product_attention
-
-
-def _expect_dpa_mask_where_impl(model: Any) -> bool:
-    graph = model.graph
-    consumers: DefaultDict[str, list[Any]] = defaultdict(list)
-    producers: Dict[str, Any] = {}
-    for node in graph.node:
-        node_outputs = tuple(getattr(node, "output", ()))
-        node_inputs = tuple(getattr(node, "input", ()))
-        for out in node_outputs:
-            producers[out] = node
-        for inp in node_inputs:
-            consumers[inp].append(node)
-
-    for node in graph.node:
-        node_outputs = tuple(getattr(node, "output", ()))
-        if node.op_type != "Softmax" or not node_outputs:
-            continue
-        softmax_out = node_outputs[0]
-        for consumer in consumers.get(softmax_out, []):
-            if consumer.op_type != "Mul":
-                continue
-            consumer_inputs = tuple(getattr(consumer, "input", ()))
-            if len(consumer_inputs) < 2:
-                continue
-            other_inputs = [inp for inp in consumer_inputs if inp != softmax_out]
-            if not other_inputs:
-                continue
-            producer = producers.get(other_inputs[0])
-            if producer and producer.op_type in {"Cast", "Mul", "Constant"}:
-                return True
-    return False
-
-
-def _expect_dpa_mask_where(model: Any) -> bool:
-    return _expect_dpa_mask_where_impl(model)
-
-
-_EXPECT_DPA_MASK_WHERE: Final = _expect_dpa_mask_where
 
 
 def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
@@ -171,6 +131,29 @@ def _cast_like_value(
         casted, tuple(getattr(getattr(var, "aval", None), "shape", ()))
     )
     _ensure_value_metadata(ctx, casted)
+    return casted
+
+
+def _cast_to_dtype(
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    dtype: ir.DataType,
+    *,
+    base: str,
+    dims: Tuple[DimLike, ...],
+) -> ir.Value:
+    if _dtype_enum_from_value(value) == dtype:
+        return value
+    casted = _builder_tensor_op(
+        ctx,
+        "Cast",
+        [value],
+        base=base,
+        dtype=dtype,
+        shape=dims,
+        attributes={"to": int(dtype.value)},
+    )
+    _stamp_type_and_shape(casted, dims)
     return casted
 
 
@@ -514,7 +497,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "post_check_onnx_graph": _EXPECT_DPA_MASK_WHERE,
+            "post_check_onnx_graph": EG(
+                [
+                    "MatMul:2x4x8x16 -> Mul:2x4x8x16 -> Where:2x4x8x16 -> "
+                    "Softmax:2x4x8x16 -> MatMul:2x4x8x16 -> Transpose:2x8x4x16"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_with_bias",
@@ -611,8 +600,8 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "atol_f64": 1e-6,
             "post_check_onnx_graph": EG(
                 [
-                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
-                    "-> MatMul:1x1x2x4 -> Transpose:1x2x1x4"
+                    "Where:1x1x2x3 -> Softmax:1x1x2x3 -> MatMul:1x1x2x4 -> "
+                    "Transpose:1x2x1x4"
                 ],
                 no_unused_inputs=True,
             ),
@@ -632,8 +621,8 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "atol_f64": 1e-6,
             "post_check_onnx_graph": EG(
                 [
-                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
-                    "-> MatMul:1x1x2x4 -> Transpose:1x2x1x4"
+                    "Where:1x1x2x3 -> Softmax:1x1x2x3 -> MatMul:1x1x2x4 -> "
+                    "Transpose:1x2x1x4"
                 ],
                 no_unused_inputs=True,
             ),
@@ -659,8 +648,8 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "atol_f64": 1e-6,
             "post_check_onnx_graph": EG(
                 [
-                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
-                    "-> MatMul:1x1x1x4 -> Transpose:1x1x1x4"
+                    "Where:1x1x1x2 -> Softmax:1x1x1x2 -> MatMul:1x1x1x4 -> "
+                    "Transpose:1x1x1x4"
                 ],
                 no_unused_inputs=True,
             ),
@@ -681,8 +670,55 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "atol_f64": 1e-6,
             "post_check_onnx_graph": EG(
                 [
-                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
-                    "-> MatMul:1x1x1x4 -> Transpose:1x1x1x4"
+                    "Where:1x1x1x2 -> Softmax:1x1x1x2 -> MatMul:1x1x1x4 -> "
+                    "Transpose:1x1x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # Query 0 masks out its largest logit; query 1 masks every key,
+            # which JAX turns into uniform weights.
+            "testcase": "dpa_mask_dominant_and_fully_masked_rows",
+            "callable": lambda q, k, v, mask: jax_nn.dot_product_attention(
+                q, k, v, mask=mask
+            ),
+            "input_values": [
+                np.ones((1, 2, 1, 1), dtype=np.float32),
+                np.array([200.0, 1.0, 2.0], dtype=np.float32).reshape(1, 3, 1, 1),
+                np.array([100.0, 1.0, 2.0], dtype=np.float32).reshape(1, 3, 1, 1),
+                np.array([[[[False, True, True], [False, False, False]]]]),
+            ],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Where:1x1x2x3 -> Softmax:1x1x2x3 -> MatMul:1x1x2x1 -> "
+                    "Transpose:1x2x1x1"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "dpa_float16_with_mask",
+            "callable": lambda q, k, v, mask: jax_nn.dot_product_attention(
+                q, k, v, mask=mask
+            ),
+            "input_shapes": [
+                (2, 8, 4, 16),
+                (2, 16, 4, 16),
+                (2, 16, 4, 16),
+                (2, 4, 8, 16),
+            ],
+            "input_dtypes": [np.float16, np.float16, np.float16, np.bool_],
+            "run_only_f32_variant": True,
+            "rtol": 1e-3,
+            "atol": 1e-3,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x4x8x16 -> Cast:2x4x8x16 -> MatMul:2x4x8x16 -> "
+                    "Mul:2x4x8x16 -> Where:2x4x8x16 -> Softmax:2x4x8x16 -> "
+                    "Cast:2x4x8x16 -> MatMul:2x4x8x16 -> Transpose:2x8x4x16"
                 ],
                 no_unused_inputs=True,
             ),
@@ -726,8 +762,8 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "atol_f64": 1e-6,
             "post_check_onnx_graph": EG(
                 [
-                    "Softmax -> Mul -> ReduceSum -> Greater -> Where -> Div -> Where "
-                    "-> MatMul:2x4x8x16 -> Transpose:2x8x4x16"
+                    "And:2x1x8x8 -> Where:2x4x8x8 -> Softmax:2x4x8x8 -> "
+                    "MatMul:2x4x8x16 -> Mul:2x4x8x16 -> Transpose:2x8x4x16"
                 ],
                 no_unused_inputs=True,
             ),
@@ -740,7 +776,13 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "input_shapes": [(1, 16, 1, 4), (1, 16, 1, 4), (1, 16, 1, 4)],
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
-            "post_check_onnx_graph": _EXPECT_DPA_MASK_WHERE,
+            "post_check_onnx_graph": EG(
+                [
+                    "And:1x1x16x16 -> Where:1x1x16x16 -> Softmax:1x1x16x16 -> "
+                    "MatMul:1x1x16x4 -> Transpose:1x16x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_vmap_tnh_issue190",
@@ -938,12 +980,34 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         _stamp_type_and_shape(k_t, (batch_dim_i, num_heads_i, head_dim_sym, k_len_i))
 
+        # Like JAX, compute the logits, masks and softmax in at least float32.
+        # float32 follows the double-precision policy, which also promotes the
+        # scalar constants below, so a fixed FLOAT would mismatch them.
+        logits_np_dtype = np.dtype(jnp.promote_types(np_dtype, np.float32))
+        logits_dtype = _dtype_to_ir(
+            logits_np_dtype, ctx.builder.enable_double_precision
+        )
+        q_t = _cast_to_dtype(
+            ctx,
+            q_t,
+            logits_dtype,
+            base="dpa_qT_cast",
+            dims=(batch_dim_i, num_heads_i, q_len_i, head_dim_sym),
+        )
+        k_t = _cast_to_dtype(
+            ctx,
+            k_t,
+            logits_dtype,
+            base="dpa_kT_cast",
+            dims=(batch_dim_i, num_heads_i, head_dim_sym, k_len_i),
+        )
+
         logits = _builder_tensor_op(
             ctx,
             "MatMul",
             [q_t, k_t],
             base="dpa_logits",
-            dtype_like=q_val,
+            dtype=logits_dtype,
             shape=(batch_dim, num_heads, q_len, k_len),
         )
         _stamp_type_and_shape(logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
@@ -953,7 +1017,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             scale_scalar = float(scale_value)
         scale = ctx.builder.add_initializer_from_scalar(
             name=ctx.fresh_name("dpa_scale"),
-            value=np.asarray(scale_scalar, dtype=np_dtype),
+            value=np.asarray(scale_scalar, dtype=logits_np_dtype),
         )
 
         current_logits = _builder_tensor_op(
@@ -1002,6 +1066,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             current_logits = biased_logits
 
+        # Boolean masks to combine, each with its (broadcastable) BNTS dims.
+        mask_terms: list[tuple[ir.Value, Tuple[DimLike, ...]]] = []
+
         if is_causal:
             if not (
                 isinstance(num_heads_v, (int, np.integer))
@@ -1024,26 +1091,13 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             mask_const = ctx.builder.add_initializer_from_array(
                 name=ctx.fresh_name("dpa_causal_mask"), array=tril_broadcast
             )
-            neg_inf = ctx.builder.add_initializer_from_scalar(
-                name=ctx.fresh_name("dpa_neg_inf"),
-                value=np.asarray(-np.inf, dtype=np_dtype),
+            mask_terms.append(
+                (mask_const, (1, causal_num_heads, q_len_static, k_len_static))
             )
-            causal_logits = _builder_tensor_op(
-                ctx,
-                "Where",
-                [mask_const, current_logits, neg_inf],
-                base="dpa_causal",
-                dtype_like=current_logits,
-                shape=(batch_dim, num_heads, q_len, k_len),
-            )
-            _stamp_type_and_shape(
-                causal_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
-            )
-            current_logits = causal_logits
 
         q_idx_broadcast: ir.Value | None = None
         k_idx_broadcast: ir.Value | None = None
-        length_mask_bool: ir.Value | None = None
+        q_mask: ir.Value | None = None
         if has_query_lengths or has_key_value_lengths or local_window_size is not None:
             q_shape_val = _shape_of(ctx, q_val, "dpa_q_shape")
             q_len_scalar = _gather_int_scalar(
@@ -1087,7 +1141,6 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         if has_query_lengths or has_key_value_lengths:
             if q_idx_broadcast is None or k_idx_broadcast is None:
                 raise RuntimeError("DPA length masks require query/key indices")
-            q_mask: ir.Value | None = None
             if query_len_var is not None:
                 query_len_val = ctx.get_value_for_var(
                     query_len_var, name_hint=ctx.fresh_name("dpa_query_len")
@@ -1117,8 +1170,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     shape=(batch_dim, 1, q_len, 1),
                 )
                 _stamp_type_and_shape(q_mask, (batch_dim_i, 1, q_len_i, 1))
+                mask_terms.append((q_mask, (batch_dim_i, 1, q_len_i, 1)))
 
-            k_mask: ir.Value | None = None
             if key_value_len_var is not None:
                 key_len_val = ctx.get_value_for_var(
                     key_value_len_var, name_hint=ctx.fresh_name("dpa_key_len")
@@ -1146,24 +1199,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     shape=(batch_dim, 1, 1, k_len),
                 )
                 _stamp_type_and_shape(k_mask, (batch_dim_i, 1, 1, k_len_i))
+                mask_terms.append((k_mask, (batch_dim_i, 1, 1, k_len_i)))
 
-            if q_mask is not None and k_mask is not None:
-                length_mask_bool = _logical_and(
-                    ctx,
-                    q_mask,
-                    k_mask,
-                    base="dpa_length_mask",
-                    shape_hint=(batch_dim_i, 1, q_len_i, k_len_i),
-                )
-                _stamp_type_and_shape(
-                    length_mask_bool, (batch_dim_i, 1, q_len_i, k_len_i)
-                )
-            elif q_mask is not None:
-                length_mask_bool = q_mask
-            elif k_mask is not None:
-                length_mask_bool = k_mask
-
-        mask_bool: ir.Value | None = None
         if local_window_size is not None:
             if q_idx_broadcast is None or k_idx_broadcast is None:
                 raise RuntimeError(
@@ -1209,14 +1246,14 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 shape=(1, 1, q_len, k_len),
             )
             _stamp_type_and_shape(right_ok, (1, 1, q_len_i, k_len_i))
-            mask_bool = _logical_and(
+            window_mask = _logical_and(
                 ctx,
                 left_ok,
                 right_ok,
                 base="dpa_window_mask",
                 shape_hint=(1, 1, q_len_i, k_len_i),
             )
-            _stamp_type_and_shape(mask_bool, (1, 1, q_len_i, k_len_i))
+            mask_terms.append((window_mask, (1, 1, q_len_i, k_len_i)))
 
         if has_mask and mask_var is not None:
             mask_val = ctx.get_value_for_var(
@@ -1241,7 +1278,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 getattr(mask_var.aval, "dtype", np.bool_)
             )
             if mask_dtype != np.bool_:
-                mask_bool = _builder_tensor_op(
+                mask_val = _builder_tensor_op(
                     ctx,
                     "Cast",
                     [mask_val],
@@ -1250,24 +1287,44 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     shape=mask_dims_tuple,
                     attributes={"to": int(ir.DataType.BOOL.value)},
                 )
-                _stamp_type_and_shape(mask_bool, mask_dims_sym)
-            else:
-                mask_bool = mask_val
+                _stamp_type_and_shape(mask_val, mask_dims_sym)
+            leading_ones = (1,) * (4 - len(mask_dims_sym))
+            mask_terms.append((mask_val, leading_ones + mask_dims_sym))
 
-        if length_mask_bool is not None:
-            if mask_bool is None:
-                mask_bool = length_mask_bool
-            else:
+        if mask_terms:
+            mask_bool, mask_bool_dims = mask_terms[0]
+            for term, term_dims in mask_terms[1:]:
+                mask_bool_dims = tuple(
+                    term_dim if dim == 1 else dim
+                    for dim, term_dim in zip(mask_bool_dims, term_dims)
+                )
                 mask_bool = _logical_and(
                     ctx,
                     mask_bool,
-                    length_mask_bool,
+                    term,
                     base="dpa_combined_mask",
-                    shape_hint=(batch_dim_i, num_heads_i, q_len_i, k_len_i),
+                    shape_hint=mask_bool_dims,
                 )
-                _stamp_type_and_shape(
-                    mask_bool, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
-                )
+            # JAX's finite fill (`_get_large_negative`): fully masked rows get
+            # uniform weights instead of NaN.
+            large_negative = ctx.builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("dpa_large_negative"),
+                value=np.asarray(
+                    -0.7 * np.finfo(np.float32).max, dtype=logits_np_dtype
+                ),
+            )
+            masked_logits = _builder_tensor_op(
+                ctx,
+                "Where",
+                [mask_bool, current_logits, large_negative],
+                base="dpa_masked_logits",
+                dtype_like=current_logits,
+                shape=(batch_dim, num_heads, q_len, k_len),
+            )
+            _stamp_type_and_shape(
+                masked_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
+            current_logits = masked_logits
 
         weights = _builder_tensor_op(
             ctx,
@@ -1280,101 +1337,13 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
 
-        if mask_bool is not None:
-            weights_dtype = _dtype_enum_from_value(weights)
-            mask_float = _builder_tensor_op(
-                ctx,
-                "Cast",
-                [mask_bool],
-                base="dpa_mask_float",
-                dtype=weights_dtype,
-                shape=(batch_dim, num_heads, q_len, k_len),
-                attributes={"to": int(weights_dtype.value)},
-            )
-            _stamp_type_and_shape(
-                mask_float, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
-            )
-
-            masked_weights = _builder_tensor_op(
-                ctx,
-                "Mul",
-                [weights, mask_float],
-                base="dpa_weights_masked",
-                dtype_like=weights,
-                shape=(batch_dim, num_heads, q_len, k_len),
-            )
-            _stamp_type_and_shape(
-                masked_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
-            )
-
-            axes_tensor = ctx.builder.add_initializer_from_array(
-                name=ctx.fresh_name("dpa_weights_axes"),
-                array=np.asarray([3], dtype=np.int64),
-            )
-            sum_weights = _builder_tensor_op(
-                ctx,
-                "ReduceSum",
-                [masked_weights, axes_tensor],
-                base="dpa_weights_sum",
-                dtype_like=weights,
-                shape=(batch_dim, num_heads, q_len, 1),
-                attributes={"keepdims": 1},
-            )
-            _stamp_type_and_shape(sum_weights, (batch_dim_i, num_heads_i, q_len_i, 1))
-
-            zero_scalar = ctx.builder.add_initializer_from_scalar(
-                name=ctx.fresh_name("dpa_zero"),
-                value=np.asarray(0.0, dtype=np_dtype),
-            )
-            denom_nonzero = _builder_tensor_op(
-                ctx,
-                "Greater",
-                [sum_weights, zero_scalar],
-                base="dpa_weights_sum_nz",
-                dtype=ir.DataType.BOOL,
-                shape=(batch_dim, num_heads, q_len, 1),
-            )
-            _stamp_type_and_shape(denom_nonzero, (batch_dim_i, num_heads_i, q_len_i, 1))
-
-            one_scalar = ctx.builder.add_initializer_from_scalar(
-                name=ctx.fresh_name("dpa_one"),
-                value=np.asarray(1.0, dtype=np_dtype),
-            )
-            safe_denom = _builder_tensor_op(
-                ctx,
-                "Where",
-                [denom_nonzero, sum_weights, one_scalar],
-                base="dpa_weights_denom",
-                dtype_like=sum_weights,
-                shape=(batch_dim, num_heads, q_len, 1),
-            )
-            _stamp_type_and_shape(safe_denom, (batch_dim_i, num_heads_i, q_len_i, 1))
-
-            normalized_weights = _builder_tensor_op(
-                ctx,
-                "Div",
-                [masked_weights, safe_denom],
-                base="dpa_weights_norm",
-                dtype_like=weights,
-                shape=(batch_dim, num_heads, q_len, k_len),
-            )
-            _stamp_type_and_shape(
-                normalized_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
-            )
-
-            zero_weights = ctx.builder.add_initializer_from_scalar(
-                name=ctx.fresh_name("dpa_zero_weights"),
-                value=np.asarray(0.0, dtype=np_dtype),
-            )
-            weights = _builder_tensor_op(
-                ctx,
-                "Where",
-                [denom_nonzero, normalized_weights, zero_weights],
-                base="dpa_weights_norm_zero",
-                dtype_like=weights,
-                shape=(batch_dim, num_heads, q_len, k_len),
-            )
-            _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+        weights = _cast_to_dtype(
+            ctx,
+            weights,
+            _dtype_enum_from_value(v_val),
+            base="dpa_weights_cast",
+            dims=(batch_dim_i, num_heads_i, q_len_i, k_len_i),
+        )
 
         v_expanded = expand_grouped_kv_heads(
             ctx,
@@ -1408,6 +1377,27 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             shape=(batch_dim, num_heads, q_len, head_dim),
         )
         _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_sym))
+
+        if q_mask is not None:
+            # JAX zeroes the outputs of query rows beyond query_seq_lengths.
+            q_mask_float = _cast_to_dtype(
+                ctx,
+                q_mask,
+                _dtype_enum_from_value(out_t),
+                base="dpa_query_mask_float",
+                dims=(batch_dim_i, 1, q_len_i, 1),
+            )
+            out_t = _builder_tensor_op(
+                ctx,
+                "Mul",
+                [out_t, q_mask_float],
+                base="dpa_outT_masked",
+                dtype_like=out_t,
+                shape=(batch_dim, num_heads, q_len, head_dim),
+            )
+            _stamp_type_and_shape(
+                out_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_sym)
+            )
 
         result = _builder_tensor_op(
             ctx,

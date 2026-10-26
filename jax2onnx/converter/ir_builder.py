@@ -558,10 +558,8 @@ class IRBuilder:
                 raise ValueError(
                     f"Initializer '{name}' already exists with different data"
                 )
-            # Respect dtype downcast policy for floats when comparing
-            if not self.enable_double_precision and np.issubdtype(
-                arr_new.dtype, np.floating
-            ):
+            # Respect the float64 downcast policy when comparing
+            if not self.enable_double_precision and arr_new.dtype == np.float64:
                 arr_new = arr_new.astype(np.float32)
             if arr_existing is not None:
                 try:
@@ -582,10 +580,11 @@ class IRBuilder:
                 f"Initializer '{name}' already exists and payloads are not comparable"
             )
 
+        # Narrow float64 only under the legacy policy; retain low-precision data.
         if (
             self._precision_policy is PrecisionPolicy.LEGACY
             and not self.enable_double_precision
-            and np.issubdtype(arr.dtype, np.floating)
+            and arr.dtype == np.float64
         ):
             arr = arr.astype(np.float32)
         tensor = ir.tensor(arr)
