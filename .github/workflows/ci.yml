@@ -193,7 +193,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      PYTEST_ADDOPTS: '-v --tb=short'
+      PYTEST_ADDOPTS: '-v --tb=short -x'
     strategy:
       fail-fast: false
       matrix:
