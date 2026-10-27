@@ -543,6 +543,7 @@ class NativeModelTransport:
         self.executed: set[str] = set()
         self.held: dict[str, dict[str, int]] = {}
         self.worker_held: dict[str, dict[str, int]] = {}
+        self.worker_absent: set[str] = set()
         self.total = 0
         source = Path(__file__).resolve().parents[1] / OWNER
         source_proof, _ = _file(source)
@@ -896,6 +897,7 @@ class NativeModelTransport:
         self.executed.update(owner_ids)
         receipt: dict[str, Any] = {}
         documents: dict[str, bytes] = {}
+        collection_events_absent = False
         for name in (
             "request.json",
             "receipt.json",
@@ -914,6 +916,17 @@ class NativeModelTransport:
             except Exception as error:
                 if _resource_error(error):
                     raise
+                if (
+                    name == "events.jsonl"
+                    and request["kind"] == "collection"
+                    and isinstance(error, FileNotFoundError)
+                    and error.errno == errno.ENOENT
+                ):
+                    # The canonical worker creates this file only for a phase
+                    # or collection diagnostic. Validate the clean collect-only
+                    # receipt below before accepting its absence.
+                    collection_events_absent = True
+                    continue
                 worker["errors"].append(
                     {
                         "stage": name,
@@ -950,42 +963,91 @@ class NativeModelTransport:
                 == self.environment[ENVIRONMENT_KEY],
                 "canonical worker evidence environment differs",
             )
-            events = [_json(line) for line in documents["events.jsonl"].splitlines()]
-            cases = list(ET.fromstring(documents["junit.xml"]).iter("testcase"))
-            for node in owner_ids:
-                phases = [
-                    event
-                    for event in events
-                    if event.get("kind") == "phase" and event.get("nodeid") == node
-                ]
+            junit = ET.fromstring(documents["junit.xml"])
+            cases = list(junit.iter("testcase"))
+            if collection_events_absent:
+                args = request["pytest_args"]
+                full = receipt["full_preselection_ids"]
                 _require(
-                    receipt["phases"].get(node, [])
-                    == [
-                        {
-                            key: value
-                            for key, value in phase.items()
-                            if key not in ("kind", "nodeid")
-                        }
-                        for phase in phases
-                    ],
-                    "original phase receipt/event binding differs",
+                    "assigned" not in request
+                    and type(args) is list
+                    and all(type(arg) is str for arg in args)
+                    and bool(args)
+                    and args[-1] == "--collect-only"
+                    and type(returncode) is int
+                    and returncode == 0
+                    and type(receipt["exitstatus"]) is int
+                    and receipt["exitstatus"] == 0
+                    and receipt["full_collection_checked"] is True
+                    and receipt["assigned_ids"] == receipt["completed"] == []
+                    and receipt["phases"] == {}
+                    and receipt["collection_errors"]
+                    == receipt["collection_skips"]
+                    == []
+                    and type(full) is list
+                    and bool(full)
+                    and all(type(node) is str for node in full)
+                    and len(full) == len(set(full))
+                    and receipt["selected_ids"] == full
+                    and [item["nodeid"] for item in receipt["items"]] == full
+                    and [item["nodeid"] for item in receipt["full_items"]] == full,
+                    "missing events require a complete clean collect-only receipt",
                 )
-                expected_class, expected_name = node.split("::", 1)
-                matching = [
-                    case
-                    for case in cases
-                    if case.attrib.get("classname")
-                    == expected_class[:-3].replace("/", ".")
-                    and case.attrib.get("name") == expected_name
-                ]
+                suites = list(junit.iter("testsuite"))
                 _require(
-                    len(matching) == 1
-                    and not any(
-                        matching[0].find(tag) is not None
-                        for tag in ("failure", "error", "skipped")
+                    bool(suites)
+                    and not cases
+                    and all(
+                        suite.attrib.get(name) == "0"
+                        for suite in suites
+                        for name in ("tests", "errors", "failures", "skipped")
                     ),
-                    "original model/control JUnit outcome differs",
+                    "clean collect-only JUnit must contain no test outcomes",
                 )
+                worker["phase_events"] = {
+                    "status": "NOT_APPLICABLE_CLEAN_COLLECTION",
+                    "path": "events.jsonl",
+                    "reason": "canonical collect-only emitted no phases or collection diagnostics",
+                }
+                self.worker_absent.add(str(folder / "events.jsonl"))
+            else:
+                events = [
+                    _json(line) for line in documents["events.jsonl"].splitlines()
+                ]
+                for node in owner_ids:
+                    phases = [
+                        event
+                        for event in events
+                        if event.get("kind") == "phase" and event.get("nodeid") == node
+                    ]
+                    _require(
+                        receipt["phases"].get(node, [])
+                        == [
+                            {
+                                key: value
+                                for key, value in phase.items()
+                                if key not in ("kind", "nodeid")
+                            }
+                            for phase in phases
+                        ],
+                        "original phase receipt/event binding differs",
+                    )
+                    expected_class, expected_name = node.split("::", 1)
+                    matching = [
+                        case
+                        for case in cases
+                        if case.attrib.get("classname")
+                        == expected_class[:-3].replace("/", ".")
+                        and case.attrib.get("name") == expected_name
+                    ]
+                    _require(
+                        len(matching) == 1
+                        and not any(
+                            matching[0].find(tag) is not None
+                            for tag in ("failure", "error", "skipped")
+                        ),
+                        "original model/control JUnit outcome differs",
+                    )
         except Exception as error:
             if _resource_error(error):
                 raise
@@ -1094,6 +1156,16 @@ class NativeModelTransport:
                         _identity(_path_stat(Path(path))) == expected,
                         "closed original payload changed",
                     )
+                for path in self.worker_absent:
+                    try:
+                        _path_stat(Path(path))
+                    except FileNotFoundError as error:
+                        if error.errno != errno.ENOENT:
+                            raise
+                    else:
+                        raise ValueError(
+                            "clean collect-only events appeared after closure"
+                        )
                 for path, expected in self.worker_held.items():
                     _require(
                         _identity(_path_stat(Path(path))) == expected,

@@ -17,6 +17,7 @@ from ._cast_metadata import (
     _pin_function,
     _require,
     project_cpu_cast_options,
+    _target,
 )
 
 _TEXT = 65536
@@ -275,6 +276,126 @@ class NativeCastLowering:
     cache_scope: str = "ordinary-native-IR-caches-may-retain-entries"
 
 
+_HANDOFF_SEAL = object()
+
+
+class _NativeCastHandoff:
+    """Only the actual verified lowerer owns this original-identity handoff."""
+
+    __slots__ = (
+        "_seal",
+        "_token",
+        "_equation",
+        "_input",
+        "_output",
+        "_avals",
+        "_aval_fields",
+        "_primitive",
+        "_params",
+        "_ctx",
+        "_context_fields",
+        "record",
+        "profile",
+        "target",
+        "target_sha256",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        token: object,
+        equation: Any,
+        record: NativeCastLowering,
+        profile: Any,
+        target: tuple[tuple[str, str], ...],
+        target_sha256: str,
+    ) -> None:
+        _require(
+            seal is _HANDOFF_SEAL, "native cast handoff cannot be caller constructed"
+        )
+        self._seal, self._token = seal, token
+        self._equation = equation
+        self._input, self._output = equation.invars[0], equation.outvars[0]
+        self._avals: tuple[Any, ...] = (self._input.aval, self._output.aval)
+        self._aval_fields = tuple(
+            (type(aval), aval.shape, aval.dtype) for aval in self._avals
+        )
+        self._primitive = equation.primitive
+        self._params: Any = (equation.params, tuple(equation.params.items()))
+        self._ctx = equation.ctx
+        from .jax import _native_context_fields
+
+        self._context_fields = _native_context_fields(equation.ctx)
+        self.record: Any = record
+        self.profile: Any = profile
+        self.target = target
+        self.target_sha256 = target_sha256
+
+    def assert_current(self, token: object) -> None:
+        _require(
+            self._seal is _HANDOFF_SEAL
+            and self._token is token
+            and self._equation is not None,
+            "native cast handoff unavailable",
+        )
+        equation = self._equation
+        from .jax import _native_context_fields
+
+        _require(
+            len(equation.invars) == len(equation.outvars) == 1
+            and equation.invars[0] is self._input
+            and equation.outvars[0] is self._output
+            and self._input.aval is self._avals[0]
+            and self._output.aval is self._avals[1]
+            and equation.params is self._params[0]
+            and equation.ctx is self._ctx
+            and equation.primitive is self._primitive
+            and _native_context_fields(equation.ctx) == self._context_fields
+            and not equation.effects
+            and len(equation.params) == len(self._params[1])
+            and all(
+                equation.params.get(name) is value for name, value in self._params[1]
+            ),
+            "original cast handoff equation/typed-port identity changed",
+        )
+        for aval, fields in zip(self._avals, self._aval_fields, strict=True):
+            _require(
+                type(aval) is fields[0]
+                and aval.dtype is fields[2]
+                and type(aval.shape) is tuple
+                and aval.shape == fields[1] == self.record.module.shape
+                and all(type(dim) is int and dim >= 0 for dim in aval.shape)
+                and aval.weak_type is False,
+                "original cast handoff port type changed",
+            )
+
+    def clear(self) -> None:
+        self._seal = self._token = self._equation = self._input = self._output = None
+        self._avals = self._params = ()
+        self._aval_fields = self._context_fields = ()
+        self._primitive = None
+        self._ctx = None
+        self.record = self.profile = None
+        self.target = ()
+        self.target_sha256 = ""
+
+    def __copy__(self) -> Any:
+        raise TypeError("native cast handoff cannot be copied")
+
+    def __deepcopy__(self, memo: Any) -> Any:
+        raise TypeError("native cast handoff cannot be copied")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("native cast handoff cannot be serialized")
+
+
+def _require_native_handoff(value: object, token: object) -> _NativeCastHandoff:
+    _require(type(value) is _NativeCastHandoff, "actual native cast handoff required")
+    handoff = cast(_NativeCastHandoff, value)
+    handoff.assert_current(token)
+    return handoff
+
+
 _LOWERING_SOURCES = {
     "0.10.2": (
         "337a95777c1b079001319eefa299ce8accf290474c8cea8267286c6d9715d0f3",
@@ -306,6 +427,10 @@ class CastNativeLoweringLease:
         self._name = name
         self._used = False
         self._closed = False
+        self._transaction_token: object | None = None
+        self._handoff: _NativeCastHandoff | None = None
+        self._result: NativeCastLowering | None = None
+        self._temporary_clean = False
         _require(
             jax.__version__ in _LOWERING_SOURCES,
             "native IR-lowering source epoch differs",
@@ -723,10 +848,11 @@ class CastNativeLoweringLease:
             backend, device_list = args["backend"], storage.get("_device_list")
             _require(
                 type(backend) is native.Client
-                and id(backend) == context._acquired_client_identity
+                and backend is context._acquired_client
                 and type(device_list) is native.DeviceList
                 and len(device_list) == 1
                 and type(device_list[0]) is native.Device
+                and device_list[0] is context._acquired_device
                 and vars(native.Device)["client"].__get__(device_list[0], native.Device)
                 is backend,
                 "native lowering target/device differs from acquired client",
@@ -796,7 +922,7 @@ class CastNativeLoweringLease:
             )
             self.assert_current()
             context.assert_current()
-            return NativeCastLowering(
+            result = NativeCastLowering(
                 checked,
                 raw_options,
                 hashlib.sha256(raw_options).hexdigest(),
@@ -807,6 +933,58 @@ class CastNativeLoweringLease:
                 id(device_list[0]),
                 existing is not None,
             )
+            if (
+                self._transaction_token is not None
+                and context._authority_build is not None
+                and context._authority_factory is not None
+            ):
+                from ._cast_activation_options import validate_current_cast_options
+                from .jax import _CAST_CPU_IMPORT_ANCHORS
+
+                checked_options = validate_current_cast_options(
+                    raw_options, context.version
+                )
+                facts = {
+                    (fact.scope, fact.field): fact.value
+                    for fact in checked_options.facts
+                }
+                assignment = dict(
+                    cast(
+                        tuple[tuple[int, object], ...],
+                        facts.get(("ExecutableBuildOptions", 9), ()),
+                    )
+                )
+                assigned = cast(
+                    tuple[tuple[tuple[int, tuple[int, ...]], ...], ...],
+                    assignment.get(3, ()),
+                )
+                device_id = _CAST_CPU_IMPORT_ANCHORS[24].__get__(
+                    device_list[0], native.Device
+                )
+                bound = (
+                    checked_options.status == "SUPPORTED_CURRENT_OPTIONS"
+                    and checked_options.payload is raw_options
+                    and checked_options.payload_sha256 == result.options_sha256
+                    and facts.get(("ExecutableBuildOptions", 12)) == input_prop
+                    and facts.get(("ExecutableBuildOptions", 18)) == output_prop
+                    and facts.get(("DebugOptions", 252)) is detailed
+                    and type(device_id) is int
+                    and device_id >= 0
+                    and len(assigned) == 1
+                    and dict(assigned[0]).get(1) == (device_id,)
+                )
+                if bound:
+                    self._handoff = _NativeCastHandoff(
+                        _HANDOFF_SEAL,
+                        self._transaction_token,
+                        equation,
+                        result,
+                        context._authority_build.profile,
+                        _target(context._acquired_target),
+                        hashlib.sha256(context._acquired_target).hexdigest(),
+                    )
+            self._result = result
+            return result
         finally:
             # Normal native lowering caches may retain their own entries. Drop
             # this producer's references, never clear or inspect unrelated caches.
@@ -814,9 +992,46 @@ class CastNativeLoweringLease:
                 backend
             ) = device_list = existing = native_closed = body = equation = None
             storage = args = poly = kept = in_shardings = out_shardings = None
-            context.require_profiles_current()
+            try:
+                self.assert_current()
+                context.assert_current()
+                self._temporary_clean = True
+            except BaseException:
+                if self._handoff is not None:
+                    self._handoff.clear()
+                self._handoff = None
+                self._result = None
+                raise
+
+    def bind_transaction(self, token: object) -> None:
+        _require(
+            not self._used and not self._closed and self._transaction_token is None,
+            "native cast transaction already bound",
+        )
+        self._transaction_token = token
+
+    def take_handoff(
+        self, token: object, result: NativeCastLowering
+    ) -> _NativeCastHandoff | None:
+        _require(
+            not self._closed
+            and self._temporary_clean
+            and self._result is result
+            and self._transaction_token is token,
+            "native cast producer handoff binding differs",
+        )
+        handoff, self._handoff = self._handoff, None
+        self._result = None
+        if handoff is not None:
+            _require_native_handoff(handoff, token)
+        return handoff
 
     def close(self) -> None:
+        if self._handoff is not None:
+            self._handoff.clear()
+        self._handoff = None
+        self._result = None
+        self._transaction_token = None
         self.declaration.close()
         self._states.clear()
         self._files.clear()

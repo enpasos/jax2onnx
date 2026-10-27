@@ -1426,3 +1426,236 @@ def test_active_original_exception_has_priority_over_closed_and_finish_resource_
     ]
     assert errors[0]["original_worker_exception_type"] == exception_type
     assert errors[1]["original_pytest_status"] == "FAIL"
+
+
+def _collection_worker(
+    root: Path, environment: dict[str, str], nodes: tuple[str, ...]
+) -> tuple[Path, dict[str, Any]]:
+    """The retained CI547 clean collect-only shape; no test phases were run."""
+    folder = root / "collection"
+    folder.mkdir()
+    request = {
+        "kind": "collection",
+        "pytest_args": ["--durations=50", "--durations-min=1", "--collect-only"],
+    }
+    items = [{"nodeid": node, "module": _OWNER, "class": None} for node in nodes]
+    receipt = {
+        "kind": "collection",
+        "assigned_ids": [],
+        "selected_ids": list(nodes),
+        "completed": [],
+        "full_preselection_ids": list(nodes),
+        "full_collection_checked": True,
+        "items": items,
+        "full_items": items,
+        "collection_errors": [],
+        "collection_skips": [],
+        "exitstatus": 0,
+        "supplemental": False,
+        "native_source_recomputed": False,
+        "startup_context": {"environment": {_ENV: environment[_ENV]}},
+        "phases": {},
+    }
+    _write(folder / "request.json", request)
+    _write(folder / "receipt.json", receipt)
+    suites = ET.Element("testsuites", name="pytest tests")
+    ET.SubElement(
+        suites,
+        "testsuite",
+        name="pytest",
+        tests="0",
+        errors="0",
+        failures="0",
+        skipped="0",
+    )
+    (folder / "junit.xml").write_bytes(ET.tostring(suites))
+    (folder / "output.log").write_text(
+        "synthetic clean collect-only; no test execution\n"
+    )
+    return folder, request
+
+
+@pytest.mark.parametrize("event_file", ["absent", "present-empty"])
+def test_clean_collect_only_records_actual_event_file_applicability(
+    tmp_path: Path, transport_module: Any, event_file: str
+) -> None:
+    nodes = (_NODES[-1],)
+    transport = _transport(tmp_path, transport_module, nodes)
+    folder, request = _collection_worker(transport.root, transport.environment, nodes)
+    events = folder / "events.jsonl"
+    if event_file == "present-empty":
+        events.write_bytes(b"")
+    before = {path: path.read_bytes() for path in folder.iterdir()}
+    transport.closed_worker(folder, request, 0)
+    worker = transport.record["workers"][0]
+    assert worker["errors"] == transport.record["errors"] == []
+    assert worker["original_returncode"] == 0
+    assert {path: path.read_bytes() for path in before} == before
+    if event_file == "absent":
+        assert not events.exists() and "events.jsonl" not in worker["files"]
+        assert worker["phase_events"]["status"] == "NOT_APPLICABLE_CLEAN_COLLECTION"
+        assert str(events) in transport.worker_absent
+    else:
+        assert worker["files"]["events.jsonl"]["sha256"] == _sha(b"")
+        assert "phase_events" not in worker and transport.worker_absent == set()
+    checkpoint = _load(folder / "native-model-artifact-transport.json")
+    assert checkpoint["worker"]["files"] == worker["files"]
+    batch, batch_request = _worker(
+        transport.root, transport.environment, nodes[0], 1, nodes
+    )
+    transport.closed_worker(batch, batch_request, 0)
+    transport.finish("PASS")
+    assert transport.record["status"] == "SUBSET_TRANSPORT_ONLY"
+    assert events.exists() is (event_file == "present-empty")
+    assert transport.record["original_run_status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "worker-returncode",
+        "receipt-exitstatus",
+        "unchecked-collection",
+        "collection-error",
+        "collection-skip",
+        "recorded-phase",
+        "completed-test",
+        "assigned-test",
+        "not-collect-only",
+        "mismatched-selection",
+        "duplicate-collection",
+        "missing-receipt",
+        "malformed-request",
+        "junit-test-outcome",
+        "malformed-events",
+    ],
+)
+def test_missing_collection_events_never_hide_failed_or_noncanonical_collection(
+    tmp_path: Path, transport_module: Any, fault: str
+) -> None:
+    nodes = (_NODES[-1],)
+    transport = _transport(tmp_path, transport_module, nodes)
+    folder, request = _collection_worker(transport.root, transport.environment, nodes)
+    receipt = _load(folder / "receipt.json")
+    returncode = 1 if fault == "worker-returncode" else 0
+    if fault == "receipt-exitstatus":
+        receipt["exitstatus"] = 2
+    elif fault == "unchecked-collection":
+        receipt["full_collection_checked"] = False
+    elif fault == "collection-error":
+        receipt["collection_errors"] = [{"nodeid": _OWNER, "longrepr": "fixture error"}]
+    elif fault == "collection-skip":
+        receipt["collection_skips"] = [{"nodeid": _OWNER, "longrepr": "fixture skip"}]
+    elif fault == "recorded-phase":
+        receipt["phases"] = {nodes[0]: [{"when": "call", "outcome": "passed"}]}
+    elif fault == "completed-test":
+        receipt["completed"] = list(nodes)
+    elif fault == "assigned-test":
+        request["assigned"] = list(nodes)
+    elif fault == "not-collect-only":
+        request["pytest_args"] = ["-q"]
+    elif fault == "mismatched-selection":
+        receipt["selected_ids"] = []
+    elif fault == "duplicate-collection":
+        receipt["full_preselection_ids"] = list(nodes) * 2
+    elif fault == "junit-test-outcome":
+        suites = ET.fromstring((folder / "junit.xml").read_bytes())
+        suite = suites.find("testsuite")
+        assert suite is not None
+        ET.SubElement(suite, "testcase", name="unexpected call")
+        (folder / "junit.xml").write_bytes(ET.tostring(suites))
+    elif fault == "malformed-events":
+        (folder / "events.jsonl").write_bytes(b"{invalid JSON}\n")
+    _write(folder / "request.json", request)
+    _write(folder / "receipt.json", receipt)
+    if fault == "missing-receipt":
+        (folder / "receipt.json").unlink()
+    elif fault == "malformed-request":
+        (folder / "request.json").write_bytes(b"{invalid JSON}")
+    before = {path: path.read_bytes() for path in folder.iterdir()}
+    transport.closed_worker(folder, request, returncode)
+    worker = transport.record["workers"][0]
+    assert worker["original_returncode"] == returncode
+    assert worker["errors"] and transport.record["status"] == "UNVERIFIED"
+    assert "phase_events" not in worker and transport.worker_absent == set()
+    assert {path: path.read_bytes() for path in before} == before
+    assert (folder / "events.jsonl").exists() is (fault == "malformed-events")
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["request.json", "receipt.json", "events.jsonl", "junit.xml", "output.log"],
+)
+def test_normal_batch_still_requires_each_original_worker_file(
+    tmp_path: Path, transport_module: Any, missing: str
+) -> None:
+    nodes = (_NODES[-1],)
+    transport = _transport(tmp_path, transport_module, nodes)
+    folder, request = _worker(transport.root, transport.environment, nodes[0], 1, nodes)
+    (folder / missing).unlink()
+    before = {path: path.read_bytes() for path in folder.iterdir()}
+    transport.closed_worker(folder, request, 0)
+    worker = transport.record["workers"][0]
+    assert any(error.get("stage") == missing for error in worker["errors"])
+    assert worker["original_returncode"] == 0
+    assert "phase_events" not in worker and transport.worker_absent == set()
+    transport.finish("PASS")
+    assert transport.record["status"] == "UNVERIFIED"
+    assert {path: path.read_bytes() for path in before} == before
+    assert not (folder / missing).exists()
+
+
+@pytest.mark.parametrize("resource", ["memory", "disk", "quota"])
+def test_collection_event_observation_resource_errors_remain_terminal(
+    tmp_path: Path,
+    transport_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    resource: str,
+) -> None:
+    nodes = (_NODES[-1],)
+    transport = _transport(tmp_path, transport_module, nodes)
+    folder, request = _collection_worker(transport.root, transport.environment, nodes)
+    before = {path: path.read_bytes() for path in folder.iterdir()}
+    failure = {
+        "memory": MemoryError("fixture collection event memory refusal"),
+        "disk": OSError(28, "fixture collection event disk refusal"),
+        "quota": OSError(122, "fixture collection event quota refusal"),
+    }[resource]
+    original_file = transport_module._file
+
+    def refuse_event(path: Path, **kwargs: Any) -> Any:
+        if path == folder / "events.jsonl":
+            raise failure
+        return original_file(path, **kwargs)
+
+    monkeypatch.setattr(transport_module, "_file", refuse_event)
+    with pytest.raises(type(failure)) as captured:
+        transport.closed_worker(folder, request, 0)
+    assert captured.value is failure
+    assert transport_module._resource_error(captured.value) is True
+    assert transport.record["workers"][0]["original_returncode"] == 0
+    assert transport.worker_absent == set()
+    assert {path: path.read_bytes() for path in before} == before
+    assert not (folder / "events.jsonl").exists()
+
+
+def test_late_collection_event_file_invalidates_the_final_absence_fence(
+    tmp_path: Path, transport_module: Any
+) -> None:
+    nodes = (_NODES[-1],)
+    transport = _transport(tmp_path, transport_module, nodes)
+    folder, request = _collection_worker(transport.root, transport.environment, nodes)
+    transport.closed_worker(folder, request, 0)
+    batch, batch_request = _worker(
+        transport.root, transport.environment, nodes[0], 1, nodes
+    )
+    transport.closed_worker(batch, batch_request, 0)
+    assert transport.record["errors"] == []
+    (folder / "events.jsonl").write_bytes(b"{}\n")
+    transport.finish("PASS")
+    assert transport.record["status"] == "UNVERIFIED"
+    assert any(
+        error["message"] == "clean collect-only events appeared after closure"
+        for error in transport.record["errors"]
+    )
+    assert (folder / "events.jsonl").read_bytes() == b"{}\n"

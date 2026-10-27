@@ -30,6 +30,7 @@ from ._source_cast_planning import (
     resolve_cast_plan,
 )
 from ._source_cast_provenance import CallableCastLease, CallableCastProof, proof_digest
+from ._source_cast_authority import _CastTransaction
 
 CONTEXT_KEY: Final[str] = "jax2onnx.source.cast_context_acquisition"
 _PREREQUISITES: Final[frozenset[str]] = frozenset(
@@ -105,9 +106,15 @@ class RootCastContextLease:
     """Conversion-owned acquisition; no caller-supplied observation is trusted."""
 
     def __init__(
-        self, function: object, *, has_input_params: bool, inputs: object = None
+        self,
+        function: object,
+        *,
+        has_input_params: bool,
+        inputs: object = None,
+        transaction: _CastTransaction | None = None,
     ) -> None:
         self._profiles: Any = (sys.getprofile(), threading.getprofile())
+        self._transaction = transaction
         self._callable = CallableCastLease(function)
         self._native: Any = None
         self._lowering: Any = None
@@ -134,6 +141,8 @@ class RootCastContextLease:
                     self._lowering = begin_original_cast_lowering(
                         inputs, state.function.__name__
                     )
+                    if self._transaction is not None:
+                        self._lowering.bind_transaction(self._transaction._nonce)
                 except (ValueError, TypeError, RuntimeError, AttributeError, OSError):
                     self._lowering_reason = (
                         "original-input-or-native-lowering-bindings-unavailable"
@@ -178,16 +187,32 @@ class RootCastContextLease:
                 # native tree for this actual original trace.
                 from ._source_cast_planning import prepare_root_cast_plan
 
-                if prepare_root_cast_plan(closed).eligibility != plan.eligibility:
+                actual_plan = prepare_root_cast_plan(closed)
+                if actual_plan.eligibility != plan.eligibility:
                     raise ValueError("original native trace binding changed")
                 lowering = lower_original_cast_jaxpr(
                     self._native, closed, self._lowering
                 )
                 self._callable.assert_current()
+                if self._transaction is not None:
+                    handoff = self._lowering.take_handoff(
+                        self._transaction._nonce, lowering
+                    )
+                    if handoff is not None:
+                        if proof is None:
+                            handoff.clear()
+                            raise ValueError("original callable proof unavailable")
+                        self._transaction.stage(
+                            handoff,
+                            proof_digest(proof),
+                            actual_plan.eligibility.source_body_sha256,
+                        )
                 reasons.clear()
             elif self._lowering_reason is not None:
                 reasons.append(self._lowering_reason)
         except (ValueError, TypeError, RuntimeError, AttributeError, OSError) as error:
+            if self._transaction is not None:
+                self._transaction.discard()
             lowering = None
             reasons.append(
                 self._reason
@@ -254,55 +279,100 @@ class RootCastContextLease:
     def close(self) -> None:
         if self._closed:
             return
-        held = (
-            self._profiles is not None
-            and sys.getprofile() is self._profiles[0]
-            and threading.getprofile() is self._profiles[1]
-        )
-        self._callable.close()
-        if self._native is not None:
-            held = bool(self._native.close() and held)
-        self._native = None
-        if self._lowering is not None:
-            self._lowering.close()
-        self._lowering = None
-        held = bool(
-            held
-            and self._profiles is not None
-            and sys.getprofile() is self._profiles[0]
-            and threading.getprofile() is self._profiles[1]
-        )
-        if not held and self.record is not None:
-            self.record = replace(
-                self.record,
-                original_logging="UNAVAILABLE",
-                original_input_shardings="UNAVAILABLE",
-                original_output_shardings="UNAVAILABLE",
-                original_lowering=None,
-                reasons=(
-                    *self.record.reasons,
-                    "ambient-profile-changed-during-cleanup",
-                ),
+        completed = False
+        try:
+            held = (
+                self._profiles is not None
+                and sys.getprofile() is self._profiles[0]
+                and threading.getprofile() is self._profiles[1]
             )
-            if self.plan is not None and self.plan.observation is not None:
-                observation = self.plan.observation
-                options = tuple(
-                    (key, value)
-                    for key, value in observation.options
-                    if not key.startswith("original_")
-                )
-                observation = replace(
-                    observation,
-                    options=(
-                        *options,
-                        ("original_logging", "unavailable"),
-                        ("original_resolved_shardings", "unavailable"),
-                        ("original_availability", "failed-during-cleanup"),
+            try:
+                # Temporary query/lowering owners have already been dropped by
+                # their finally blocks. Keep every verifier alive through the last
+                # source/config/environment/factory/build fence, then release.
+                if self._callable.proof is not None:
+                    self._callable.assert_current()
+                if self._lowering is not None:
+                    self._lowering.assert_current()
+                if self._native is not None:
+                    held = bool(self._native.close() and held)
+                if self._lowering is not None:
+                    self._lowering.assert_current()
+                if self._callable.proof is not None:
+                    self._callable.assert_current()
+            except (ValueError, TypeError, RuntimeError, AttributeError, OSError):
+                held = False
+            finally:
+                try:
+                    if self._native is not None and not self._native._closed:
+                        held = bool(self._native.close() and held)
+                finally:
+                    self._native = None
+                    try:
+                        if self._lowering is not None:
+                            self._lowering.close()
+                    finally:
+                        self._lowering = None
+                        self._callable.close()
+            held = bool(
+                held
+                and self._profiles is not None
+                and sys.getprofile() is self._profiles[0]
+                and threading.getprofile() is self._profiles[1]
+            )
+            try:
+                if self._transaction is not None:
+                    self._transaction.finish_cleanup(held)
+            except (ValueError, TypeError, RuntimeError, AttributeError, OSError):
+                held = False
+                if self._transaction is not None:
+                    self._transaction.discard()
+            if not held and self.record is not None:
+                self.record = replace(
+                    self.record,
+                    original_logging="UNAVAILABLE",
+                    original_input_shardings="UNAVAILABLE",
+                    original_output_shardings="UNAVAILABLE",
+                    original_lowering=None,
+                    reasons=(
+                        *self.record.reasons,
+                        (
+                            "ambient-profile-changed-during-cleanup"
+                            if (
+                                self._profiles is not None
+                                and (
+                                    sys.getprofile() is not self._profiles[0]
+                                    or threading.getprofile() is not self._profiles[1]
+                                )
+                            )
+                            else "cast-context-changed-during-cleanup"
+                        ),
                     ),
                 )
-                self.plan = resolve_cast_plan(self.plan.eligibility, observation)
-        self._profiles = None
-        self._closed = True
+                if self.plan is not None and self.plan.observation is not None:
+                    observation = self.plan.observation
+                    options = tuple(
+                        (key, value)
+                        for key, value in observation.options
+                        if not key.startswith("original_")
+                    )
+                    observation = replace(
+                        observation,
+                        options=(
+                            *options,
+                            ("original_logging", "unavailable"),
+                            ("original_resolved_shardings", "unavailable"),
+                            ("original_availability", "failed-during-cleanup"),
+                        ),
+                    )
+                    self.plan = resolve_cast_plan(self.plan.eligibility, observation)
+            completed = True
+        finally:
+            if not completed and self._transaction is not None:
+                self._transaction.discard()
+            self._transaction = None
+            self._profiles = None
+            self._closed = True
 
 
 def attach_cast_acquisition(

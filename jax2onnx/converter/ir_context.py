@@ -44,6 +44,7 @@ from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from .function_scope import FunctionRegistry
+    from ._source_cast_authority import _CastPermit, SelectedCastContract
 
 
 class _InitializerProxy(MutableSequence[ir.Value]):
@@ -205,6 +206,8 @@ class IRContext:
             else None
         )
         self._source_cast_plan: WholeRootCastPlan | None = None
+        self._source_cast_permit: _CastPermit | None = None
+        self._source_cast_audit: SelectedCastContract | None = None
         self._jaxpr_validator = jaxpr_validator
         if stacktrace_metadata is None:
             env_flag = os.getenv(_STACKTRACE_METADATA_ENV)

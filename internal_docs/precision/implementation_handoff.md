@@ -1,6 +1,22 @@
 # Precision migration handoff — 2026-10-27
 
-## Current checkpoint: qualified local packet and dated CI evidence
+## Current checkpoint — 2026-10-27: published CI and qualified local A issuance
+
+Published HEAD `9c2eca1b9a290a407478027aa581964caad4ad15` has **all eight terminal SUCCESS** checks in [CI #547](https://github.com/enpasos/jax2onnx/actions/runs/40530166249), reverified read-only at **19:00 UTC**. The D1 checkpoint below is an older epoch. Exact-head independent API receipt: `ci-9c2eca1b-eight-success-independent-api-v1.json`, SHA-256 `834a53533f995f58c7d073712fd1197b371671e16f5aa571d7231acea552b795`.
+
+At runtime qualification, the **fourteen-file A packet** had source-files SHA `0f131b045f1f5635f4ea4caec59ac49dc346cecd1ab369ddee28dfefb0ee4ef0` and index tree `4564872dca082bd58457f8cd2d0f7bbc5ebd378c`. Six actual complete-owner runs at this same source epoch yield **2,480 identical unique cases / 7,440 passing phases across 33 owners per Python 3.11 and 3.14 stack**, with zero failures, errors or skips: 161 A cases, 1,924 core/options cases and 395 framework cases. This aggregate is not one full-suite run and supplies no A runtime qualification for Python 3.12/3.13. Receipt: `cast-authority-A-dual2480-qualification-v1.json`, SHA-256 `a91fd8fe8bbf49d9c2fa22e8095c5cbdeea915eaa3e4641806d0caa37b413e83`.
+
+Genuine cold-first initialization, permit issuance and cleanup passed both stacks; independent acceptance `cast-authority-A-dual161-independent-review-a5a45fe13e6e.json` has SHA-256 `21198398f7bed950b71d131bd838fa3cbf98ad5c363080e30eb2bc932da0770a`. Callback static review is `cast-authority-A-callback-independent-review-0a7c215698f8.json`, SHA-256 `47d27dcd964111852b21117fd2c34f85058a30ec869696ff498c71b2ae5f85ee`. All seven pinned hooks v5 pass. Actual package typing passes **593 files** on each locked stack, with **17 identical RNG entries**; strict documentation also passes. Normal local commit checks remain pending. The broader independent runtime acceptance is `cast-authority-A-dual2480-independent-review-v1.json`, SHA-256 `11eccde15366d2ef7e7da05881f3b1cfab2c5dc73b01865eadad0f48a6f329bd`. This leading documentation update follows the recorded runtime source epoch; all Python and test bytes remain unchanged.
+
+Earlier failures remain evidence: A's 139-case trial recorded **83 passes / 56 failures**; both 141-case trials recorded **92 / 49**. Framework disk-precondition trials recorded modern **394 / 1** and Python 3.11 **381 / 14**. Their later complete passes use unchanged code, criteria and caps after lossless relocation of closed owned output data. The separate **local 4 GiB full-model MEMORY hold remains**.
+
+A qualifies trusted issuance, **not numerical activation**. Public defaults remain **LEGACY**, mathematical helpers remain unregistered, and the pure plan remains **UNRESOLVED**. B's fourteen-path source implementation with 49 projected added cases is frozen at `3d9b669a` with static GO; While's eight-path/91-projected-case implementation is frozen at `2c824186` with static GO `fb745e82`. Neither is integrated or runtime qualified.
+
+CI #547's Python 3.13 archive retains ten actual full payloads with independently accepted completeness (`ci547-python313-payload-independent-review-v1.json`, SHA-256 `f90cb8dfdac49a959985fa01ebd29b8a5550e55112838bc3c8965ed8d428b965`). Original global transport **UNVERIFIED** remains retained; no full numerical replay or milestone E completion follows.
+
+The full **B–F** inventory, operators/regions, fixed supplied sources and models, durable artifact replay, resource closure and public transition remain outstanding. Every successor published head needs its own complete eight-check gate. Evidence filenames above resolve under `/tmp/jax2onnx-goal-validation`; retain all following historical entries with their original epochs and outcomes.
+
+## Earlier checkpoint: D1 and preceding local packet
 
 Completed CI checkpoint `d1ab27caafbb6c8234c901ea9fd0dfd28bff536c` has
 **all eight terminal SUCCESS** checks in

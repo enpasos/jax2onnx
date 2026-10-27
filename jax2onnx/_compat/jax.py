@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from importlib import import_module
+from importlib.machinery import ModuleSpec as _CastModuleSpec
 from dataclasses import dataclass, field
 import re
 import functools
@@ -33,6 +34,9 @@ from jax._src.numpy import ufuncs as _native_ufuncs
 from jax._src.lax import lax as _native_lax_impl
 from jax._src.lax import windowed_reductions as _native_windowed
 from jax._src import pjit as _native_pjit
+from jax._src import xla_bridge as _cast_cpu_bridge
+from jaxlib import xla_client as _cast_cpu_client
+from jaxlib import _jax as _cast_cpu_native
 from jax._src import api as _native_api
 from jax._src import traceback_util as _native_traceback
 from jax._src import linear_util as _native_linear_util
@@ -123,6 +127,94 @@ _CAST_META_TYPE: Any = vars(_native_pjit).get("MetaTy")
 _CAST_MESH_COMPUTATION_TYPE: Any = vars(_native_pjit.pxla).get("MeshComputation")
 _CAST_MESH_EXECUTABLE_TYPE: Any = vars(_native_pjit.pxla).get("MeshExecutable")
 _CAST_LOWERING_PARAMETER_TYPE: Any = vars(_native_pjit.mlir).get("LoweringParameters")
+
+# Already imported ordinary CPU construction boundaries. These are identities,
+# not a request to construct a client or load another library. The private cast
+# issuer checks the physical sources and loaded files before using them.
+_cast_cpu_spec = vars(_cast_cpu_native).get("__spec__")
+_cast_cpu_factories = vars(_cast_cpu_bridge).get("_backend_factories")
+_cast_cpu_registration = vars(_cast_cpu_bridge).get("BackendRegistration")
+_cast_cpu_distributed = vars(_cast_cpu_bridge).get("distributed")
+_cast_cpu_state = (
+    vars(_cast_cpu_distributed).get("global_state")
+    if type(_cast_cpu_distributed) is types.ModuleType
+    else None
+)
+_CAST_CPU_IMPORT_ANCHORS: tuple[Any, ...] = (
+    _cast_cpu_native,
+    _cast_cpu_bridge,
+    _cast_cpu_client,
+    vars(_cast_cpu_bridge).get("make_cpu_client"),
+    vars(_cast_cpu_client).get("make_cpu_client"),
+    _cast_cpu_registration,
+    _cast_cpu_factories,
+    dict.get(_cast_cpu_factories, "cpu") if type(_cast_cpu_factories) is dict else None,
+    vars(_cast_cpu_native).get("get_tfrt_cpu_client"),
+    _cast_cpu_state,
+    type(_cast_cpu_state),
+    vars(_cast_cpu_native).get("__file__"),
+    vars(_cast_cpu_native).get("__spec__"),
+    _cast_cpu_spec.origin if type(_cast_cpu_spec) is _CastModuleSpec else None,
+    _cast_cpu_spec.loader if type(_cast_cpu_spec) is _CastModuleSpec else None,
+    type(vars(_cast_cpu_native).get("get_tfrt_cpu_client")),
+    vars(type(vars(_cast_cpu_native).get("get_tfrt_cpu_client"))).get("__call__"),
+    (
+        tuple(
+            (name, vars(_cast_cpu_registration).get(name))
+            for name in ("factory", "priority", "fail_quietly", "experimental", "c_api")
+        )
+        if type(_cast_cpu_registration) is type
+        else ()
+    ),
+    tuple(
+        (name, vars(_cast_cpu_bridge).get(name))
+        for name in (
+            "_CPU_ENABLE_ASYNC_DISPATCH",
+            "num_cpu_devices",
+            "CROSS_HOST_TRANSFER_SOCKET_ADDRESS",
+            "cpu_get_local_topology_timeout_minutes",
+            "cpu_get_global_topology_timeout_minutes",
+        )
+    ),
+    _cast_cpu_distributed,
+    _cast_cpu_native.Client,
+    _cast_cpu_native.Device,
+    vars(_cast_cpu_native.Client).get("platform"),
+    vars(_cast_cpu_native.Device).get("client"),
+    vars(_cast_cpu_native.Device).get("id"),
+    (
+        tuple(
+            (
+                cls,
+                cls.__bases__,
+                tuple(
+                    (name, vars(cls).get(name))
+                    for name in ("__getattribute__", "__getattr__")
+                ),
+            )
+            for cls in (
+                _cast_cpu_registration,
+                type(_cast_cpu_state),
+            )
+        )
+        if type(_cast_cpu_registration) is type
+        else ()
+    ),
+)
+
+_CAST_CPU_CALLBACK_ANCHORS: tuple[Any, ...] = tuple(
+    (
+        name,
+        (action := vars(_cast_cpu_native).get(name)),
+        type(action),
+        vars(type(action)).get("__call__"),
+    )
+    for name in (
+        "register_custom_call_as_batch_partitionable",
+        "register_custom_call_partitioner",
+    )
+)
+_CAST_CPU_CALLBACK_REGISTRY: Any = vars(_cast_cpu_bridge).get("_plugin_callbacks")
 
 # Native HiJAX nonzero is available only on the newer supported stacks. Pin
 # its actual implementation instead of invoking a carrier-provided callback.

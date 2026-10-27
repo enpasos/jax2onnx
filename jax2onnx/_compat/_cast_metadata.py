@@ -20,7 +20,7 @@ from pathlib import Path
 import stat
 import sys
 import threading
-from types import CodeType, FunctionType, ModuleType
+from types import CodeType, FunctionType, MemberDescriptorType, ModuleType
 from typing import Any, cast
 
 _TEXT = 65536
@@ -47,6 +47,18 @@ _SOURCES = {
 _CAST_SOURCES = {
     "0.10.2": "aa44c9d0532e9b939d6b0e8d3fbe46fd6a6cb7b1fdaa1e072e6e611fab9919b1",
     "0.12.0.1": "017f9cbce9fb78726431b883ede7310ec91dcc06daebf03ee11384bef24c0c31",
+}
+_CALLBACK_SOURCES = {
+    "0.10.2": {
+        "jax._src.custom_partitioning": "6399ab9a11f7b8a5f2e4ff77b87e2b838e9dd41a6525f5f4f87eb464e268170b",
+        "jax._src.ffi": "6961465a5b501f7eb22a12f61a6f1b77169e750ee75a7f31bafe3b0e5c4dd0bd",
+        "jax._src.lax.linalg": "d8411d732e3abee4b0d58fc22b418c1d0391df9d1d55dd7b00f22e6e7b17e225",
+    },
+    "0.12.0.1": {
+        "jax._src.custom_partitioning": "2cde08da7ec92387da117229d03d2715b97258eee3720c2110bcc8f4cf6cef13",
+        "jax._src.ffi": "b148d10c4dac134025344065e86b735db5dc4751bb6723797cba0cf05a3cd69e",
+        "jax._src.lax.linalg": "c32c4ab90522deb9f337ad429ebe36e6ae43dfdc177d57c7d26c448233e8ba61",
+    },
 }
 
 
@@ -236,6 +248,369 @@ class NativeCastPins:
         self._states.clear()
         self._members.clear()
         self._primitive = ({}, ())
+
+
+class OrdinaryCpuFactoryPins:
+    """The current ordinary factory boundary, never warmed-executable history."""
+
+    def __init__(self, profile: Any) -> None:
+        from .jax import _CAST_CPU_IMPORT_ANCHORS
+
+        anchors = _CAST_CPU_IMPORT_ANCHORS
+        _require(
+            len(anchors) == 26
+            and all(type(value) is ModuleType for value in anchors[:3])
+            and type(anchors[5]) is type
+            and type(anchors[6]) is dict
+            and anchors[9] is not None
+            and type(anchors[19]) is ModuleType
+            and len(anchors[17]) == 5
+            and len(anchors[25]) == 2,
+            "ordinary CPU factory import anchors unavailable",
+        )
+        native, bridge, client = anchors[:3]
+        self._anchors = anchors
+        self._files = {
+            Path(bridge.__file__): _file(Path(bridge.__file__)),
+            Path(client.__file__): _file(Path(client.__file__)),
+        }
+        _require(
+            tuple(value[1] for value in self._files.values())
+            == profile.factory_sources,
+            "ordinary CPU factory physical source differs",
+        )
+        self._source_version = profile.version
+        self._states = [
+            _pin_function(bridge, "make_cpu_client"),
+            _pin_function(bridge, "_make_transfer_server_factory"),
+            _pin_function(client, "make_cpu_client"),
+        ]
+        self._members: tuple[tuple[dict[str, Any], str, Any], ...] = (
+            (vars(bridge), "make_cpu_client", anchors[3]),
+            (vars(client), "make_cpu_client", anchors[4]),
+            (vars(bridge), "BackendRegistration", anchors[5]),
+            (vars(bridge), "_backend_factories", anchors[6]),
+            (vars(client), "_xla", native),
+            (vars(bridge), "_jax", native),
+            (vars(bridge), "xla_client", client),
+            (vars(bridge), "distributed", anchors[19]),
+            (vars(native), "get_tfrt_cpu_client", anchors[8]),
+            (vars(native), "Client", anchors[20]),
+            (vars(native), "Device", anchors[21]),
+            (vars(anchors[19]), "global_state", anchors[9]),
+        )
+        from jax._src import config
+
+        _require(
+            all(
+                vars(bridge).get(name) is value
+                and type(value) in (config.State, config.Flag)
+                for name, value in anchors[18]
+            ),
+            "ordinary CPU factory configuration holders differ",
+        )
+        self._flags = tuple((value, value.value) for _, value in anchors[18])
+        self._capture_plugin_callbacks()
+        self._closed = False
+        self.assert_current()
+
+    def _pin_callback_module(self, name: str, functions: tuple[str, ...]) -> ModuleType:
+        module = sys.modules.get(name)
+        _require(
+            type(module) is ModuleType, "builtin callback source module unavailable"
+        )
+        module = cast(ModuleType, module)
+        if name not in self._callback_modules:
+            filename = vars(module).get("__file__")
+            _require(type(filename) is str, "builtin callback source path unavailable")
+            path = Path(cast(str, filename))
+            identity = _file(path)
+            _require(
+                identity[1] == _CALLBACK_SOURCES[self._source_version][name],
+                "builtin callback physical source differs",
+            )
+            self._files[path] = identity
+            self._callback_modules[name] = module
+            for member in functions:
+                state = _pin_function(module, member)
+                _require(
+                    state.function.__defaults__ is None
+                    and state.function.__kwdefaults__ is None,
+                    "builtin callback defaults differ",
+                )
+                self._states.append(state)
+                self._members += ((vars(module), member, state.function),)
+        return module
+
+    def _capture_plugin_callbacks(self) -> None:
+        from .jax import _CAST_CPU_CALLBACK_ANCHORS, _CAST_CPU_CALLBACK_REGISTRY
+
+        native, bridge, client = self._anchors[:3]
+        self._callback_modules: dict[str, ModuleType] = {}
+        self._callback_entries: list[tuple[Any, ...]] = []
+        self._callback_actions = _CAST_CPU_CALLBACK_ANCHORS
+        _require(
+            self._source_version in _CALLBACK_SOURCES,
+            "unaudited builtin callback epoch",
+        )
+        for name, action, cls, call in self._callback_actions:
+            _require(
+                type(action) is cls
+                and cls.__module__ == "nanobind"
+                and vars(cls).get("__call__") is call,
+                "builtin callback native action differs",
+            )
+            self._members += (
+                (vars(native), name, action),
+                (vars(client), name, action),
+            )
+        callbacks = vars(bridge).get("_plugin_callbacks")
+        _require(
+            callbacks is _CAST_CPU_CALLBACK_REGISTRY
+            and type(callbacks) is list
+            and len(callbacks) <= 512,
+            "builtin callback registry differs",
+        )
+        self._callback_registry: Any = callbacks
+        text_bytes = 0
+        for callback in callbacks:
+            _require(
+                type(callback) is functools.partial,
+                "foreign plugin callback unavailable",
+            )
+            args, keywords = callback.args, callback.keywords
+            _require(
+                type(args) is tuple and type(keywords) is dict,
+                "builtin callback partial state differs",
+            )
+            if callback.func is self._callback_actions[0][1]:
+                _require(
+                    len(args) == 1
+                    and type(args[0]) is str
+                    and 0 < len(args[0]) <= 4096
+                    and "\0" not in args[0]
+                    and not keywords,
+                    "builtin batch callback arguments differ",
+                )
+                self._pin_callback_module(
+                    "jax._src.ffi", ("register_ffi_target_as_batch_partitionable",)
+                )
+                self._pin_callback_module(
+                    "jax._src.lax.linalg", ("register_module_custom_calls",)
+                )
+            elif callback.func is self._callback_actions[1][1]:
+                module = self._pin_callback_module(
+                    "jax._src.custom_partitioning",
+                    (
+                        "_custom_partitioning_propagate_user_sharding",
+                        "_custom_partitioning_partition",
+                        "_custom_partitioning_infer_sharding_from_operands",
+                    ),
+                )
+                expected = {
+                    "name": "CustomSPMDPartitioning",
+                    "prop_user_sharding": vars(module)[
+                        "_custom_partitioning_propagate_user_sharding"
+                    ],
+                    "partition": vars(module)["_custom_partitioning_partition"],
+                    "infer_sharding_from_operands": vars(module)[
+                        "_custom_partitioning_infer_sharding_from_operands"
+                    ],
+                    "can_side_effecting_have_replicated_sharding": True,
+                }
+                _require(
+                    not args
+                    and len(keywords) == 5
+                    and all(type(key) is str for key in keywords)
+                    and set(keywords) == set(expected),
+                    "builtin partitioner callback arguments differ",
+                )
+                _require(
+                    type(keywords["name"]) is str
+                    and keywords["name"] == expected["name"]
+                    and all(
+                        keywords[key] is value
+                        for key, value in expected.items()
+                        if key != "name"
+                    ),
+                    "builtin partitioner callback bindings differ",
+                )
+            else:
+                raise ValueError("unreviewed plugin callback native action")
+            name = (
+                args[0]
+                if callback.func is self._callback_actions[0][1]
+                else keywords["name"]
+            )
+            text_bytes += len(name.encode("utf-8"))
+            _require(text_bytes <= _TEXT, "builtin callback text exceeds bound")
+            self._callback_entries.append(
+                (callback, callback.func, args, keywords, tuple(keywords.items()))
+            )
+
+    def assert_current(self, selected: Any = None) -> None:
+        _require(not self._closed, "ordinary CPU factory pins closed")
+        anchors = self._anchors
+        native, bridge, _ = anchors[:3]
+        _require(
+            all(
+                namespace.get(name) is value for namespace, name, value in self._members
+            ),
+            "ordinary CPU factory import binding changed",
+        )
+        _require(
+            all(
+                cls.__bases__ is bases
+                and all(vars(cls).get(name) is value for name, value in readers)
+                for cls, bases, readers in anchors[25]
+            ),
+            "ordinary CPU registration/distributed attribute reader changed",
+        )
+        for function, expected in (
+            (anchors[3], (None,)),
+            (anchors[4], (True, None, 0, 1, None, None, None, None, None)),
+        ):
+            defaults = function.__defaults__
+            _require(
+                type(defaults) is tuple
+                and len(defaults) == len(expected)
+                and all(
+                    value is other
+                    for value, other in zip(defaults, expected, strict=True)
+                )
+                and function.__kwdefaults__ is None,
+                "ordinary CPU factory defaults differ from physical source",
+            )
+        _require(
+            all(vars(bridge).get(name) is value for name, value in anchors[18])
+            and vars(native.Client).get("platform") is anchors[22]
+            and vars(native.Device).get("client") is anchors[23]
+            and vars(native.Device).get("id") is anchors[24],
+            "ordinary CPU factory holders/native descriptors changed",
+        )
+        _require(
+            type(anchors[8]) is anchors[15]
+            and type(anchors[8]).__module__ == "nanobind"
+            and vars(type(anchors[8])).get("__call__") is anchors[16],
+            "native CPU factory descriptor changed",
+        )
+        registration = dict.get(anchors[6], "cpu")
+        _require(
+            type(anchors[6]) is dict
+            and registration is anchors[7]
+            and type(registration) is anchors[5],
+            "ordinary CPU backend registration changed",
+        )
+        values = []
+        for name, descriptor in anchors[17]:
+            _require(
+                type(descriptor) is MemberDescriptorType
+                and vars(anchors[5]).get(name) is descriptor,
+                "CPU registration slot descriptor changed",
+            )
+            values.append(descriptor.__get__(registration, anchors[5]))
+        _require(
+            values[0] is anchors[3]
+            and type(values[1]) is int
+            and values[1] == 0
+            and values[2] is False
+            and values[3] is False
+            and values[4] is None,
+            "nonordinary CPU backend factory unavailable",
+        )
+        state, cls = anchors[9:11]
+        _require(type(state) is cls, "ordinary distributed state type changed")
+        expected_state: int | None
+        for name, expected_state in (
+            ("client", None),
+            ("process_id", 0),
+            ("num_processes", 1),
+        ):
+            value = vars(state).get(name, vars(cls).get(name))
+            _require(
+                type(value) is type(expected_state) and value == expected_state,
+                "nonlocal distributed CPU factory unavailable",
+            )
+        _require(
+            all(
+                type(flag.value) is type(value) and flag.value == value
+                for flag, value in self._flags
+            )
+            and bridge.num_cpu_devices.value in (-1, 1)
+            and not bridge.CROSS_HOST_TRANSFER_SOCKET_ADDRESS.value,
+            "ordinary CPU factory configuration changed",
+        )
+        if self._source_version == "0.10.2":
+            callbacks = vars(bridge).get("_backend_initialization_hooks")
+            _require(
+                type(callbacks) is list and not callbacks,
+                "unreviewed CPU initialization callbacks unavailable",
+            )
+        elif self._source_version == "0.12.0.1":
+            _require(
+                "_backend_initialization_hooks" not in vars(bridge),
+                "unexpected CPU initialization callback registry",
+            )
+        else:
+            raise ValueError("unaudited CPU factory source epoch")
+        callbacks = vars(bridge).get("_plugin_callbacks")
+        _require(
+            all(
+                type(action) is cls and vars(cls).get("__call__") is call
+                for _, action, cls, call in self._callback_actions
+            )
+            and callbacks is self._callback_registry
+            and type(callbacks) is list
+            and len(callbacks) == len(self._callback_entries)
+            and all(
+                actual is entry[0]
+                for actual, entry in zip(callbacks, self._callback_entries, strict=True)
+            ),
+            "builtin plugin callback registry changed",
+        )
+        for callback, action, args, keywords, entries in self._callback_entries:
+            current = tuple(keywords.items())
+            _require(
+                callback.func is action
+                and callback.args is args
+                and callback.keywords is keywords
+                and len(current) == len(entries)
+                and all(
+                    a is c and b is d
+                    for (a, b), (c, d) in zip(current, entries, strict=True)
+                ),
+                "builtin plugin callback partial changed",
+            )
+        _require(
+            all(
+                sys.modules.get(name) is module
+                for name, module in self._callback_modules.items()
+            ),
+            "builtin callback source module changed",
+        )
+        if selected is not None:
+            _require(
+                type(selected) is native.Client
+                and type(vars(bridge).get("_backends")) is dict
+                and dict.get(vars(bridge)["_backends"], "cpu") is selected,
+                "actual CPU client is not the registered ordinary client",
+            )
+        for state in self._states:
+            state.assert_current()
+        _require(
+            all(_file(path) == value for path, value in self._files.items()),
+            "ordinary CPU factory source changed",
+        )
+
+    def close(self) -> None:
+        self._states.clear()
+        self._files.clear()
+        self._members = self._flags = self._anchors = ()
+        self._callback_registry = None
+        self._callback_entries.clear()
+        self._callback_modules.clear()
+        self._callback_actions = ()
+        self._closed = True
 
 
 def _require(condition: bool, reason: str) -> None:
@@ -598,6 +973,12 @@ class CpuCastContext:
         self._closed = False
         self._used = False
         self._acquired_client_identity: int | None = None
+        self._acquired_client: Any = None
+        self._acquired_device: Any = None
+        self._acquired_target = b""
+        self._authority_build: Any = None
+        self._authority_factory: Any = None
+        self._authority_reason: str | None = None
         self._profiles: Any = (sys.getprofile(), threading.getprofile())
         self._environment = dict(os.environ)
         _require(
@@ -752,8 +1133,26 @@ class CpuCastContext:
             "nondefault compilation pipeline unavailable",
         )
         self.version = jax.__version__
+        # Build/factory admission belongs only to the private issuer. Existing
+        # acquisition remains useful evidence on an unreviewed installed build.
+        from ._cast_build_profile import LoadedCastBuildPins, _PROFILES
 
-    def assert_current(self) -> None:
+        schema_profile = next(row for row in _PROFILES if row.version == self.version)
+        self._authority_factory = OrdinaryCpuFactoryPins(schema_profile)
+
+        try:
+            self._authority_build = LoadedCastBuildPins(
+                native, jax.__version__, jaxlib.__version__
+            )
+        except (ValueError, TypeError, RuntimeError, AttributeError, OSError):
+            self._authority_reason = (
+                "reviewed-loaded-build-or-ordinary-factory-unavailable"
+            )
+            if self._authority_build is not None:
+                self._authority_build.close()
+            self._authority_build = None
+
+    def assert_current(self, *, final: bool = False) -> None:
         from .jax import require_native_context_restored
 
         _require(
@@ -791,6 +1190,10 @@ class CpuCastContext:
             all(_file(path) == identity for path, identity in self._sources.items()),
             "native compiler source changed",
         )
+        if self._authority_build is not None:
+            self._authority_build.assert_current(full=final)
+        if self._authority_factory is not None:
+            self._authority_factory.assert_current(self._acquired_client)
 
     def _check_backend_initialization(self, selected: Any = None) -> None:
         namespace = self._backend_namespace
@@ -920,6 +1323,7 @@ class CpuCastContext:
                 "actual CPU client unavailable",
             )
             self._acquired_client_identity = id(client)
+            self._acquired_client = client
             devices = methods[(native.Client, "devices")](client)
             local = methods[(native.Client, "local_devices")](client)
             _require(
@@ -934,6 +1338,9 @@ class CpuCastContext:
                 is client,
                 "singleton same-client CPU assignment unavailable",
             )
+            self._acquired_device = devices[0]
+            if self._authority_factory is not None:
+                self._authority_factory.assert_current(client)
             from jax._src import config
 
             _require(
@@ -1029,6 +1436,7 @@ class CpuCastContext:
                 "acquisition options mutated",
             )
             native_file = _file(Path(native.__file__))
+            self._acquired_target = target_payload
             fields = (
                 ("acquisition", acquisition),
                 ("client_identity", str(id(client))),
@@ -1067,7 +1475,7 @@ class CpuCastContext:
                     require_query_released()
             finally:
                 client = None
-                self.require_profiles_current()
+                self.assert_current()
 
     def close(self) -> bool:
         held = (
@@ -1075,23 +1483,36 @@ class CpuCastContext:
             and sys.getprofile() is self._profiles[0]
             and threading.getprofile() is self._profiles[1]
         )
-        self._functions.clear()
-        self._states.clear()
-        self._members.clear()
-        self._sources.clear()
-        self._configs = ()
-        self._snapshot = None
-        self._backend = self._backend_function = None
-        self._backend_namespace = self._backend_registry = None
-        self._backend_default_initial = self._backend_default_seen = None
-        self._backend_client_type = self._backend_platform = None
-        self._environment.clear()
-        held = bool(
-            held
-            and sys.getprofile() is self._profiles[0]
-            and threading.getprofile() is self._profiles[1]
-        )
-        self._profiles = None
-        self._acquired_client_identity = None
-        self._closed = True
+        try:
+            try:
+                self.assert_current(final=True)
+            except (ValueError, TypeError, RuntimeError, AttributeError, OSError):
+                held = False
+        finally:
+            if self._authority_factory is not None:
+                self._authority_factory.close()
+            if self._authority_build is not None:
+                self._authority_build.close()
+            self._authority_factory = self._authority_build = None
+            self._functions.clear()
+            self._states.clear()
+            self._members.clear()
+            self._sources.clear()
+            self._configs = ()
+            self._snapshot = None
+            self._backend = self._backend_function = None
+            self._backend_namespace = self._backend_registry = None
+            self._backend_default_initial = self._backend_default_seen = None
+            self._backend_client_type = self._backend_platform = None
+            self._environment.clear()
+            held = bool(
+                held
+                and sys.getprofile() is self._profiles[0]
+                and threading.getprofile() is self._profiles[1]
+            )
+            self._profiles = None
+            self._acquired_client_identity = None
+            self._acquired_client = self._acquired_device = None
+            self._acquired_target = b""
+            self._closed = True
         return held

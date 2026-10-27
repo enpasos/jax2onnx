@@ -56,6 +56,10 @@ from .source_deployment_bindings import attach_matrix_bindings
 from .source_structure import attach_source_structure
 from ._source_cast_planning import attach_cast_plan, prepare_root_cast_plan
 from ._source_cast_context import RootCastContextLease, attach_cast_acquisition
+from ._source_cast_authority import (
+    _begin_cast_transaction,
+    attach_cast_authority_audit,
+)
 from .source_representation import representation_for_aval, validate_source_shapes
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
@@ -1156,106 +1160,130 @@ def _convert_to_ir(
             [cast(jax.ShapeDtypeStruct, spec).shape for spec in inputs]
         )
 
-    cast_lease = (
-        RootCastContextLease(fn, has_input_params=bool(input_params), inputs=inputs)
+    # The nonce is born here, before tracing and before any acquisition lease.
+    # Boundary-layout bridges are outside this exact whole-root cast contract.
+    cast_nonce = object()
+    cast_transaction = (
+        _begin_cast_transaction(cast_nonce, opset)
         if precision_policy is PrecisionPolicy.SOURCE
+        and inputs_as_nchw is None
+        and outputs_as_nchw is None
         else None
     )
-    acquisition = None
     try:
-        trace = _trace_to_jaxpr(
-            fn=fn,
-            inputs=inputs,
-            input_params=input_params,
-            enable_double_precision=enable_double_precision,
-            inputs_as_nchw=inputs_as_nchw,
-            outputs_as_nchw=outputs_as_nchw,
-            input_names=input_names,
-            output_names=output_names,
-            precision_policy=precision_policy,
-            opset=opset,
-        )
-        if trace_observer is not None:
-            trace_observer(trace)
-        jpr = trace.jaxpr
-        if jaxpr_validator is not None:
-            jaxpr_validator(jpr, opset)
-        cast_plan = (
-            prepare_root_cast_plan(trace.closed_jaxpr)
-            if cast_lease is not None
+        cast_lease = (
+            RootCastContextLease(
+                fn,
+                has_input_params=bool(input_params),
+                inputs=inputs,
+                transaction=cast_transaction,
+            )
+            if precision_policy is PrecisionPolicy.SOURCE
             else None
         )
-        if cast_lease is not None and cast_plan is not None:
-            cast_plan = cast_lease.finish(cast_plan, closed=trace.closed_jaxpr)
-            acquisition = cast_lease.record
-    finally:
-        if cast_lease is not None:
-            cast_lease.close()
-            acquisition = cast_lease.record
-            if cast_lease.plan is not None:
-                cast_plan = cast_lease.plan
-    ctx = _create_ir_context(
-        opset=opset,
-        enable_double_precision=enable_double_precision,
-        normalization_mode=normalization_mode,
-        input_specs=trace.sds_list,
-        frozen_params=trace.frozen_params,
-        record_primitive_calls_file=record_primitive_calls_file,
-        precision_policy=precision_policy,
-        jaxpr_validator=jaxpr_validator,
-        deployment_target=deployment_target,
-    )
-    ctx._source_cast_plan = cast_plan
-    _bind_closed_jaxpr_constants(
-        ctx,
-        jpr,
-        trace.closed_jaxpr.consts,
-        default_float=_np_float_dtype(enable_double_precision),
-        enable_double_precision=enable_double_precision,
-    )
-    _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=trace.inputs_as_nchw)
-
-    _lower_jaxpr_equations(ctx, jpr)
-    _bind_jaxpr_outputs(
-        ctx,
-        jpr,
-        outputs_as_nchw=trace.outputs_as_nchw,
-        enable_double_precision=enable_double_precision,
-    )
-
-    model = _build_and_finalize_ir_model(
-        ctx,
-        model_name=model_name,
-        protective_clone=protective_clone,
-        strict_optimizer_failures=strict_optimizer_failures,
-    )
-    if precision_policy is PrecisionPolicy.SOURCE:
-        attach_cast_plan(model, cast_plan)
-        attach_cast_acquisition(model, acquisition)
-        attach_source_structure(
-            model,
-            ctx._source_structure,
-            boundary_layout=bool(trace.inputs_as_nchw or trace.outputs_as_nchw),
-        )
-        for label, variables, values, layouts in (
-            ("input", jpr.invars, model.graph.inputs, trace.inputs_as_nchw),
-            ("output", jpr.outvars, model.graph.outputs, trace.outputs_as_nchw),
-        ):
-            for index, (var, value) in enumerate(zip(variables, values, strict=True)):
-                representation = representation_for_aval(
-                    var.aval, boundary_layout="NCHW" if index in layouts else None
-                )
-                if not representation.matches_ir_value(value):
-                    raise RuntimeError(
-                        f"Final {label} {value.name} lost source type {representation.ir_dtype} "
-                        f"or shape {representation.physical_shape}"
-                    )
-        _source_input_values(trace, model.graph.inputs, require_internal_names=True)
-        if deployment_target is not None:
-            attach_matrix_bindings(
-                model, deployment_target, ctx.matrix_precision_bindings
+        acquisition = None
+        try:
+            trace = _trace_to_jaxpr(
+                fn=fn,
+                inputs=inputs,
+                input_params=input_params,
+                enable_double_precision=enable_double_precision,
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
+                input_names=input_names,
+                output_names=output_names,
+                precision_policy=precision_policy,
+                opset=opset,
             )
-    return model
+            if trace_observer is not None:
+                trace_observer(trace)
+            jpr = trace.jaxpr
+            if jaxpr_validator is not None:
+                jaxpr_validator(jpr, opset)
+            cast_plan = (
+                prepare_root_cast_plan(trace.closed_jaxpr)
+                if cast_lease is not None
+                else None
+            )
+            if cast_lease is not None and cast_plan is not None:
+                cast_plan = cast_lease.finish(cast_plan, closed=trace.closed_jaxpr)
+                acquisition = cast_lease.record
+        finally:
+            if cast_lease is not None:
+                cast_lease.close()
+                acquisition = cast_lease.record
+                if cast_lease.plan is not None:
+                    cast_plan = cast_lease.plan
+        ctx = _create_ir_context(
+            opset=opset,
+            enable_double_precision=enable_double_precision,
+            normalization_mode=normalization_mode,
+            input_specs=trace.sds_list,
+            frozen_params=trace.frozen_params,
+            record_primitive_calls_file=record_primitive_calls_file,
+            precision_policy=precision_policy,
+            jaxpr_validator=jaxpr_validator,
+            deployment_target=deployment_target,
+        )
+        ctx._source_cast_plan = cast_plan
+        _bind_closed_jaxpr_constants(
+            ctx,
+            jpr,
+            trace.closed_jaxpr.consts,
+            default_float=_np_float_dtype(enable_double_precision),
+            enable_double_precision=enable_double_precision,
+        )
+        _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=trace.inputs_as_nchw)
+        if cast_transaction is not None:
+            cast_transaction.bind(ctx, jpr)
+
+        _lower_jaxpr_equations(ctx, jpr)
+        _bind_jaxpr_outputs(
+            ctx,
+            jpr,
+            outputs_as_nchw=trace.outputs_as_nchw,
+            enable_double_precision=enable_double_precision,
+        )
+
+        model = _build_and_finalize_ir_model(
+            ctx,
+            model_name=model_name,
+            protective_clone=protective_clone,
+            strict_optimizer_failures=strict_optimizer_failures,
+        )
+        if precision_policy is PrecisionPolicy.SOURCE:
+            attach_cast_plan(model, cast_plan)
+            attach_cast_acquisition(model, acquisition)
+            attach_cast_authority_audit(model, cast_transaction)
+            attach_source_structure(
+                model,
+                ctx._source_structure,
+                boundary_layout=bool(trace.inputs_as_nchw or trace.outputs_as_nchw),
+            )
+            for label, variables, values, layouts in (
+                ("input", jpr.invars, model.graph.inputs, trace.inputs_as_nchw),
+                ("output", jpr.outvars, model.graph.outputs, trace.outputs_as_nchw),
+            ):
+                for index, (var, value) in enumerate(
+                    zip(variables, values, strict=True)
+                ):
+                    representation = representation_for_aval(
+                        var.aval, boundary_layout="NCHW" if index in layouts else None
+                    )
+                    if not representation.matches_ir_value(value):
+                        raise RuntimeError(
+                            f"Final {label} {value.name} lost source type {representation.ir_dtype} "
+                            f"or shape {representation.physical_shape}"
+                        )
+            _source_input_values(trace, model.graph.inputs, require_internal_names=True)
+            if deployment_target is not None:
+                attach_matrix_bindings(
+                    model, deployment_target, ctx.matrix_precision_bindings
+                )
+        return model
+    finally:
+        if cast_transaction is not None:
+            cast_transaction.discard()
 
 
 def to_onnx(
