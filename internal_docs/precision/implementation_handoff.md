@@ -1,5 +1,127 @@
 # Precision migration handoff — 2026-10-27
 
+## Current checkpoint: qualified local packet and dated CI evidence
+
+Completed CI checkpoint `d1ab27caafbb6c8234c901ea9fd0dfd28bff536c` has
+**all eight terminal SUCCESS** checks in
+[CI #546](https://github.com/enpasos/jax2onnx/actions/runs/40484915472).
+The last job completed at **2026-10-27 12:03:34 UTC**. Independent raw review of
+all four Python 3.11–3.14 archives accounts for **63,049 cohort case executions:
+63,004 passes and 45 original skips**, with 189,145 recorded phases. All twelve
+model-owner cases and 44 Original22 cases remain in each cohort, with every
+predecessor ID retained in order and 270 additional cases per cohort. The
+executed event-merge checkout is
+`d8759e1f2b26170ccba15b8c58459bddcf642743`; it remains distinct from the PR head.
+Receipt `ci-d1ab27ca-eight-success-evidence-v2.json` has SHA-256
+`453450de6abaf156ca020c6e3149e8a183563812c3659e70d05a5ecbf95568ae`.
+The independent all-eight review is
+`ci-d1ab27ca-eight-success-independent-review-v1.json`, SHA-256
+`eb1b7552a819f676107724ada61c647ca4db9db73095a215641cbfcc701653b9`.
+The original cast words are LOW throughout this run; the retained earlier HIGH
+failure and its unchanged bitwise criterion remain separate evidence.
+
+The later **unpublished seventeen-file packet** has finite qualification on both
+locked local stacks: **2,083 distinct passes / 6,249 passing phases per cohort**
+across thirty complete owners. This aggregate has two explicit source epochs:
+
+- Core: **1,714 passes / 5,142 phases**, twenty-four owners, source-files SHA
+  `64f7e7299f0371692f3afe8166e00938b3ef5ca8623e08b5bfaa4e50c50fa9bf`,
+  index tree `a44edb02b2bd083bcef0701da4668016eaf8e351`.
+- Framework: **369 passes / 1,107 phases**, six owners, source-files SHA
+  `a19217d05a7623e6403f11378036810dc3f1c3c1d8528af9399820e34ebe0529`,
+  index tree `c1d41471cf8f649ab38b964ea7224ccd0339082d`.
+
+Only the numerical component fixture and its nine added controls changed after
+the framework run. All other sixteen packet files, framework owners and scripts
+remain byte-identical, and the recorded framework origins exclude that changed
+fixture. Both cohorts retain identical ordered IDs within each selection; core
+and framework IDs are disjoint. This is a justified mixed-epoch aggregate,
+not one whole-suite execution at the final source. All seven pinned code hooks
+pass at the final core epoch. Independent receipt
+`precision17-final-qualified-pair-independent-v1.json` has SHA-256
+`0484ab52d2e81df01ffb145c719d45b9d8111796f2b9869809c3de666712114b`.
+Root typing, strict docs, normal commit checks and the next published head's
+complete eight-check CI gate remain pending at this writing.
+
+Native acquisition preserves the original `ShapeDtypeStruct` and one existing
+original `ClosedJaxpr` for the narrow whole-root dynamic FP64-to-FP16 case.
+The actual resolver binds the complete native MLIR/types/SSA, shardings, logging
+and options; ordinary profile identities hold. Per-program accounting remains
+**one original trace, one resolver call, zero source compilations, zero source
+executions and zero retraces**. Modern JAX 0.12 uses retained topology metadata:
+zero query compilations, executable serializations or executions. Older JAX 0.10
+uses one fixed empty-IR query compilation and one serialization, with zero
+executions. The earlier external empty-program experiments performed one
+compile/export per stack and retain their separate history. Hosted CI maps
+Python 3.11/3.12 to JAX/JAXLIB 0.10.2 and 3.13/3.14 to 0.12.0.1; these are four
+distinct native builds, not one binary inferred from a version label.
+
+The replacement **unused semantic LOW component** quantizes DOUBLE to FLOAT,
+widens that result exactly to DOUBLE, then applies the existing half-RNE
+arithmetic. Its independent whole-graph contract checks 65 computational nodes
+and 59 exact DOUBLE literal roles, including Constant form up to 124 nodes
+(125 with a facade Identity). Actual saved DISABLED graphs have 59 initializers;
+ALL graphs have 38 and retain 21 inert, unreferenced scalar DOUBLE ValueInfo
+entries. Acceptance performs no graph repair, inference or normalization.
+The numerical owner passes 138 cases, including nine metadata controls; the
+matcher passes 321, retaining all original 146 controls. Each stack records 34
+ORT CPU sessions over opsets 21 and 23. Independent integer-oracle comparisons
+retain the complete 253,952 half-grid and 380,928 float32-basin inputs, raw/edge
+corpora, scalar/empty/tail/dynamic shapes and original six-word witness. NaN
+classification is qualified only for this component; payload preservation
+remains unverified, with the original SOURCE assertions unchanged.
+
+The earlier consecutive two-Cast proposal is **rejected**, retained outside
+this packet: mandatory ORT `CastFloat16Transformer` /
+`RemoveDuplicateCastTransformer` collapses that chain even with DISABLED
+optimization. Its first trial retained 55 passes / one failure before any
+session; the repaired clone fixture's second trial retained 55 passes / one
+failure after one session and zero numerical runs. The first semantic-component
+run retained 1,689 passes / sixteen failures out of 1,705: an overly strict
+upper bound on inert saved metadata caused those failures. All 34 saved graph
+and literal proofs held; this was not a numerical discrepancy. The narrow
+metadata-fixture correction retains all 129 prior parameterized cases, with
+their original test bodies and decorators unchanged, and adds nine controls.
+No original input, oracle or acceptance criterion changed.
+
+Artifact transport now has 92 controls plus all 277 unchanged existing framework
+cases in the qualified 369-case pair. Unavailable optional setup emits explicit
+UNVERIFIED metadata while preserving original inherited environments and worker
+outcomes. Typed resource failures remain terminal through helper, closed-worker
+and finish phases; raw original pytest results retain priority and remain
+unchanged. The initial **319 passes / fourteen failures** from copied runners
+missing the adjacent helper remain recorded. Review freeze `31a5f7e9` was
+withheld for incomplete resource propagation; runtime qualification belongs to
+the repaired `ce773007` packet and its actual formatted source epoch above.
+
+V7 remains a separate predecessor: source `f2293f93` / index `93dea488` passed
+1,401 cases / 4,203 phases per stack across 23 owners, independently bound by
+`source-cast-native-ir-v7-dual-independent-qualification-v1.json`, SHA-256
+`b5c3404c03fae51142881c83054475d1fab198e79e9755bad26bffc629f295fe`.
+Its original-location failure, cross-module fixture lifetime abort,
+imported-generator pin failure and constructor failure remain unsuccessful
+earlier epochs, rather than qualification for the later packet.
+
+The algorithm plan remains **UNRESOLVED**, mathematical emitters remain
+unregistered, and public defaults remain **LEGACY**. The next activation design
+and its two options-validator authoring files are outside this qualified packet;
+no implemented issuer/build authority or source-kernel activation is claimed.
+Actual hosted full-model payload retention and replay are still pending. Model
+source, original inputs, B=2/B=5 sizes and criteria are unchanged.
+**3,124,102,240 raw output bytes** is only a lower bound, excluding model/input,
+headers, traces and archive/staging costs. The historical hosted minimum free
+space of 81.68 GB is an observation, not a new capacity proof. The separate
+**local 4 GiB full-model resource hold** remains.
+
+Numerical selection/activation, While/Scan and remaining operators, full
+inventory, fixed third-party/model requirements, durable artifacts and replay,
+runtime/resource closure and the public transition remain in full **B–F**.
+Every successor published head needs its own complete eight-check gate; neither
+the dated D1 result nor the local aggregate supplies it. The entries below
+retain their original source epochs and outcomes.
+
+## Earlier published and local checkpoints
+
 At the 2026-10-27 09:33 UTC observation, published diagnostic head
 `09f31f45babe5e365244b7d1f2f38277554f8dc3` had
 **all eight terminal SUCCESS** checks in

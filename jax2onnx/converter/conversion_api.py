@@ -55,6 +55,7 @@ from .source_deployment import DeploymentTarget
 from .source_deployment_bindings import attach_matrix_bindings
 from .source_structure import attach_source_structure
 from ._source_cast_planning import attach_cast_plan, prepare_root_cast_plan
+from ._source_cast_context import RootCastContextLease, attach_cast_acquisition
 from .source_representation import representation_for_aval, validate_source_shapes
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
@@ -1155,28 +1156,44 @@ def _convert_to_ir(
             [cast(jax.ShapeDtypeStruct, spec).shape for spec in inputs]
         )
 
-    trace = _trace_to_jaxpr(
-        fn=fn,
-        inputs=inputs,
-        input_params=input_params,
-        enable_double_precision=enable_double_precision,
-        inputs_as_nchw=inputs_as_nchw,
-        outputs_as_nchw=outputs_as_nchw,
-        input_names=input_names,
-        output_names=output_names,
-        precision_policy=precision_policy,
-        opset=opset,
-    )
-    if trace_observer is not None:
-        trace_observer(trace)
-    jpr = trace.jaxpr
-    if jaxpr_validator is not None:
-        jaxpr_validator(jpr, opset)
-    cast_plan = (
-        prepare_root_cast_plan(trace.closed_jaxpr)
+    cast_lease = (
+        RootCastContextLease(fn, has_input_params=bool(input_params), inputs=inputs)
         if precision_policy is PrecisionPolicy.SOURCE
         else None
     )
+    acquisition = None
+    try:
+        trace = _trace_to_jaxpr(
+            fn=fn,
+            inputs=inputs,
+            input_params=input_params,
+            enable_double_precision=enable_double_precision,
+            inputs_as_nchw=inputs_as_nchw,
+            outputs_as_nchw=outputs_as_nchw,
+            input_names=input_names,
+            output_names=output_names,
+            precision_policy=precision_policy,
+            opset=opset,
+        )
+        if trace_observer is not None:
+            trace_observer(trace)
+        jpr = trace.jaxpr
+        if jaxpr_validator is not None:
+            jaxpr_validator(jpr, opset)
+        cast_plan = (
+            prepare_root_cast_plan(trace.closed_jaxpr)
+            if cast_lease is not None
+            else None
+        )
+        if cast_lease is not None and cast_plan is not None:
+            cast_plan = cast_lease.finish(cast_plan, closed=trace.closed_jaxpr)
+            acquisition = cast_lease.record
+    finally:
+        if cast_lease is not None:
+            cast_lease.close()
+            acquisition = cast_lease.record
+            if cast_lease.plan is not None:
+                cast_plan = cast_lease.plan
     ctx = _create_ir_context(
         opset=opset,
         enable_double_precision=enable_double_precision,
@@ -1214,6 +1231,7 @@ def _convert_to_ir(
     )
     if precision_policy is PrecisionPolicy.SOURCE:
         attach_cast_plan(model, cast_plan)
+        attach_cast_acquisition(model, acquisition)
         attach_source_structure(
             model,
             ctx._source_structure,

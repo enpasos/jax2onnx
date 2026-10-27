@@ -24,10 +24,13 @@ from jax2onnx.converter.source_structure import (
     StructureMismatch,
     StructureUnavailable,
 )
+from jax2onnx.plugins.jax._f64_to_f16_double_round import emit_f64_to_f16_double_round
 from jax2onnx.plugins.jax._f64_to_f16_rne import emit_f64_to_f16_rne
 from jax2onnx.plugins.jax._source_f64_f16_structure import (
+    F64F16DoubleRoundSpec,
     F64F16RneSpec,
     RneGraphMatch,
+    check_f64_f16_double_round_graph,
     check_f64_f16_rne_graph,
 )
 
@@ -36,6 +39,19 @@ from jax2onnx.plugins.jax._source_f64_f16_structure import (
 class _Case:
     ctx: IRContext
     spec: F64F16RneSpec
+    source: ir.Value
+    result: ir.Value
+    expected_literals: tuple[bytes, ...]
+
+    @property
+    def graph(self) -> ir.Graph:
+        return self.ctx.builder.graph
+
+
+@dataclass
+class _CompositionCase:
+    ctx: IRContext
+    spec: F64F16DoubleRoundSpec
     source: ir.Value
     result: ir.Value
     expected_literals: tuple[bytes, ...]
@@ -70,11 +86,11 @@ def _case(shape: tuple[int, ...] = (6,), *, function: bool = False) -> _Case:
     return _Case(ctx, spec, source, result, expected)
 
 
-def _nodes(case: _Case, kind: str) -> list[ir.Node]:
+def _nodes(case: _Case | _CompositionCase, kind: str) -> list[ir.Node]:
     return [node for node in case.graph if node.op_type == kind]
 
 
-def _literal_roles(case: _Case) -> tuple[ir.Value, ...]:
+def _literal_roles(case: _Case | _CompositionCase) -> tuple[ir.Value, ...]:
     comparisons, selections = _nodes(case, "GreaterOrEqual"), _nodes(case, "Where")
     assert len(comparisons) == len(selections) == 29
     values = [selections[0].inputs[2]]
@@ -662,4 +678,343 @@ def test_math_spec_dimensions_require_exact_native_nonnegative_integers(
     }[fault]
     with pytest.raises(ValueError):
         F64F16RneSpec(shape)
+    assert calls == []
+
+
+def _composition_case(
+    shape: tuple[int | str, ...] | None = (6,),
+    *,
+    function: bool = False,
+    opset: int = 23,
+) -> _CompositionCase:
+    # The spec and literal storage obligations precede emission, independently.
+    spec = F64F16DoubleRoundSpec(shape)
+    expected = (struct.pack("<d", 2.0**24),) + tuple(
+        raw
+        for exponent in range(-13, 16)
+        for raw in (
+            struct.pack("<d", 2.0**exponent),
+            struct.pack("<d", 2.0 ** (10 - exponent)),
+        )
+    )
+    parent = IRContext(opset=opset, enable_double_precision=False)
+    ctx = parent.create_child_context(scope="function") if function else parent
+    source = ir.Value(
+        name="original_input",
+        type=ir.TensorType(ir.DataType.DOUBLE),
+        shape=ir.Shape(shape) if shape is not None else None,
+    )
+    ctx.builder.inputs.append(source)
+    result = emit_f64_to_f16_double_round(ctx, source)
+    ctx.builder.outputs.append(result)
+    return _CompositionCase(ctx, spec, source, result, expected)
+
+
+def _composition_check(case: _CompositionCase, *, saved: bool = False) -> RneGraphMatch:
+    return check_f64_f16_double_round_graph(
+        case.spec,
+        case.graph,
+        case.source,
+        case.result,
+        allow_cast_schema_defaults=saved,
+    )
+
+
+def _composition_good(case: _CompositionCase) -> RneGraphMatch:
+    match = _composition_check(case)
+    assert match.nodes == tuple(case.graph)
+    assert len([node for node in match.nodes if node.op_type != "Constant"]) == 65
+    assert len(match.literal_obligations) == len(case.expected_literals) == 59
+    assert [value for value, _ in match.literal_obligations] == list(
+        _literal_roles(case)
+    )
+    for (_, literal), expected in zip(
+        match.literal_obligations, case.expected_literals
+    ):
+        assert type(literal) is LiteralOperand
+        assert literal.tensor.dtype == ir.DataType.DOUBLE
+        assert literal.tensor.shape == literal.storage.shape == ()
+        assert literal.storage.dtype == "<f8" and literal.storage.byte_count == 8
+        assert literal.storage.sha256 == hashlib.sha256(expected).hexdigest()
+    first, wide = [node for node in match.nodes if node.op_type == "Cast"][:2]
+    assert first.inputs[0] is case.source and wide.inputs[0] is first.outputs[0]
+    assert first.outputs[0].dtype == ir.DataType.FLOAT
+    assert wide.outputs[0].dtype == ir.DataType.DOUBLE
+    assert _nodes(case, "Abs")[0].inputs[0] is wide.outputs[0]
+    assert _nodes(case, "Mul")[0].inputs[0] is wide.outputs[0]
+    return match
+
+
+@pytest.mark.parametrize("shape", [(), (0,), (6,), ("N", 7), None])
+@pytest.mark.parametrize(
+    "function", [False, True], ids=["initializers", "Constant-nodes"]
+)
+def test_composed_graph_requires_the_float_rounding_and_complete_half_math(
+    shape: tuple[int | str, ...] | None, function: bool
+) -> None:
+    case = _composition_case(shape, function=function)
+    match = _composition_good(case)
+    assert len(match.constants) == 59
+    assert len(match.nodes) == (124 if function else 65)
+
+
+@pytest.mark.parametrize("source", ["original", "widened"])
+def test_direct_wrapper_keeps_its_original_input_and_whole_graph_contract(
+    source: str,
+) -> None:
+    case = _composition_case()
+    _composition_good(case)
+    value = case.source if source == "original" else _nodes(case, "Cast")[1].outputs[0]
+    with pytest.raises(StructureMismatch):
+        check_f64_f16_rne_graph(F64F16RneSpec((6,)), case.graph, value, case.result)
+
+
+@pytest.mark.parametrize("opset", [12, 21, 23])
+@pytest.mark.parametrize("cast_index", [0, 1, 2])
+def test_only_saved_supported_cast_schemas_accept_exact_saturate_default(
+    opset: int, cast_index: int
+) -> None:
+    case = _composition_case(opset=opset)
+    _composition_good(case)
+    _nodes(case, "Cast")[cast_index].attributes["saturate"] = ir.AttrInt64(
+        "saturate", 1
+    )
+    with pytest.raises(StructureMismatch):
+        _composition_check(case)
+    if opset < 19:
+        with pytest.raises(StructureMismatch):
+            _composition_check(case, saved=True)
+    else:
+        assert _composition_check(case, saved=True).nodes == tuple(case.graph)
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [("saturate", 0), ("saturate", 2), ("unknown", 1), ("round_mode", "up")],
+)
+def test_saved_cast_default_policy_rejects_other_attributes_and_values(
+    name: str, value: int | str
+) -> None:
+    case = _composition_case()
+    _composition_good(case)
+    _nodes(case, "Cast")[0].attributes[name] = (
+        ir.AttrInt64(name, value)
+        if isinstance(value, int)
+        else ir.AttrString(name, value)
+    )
+    with pytest.raises(StructureMismatch):
+        _composition_check(case, saved=True)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "narrow-target",
+        "wide-target",
+        "narrow-type",
+        "wide-type",
+        "bypass-narrow",
+        "multiply-original",
+        "absolute-original",
+        "foreign-input",
+        "narrow-shape",
+        "wide-domain",
+        "wide-overload",
+        "extra-attribute",
+    ],
+)
+def test_composed_prefix_requires_exact_owners_edges_types_shapes_and_casts(
+    fault: str,
+) -> None:
+    case = _composition_case()
+    _composition_good(case)
+    first, wide = _nodes(case, "Cast")[:2]
+    if fault == "narrow-target":
+        first.attributes["to"] = ir.AttrInt64("to", int(ir.DataType.DOUBLE.value))
+    elif fault == "wide-target":
+        wide.attributes["to"] = ir.AttrInt64("to", int(ir.DataType.FLOAT.value))
+    elif fault == "narrow-type":
+        first.outputs[0].type = ir.TensorType(ir.DataType.DOUBLE)
+    elif fault == "wide-type":
+        wide.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+    elif fault == "bypass-narrow":
+        wide.replace_input_with(0, case.source)
+    elif fault == "multiply-original":
+        _nodes(case, "Mul")[0].replace_input_with(0, case.source)
+    elif fault == "absolute-original":
+        _nodes(case, "Abs")[0].replace_input_with(0, case.source)
+    elif fault == "foreign-input":
+        first.replace_input_with(0, _composition_case().source)
+    elif fault == "narrow-shape":
+        first.outputs[0].shape = ir.Shape((1, 6))
+    elif fault == "wide-domain":
+        wide.domain = "unreviewed"
+    elif fault == "wide-overload":
+        wide.overload = "unreviewed"
+    else:
+        wide.attributes["unknown"] = ir.AttrInt64("unknown", 1)
+    with pytest.raises(StructureMismatch):
+        _composition_check(case)
+
+
+@pytest.mark.parametrize("role", range(59))
+@pytest.mark.parametrize(
+    "function", [False, True], ids=["initializers", "Constant-nodes"]
+)
+def test_composed_body_checks_every_literal_role_against_independent_storage(
+    role: int, function: bool
+) -> None:
+    case = _composition_case(function=function)
+    _composition_good(case)
+    changed = int.from_bytes(case.expected_literals[role], "little") ^ 1
+    tensor = ir.tensor(np.asarray(changed, dtype="<u8").view("<f8"))
+    _set_literal(_literal_roles(case)[role], tensor)
+    with pytest.raises(StructureMismatch):
+        _composition_check(case)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "extra-node",
+        "extra-initializer",
+        "extra-input",
+        "extra-output",
+        "missing-round",
+        "prefix-after-consumer",
+    ],
+)
+def test_composed_whole_graph_and_topological_coverage_cannot_skip_definitions(
+    fault: str,
+) -> None:
+    case = _composition_case()
+    _composition_good(case)
+    if fault == "extra-node":
+        case.ctx.builder.op(
+            "Identity",
+            [case.source],
+            output=ir.Value(
+                name="unused",
+                type=ir.TensorType(ir.DataType.DOUBLE),
+                shape=ir.Shape((6,)),
+            ),
+        )
+    elif fault == "extra-initializer":
+        case.ctx.bind_const_for_var(object(), np.asarray(7.0, dtype=np.float64))
+    elif fault == "extra-input":
+        case.graph.inputs.append(
+            ir.Value(
+                name="extra",
+                type=ir.TensorType(ir.DataType.DOUBLE),
+                shape=ir.Shape((6,)),
+            )
+        )
+    elif fault == "extra-output":
+        case.graph.outputs.append(case.source)
+    elif fault == "missing-round":
+        case.graph.remove(_nodes(case, "Round")[0])
+    else:
+        case.graph.insert_after(_nodes(case, "Abs")[0], _nodes(case, "Cast")[1])
+    with pytest.raises(StructureMismatch):
+        _composition_check(case)
+
+
+@pytest.mark.parametrize(
+    "function", [False, True], ids=["initializers", "Constant-nodes"]
+)
+def test_composed_checker_is_observational(function: bool) -> None:
+    case = _composition_case(function=function)
+    model = ir.Model(case.graph, ir_version=10)
+    before = ir.to_proto(model).SerializeToString(deterministic=True)
+    _composition_good(case)
+    assert ir.to_proto(model).SerializeToString(deterministic=True) == before
+
+
+def test_composed_exact_storage_dedup_keeps_all_fifty_nine_literal_roles() -> None:
+    case = _composition_case()
+    _composition_good(case)
+    canonical: dict[bytes, ir.Value] = {}
+    for value in list(case.graph.initializers.values()):
+        assert value.const_value is not None
+        storage = value.const_value.numpy().tobytes()
+        if storage not in canonical:
+            canonical[storage] = value
+            continue
+        for node in tuple(case.graph):
+            for index, operand in enumerate(node.inputs):
+                if operand is value:
+                    node.replace_input_with(index, canonical[storage])
+        del case.graph.initializers[value.name]
+    match = _composition_good(case)
+    assert len(match.constants) == len(case.graph.initializers) == 38
+    assert len(match.literal_obligations) == 59
+
+
+def test_composed_function_constant_must_precede_its_first_consumer() -> None:
+    case = _composition_case(function=True)
+    _composition_good(case)
+    constant = _literal_roles(case)[0].producer()
+    assert constant is not None
+    case.graph.insert_after(_nodes(case, "Where")[0], constant)
+    with pytest.raises(StructureMismatch):
+        _composition_check(case)
+
+
+@pytest.mark.parametrize(
+    "function", [False, True], ids=["initializers", "Constant-nodes"]
+)
+@pytest.mark.parametrize("facades", [1, 2])
+def test_composed_graph_covers_one_facade_within_the_125_node_bound(
+    function: bool, facades: int
+) -> None:
+    case = _composition_case(function=function)
+    _composition_good(case)
+    output = case.result
+    for index in range(facades):
+        output = case.ctx.builder.op(
+            "Identity",
+            [output],
+            output=ir.Value(
+                name=f"facade_{index}",
+                type=ir.TensorType(ir.DataType.FLOAT16),
+                shape=ir.Shape((6,)),
+            ),
+        )
+    case.graph.outputs[0] = output
+    if facades == 2:
+        with pytest.raises(StructureMismatch):
+            _composition_check(case)
+    else:
+        match = _composition_check(case)
+        assert match.nodes == tuple(case.graph) and len(match.nodes) <= 125
+        assert len(match.literal_obligations) == 59
+
+
+@pytest.mark.parametrize(
+    "fault", ["bool", "numpy-int", "empty-symbol", "negative", "list", "foreign"]
+)
+def test_composed_spec_rejects_dimensions_without_coercing_foreign_values(
+    fault: str,
+) -> None:
+    calls: list[str] = []
+
+    class Foreign:
+        def __int__(self) -> int:
+            calls.append("int")
+            raise AssertionError("foreign dimension was coerced")
+
+        def __eq__(self, other: object) -> bool:
+            calls.append("eq")
+            raise AssertionError("foreign dimension was compared")
+
+    shape: Any = {
+        "bool": (True,),
+        "numpy-int": (np.int64(6),),
+        "empty-symbol": ("",),
+        "negative": (-1,),
+        "list": [6],
+        "foreign": (Foreign(),),
+    }[fault]
+    with pytest.raises(ValueError):
+        F64F16DoubleRoundSpec(shape)
     assert calls == []

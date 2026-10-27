@@ -1,5 +1,71 @@
 # Computation Precision Current State
 
+## Current checkpoint — 2026-10-27
+
+Completed CI checkpoint `d1ab27caafbb6c8234c901ea9fd0dfd28bff536c` has **all eight
+terminal SUCCESS** checks in
+[CI #546](https://github.com/enpasos/jax2onnx/actions/runs/40484915472), last
+completed **2026-10-27 12:03:34 UTC**. Independent inspection of all four original
+cohort archives accounts for **63,004 passes and 45 original skips** across
+63,049 case executions and 189,145 phases. The complete twelve-case model owner,
+44 Original22 cases and all predecessor identities remain represented in each
+cohort. The [handoff](implementation_handoff.md) binds the exact head, executed
+checkout, archive receipts and independent review. Earlier HIGH cast failures
+and all historical unsuccessful epochs remain recorded.
+
+The later unpublished seventeen-file packet qualifies **2,083 distinct passes /
+6,249 passing phases per local locked stack**, across thirty complete owners.
+This combines core **1,714 / 5,142**, source `64f7e729` / index `a44edb02`, with
+framework **369 / 1,107**, source `a19217d0` / index `c1d41471`. Only the numerical
+fixture and nine added controls changed between those epochs; all other sixteen
+packet files and the framework's actual loaded dependencies remain held.
+The selections have identical ordered IDs across stacks and are disjoint.
+Independent paired receipt `precision17-final-qualified-pair-independent-v1.json`
+has SHA-256 `0484ab52d2e81df01ffb145c719d45b9d8111796f2b9869809c3de666712114b`.
+All seven pinned code hooks pass at the final core epoch. This mixed-epoch
+finite result is separate from D1 CI; root typing, strict docs, normal commit
+checks and the next exact head's eight-check gate are still pending.
+
+Native acquisition preserves the original `ShapeDtypeStruct` and single existing
+original `ClosedJaxpr`, complete resolver MLIR/types/SSA/shardings/logging/options
+and ordinary profile identities. It retains one original trace and one resolver
+call, with zero source compilations, executions or retraces. Modern JAX 0.12
+uses retained topology metadata with zero query compile/serialize/execute calls;
+older JAX 0.10 performs one fixed empty-IR query compile and serialization, with
+zero executions. Historical one-compile external experiments remain separate.
+Hosted Python 3.11/3.12 use JAX/JAXLIB 0.10.2; 3.13/3.14 use 0.12.0.1, with four
+distinct native builds. Earlier V7's 1,401-case pair and its failed predecessors
+retain their own epochs in the handoff.
+
+The unused semantic LOW helper quantizes DOUBLE to FLOAT, widens exactly to
+DOUBLE, then applies half-RNE arithmetic. Its 138-case numerical owner and
+321-case graph matcher pass, retaining the complete integer-oracle corpora
+(253,952 half-grid and 380,928 float32-basin inputs), original witness and
+34 actual ORT CPU sessions per stack at opsets 21 and 23. The saved whole-graph
+contract permits only the qualified inert metadata; no graph repair occurs.
+NaN payload preservation remains unverified. The prior consecutive two-Cast
+proposal is rejected because mandatory ORT transformations collapse it even
+with DISABLED optimization; both failed proposal trials remain preserved.
+The semantic predecessor's sixteen overstrict metadata failures and the
+artifact predecessor's fourteen copied-runner failures also remain recorded.
+The qualified artifact pair now covers 92 transport controls plus all 277
+existing framework cases: optional setup stays explicitly UNVERIFIED, original
+inherited environments/outcomes are preserved, and resource errors are terminal
+through closed-worker and finalization handling.
+
+The numerical plan remains **UNRESOLVED**, emitters remain unregistered and
+public defaults remain **LEGACY**. The separate options-validator authoring work
+is outside this qualified packet; no issuer/build authority or SOURCE activation
+is claimed. Actual hosted full-model payload retention and replay remain open.
+Original model code, inputs, B=2/B=5 sizes and criteria are unchanged. The
+3,124,102,240-byte raw-output lower bound excludes the remaining footprint;
+historical hosted free-space observations supply no new capacity proof. The
+local full-model **4 GiB resource hold** remains. While/Scan, remaining operators,
+inventory, fixed third-party/model obligations, artifacts/runtime/resource
+closure and the public transition remain in full **B–F**.
+
+## Retained baseline and earlier implementation epochs
+
 Public precision-policy analysis baseline: 2026-10-17. Source snapshot:
 [`fae17822e0114e6c00840b8f78adedb7ec36f74e`](https://github.com/enpasos/jax2onnx/commit/fae17822e0114e6c00840b8f78adedb7ec36f74e),
 which includes the merged consumer-adaptation fix from PR #275 and the native
@@ -9,6 +75,9 @@ The local support floor is **Python >=3.11, JAX/JAXLIB >=0.10.2 and Flax >=0.12.
 Framework-floor and all-direct-minimum evidence remain separate.
 
 ## Current private implementation
+
+This section retains earlier dated implementation observations. The current
+published/local boundary is summarized at the start of this page.
 
 The latest local CI repair after `3869ba31` has its own
 [checkpoint](poc/source_integration_findings.md#latest-ci-repair-qualification)

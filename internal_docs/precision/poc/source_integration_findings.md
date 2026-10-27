@@ -2,6 +2,103 @@
 
 ## Current checkpoint
 
+Completed CI checkpoint `d1ab27caafbb6c8234c901ea9fd0dfd28bff536c` has
+**all eight terminal SUCCESS** checks in
+[CI #546](https://github.com/enpasos/jax2onnx/actions/runs/40484915472), with the
+last job completing **2026-10-27 12:03:34 UTC**. All four original archives have
+independent raw review: **63,049 cohort executions = 63,004 passes + 45 original
+skips**, with 189,145 phases. Each cohort preserves all twelve model-owner and
+44 Original22 cases, every predecessor identity in order and the additional
+270 cases. Exact-head receipt `ci-d1ab27ca-eight-success-evidence-v2.json` has
+SHA-256 `453450de6abaf156ca020c6e3149e8a183563812c3659e70d05a5ecbf95568ae`;
+independent all-eight review SHA-256 is
+`eb1b7552a819f676107724ada61c647ca4db9db73095a215641cbfcc701653b9`.
+The retained earlier HIGH failure and unchanged strict original comparisons
+remain part of the evidence.
+
+The later unpublished seventeen-file packet has independent finite acceptance
+of **2,083 distinct passes / 6,249 phases per locked local stack**, across thirty
+complete owners. Core runs cover **1,714 / 5,142** at source `64f7e729` / index
+`a44edb02`; the six complete framework owners cover **369 / 1,107** at source
+`a19217d0` / index `c1d41471`. Only the numerical fixture and nine new controls
+changed between those epochs. The other sixteen packet files, selected
+framework owners/scripts and recorded loaded dependencies are held, and the
+framework origins exclude the changed fixture. The two selections are disjoint
+and retain identical ordered IDs across stacks; no final-epoch framework rerun
+is invented. Paired receipt
+`precision17-final-qualified-pair-independent-v1.json` has SHA-256
+`0484ab52d2e81df01ffb145c719d45b9d8111796f2b9869809c3de666712114b`.
+All seven pinned code hooks pass at the final core epoch. Root typing, strict
+docs, normal commit checks and the next exact head's complete CI gate remain
+pending at this writing.
+
+Native acquisition preserves the original declared `ShapeDtypeStruct` and
+single existing original `ClosedJaxpr`, with actual resolver MLIR/types/SSA,
+shardings, logging, options and ordinary profile identities held. Accounting is
+one original trace and one resolver call, with zero source compilations,
+executions or retraces. Modern JAX 0.12 production metadata uses retained
+topology with zero query compile/serialize/execute calls. Older JAX 0.10 performs
+one fixed empty-IR query compile and serialization, with zero executions.
+Earlier external empty-program experiments retain their separate one-compile
+per-stack accounting. Hosted 3.11/3.12 use JAX/JAXLIB 0.10.2; 3.13/3.14 use
+0.12.0.1, representing four distinct native builds.
+
+The unused semantic LOW helper quantizes DOUBLE to FLOAT, widens exactly to
+DOUBLE and uses the half-RNE arithmetic. Its independent mathematical graph
+contract covers all 65 computational nodes and 59 exact DOUBLE literal roles
+(up to 124 nodes in Constant form, 125 with a facade Identity). Saved DISABLED
+graphs have 59 initializers; ALL graphs have 38 plus 21 inert, unreferenced
+scalar DOUBLE ValueInfo entries. No repair, inference or normalization is
+performed. The 138 numerical cases include nine metadata controls; the matcher
+has 321 cases, retaining all prior 146. Both stacks record 34 actual ORT CPU
+sessions at opsets 21 and 23, with the full 253,952 half-grid / 380,928
+float32-basin corpora, raw/edge inputs, scalar/empty/tail/dynamic cases and the
+original six-word witness compared against the unchanged integer oracle.
+NaN class qualification does not establish payload preservation or waive any
+original SOURCE assertion.
+
+The consecutive two-Cast proposal remains rejected outside this packet:
+mandatory ORT `CastFloat16Transformer` / `RemoveDuplicateCastTransformer`
+collapses it even with DISABLED optimization. Its trials retain 55 passes /
+one failure before session creation, then 55 passes / one failure after the
+clone-fixture repair and one session, with zero numerical runs. The semantic
+component's first modern run retains **1,689 passes / sixteen failures** out of
+1,705: the inert-metadata bound was too strict, while all 34 physical graph and
+literal proofs held. The correction changes that fixture and adds nine controls,
+preserving all 129 prior parameterized cases, with their original test bodies
+and decorators unchanged, and all numerical criteria.
+
+The qualified transport pair includes 92 controls and the unchanged 277 existing
+framework cases. Optional setup unavailability emits explicit UNVERIFIED
+metadata and preserves original inherited environments/outcomes. Resource
+classes remain terminal through every helper, closed-worker and finish layer,
+while original raw pytest results and active exceptions retain priority.
+The **319 passes / fourteen failures** copied-runner epoch remains failed;
+`31a5f7e9` remained a withheld review freeze. The repaired `ce773007` packet has
+actual paired runtime qualification at the separately recorded framework epoch.
+
+Earlier V7's source `f2293f93` / index `93dea488` retains its own 1,401-case /
+4,203-phase pair and independent receipt SHA
+`b5c3404c03fae51142881c83054475d1fab198e79e9755bad26bffc629f295fe`.
+The failed original-location, native-fixture lifetime, imported-generator pin and
+constructor epochs remain historical evidence, with original IDs preserved.
+
+The production numerical plan remains **UNRESOLVED**, emitters remain
+unregistered and public defaults remain **LEGACY**. The separate next activation
+design and two options-validator authoring files are outside this qualified
+packet; no implemented issuer/build authority is claimed. Model source, original
+inputs, B=2/B=5 sizes and criteria are unchanged. Real hosted model/NPY retention
+and replay remain unverified. **3,124,102,240 raw output bytes** excludes the
+remaining footprint, and the historical 81.68 GB hosted free-space observation
+is not a new capacity proof. The local full-model **4 GiB resource hold** remains.
+While/Scan, remaining operators, full inventory, fixed third-party/model
+requirements, artifacts/runtime/resource closure and public transition remain
+in full **B–F**. The [handoff](../implementation_handoff.md) records the complete
+epoch bindings; no successor inherits D1 CI acceptance. Historical observations
+below retain their original scope.
+
+### Retained predecessor and diagnostic observations
+
 Published If head `211b266fc6fd364e04c9bd076e87191a050325f6` has a Python 3.14
 **FAILURE** in [CI #544](https://github.com/enpasos/jax2onnx/actions/runs/40450888745).
 The original strict `ties-float16-float64` case retains native HIGH versus target

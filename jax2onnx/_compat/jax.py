@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 import numpy as np
 
 from jax import Array
+from jax import __version__ as _native_jax_version
 from jax import lax as _native_lax
 from jax import numpy as _native_numpy
 from jax._src.numpy import ufunc_api as _native_ufunc_api
@@ -56,6 +57,72 @@ from jax.extend import core as jax_core_ext
 from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Primitive
 from jax.extend.linear_util import WrappedFun as WrappedFun
 from jax.interpreters import ad, batching
+
+# Ordinary installed-import anchors for opaque native lowering caches. Weak
+# caches expose no wrapped Python function; never pretend to unwrap them.
+_CAST_LOWERING_MLIR_ROLES: dict[str, tuple[str, ...]] = {
+    "0.10.2": (
+        "lower_jaxpr_to_module",
+        "convert_hlo",
+        "lower_with_sharding_in_types",
+    ),
+    "0.12.0.1": (
+        "lower_jaxpr_to_module",
+        "convert_hlo",
+        "lower_with_explicit_types",
+        "lower_with_sharding_in_types",
+        "lower_with_layout_in_types",
+    ),
+}
+_CAST_LOWERING_ANCHORS: tuple[Any, ...] = tuple(
+    (
+        module,
+        name,
+        (bound := vars(module).get(name)),
+        (bound.__code__ if type(bound) is types.FunctionType else None),
+        (
+            tuple((cell, cell.cell_contents) for cell in (bound.__closure__ or ()))
+            if type(bound) is types.FunctionType
+            else ()
+        ),
+        type(bound),
+        vars(type(bound)).get("__call__"),
+    )
+    for module, names in (
+        (
+            _native_pjit,
+            (
+                "convert_to_metaty",
+                "create_meta_ty",
+                "_resolve_and_lower",
+                "_resolve_in_shardings",
+                "_resolve_in_layouts",
+                "_resolve_out_layouts",
+                "_pjit_lower",
+                "get_ctx_mesh",
+            ),
+        ),
+        (
+            _native_pjit.pxla,
+            (
+                "lower_sharding_computation",
+                "_cached_lowering_to_hlo",
+                "create_compile_options",
+                "get_prop_to_input_output",
+                "maybe_concretize_mesh",
+            ),
+        ),
+        (
+            _native_pjit.mlir,
+            _CAST_LOWERING_MLIR_ROLES.get(_native_jax_version, ()),
+        ),
+    )
+    for name in names
+)
+_CAST_META_TYPE: Any = vars(_native_pjit).get("MetaTy")
+_CAST_MESH_COMPUTATION_TYPE: Any = vars(_native_pjit.pxla).get("MeshComputation")
+_CAST_MESH_EXECUTABLE_TYPE: Any = vars(_native_pjit.pxla).get("MeshExecutable")
+_CAST_LOWERING_PARAMETER_TYPE: Any = vars(_native_pjit.mlir).get("LoweringParameters")
 
 # Native HiJAX nonzero is available only on the newer supported stacks. Pin
 # its actual implementation instead of invoking a carrier-provided callback.
@@ -92,6 +159,49 @@ else:
 
 
 AbstractValue = jax_core.AbstractValue
+
+
+def begin_cpu_cast_context() -> Any:
+    """Begin the audited evidence-only default CPU cast context lease."""
+    from ._cast_metadata import CpuCastContext
+
+    return CpuCastContext()
+
+
+def pin_native_cast_callable() -> Any:
+    """Pin the original native public/internal cast without an invocation."""
+    from ._cast_metadata import NativeCastPins
+
+    return NativeCastPins()
+
+
+def pin_cast_input_declaration(inputs: object) -> Any:
+    from ._cast_lowering import CastInputDeclaration
+
+    return CastInputDeclaration(inputs)
+
+
+def begin_original_cast_lowering(inputs: object, name: str) -> Any:
+    from ._cast_lowering import CastNativeLoweringLease
+
+    return CastNativeLoweringLease(inputs, name)
+
+
+def lower_original_cast_jaxpr(context: Any, closed: object, declaration: Any) -> Any:
+    from ._cast_lowering import lower_original_cast
+
+    return lower_original_cast(context, closed, declaration)
+
+
+def acquire_cpu_cast_metadata(context: Any) -> Any:
+    """Acquire target/query construction evidence; never source authority."""
+    from ._cast_metadata import CpuCastContext
+
+    if type(context) is not CpuCastContext:
+        raise TypeError("actual CPU cast context lease required")
+    return context.acquire()
+
+
 ShapedArray = jax_core.ShapedArray
 # Preserve the actual native declaration before plugins or mutable metadata.
 _NATIVE_AVAL_TYPE = ShapedArray

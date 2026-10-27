@@ -1104,13 +1104,160 @@ def _main() -> int:
     }
     _write(root / "run.json", run)
     print(f"[pytest-batches] receipts: {root}", flush=True)
+    transport = None
+    helper = None
+    setup_failure = None
+    run["native_model_artifact_transport"] = "native-model-artifact-transport.json"
+
+    def write_setup_failure() -> None:
+        path = root / run["native_model_artifact_transport"]
+        _write(path, setup_failure)
+        # A failed optional setup still has a durable, explicit receipt. Any
+        # inability to retain that receipt is terminal, never silent fallback.
+        with path.open("rb") as stream:
+            os.fsync(stream.fileno())
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def resource_error(error: Exception) -> bool:
+        import errno
+
+        censor = None if helper is None else vars(helper).get("ArtifactResourceCensor")
+        return (
+            isinstance(error, MemoryError)
+            or (
+                isinstance(error, OSError)
+                and error.errno in (errno.ENOSPC, errno.EDQUOT, errno.ENOMEM)
+            )
+            or (
+                isinstance(censor, type)
+                and issubclass(censor, Exception)
+                and isinstance(error, censor)
+            )
+        )
+
+    def record_resource_error(stage: str, error: Exception, **original: Any) -> None:
+        run.setdefault("native_model_transport_resource_errors", []).append(
+            {
+                "stage": stage,
+                "type": type(error).__name__,
+                "errno": error.errno if isinstance(error, OSError) else None,
+                **original,
+            }
+        )
+
     try:
+        # Load only the adjacent stdlib helper. The script is also imported by
+        # file location in tests, so this must not depend on a scripts namespace
+        # being installed or on changing the parent's import path/environment.
+        from importlib.util import module_from_spec, spec_from_file_location
+
+        try:
+            spec = spec_from_file_location(
+                "_native_model_transport",
+                Path(__file__).with_name("_native_model_artifact_transport.py"),
+            )
+            if spec is None or spec.loader is None:
+                raise ValueError("native model transport helper is unavailable")
+            helper = module_from_spec(spec)
+            spec.loader.exec_module(helper)
+            transport = helper.NativeModelTransport(
+                root, checked_out_commit, dict(os.environ)
+            )
+        except Exception as error:
+            terminal_resource_error = resource_error(error)
+            run["native_model_artifact_transport"] = (
+                "native-model-artifact-transport-setup-error.json"
+            )
+            setup_failure = {
+                "schema": "native-model-artifact-transport-v1",
+                "status": "UNVERIFIED",
+                "setup_status": (
+                    "RESOURCE_CENSORED" if terminal_resource_error else "UNAVAILABLE"
+                ),
+                "environment_mode": "ORIGINAL_INHERITED",
+                "environment_key": "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR",
+                "environment_value": os.environ.get(
+                    "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"
+                ),
+                "parent_environment_mutated": False,
+                "checkout": checked_out_commit,
+                "errors": [
+                    {
+                        "stage": "setup",
+                        "type": type(error).__name__,
+                        "message": str(error)[:256],
+                    }
+                ],
+                "workers": [],
+                "full_collection_ids": None,
+                "original_run_status": "RUNNING",
+                "numerical_acceptance": "NOT_ASSERTED",
+                "full_B_to_F_acceptance": "UNVERIFIED",
+                "partial_setup_artifacts_preserved": True,
+                "partial_transport_manifest": "native-model-artifact-transport.json",
+            }
+            run.setdefault("native_model_transport_errors", []).append(
+                {"stage": "setup", "type": type(error).__name__}
+            )
+            write_setup_failure()
+            if terminal_resource_error:
+                record_resource_error("setup", error)
+                raise
+
+        def canonical_child(folder: Path, request: dict[str, Any]) -> int:
+            if transport is None:
+                # Preserve the original inheritance contract exactly; an
+                # unavailable observer must not install even a copied env map.
+                return _child(folder, request, run, root)
+            try:
+                transport.before_worker(folder, request)
+            except Exception as error:
+                if resource_error(error):
+                    record_resource_error(folder.name + ":before", error)
+                    raise
+                run.setdefault("native_model_transport_errors", []).append(
+                    {"stage": folder.name + ":before", "type": type(error).__name__}
+                )
+            result = None
+            try:
+                result = _child(
+                    folder, request, run, root, environment=transport.environment
+                )
+                return result
+            finally:
+                original_exception = sys.exc_info()[1]
+                try:
+                    transport.closed_worker(folder, request, result)
+                except Exception as error:
+                    run.setdefault("native_model_transport_errors", []).append(
+                        {"stage": folder.name + ":closed", "type": type(error).__name__}
+                    )
+                    if resource_error(error):
+                        record_resource_error(
+                            folder.name + ":closed",
+                            error,
+                            original_worker_returncode=result,
+                            original_worker_exception_type=(
+                                type(original_exception).__name__
+                                if original_exception is not None
+                                else None
+                            ),
+                        )
+                        # Retain an active original exception/nonzero result.
+                        # Otherwise stop orchestration before another worker.
+                        if original_exception is None and result == 0:
+                            raise
+
         collection = root / "collection"
         request = {
             "kind": "collection",
             "pytest_args": [*options, *args.test_path, "--collect-only"],
         }
-        if _child(collection, request, run, root) != 0:
+        if canonical_child(collection, request) != 0:
             raise ValueError(
                 "full-suite collection process did not finish successfully"
             )
@@ -1131,6 +1278,16 @@ def _main() -> int:
         run["nodeids"] = nodeids
         run["batches"] = batches
         _write(root / "run.json", run)
+        if transport is not None:
+            try:
+                transport.collection(nodeids)
+            except Exception as error:
+                if resource_error(error):
+                    record_resource_error("collection", error)
+                    raise
+                run.setdefault("native_model_transport_errors", []).append(
+                    {"stage": "collection", "type": type(error).__name__}
+                )
         for index, assigned in enumerate(batches, 1):
             folder = root / f"batch-{index:04d}"
             print(
@@ -1144,7 +1301,7 @@ def _main() -> int:
                 "collection_skips": baseline["collection_skips"],
                 "pytest_args": [*options, *args.test_path],
             }
-            if _child(folder, request, run, root) != 0:
+            if canonical_child(folder, request) != 0:
                 raise ValueError(f"{folder.name} process did not finish successfully")
             receipt = json.loads((folder / "receipt.json").read_text())
             _validate(receipt, assigned, nodeids, baseline["collection_skips"])
@@ -1162,6 +1319,30 @@ def _main() -> int:
         run["status"] = "FAIL"
         run["failure"] = {"type": type(exc).__name__, "message": str(exc)}
         print(f"[pytest-batches] FAIL: {exc}", file=sys.stderr, flush=True)
+    if transport is not None:
+        original_pytest_status = run["status"]
+        try:
+            transport.finish(original_pytest_status)
+        except Exception as error:
+            run.setdefault("native_model_transport_errors", []).append(
+                {"stage": "finish", "type": type(error).__name__}
+            )
+            if resource_error(error):
+                record_resource_error(
+                    "finish",
+                    error,
+                    original_pytest_status=original_pytest_status,
+                    original_completed_ids=list(run["completed"]),
+                )
+                run["status"] = "FAIL"
+                run.setdefault(
+                    "failure", {"type": type(error).__name__, "message": str(error)}
+                )
+    if setup_failure is not None:
+        setup_failure["original_run_status"] = run["status"]
+        setup_failure["full_collection_ids"] = run.get("nodeids")
+        setup_failure["completed_ids"] = list(run["completed"])
+        write_setup_failure()
     run["finished"] = _now()
     _write(root / "run.json", run)
     if run["status"] == "PASS":

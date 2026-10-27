@@ -151,6 +151,27 @@ class F64F16RneSpec:
             raise ValueError("RNE mathematical spec requires exact concrete dimensions")
 
 
+def _double_round_shape_valid(shape: object) -> bool:
+    return shape is None or (
+        type(shape) is tuple
+        and all(
+            (type(dim) is int and dim >= 0) or (type(dim) is str and bool(dim))
+            for dim in shape
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class F64F16DoubleRoundSpec:
+    shape: tuple[int | str, ...] | None
+
+    def __post_init__(self) -> None:
+        if not _double_round_shape_valid(self.shape):
+            raise ValueError(
+                "Double-round spec requires exact dimensions or unknown rank"
+            )
+
+
 @dataclass(frozen=True)
 class RneGraphMatch:
     nodes: tuple[ir.Node, ...]
@@ -168,6 +189,49 @@ def check_f64_f16_rne_graph(
         type(dim) is not int or dim < 0 for dim in spec.shape
     ):
         raise StructureMismatch("rne-mathematical-shape-differs")
+    return _check_f64_f16_math_graph(spec.shape, graph, source, result)
+
+
+def check_f64_f16_double_round_graph(
+    spec: F64F16DoubleRoundSpec,
+    graph: ir.Graph,
+    source: ir.Value,
+    result: ir.Value,
+    *,
+    allow_cast_schema_defaults: bool = False,
+) -> RneGraphMatch:
+    """Check the FLOAT rounding prefix and the complete independent RNE body.
+
+    Saved runtime models may materialize Cast19/21/23's optional ``saturate=1``
+    schema default, which affects only float8 conversions. Emitted IR uses the
+    default strict mode: exactly ``to``. No other extra attribute is accepted.
+    """
+    if type(spec) is not F64F16DoubleRoundSpec:
+        raise StructureUnavailable("double-round-mathematical-spec-unavailable")
+    if not _double_round_shape_valid(spec.shape):
+        raise StructureMismatch("double-round-mathematical-shape-differs")
+    if type(allow_cast_schema_defaults) is not bool:
+        raise StructureMismatch("double-round-schema-default-policy-differs")
+    return _check_f64_f16_math_graph(
+        spec.shape,
+        graph,
+        source,
+        result,
+        round_through_float=True,
+        allow_cast_schema_defaults=allow_cast_schema_defaults,
+    )
+
+
+def _check_f64_f16_math_graph(
+    shape: tuple[int | str, ...] | None,
+    graph: ir.Graph,
+    source: ir.Value,
+    result: ir.Value,
+    *,
+    round_through_float: bool = False,
+    allow_cast_schema_defaults: bool = False,
+) -> RneGraphMatch:
+    """Match fixed math, with either the direct root or the exact FLOAT prefix."""
     opset = graph.opset_imports.get("")
     if opset is None:
         raise StructureUnavailable("rne-standard-opset-unavailable")
@@ -180,17 +244,32 @@ def check_f64_f16_rne_graph(
     obligations: dict[tuple[str, int], tuple[ir.Value, LiteralOperand]] = {}
 
     def tensor(
-        value: ir.Value | None, dtype: ir.DataType, shape: tuple[int, ...]
+        value: ir.Value | None,
+        dtype: ir.DataType,
+        expected_shape: tuple[int | str, ...] | None,
     ) -> ir.Value:
         if value is None or type(value) is not ir.Value:
             raise StructureMismatch("rne-value-missing")
-        if value.type is None or value.dtype is None or value.shape is None:
+        if value.type is None or value.dtype is None:
+            raise StructureUnavailable("rne-type-or-shape-unavailable")
+        if value.shape is None and expected_shape is not None:
             raise StructureUnavailable("rne-type-or-shape-unavailable")
         if (
             not isinstance(value.type, ir.TensorType)
             or value.dtype is not dtype
-            or any(type(dim) is not int for dim in value.shape)
-            or tuple(value.shape) != shape
+            or (value.shape is not None and expected_shape is None)
+            or (
+                value.shape is not None
+                and expected_shape is not None
+                and (
+                    len(value.shape) != len(expected_shape)
+                    or any(
+                        (type(expected) is int and type(actual) is not int)
+                        or actual != expected
+                        for actual, expected in zip(value.shape, expected_shape)
+                    )
+                )
+            )
         ):
             raise StructureMismatch("rne-type-or-shape-differs")
         if value.graph is not graph:
@@ -204,10 +283,18 @@ def check_f64_f16_rne_graph(
         dtype: ir.DataType = ir.DataType.DOUBLE,
         attributes: tuple[tuple[str, int], ...] = (),
     ) -> ir.Node:
-        value = tensor(value, dtype, spec.shape)
+        value = tensor(value, dtype, shape)
         node = value.producer()
         if node is None:
             raise StructureMismatch("rne-operator-missing")
+        expected_attributes = dict(attributes)
+        if (
+            allow_cast_schema_defaults
+            and name == "Cast"
+            and 19 <= opset <= 23
+            and "saturate" in node.attributes
+        ):
+            expected_attributes["saturate"] = 1
         if (
             node.graph is not graph
             or node not in node_set
@@ -217,10 +304,10 @@ def check_f64_f16_rne_graph(
             or len(node.inputs) != arity
             or len(node.outputs) != 1
             or node.outputs[0] is not value
-            or set(node.attributes) != {key for key, _ in attributes}
+            or set(node.attributes) != set(expected_attributes)
         ):
             raise StructureMismatch("rne-operator-contract-differs")
-        for key, expected in attributes:
+        for key, expected in expected_attributes.items():
             attribute = node.attributes[key]
             if (
                 attribute.type is not ir.AttributeType.INT
@@ -273,8 +360,8 @@ def check_f64_f16_rne_graph(
         obligations[role] = (value, LiteralOperand(scalar_tensor, expected))
         constants.add(value)
 
-    tensor(source, ir.DataType.DOUBLE, spec.shape)
-    tensor(result, ir.DataType.FLOAT16, spec.shape)
+    tensor(source, ir.DataType.DOUBLE, shape)
+    tensor(result, ir.DataType.FLOAT16, shape)
     if (
         len(graph.inputs) != 1
         or graph.inputs[0] is not source
@@ -297,8 +384,27 @@ def check_f64_f16_rne_graph(
     divided = operation(cast.inputs[0], "Div", 2)
     rounded = operation(divided.inputs[0], "Round", 1)
     multiplied = operation(rounded.inputs[0], "Mul", 2)
+    math_source = source
+    if round_through_float:
+        widened = operation(
+            multiplied.inputs[0],
+            "Cast",
+            1,
+            ir.DataType.DOUBLE,
+            (("to", int(ir.DataType.DOUBLE.value)),),
+        )
+        narrowed = operation(
+            widened.inputs[0],
+            "Cast",
+            1,
+            ir.DataType.FLOAT,
+            (("to", int(ir.DataType.FLOAT.value)),),
+        )
+        if narrowed.inputs[0] is not source:
+            raise StructureMismatch("double-round-original-source-edge-differs")
+        math_source = widened.outputs[0]
     if (
-        multiplied.inputs[0] is not source
+        multiplied.inputs[0] is not math_source
         or multiplied.inputs[1] is not divided.inputs[1]
     ):
         raise StructureMismatch("rne-shared-scale-or-source-edge-differs")
@@ -316,7 +422,7 @@ def check_f64_f16_rne_graph(
         unit = selected.inputs[2]
     scalar(unit, 24, ("base", 0))
     absolute = operation(absolute_value, "Abs", 1)
-    if absolute.inputs[0] is not source:
+    if absolute.inputs[0] is not math_source:
         raise StructureMismatch("rne-absolute-source-edge-differs")
     if checked != node_set:
         raise StructureMismatch("rne-node-coverage-differs")
