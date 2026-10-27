@@ -38,6 +38,14 @@ _DIRECT: Final = {
     "sqrt": ("Sqrt", 1),
 }
 _FLOATS: Final = frozenset({ir.DataType.FLOAT, ir.DataType.DOUBLE})
+_INTEGERS: Final = frozenset({ir.DataType.INT32, ir.DataType.INT64})
+_PREDICATES: Final = {
+    jax.lax.lt_p: "Less",
+    jax.lax.le_p: "LessOrEqual",
+    jax.lax.gt_p: "Greater",
+    jax.lax.ge_p: "GreaterOrEqual",
+    jax.lax.eq_p: "Equal",
+}
 _PRIMITIVES: Final = {
     "add": jax.lax.add_p,
     "sub": jax.lax.sub_p,
@@ -51,6 +59,11 @@ _PRIMITIVES: Final = {
     "transpose": jax.lax.transpose_p,
     "stop_gradient": jax.lax.stop_gradient_p,
     "convert_element_type": jax.lax.convert_element_type_p,
+    "lt": jax.lax.lt_p,
+    "le": jax.lax.le_p,
+    "gt": jax.lax.gt_p,
+    "ge": jax.lax.ge_p,
+    "eq": jax.lax.eq_p,
 }
 
 
@@ -139,6 +152,11 @@ def freeze_source_structure_rule(
     control = freeze_control_flow_rule(eqn, inputs, outputs)
     if control is not None:
         return control
+    from jax2onnx.plugins.jax.lax._source_loop_structure import freeze_loop_rule
+
+    loop = freeze_loop_rule(eqn, inputs, outputs)
+    if loop is not None:
+        return loop
     if primitive is jax.lax.dot_general_p:
         from jax2onnx.plugins.jax.lax._source_dot_structure import (
             freeze_dot_structure_rule,
@@ -160,6 +178,39 @@ def freeze_source_structure_rule(
     name = primitive.name
     if _PRIMITIVES.get(name) is not primitive:
         return None
+    # Scalar numeric conditions and counters have their own exact contracts.
+    # Boolean arithmetic and general integer expressions remain separate rules.
+    scalar_numeric = (
+        not eqn.effects
+        and type(eqn.params) is dict
+        and not eqn.params
+        and len(inputs) == 2
+        and len(outputs) == 1
+        and all(
+            value.encoding == "identity"
+            and value.symbol_token is None
+            and value.shape == value.logical_shape == ()
+            for value in (*inputs, *outputs)
+        )
+        and inputs[0].dtype == inputs[1].dtype
+        and inputs[0].logical_dtype == inputs[1].logical_dtype
+    )
+    if scalar_numeric:
+        operation = _PREDICATES.get(primitive)
+        if (
+            operation is not None
+            and inputs[0].dtype in _FLOATS | _INTEGERS
+            and outputs[0].dtype is ir.DataType.BOOL
+            and outputs[0].logical_dtype == "bool"
+        ):
+            return _DirectRule(operation)
+        if (
+            primitive in (jax.lax.add_p, jax.lax.sub_p)
+            and inputs[0].dtype in _INTEGERS
+            and outputs[0].dtype == inputs[0].dtype
+            and outputs[0].logical_dtype == inputs[0].logical_dtype
+        ):
+            return _DirectRule("Add" if primitive is jax.lax.add_p else "Sub")
     if (
         eqn.effects
         or len(outputs) != 1
@@ -287,12 +338,15 @@ def freeze_source_semantic_key(
     from jax2onnx.plugins.jax.lax._source_dot_structure import _DotRule
     from jax2onnx.plugins.jax.lax._source_reduce_structure import _ReductionRule
     from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule
+    from jax2onnx.plugins.jax.lax._source_loop_structure import WhileRule
 
     rule = freeze_source_structure_rule(eqn, inputs, outputs)
     if type(rule) is BooleanIndexRule:
         return ("boolean-index",)
     if type(rule) is IfRule:
         return ("dynamic-if",)
+    if type(rule) is WhileRule:
+        return ("while", rule.condition_constants, rule.body_constants, rule.carries)
     if type(rule) is FunctionRule:
         # FrozenEquation.children is the sole child-body content authority.
         # Repeating the entire body in this key doubles hash/equality traversal

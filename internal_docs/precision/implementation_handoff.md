@@ -1,6 +1,59 @@
 # Precision migration handoff — 2026-10-27
 
-## Current local checkpoint — 2026-10-27: qualified private cast activation
+## Current local checkpoint — 2026-10-27: qualified While structure
+
+The SOURCE While adapter now binds the three original condition/body invocations
+to their two actual graph owners, validates ordered state and captures, and
+checks final visibility, literals, aliases, clones and complete graph coverage.
+SOURCE condition-only loops omit the artificial trip count; LEGACY emission
+retains its established trip count. Input-bound preflight no longer materializes
+native SOURCE literals ahead of their consuming lowering, preventing duplicate
+unused constant storage. Final extra-storage checks remain strict.
+
+At runtime source-files SHA
+`21da48c351e4e0b942691815a3c03ce2b32adc8101be159f1c1536dfed5e6578`
+and index tree `67d6dc63a091a07a47f677849addd00985102a34`, eight actual
+complete-owner runs establish **2,799 identical unique cases / 8,397 passing
+phases across 46 owners per Python 3.11 and 3.14 stack**, with zero failures,
+errors or skips. The four selections per stack are 158 focused cases, 104 cast
+cases, 1,985 other converter cases and 552 existing Loop/constant/dispatch cases.
+The six B transport owners were not repeated here; this is neither a superset
+of the earlier B selection nor one full-suite run. Independent receipt:
+`source-while-dual2799-independent-review-v1.json`, SHA-256
+`cd5ee0ee16c88130449757aaf114eb3445d9a3b8dde7d2cdf8ed43e9d8938c0e`.
+Raw aggregation: `source-while-dual2799-qualification-v3.json`, SHA-256
+`ea4bb9637dab77a4fcb8dde0c5f2d4df68fce2b3deac3a1d92d0d845ee76a4fd`.
+
+Both first focused trials remain **5 passes / 131 failures**. Their duplicate
+literal storage, local Function registry fixture leakage and incorrect native
+carry-role assumptions are repaired without changing the original source
+programs, inputs or numerical criteria. All original 136 selected identities
+remain. Three opset18/FP64 cases now explicitly test the existing incomplete
+profile rejection; they are **not completed FP64 support or ONNX limits**.
+
+All seven staged hooks pass. Actual typing passes **594 files and 17 identical
+RNG entries on each locked stack**, and strict documentation passes. Receipt:
+`source-while-dual-quality-v4.json`, SHA-256
+`b0c9e19c0144a67a0c980ea887cd23b6d623d31af1bfd6a0ade5decaf9d5f73e`.
+The initial typing-v3 process stopped at the unchanged 4 GiB free-disk floor
+with return code -15; source/environment fences and cleanup held. Its fresh v4
+success follows lossless relocation of closed owned output data, with unchanged
+code, criteria, environments and caps. This handoff is a documentation-only
+successor to the runtime epoch. Normal While commit hooks remain pending at
+this writing.
+
+Published cast HEAD `54fe4207e28c06dd175714b765f3a8467d591805` has four
+successful support checks and four live full Python jobs in
+[CI #548](https://github.com/enpasos/jax2onnx/actions/runs/40582647354).
+That run does not qualify this local While successor. No further feature push
+is permitted before all eight checks succeed on that published head.
+Scan v4 is independently reviewed source preparation, **not applied or runtime
+qualified**. Whole-Loop elision, native conditional-skip accounting and the
+following JIT/scoped/symbolic work remain open. Public defaults remain
+**LEGACY**; full B–F inventory/operator/model/replay/public-transition acceptance
+and the separate local 4 GiB full-model MEMORY hold remain outstanding.
+
+## Earlier local checkpoint — 2026-10-27: qualified private cast activation
 
 The private eligible opset23 SOURCE FP64-to-FP16 path now consumes trusted native
 selection authority once and emits the selected mathematical graph. The complete

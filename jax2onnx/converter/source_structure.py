@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import hashlib
-from typing import Any, Final, Literal, Protocol, TYPE_CHECKING, TypeAlias
+from typing import Any, Final, Literal, Protocol, TYPE_CHECKING, TypeAlias, cast
 
 import numpy as np
 import onnx_ir as ir
@@ -28,6 +28,8 @@ from .source_representation import (
 )
 
 if TYPE_CHECKING:
+    from jax2onnx.plugins.jax.lax._source_loop_structure import WhileAudit
+
     from .typing_support import ConverterContext
 
 _OWNER: Final = "jax2onnx.source.structure.owner"
@@ -362,6 +364,7 @@ class SourceStructureLedger:
         self.function_bodies: dict[object, Any] = {}
         self.function_calls: dict[EquationHandle, Any] = {}
         self.if_calls: dict[EquationHandle, Any] = {}
+        self.while_calls: dict[EquationHandle, Any] = {}
         self.cast_plans: dict[EquationHandle, Any] = {}
         self.cast_selections: dict[EquationHandle, Any] = {}
         self.regions: dict[RegionKey, object] = {}
@@ -376,6 +379,7 @@ class SourceStructureLedger:
 
         def begin() -> _PendingRegion:
             from jax2onnx.plugins._source_control_flow_structure import IfRule
+            from jax2onnx.plugins.jax.lax._source_loop_structure import WhileRule
 
             handle = self.handles[-1] if self.handles else None
             if handle is None:
@@ -388,7 +392,10 @@ class SourceStructureLedger:
                 ),
                 None,
             )
-            if scope is None or type(scope.equations[handle.index].rule) is not IfRule:
+            if scope is None:
+                raise StructureUnavailable("region-parent-contract-unavailable")
+            rule = scope.equations[handle.index].rule
+            if type(rule) not in (IfRule, WhileRule):
                 raise StructureUnavailable("region-parent-contract-unavailable")
             expected = dict(scope.body.equations[handle.index].children).get(role)
             if expected is None or expected.gaps:
@@ -396,7 +403,33 @@ class SourceStructureLedger:
             key = RegionKey(handle, role)
             if key in self.regions or handle.index not in scope.pending:
                 raise StructureUnavailable("region-identity-unavailable")
-            bindings = scope.pending[handle.index][1:]
+            original = scope.pending[handle.index]
+            if type(rule) is IfRule:
+                bindings = original[1:]
+            elif type(rule) is WhileRule:
+                bindings = tuple(
+                    original[port] for port in rule.input_ports(role, len(original))
+                )
+                if role == "next-condition":
+                    body_invocation = self.regions.get(RegionKey(handle, "body"))
+                    body_scope = next(
+                        (
+                            item
+                            for item in self.scopes
+                            if item.invocation is body_invocation
+                        ),
+                        None,
+                    )
+                    if body_scope is None or body_scope.result_values is None:
+                        raise StructureUnavailable(
+                            "while-original-body-results-unavailable"
+                        )
+                    bindings = (
+                        *original[: rule.condition_constants],
+                        *body_scope.result_values,
+                    )
+            else:
+                raise StructureUnavailable("region-parent-contract-unavailable")
             if len(bindings) != len(operands) or len(expected.inputs) != len(operands):
                 raise StructureMismatch("region-capture-arity-differs")
             return _PendingRegion(
@@ -846,6 +879,7 @@ def _plan_if_calls(
     scopes: dict[object, _Scope],
     graphs: dict[object, ir.Graph],
     parents: dict[object, tuple[ir.Graph, ir.Node]],
+    matches: Callable[[TensorContract, ir.Value], bool],
 ) -> dict[EquationHandle, _IfAudit]:
     from jax2onnx.plugins._source_control_flow_structure import (
         BooleanIndexRule,
@@ -862,7 +896,6 @@ def _plan_if_calls(
     if wanted != set(ledger.if_calls):
         raise StructureUnavailable("if-call-coverage-incomplete")
     by_invocation = {scope.invocation: scope for scope in scopes.values()}
-    wanted_regions: set[RegionKey] = set()
     plans: dict[EquationHandle, _IfAudit] = {}
     for handle, attachment in ledger.if_calls.items():
         if type(attachment) is not IfAttachment:
@@ -900,7 +933,6 @@ def _plan_if_calls(
             ("false", attachment.false, attachment.false_owner, "else_branch"),
             ("true", attachment.true, attachment.true_owner, "then_branch"),
         ):
-            wanted_regions.add(RegionKey(handle, role))
             if key != RegionKey(handle, role) or key not in ledger.regions:
                 raise StructureUnavailable("if-region-role-unavailable")
             child = by_invocation.get(ledger.regions[key])
@@ -950,7 +982,7 @@ def _plan_if_calls(
                     or type(port.unused) is not bool
                     or port.unused != (index in unused)
                     or port.tensor != expected.inputs[index + 1].tensor
-                    or not port.tensor.matches(value)
+                    or not matches(port.tensor, value)
                 ):
                     raise StructureMismatch("if-capture-type-differs")
                 if not _visible_before(value, node, parents):
@@ -1008,8 +1040,8 @@ def _plan_if_calls(
             frozenset({index_witness}) if foldable else frozenset(),
         )
         boolean_value = selector_values[boolean]
-        if not conversion.inputs[0].tensor.matches(
-            boolean_value
+        if not matches(
+            conversion.inputs[0].tensor, boolean_value
         ) or not _visible_before(boolean_value, node, parents):
             raise StructureMismatch("if-boolean-source-type-or-visibility-differs")
         condition = node.inputs[0]
@@ -1052,16 +1084,6 @@ def _plan_if_calls(
             captures or (),
             adapters,
         )
-    observed_regions: dict[RegionKey, object] = {}
-    for scope in scopes.values():
-        if scope.region is None:
-            continue
-        key = scope.region.key
-        if key in observed_regions or ledger.regions.get(key) is not scope.invocation:
-            raise StructureUnavailable("region-invocation-binding-unavailable")
-        observed_regions[key] = scope.invocation
-    if set(ledger.regions) != wanted_regions or set(observed_regions) != wanted_regions:
-        raise StructureUnavailable("if-region-coverage-incomplete")
     return plans
 
 
@@ -1072,9 +1094,13 @@ def _audit_scope(
     definitions: dict[object, ir.Function],
     plans: dict[EquationHandle, _IfAudit],
     coverage: _Coverage,
+    while_plans: dict[EquationHandle, Any],
+    matches: Callable[[TensorContract, ir.Value], bool],
 ) -> StructureResult:
     from jax2onnx.plugins._source_function_structure import FunctionRule
     from jax2onnx.plugins._source_control_flow_structure import BooleanIndexRule, IfRule
+
+    from jax2onnx.plugins.jax.lax._source_loop_structure import WhileRule
 
     total = len(scope.equations)
     if set(scope.receipts) != set(range(total)) or scope.result_values is None:
@@ -1091,7 +1117,7 @@ def _audit_scope(
     if region is None and (
         len(graph.inputs) != len(scope.inputs)
         or any(
-            actual is not values[witness] or not use.tensor.matches(actual)
+            actual is not values[witness] or not matches(use.tensor, actual)
             for actual, witness, use in zip(
                 graph.inputs, scope.input_values, scope.inputs, strict=True
             )
@@ -1103,7 +1129,17 @@ def _audit_scope(
     literal_cache: dict[int, ConstantContract] = {}
     literal_initializers = coverage.constants
 
-    if region is not None:
+    actual_outputs = tuple(graph.outputs)
+    if region is not None and region.key.parent in while_plans:
+        while_plan = while_plans[region.key.parent]
+        roles = ("initial-condition", "body", "next-condition")
+        if region.key.role not in roles:
+            raise StructureUnavailable("while-region-role-unavailable")
+        position = roles.index(region.key.role)
+        if while_plan.regions[position] is not scope:
+            raise StructureMismatch("while-region-invocation-differs")
+        actual_outputs = while_plan.region_outputs[position]
+    elif region is not None:
         if region.key.parent not in plans:
             raise StructureUnavailable("region-attachment-unavailable")
         plan = plans[region.key.parent]
@@ -1128,7 +1164,7 @@ def _audit_scope(
                 or producer.inputs[0] is not outer
                 or len(producer.outputs) != 1
                 or producer.outputs[0] is not local
-                or not port.tensor.matches(local)
+                or not matches(port.tensor, local)
             ):
                 raise StructureMismatch("region-capture-identity-edge-differs")
             checked.add(producer)
@@ -1166,7 +1202,7 @@ def _audit_scope(
             raise StructureUnavailable("literal-producer-contract-unavailable")
         if value.dtype is None or value.shape is None or tensor is None:
             raise StructureUnavailable("literal-storage-unavailable")
-        if not expected.tensor.matches(value):
+        if not matches(expected.tensor, value):
             raise StructureMismatch("literal-type-or-shape-differs")
         if id(value) not in literal_cache:
             literal_cache[id(value)] = ConstantContract.from_array(tensor.numpy())
@@ -1181,7 +1217,7 @@ def _audit_scope(
         value = values[witness]
         if value.dtype is None or value.shape is None:
             raise StructureUnavailable("source-value-type-unavailable")
-        if not use.tensor.matches(value):
+        if not matches(use.tensor, value):
             raise StructureMismatch("source-value-type-differs")
         expected = ledger.constants.get(witness)
         if expected is not None:
@@ -1236,6 +1272,8 @@ def _audit_scope(
         # permission to admit arbitrary additional branch storage.
         for initializer in graph.initializers.values():
             for witness in initializer.meta.get(_VALUES, ()):
+                if witness not in scope.variables.values():
+                    continue
                 storage = ledger.constants.get(witness)
                 if storage is None:
                     continue
@@ -1249,7 +1287,7 @@ def _audit_scope(
                 ]
                 if not tensors:
                     raise StructureUnavailable("region-initializer-source-unavailable")
-                if not any(tensor.matches(initializer) for tensor in tensors):
+                if not any(matches(tensor, initializer) for tensor in tensors):
                     raise StructureMismatch("region-initializer-type-differs")
                 tensor_storage = initializer.const_value
                 if tensor_storage is None:
@@ -1299,7 +1337,15 @@ def _audit_scope(
         if expected.rule is None:
             reasons.append("equation-" + str(index) + ":rule-unavailable")
             continue
-        if type(expected.rule) is FunctionRule:
+        if type(expected.rule) is WhileRule:
+            plan = while_plans[handle]
+            for actual, operand in zip(plan.inputs, inputs, strict=True):
+                if isinstance(operand, LiteralOperand):
+                    match_literal(actual, operand)
+                elif actual is not operand:
+                    raise StructureMismatch("while-original-operand-edge-differs")
+            checked.add(plan.node)
+        elif type(expected.rule) is FunctionRule:
             call = ledger.function_calls.get(EquationHandle(scope.invocation, index))
             if call is None or call.owner not in definitions:
                 reasons.append("function-call-coverage-incomplete")
@@ -1312,10 +1358,10 @@ def _audit_scope(
         else:
             checked.update(expected.rule.check(graph, inputs, outputs, match_literal))
         count += 1
-    if len(graph.outputs) != len(scope.outputs):
+    if len(actual_outputs) != len(scope.outputs):
         raise StructureMismatch("source-output-arity-differs")
     for actual, use, witness in zip(
-        graph.outputs, scope.outputs, scope.result_values, strict=True
+        actual_outputs, scope.outputs, scope.result_values, strict=True
     ):
         expected_value = check_operand(use, witness)
         if isinstance(expected_value, LiteralOperand):
@@ -1332,7 +1378,7 @@ def _audit_scope(
                     or producer.outputs[0] is not actual
                 ):
                     raise StructureMismatch("literal-output-alias-differs")
-                if not use.tensor.matches(actual):
+                if not matches(use.tensor, actual):
                     raise StructureMismatch("literal-type-or-shape-differs")
                 match_literal(producer.inputs[0], expected_value)
                 checked.add(producer)
@@ -1355,7 +1401,7 @@ def _audit_scope(
             ):
                 raise StructureMismatch("source-output-interface-differs")
             checked.add(producer)
-        if not use.tensor.matches(actual):
+        if not matches(use.tensor, actual):
             raise StructureMismatch("source-output-type-differs")
     return StructureResult(
         "unverified" if reasons else "validated", total, count, tuple(reasons[:16])
@@ -1436,7 +1482,7 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
             raise StructureUnavailable("scope-owner-coverage-incomplete")
         scopes[scope.invocation] = scope
         owner_scopes.setdefault(scope.owner, []).append(scope)
-        if scope.owner in definitions:
+        if scope.owner in definitions and scope.region is None:
             definition_body = ledger.function_bodies.get(scope.owner)
             if definition_body is None:
                 raise StructureUnavailable(
@@ -1456,11 +1502,48 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     if set(definitions) != {call.owner for call in ledger.function_calls.values()}:
         raise StructureUnavailable("function-definition-coverage-incomplete")
 
-    plans = _plan_if_calls(ledger, scopes, graphs, parents)
+    from jax2onnx.plugins.jax.lax._source_loop_structure import (
+        ActualShapeFacts,
+        WhileRule,
+        plan_while_calls,
+    )
+
+    if ledger.while_calls:
+        # Storage facts do not establish a producer's position. Check actual
+        # consumed edges before deriving shapes, including lexical captures.
+        for graph in graphs.values():
+            for node in graph:
+                for value in node.inputs:
+                    if value is not None and not _visible_before(value, node, parents):
+                        raise StructureMismatch(
+                            "while-input-not-visible-before-consumer"
+                        )
+    facts = ActualShapeFacts(model, definitions) if ledger.while_calls else None
+    matches = facts.matches if facts is not None else TensorContract.matches
+    plans = _plan_if_calls(ledger, scopes, graphs, parents, matches)
+    while_plans = plan_while_calls(ledger, scopes, graphs, parents, matches)
+    wanted_regions = {
+        cast(RegionReceipt, child.region).key
+        for plan in cast(
+            "tuple[_IfAudit | WhileAudit, ...]",
+            (*plans.values(), *while_plans.values()),
+        )
+        for child in plan.regions
+    }
+    observed_regions: dict[RegionKey, object] = {}
+    for scope in scopes.values():
+        if scope.region is None:
+            continue
+        key = scope.region.key
+        if key in observed_regions or ledger.regions.get(key) is not scope.invocation:
+            raise StructureUnavailable("region-invocation-binding-unavailable")
+        observed_regions[key] = scope.invocation
+    if set(ledger.regions) != wanted_regions or set(observed_regions) != wanted_regions:
+        raise StructureUnavailable("region-coverage-incomplete")
 
     def definition_scope(owner: object) -> _Scope:
-        candidates = owner_scopes[owner]
-        if len(candidates) != 1 or candidates[0].region is not None:
+        candidates = [scope for scope in owner_scopes[owner] if scope.region is None]
+        if len(candidates) != 1:
             raise StructureUnavailable("definition-region-ownership-unavailable")
         return candidates[0]
 
@@ -1475,6 +1558,10 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
                 )
             elif type(equation.rule) is IfRule:
                 attached.extend(child.invocation for child in plans[handle].regions)
+            elif type(equation.rule) is WhileRule:
+                attached.extend(
+                    child.invocation for child in while_plans[handle].regions
+                )
         children[scope.invocation] = tuple(attached)
     root_invocation = definition_scope(model.graph.meta[_OWNER]).invocation
     reached: set[object] = set()
@@ -1490,6 +1577,9 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     if reached != set(scopes):
         raise StructureUnavailable("unclaimed-region-invocation")
     coverage = {owner: _Coverage() for owner in graphs}
+    for plan in while_plans.values():
+        for adapter in plan.adapters:
+            coverage[cast(ir.Graph, adapter.graph).meta[_OWNER]].nodes.add(adapter)
     for scope in scopes.values():
         results[scope.invocation] = _audit_scope(
             graphs[scope.owner],
@@ -1498,6 +1588,8 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
             definitions,
             plans,
             coverage[scope.owner],
+            while_plans,
+            matches,
         )
 
     def logical_count(invocation: object, ancestors: frozenset[object]) -> int:

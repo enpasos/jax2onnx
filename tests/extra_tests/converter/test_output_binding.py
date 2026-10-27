@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import onnx_ir as ir
 import pytest
 
-from jax2onnx._compat.jax import DropVar, JaxprEqn, Var
+from jax2onnx._compat.jax import DropVar, JaxprEqn, Literal, Var
 from jax2onnx.converter.ir_context import IRContext
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.plugins.jax.lax.add import lower_add
 from jax2onnx.converter.output_binding import (
+    assert_eqn_inputs_bound,
     assert_eqn_outputs_bound,
     finalize_eqn_lowering_outputs,
 )
@@ -154,3 +158,75 @@ def test_native_outputs_reject_foreign_graph_values_with_local_names() -> None:
 
     with pytest.raises(RuntimeError, match="disconnected value"):
         assert_eqn_outputs_bound(ctx, eqn, primitive_name="sample", eqn_index=0)
+
+
+def _literal_context(
+    policy: PrecisionPolicy, *, bound: bool = True
+) -> tuple[IRContext, JaxprEqn]:
+    native = jax.make_jaxpr(lambda value: jax.lax.add(value, np.int32(1)))(
+        jax.ShapeDtypeStruct((), np.int32)
+    )
+    ctx = IRContext(
+        opset=23, enable_double_precision=False, input_specs=[], precision_policy=policy
+    )
+    if bound:
+        ctx.add_input_for_invar(native.jaxpr.invars[0], 0)
+    equation = native.jaxpr.eqns[0]
+    assert isinstance(equation.invars[1], Literal)
+    return ctx, equation
+
+
+@pytest.mark.parametrize("policy", (PrecisionPolicy.SOURCE, PrecisionPolicy.LEGACY))
+def test_literal_preflight_preserves_source_and_legacy_materialization(
+    policy: PrecisionPolicy,
+) -> None:
+    ctx, equation = _literal_context(policy)
+    assert not ctx.builder.graph.initializers and not tuple(ctx.builder.graph)
+    assert_eqn_inputs_bound(ctx, equation, primitive_name="add", eqn_index=0)
+    preflight_count = 0 if policy is PrecisionPolicy.SOURCE else 1
+    assert len(ctx.builder.graph.initializers) == preflight_count
+    assert not tuple(ctx.builder.graph)
+    lower_add(ctx, equation)
+    assert len(ctx.builder.graph.initializers) == preflight_count + 1
+    operation = next(iter(ctx.builder.graph))
+    assert operation.op_type == "Add"
+    literal = operation.inputs[1]
+    assert literal is not None and literal.is_initializer()
+    assert literal.const_value is not None
+    storage = literal.const_value.numpy()
+    assert storage.dtype == np.dtype(np.int32) and storage.shape == ()
+    assert storage.tobytes() == np.asarray(1, np.int32).tobytes()
+
+
+def test_source_literal_constant_folder_needs_no_ir_materialization() -> None:
+    ctx, equation = _literal_context(PrecisionPolicy.SOURCE)
+    literal = equation.invars[1]
+    assert isinstance(literal, Literal)
+    folded = ctx.try_evaluate_const(literal)
+    assert folded is not None
+    assert folded.dtype == np.dtype(np.int32) and folded.shape == ()
+    assert folded.tobytes() == np.asarray(1, np.int32).tobytes()
+    assert_eqn_inputs_bound(ctx, equation, primitive_name="add", eqn_index=0)
+    assert not ctx.builder.graph.initializers and not tuple(ctx.builder.graph)
+
+
+@pytest.mark.parametrize("policy", (PrecisionPolicy.SOURCE, PrecisionPolicy.LEGACY))
+def test_literal_preflight_still_rejects_an_unbound_native_variable(
+    policy: PrecisionPolicy,
+) -> None:
+    ctx, equation = _literal_context(policy, bound=False)
+    with pytest.raises(RuntimeError, match="unbound input 0"):
+        assert_eqn_inputs_bound(ctx, equation, primitive_name="add", eqn_index=3)
+    assert not ctx.builder.graph.initializers and not tuple(ctx.builder.graph)
+
+
+@pytest.mark.parametrize("policy", (PrecisionPolicy.SOURCE, PrecisionPolicy.LEGACY))
+def test_literal_preflight_keeps_dropvar_semantics(policy: PrecisionPolicy) -> None:
+    ctx, equation = _literal_context(policy, bound=False)
+    drop = DropVar(equation.invars[0].aval)
+    equation = equation.replace(invars=[drop, equation.invars[1]])
+    assert_eqn_inputs_bound(ctx, equation, primitive_name="add", eqn_index=0)
+    assert len(ctx.builder.graph.initializers) == (
+        0 if policy is PrecisionPolicy.SOURCE else 1
+    )
+    assert not tuple(ctx.builder.graph)

@@ -286,7 +286,6 @@ def freeze_body(
                 ):
                     if key in equation.params:
                         children.append((role, closed(equation.params[key])))
-                gaps.add("while-attachment-contract-unavailable")
             elif _unhandled_native_body(equation.params):
                 gaps.add("expected-region-total-unknown")
         semantics = None
@@ -307,6 +306,10 @@ def freeze_body(
             gaps.add("source-semantic-contract-unavailable")
         if equation.primitive is jax.lax.cond_p and semantics != ("dynamic-if",):
             gaps.add("if-attachment-contract-unavailable")
+        if equation.primitive is jax.lax.while_p and (
+            semantics is None or semantics[0] != "while"
+        ):
+            gaps.add("while-attachment-contract-unavailable")
         for _, child in children:
             gaps.update(child.gaps)
         equations.append(FrozenEquation(operands, results, semantics, tuple(children)))

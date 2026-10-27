@@ -26,7 +26,6 @@ from jax2onnx.plugins import _source_function_structure as function_rules
 from jax2onnx.plugins import plugin_system
 from jax2onnx.precision import get_precision_report, precision_report_to_json
 
-
 _INVOCATIONS: list[None] = []
 _FAILURE_INVOCATIONS: list[None] = []
 _OBSERVATION_INVOCATIONS: list[tuple[str, tuple[Any, ...]]] = []
@@ -714,8 +713,21 @@ def test_visible_control_descendants_remain_expected_without_attachment_adapter(
 
     model = _source(fn)
     result = _proof(model)
-    assert result.status == "unverified"
     assert result.expected_equations > len(
         model.meta[structure._LEDGER].scopes[0].equations
     )
-    assert any("attachment-contract-unavailable" in reason for reason in result.reasons)
+    if control == "while":
+        # Keep the original case and both condition invocations. The scalar
+        # While adapter now checks all three original roles and actual ports.
+        assert result.status == "validated", result
+        assert result.checked_equations == result.expected_equations
+        assert {key.role for key in model.meta[structure._LEDGER].regions} == {
+            "initial-condition",
+            "body",
+            "next-condition",
+        }
+    else:
+        assert result.status == "unverified"
+        assert any(
+            "attachment-contract-unavailable" in reason for reason in result.reasons
+        )

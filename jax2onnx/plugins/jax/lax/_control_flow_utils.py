@@ -52,7 +52,7 @@ def builder_cast(
 
 def builder_loop(
     ctx: NativeLoweringContext,
-    *inputs: ir.Value,
+    *inputs: ir.Value | None,
     body: ir.Graph,
     output_names: list[str],
 ) -> tuple[ir.Value, ...] | ir.Value:
@@ -132,7 +132,12 @@ class LoopCallParameters:
         ]
         return [*outputs[:position], *passthrough, *outputs[position:]]
 
-    def loop_inputs(self, inputs: Sequence[ir.Value]) -> list[ir.Value]:
+    @property
+    def port_bindings(self) -> tuple[tuple[ir.Value, ir.Value], ...]:
+        """Actual requested outer/formal pairs, in their carried-port order."""
+        return tuple(zip(self._parent_values, self._body_values, strict=True))
+
+    def loop_inputs(self, inputs: Sequence[ir.Value | None]) -> list[ir.Value | None]:
         return [*inputs, *self._parent_values]
 
     def output_names(self, names: Sequence[str]) -> list[str]:

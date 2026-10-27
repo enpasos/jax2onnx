@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import onnx_ir as ir
 
-from jax2onnx._compat.jax import DropVar, JaxprEqn
+from jax2onnx._compat.jax import DropVar, JaxprEqn, Literal
 
+from .precision_policy import PrecisionPolicy
 from .typing_support import NativeLoweringContext
 
 
@@ -28,6 +29,13 @@ def assert_eqn_inputs_bound(
     """Verify that plugin input vars are already bound before lowering starts."""
     for in_index, invar in enumerate(eqn.invars):
         if is_drop_var(invar):
+            continue
+        if ctx.precision_policy is PrecisionPolicy.SOURCE and isinstance(
+            invar, Literal
+        ):
+            # A literal has no runtime binding to require. Its consuming leaf
+            # materializes the actual storage; preflight must not emit a second,
+            # unused constant. ConstantFolder reads the native Literal directly.
             continue
         try:
             ctx.require_value_for_var(invar)
