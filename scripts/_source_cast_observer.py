@@ -589,7 +589,7 @@ class _Observation:
                     "original native-reference output count differs",
                 )
                 _require(
-                    len(proto.graph.node) <= 64, "artifact node count exceeds bound"
+                    len(proto.graph.node) <= 128, "artifact node count exceeds bound"
                 )
                 for node in proto.graph.node:
                     _require(

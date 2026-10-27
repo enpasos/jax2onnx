@@ -335,6 +335,7 @@ class _Scope:
     result_values: tuple[_Binding, ...] | None = None
     region: RegionReceipt | None = None
     cast_plan: Any = None
+    cast_selection: Any = None
 
 
 @dataclass(frozen=True)
@@ -362,6 +363,7 @@ class SourceStructureLedger:
         self.function_calls: dict[EquationHandle, Any] = {}
         self.if_calls: dict[EquationHandle, Any] = {}
         self.cast_plans: dict[EquationHandle, Any] = {}
+        self.cast_selections: dict[EquationHandle, Any] = {}
         self.regions: dict[RegionKey, object] = {}
         self.pending_regions: list[_PendingRegion | None] = []
         self.root_body: Any = None
@@ -422,6 +424,12 @@ class SourceStructureLedger:
                 ):
                     raise StructureUnavailable("cast-plan-equation-handle-unavailable")
                 self.cast_plans[original] = scope.cast_plan
+            if scope.cast_selection is not None:
+                if index != 0 or original in self.cast_selections:
+                    raise StructureUnavailable(
+                        "selected-cast-equation-handle-unavailable"
+                    )
+                self.cast_selections[original] = scope.cast_selection
             return original
 
         self.handles.append(self._observe("equation-handle", handle))
@@ -503,20 +511,27 @@ class SourceStructureLedger:
                 _use(var, shapes)
 
             def freeze_equation(eqn: JaxprEqn) -> _Equation:
+                from ._source_cast_authority import _selected_cast_rule
+
                 operands = tuple(_use(var, shapes) for var in eqn.invars)
                 results = tuple(_use(var, shapes) for var in eqn.outvars)
+                selected = _selected_cast_rule(ctx, eqn)
                 return _Equation(
                     id(eqn),
                     operands,
                     results,
                     (
-                        freeze_rule(
-                            eqn,
-                            tuple(use.tensor for use in operands),
-                            tuple(use.tensor for use in results),
+                        selected
+                        if selected is not None
+                        else (
+                            freeze_rule(
+                                eqn,
+                                tuple(use.tensor for use in operands),
+                                tuple(use.tensor for use in results),
+                            )
+                            if not eqn.effects
+                            else None
                         )
-                        if not eqn.effects
-                        else None
                     ),
                 )
 
@@ -553,6 +568,24 @@ class SourceStructureLedger:
                 variables,
                 body,
             )
+            from jax2onnx.plugins.jax._source_f64_f16_structure import (
+                SelectedF64F16Rule,
+            )
+
+            selections = tuple(
+                equation.rule
+                for equation in equations
+                if type(equation.rule) is SelectedF64F16Rule
+            )
+            if selections:
+                if (
+                    self.scopes
+                    or self.active
+                    or len(equations) != 1
+                    or len(selections) != 1
+                ):
+                    raise StructureUnavailable("selected-cast-root-scope-differs")
+                scope.cast_selection = selections[0]
             if (
                 not self.scopes
                 and not self.active
@@ -1353,6 +1386,22 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         for handle, plan in expected_cast_plans.items()
     ):
         raise StructureUnavailable("cast-plan-handle-coverage-incomplete")
+    expected_cast_selections = {
+        EquationHandle(scope.invocation, 0): scope.cast_selection
+        for scope in ledger.scopes
+        if scope.cast_selection is not None
+    }
+    if set(ledger.cast_selections) != set(expected_cast_selections) or any(
+        ledger.cast_selections[handle] is not rule
+        or next(
+            scope for scope in ledger.scopes if scope.invocation is handle.invocation
+        )
+        .equations[0]
+        .rule
+        is not rule
+        for handle, rule in expected_cast_selections.items()
+    ):
+        raise StructureUnavailable("selected-cast-handle-coverage-incomplete")
     graphs: dict[object, ir.Graph] = {}
     parents: dict[object, tuple[ir.Graph, ir.Node]] = {}
 

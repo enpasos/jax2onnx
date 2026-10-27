@@ -1,6 +1,61 @@
 # Precision migration handoff — 2026-10-27
 
-## Current checkpoint — 2026-10-27: published CI and qualified local A issuance
+## Current local checkpoint — 2026-10-27: qualified private cast activation
+
+The private eligible opset23 SOURCE FP64-to-FP16 path now consumes trusted native
+selection authority once and emits the selected mathematical graph. The complete
+final graph, literal roles and cloned endpoints are checked even with the
+optional structural ledger disabled; invalid or revoked authority aborts without
+fallback. The original mathematical helpers and numerical acceptance criteria
+remain unchanged. Public defaults remain **LEGACY**. This finite cast checkpoint
+is part of the complete **B–F** migration; While v2 and Scan are separately frozen
+source preparations, not integrated or runtime qualified.
+
+The B runtime epoch has source-files SHA
+`5b7a5479b60872f53a603ca43ed4eb4d79dddc9787387cb8865628a666225731`
+and index tree `b120975d42fc7144fec08ec656de4b877862f60c`, following local A commit
+`ba402257c865957a1a7513fb4e48d3bb29c22556`. Six complete-owner runs yield
+**2,529 identical unique cases / 7,587 passing phases across 36 owners per
+Python 3.11 and 3.14 stack**, with zero failures, errors or skips. The original
+SOURCE bitwise, special-value and complete deterministic model/report tests
+pass unchanged. This is a finite aggregate, not one full-suite run or Python
+3.12/3.13 qualification. Receipt: `source-cast-B-dual2529-qualification-v1.json`,
+SHA-256 `3a32a9005dbff591b5b6bd6bc7cf4a7d93e667b6b1572a6852ee91511be1c3b1`.
+Independent acceptance: `source-cast-B-dual2529-canonical-ON-independent-e7b4cde04da4.json`,
+SHA-256 `2f6509e9a0c0acac499f6f60ac423c52c287fd983e1655f03e96dd3feee49731`.
+
+The unchanged original six-word cast witness also passes separately with the
+diagnostic observer **ON and OFF on both local stacks**. Actual native behavior
+was LOW on both; no HIGH-host execution is inferred. The ON model has 65 nodes
+and 59 exact DOUBLE literal roles and passes complete graph and independent
+protobuf-wire audits. An external bounded OFF coordinator runs exactly one
+original worker with the original assertions and matched process contexts.
+Its 52 controls pass on each stack. The first Python 3.11 control launch had
+52 setup errors from a missing external basetemp parent; that unsuccessful
+predecessor remains recorded, followed by the fresh successful run with
+unchanged controller, fixture, source and criteria. Root binds both actual OFF
+resource/source/environment/cleanup guards to the recorded ON epoch in
+`source-cast-B-passing-off-dual-root-binding-v1.json`, SHA-256
+`b388842c9b5b869550ddc0e96b7b4960f55a1dc2a7e99eeccf3f6b796ac81bb8`.
+OFF captures no raw output/model, so raw ON/OFF equality remains **UNVERIFIED**;
+observer causality is **NOT_ASSESSED**. This evidence establishes the original
+assertion outcomes only. Independent OFF acceptance is recorded in
+`source-cast-B-passing-off-dual-independent-review-v1.json`, SHA-256
+`8c8a8187ac2c1f8d2dde19e657bd154a1d56429ecda577ca190ffae351f4d099`.
+
+All seven pinned code hooks pass; typing passes 593 files on each locked stack
+with the same 17 RNG entries, and strict documentation passes. Quality receipt:
+`source-cast-B-dual-quality-v1.json`, SHA-256
+`5dd8dda31218cf86a47735439a425241a54ed93d1638bc6172af7526e1974308`.
+This leading handoff is a documentation-only successor to the runtime epoch.
+Normal B commit hooks and the successor published head's complete eight-check
+CI gate remain pending at this writing. Published `9c2eca1b` has eight terminal
+SUCCESS checks; that earlier CI does not qualify the local A/B changes.
+The local 4 GiB full-model MEMORY hold, all remaining operators/regions,
+fixed supplied/third-party model acceptance, durable replay, full inventory and
+the coordinated public transition remain open.
+
+## Earlier checkpoint — 2026-10-27: published CI and qualified local A issuance
 
 Published HEAD `9c2eca1b9a290a407478027aa581964caad4ad15` has **all eight terminal SUCCESS** checks in [CI #547](https://github.com/enpasos/jax2onnx/actions/runs/40530166249), reverified read-only at **19:00 UTC**. The D1 checkpoint below is an older epoch. Exact-head independent API receipt: `ci-9c2eca1b-eight-success-independent-api-v1.json`, SHA-256 `834a53533f995f58c7d073712fd1197b371671e16f5aa571d7231acea552b795`.
 

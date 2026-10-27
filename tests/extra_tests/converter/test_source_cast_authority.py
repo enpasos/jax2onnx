@@ -27,6 +27,9 @@ from jax2onnx.converter import conversion_api
 from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import SourcePrecisionError
+from tests.extra_tests.converter.test_source_cast_selected_emission import (
+    assert_selected_model,
+)
 
 
 def _direct(value: Any) -> Any:
@@ -121,6 +124,7 @@ def test_cold_ordinary_cpu_initializes_once_without_a_replacement_factory(
         model = _export()
     assert initial == [None]
     assert authority.AUTHORITY_KEY in model.meta
+    assert_selected_model(model)
     assert dict(model.meta[acquisition.CONTEXT_KEY].native_fields)[
         "client_identity"
     ] == str(id(xla_bridge._backends["cpu"]))
@@ -216,7 +220,7 @@ def test_real_original_producer_issues_after_release_and_keeps_single_cast(
         model.meta[planning.PLAN_KEY].algorithm
         is planning.UnresolvedAlgorithm.UNRESOLVED
     )
-    assert [node.op_type for node in model.graph] == ["Cast"]
+    assert_selected_model(model)
     assert (
         ctx._source_cast_permit is None
         and permit._handoff is None
@@ -319,11 +323,11 @@ def test_actual_one_use_permit_cannot_be_moved_copied_serialized_or_replayed(
         lower(ctx, body)
 
     monkeypatch.setattr(conversion_api, "_lower_jaxpr_equations", inspect)
-    with jax.enable_x64(True):
-        model = _export()
+    with jax.enable_x64(True), pytest.raises(authority.SourceCastSelectionError):
+        _export()
     assert len(seen) == 1 and seen[0]._handoff is None
-    assert [node.op_type for node in model.graph] == ["Cast"]
     _assert_discarded(transactions[0])
+    assert transactions[0]._session is None
 
 
 @pytest.mark.parametrize(
@@ -369,11 +373,11 @@ def test_post_cleanup_actual_source_equation_and_bound_input_mutations_revoke_au
         lower(ctx, body)
 
     monkeypatch.setattr(conversion_api, "_lower_jaxpr_equations", inspect)
-    with jax.enable_x64(True):
-        model = _export()
-    assert len(seen) == 1 and authority.AUTHORITY_KEY not in model.meta
-    assert [node.op_type for node in model.graph] == ["Cast"]
+    with jax.enable_x64(True), pytest.raises(authority.SourceCastSelectionError):
+        _export()
+    assert len(seen) == 1
     _assert_discarded(transactions[0])
+    assert transactions[0]._session is None
 
 
 @pytest.mark.parametrize(
@@ -538,6 +542,7 @@ def test_ordinary_clients_and_stable_observation_profiles_keep_real_issuance(
         sys.setprofile(before[0])
         threading.setprofile(before[1])
     assert authority.AUTHORITY_KEY in model.meta
+    assert_selected_model(model)
     if profile == "sys":
         assert calls == ["original"]
     fields = dict(model.meta[acquisition.CONTEXT_KEY].native_fields)
@@ -558,6 +563,7 @@ def test_successful_model_and_discarded_transaction_do_not_retain_original_calla
     with jax.enable_x64(True):
         model = _export(original)
     assert authority.AUTHORITY_KEY in model.meta
+    assert_selected_model(model)
     del original
     gc.collect()
     assert reference() is None
@@ -632,11 +638,11 @@ def test_real_permit_and_transaction_audit_views_reject_public_replacement(
         lower(ctx, body)
 
     monkeypatch.setattr(conversion_api, "_lower_jaxpr_equations", inspect)
-    with jax.enable_x64(True):
-        model = _export()
-    assert len(seen) == 1 and model.meta[authority.AUTHORITY_KEY] is seen[0]
-    assert [node.op_type for node in model.graph] == ["Cast"]
+    with jax.enable_x64(True), pytest.raises(authority.SourceCastSelectionError):
+        _export()
+    assert len(seen) == 1 and transactions[0].audit is seen[0]
     _assert_discarded(transactions[0])
+    assert transactions[0]._session is None
 
 
 @pytest.mark.parametrize(
@@ -690,8 +696,8 @@ def test_real_permit_rejects_changed_audit_identity_and_clears_authority(
         lower(ctx, body)
 
     monkeypatch.setattr(conversion_api, "_lower_jaxpr_equations", inspect)
-    with jax.enable_x64(True):
-        model = _export()
-    assert len(seen) == 1 and authority.AUTHORITY_KEY not in model.meta
-    assert [node.op_type for node in model.graph] == ["Cast"]
+    with jax.enable_x64(True), pytest.raises(authority.SourceCastSelectionError):
+        _export()
+    assert len(seen) == 1
     _assert_discarded(transactions[0])
+    assert transactions[0]._session is None

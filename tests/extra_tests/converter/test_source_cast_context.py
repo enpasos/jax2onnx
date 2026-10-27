@@ -574,7 +574,11 @@ def test_real_trace_runs_once_and_ledger_does_not_control_acquisition_or_bytes(
             model.meta[planning.PLAN_KEY].algorithm
             is planning.UnresolvedAlgorithm.UNRESOLVED
         )
-        assert [node.op_type for node in model.graph] == ["Cast"]
+        from tests.extra_tests.converter.test_source_cast_selected_emission import (
+            assert_selected_model,
+        )
+
+        assert_selected_model(model)
         artifacts.append(
             (
                 ir.to_proto(model).SerializeToString(deterministic=True),

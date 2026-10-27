@@ -156,7 +156,11 @@ def test_actual_original_trace_produces_native_ir_and_real_options_once(
         result.meta[planning.PLAN_KEY].algorithm
         is planning.UnresolvedAlgorithm.UNRESOLVED
     )
-    assert [node.op_type for node in result.graph] == ["Cast"]
+    from tests.extra_tests.converter.test_source_cast_selected_emission import (
+        assert_selected_model,
+    )
+
+    assert_selected_model(result)
 
 
 @pytest.mark.parametrize(

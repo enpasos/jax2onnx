@@ -44,7 +44,12 @@ from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from .function_scope import FunctionRegistry
-    from ._source_cast_authority import _CastPermit, SelectedCastContract
+    from ._source_cast_authority import (
+        _CastPermit,
+        _CastExecutionSession,
+        SelectedCastContract,
+    )
+    from jax2onnx.plugins.jax._source_f64_f16_structure import SelectedF64F16Rule
 
 
 class _InitializerProxy(MutableSequence[ir.Value]):
@@ -208,6 +213,9 @@ class IRContext:
         self._source_cast_plan: WholeRootCastPlan | None = None
         self._source_cast_permit: _CastPermit | None = None
         self._source_cast_audit: SelectedCastContract | None = None
+        self._source_cast_session: _CastExecutionSession | None = None
+        self._source_cast_rule: SelectedF64F16Rule | None = None
+        self._source_cast_selected = False
         self._jaxpr_validator = jaxpr_validator
         if stacktrace_metadata is None:
             env_flag = os.getenv(_STACKTRACE_METADATA_ENV)

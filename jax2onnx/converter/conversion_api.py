@@ -59,6 +59,7 @@ from ._source_cast_context import RootCastContextLease, attach_cast_acquisition
 from ._source_cast_authority import (
     _begin_cast_transaction,
     attach_cast_authority_audit,
+    finalize_selected_cast,
 )
 from .source_representation import representation_for_aval, validate_source_shapes
 from . import lowering_dispatch as _lowering_dispatch
@@ -1251,6 +1252,7 @@ def _convert_to_ir(
             protective_clone=protective_clone,
             strict_optimizer_failures=strict_optimizer_failures,
         )
+        finalize_selected_cast(model, cast_transaction)
         if precision_policy is PrecisionPolicy.SOURCE:
             attach_cast_plan(model, cast_plan)
             attach_cast_acquisition(model, acquisition)

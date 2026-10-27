@@ -28,6 +28,8 @@ from jax2onnx.converter.source_structure import (
 
 if TYPE_CHECKING:
     from jax2onnx.converter._source_cast_planning import WholeRootCastEligibility
+    from jax2onnx.converter._source_cast_authority import SelectedCastContract
+    from jax2onnx.converter.source_structure import LiteralMatcher, RuleOperand
 
 
 def freeze_f64_f16_semantic_key(
@@ -450,3 +452,93 @@ def _check_f64_f16_math_graph(
         ),
         tuple(obligations[role] for role in ordered_roles),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class SelectedF64F16Rule:
+    """A pre-emission lowering contract; construction grants no authority."""
+
+    contract: SelectedCastContract
+    source: TensorContract
+    result: TensorContract
+
+    def match(
+        self, graph: ir.Graph, source: ir.Value, result: ir.Value
+    ) -> RneGraphMatch:
+        from jax2onnx.converter._source_cast_authority import SelectedCastContract
+
+        if (
+            type(self) is not SelectedF64F16Rule
+            or type(self.contract) is not SelectedCastContract
+            or self.contract.opset != 23
+            or dict(graph.opset_imports) != {"": 23}
+            or not self.source.matches(source)
+            or not self.result.matches(result)
+        ):
+            raise StructureMismatch("selected-cast-contract-or-ports-differ")
+        if self.contract.algorithm == "DIRECT_RNE_53_TO_11":
+            matched = check_f64_f16_rne_graph(
+                F64F16RneSpec(self.contract.shape), graph, source, result
+            )
+            compute = 63
+        elif self.contract.algorithm == "DOUBLE_ROUND_RNE_53_TO_24_TO_11":
+            matched = check_f64_f16_double_round_graph(
+                F64F16DoubleRoundSpec(self.contract.shape), graph, source, result
+            )
+            compute = 65
+        else:
+            raise StructureMismatch("selected-cast-algorithm-unavailable")
+        if (
+            len(matched.literal_obligations) != 59
+            or sum(
+                node.op_type not in {"Constant", "Identity"} for node in matched.nodes
+            )
+            != compute
+            or len(matched.nodes) > compute + 59 + 1
+        ):
+            raise StructureMismatch("selected-cast-whole-graph-bound-differs")
+        return matched
+
+    def check(
+        self,
+        graph: ir.Graph,
+        inputs: tuple[RuleOperand, ...],
+        outputs: tuple[ir.Value, ...],
+        match_literal: LiteralMatcher,
+    ) -> tuple[ir.Node, ...]:
+        if len(inputs) != 1 or type(inputs[0]) is not ir.Value or len(outputs) != 1:
+            raise StructureMismatch("selected-cast-equation-ports-differ")
+        matched = self.match(graph, inputs[0], outputs[0])
+        for value, literal in matched.literal_obligations:
+            match_literal(value, literal)
+        return matched.nodes
+
+
+def freeze_selected_cast_rule(
+    equation: Any, contract: SelectedCastContract
+) -> SelectedF64F16Rule:
+    from jax2onnx.converter._source_cast_authority import SelectedCastContract
+
+    if type(contract) is not SelectedCastContract or contract.opset != 23:
+        raise StructureMismatch("selected-cast-opset-or-contract-unavailable")
+    if contract.algorithm not in (
+        "DIRECT_RNE_53_TO_11",
+        "DOUBLE_ROUND_RNE_53_TO_24_TO_11",
+    ):
+        raise StructureMismatch("selected-cast-algorithm-unavailable")
+    shapes = _ShapeFreezer()
+    inputs = tuple(
+        TensorContract.from_aval(var.aval, shapes) for var in equation.invars
+    )
+    outputs = tuple(
+        TensorContract.from_aval(var.aval, shapes) for var in equation.outvars
+    )
+    if (
+        len(inputs) != 1
+        or len(outputs) != 1
+        or inputs[0].shape != contract.shape
+        or outputs[0].shape != contract.shape
+        or freeze_f64_f16_semantic_key(equation, inputs, outputs) is None
+    ):
+        raise StructureMismatch("selected-cast-original-equation-differs")
+    return SelectedF64F16Rule(contract, inputs[0], outputs[0])

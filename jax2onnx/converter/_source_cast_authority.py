@@ -1,6 +1,6 @@
 # jax2onnx/converter/_source_cast_authority.py
 
-"""Conversion-owned, one-use original-cast authority; no numerical dispatch.
+"""Conversion-owned, one-use original-cast authority and selected execution.
 
 Public acquisition/planning/options records remain evidence. Only the actual
 native producer can hand this transaction an original equation and typed ports.
@@ -10,7 +10,7 @@ The permit is private, context-bound and discarded on every conversion exit.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, TYPE_CHECKING, cast
 
 import onnx_ir as ir
 
@@ -20,6 +20,16 @@ from .precision_policy import PrecisionPolicy
 AUTHORITY_KEY: Final[str] = "jax2onnx.source.cast_authority"
 _TRANSACTION_SEAL: Final[object] = object()
 _PERMIT_SEAL: Final[object] = object()
+_SESSION_SEAL: Final[object] = object()
+EMISSION_KEY: Final[str] = "jax2onnx.source.cast_emission"
+
+if TYPE_CHECKING:
+    from jax2onnx._compat.jax import JaxprEqn
+    from jax2onnx.plugins.jax._source_f64_f16_structure import SelectedF64F16Rule
+
+
+class SourceCastSelectionError(RuntimeError):
+    """A previously selected conversion lost its execution authority."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +56,17 @@ class SelectedCastContract:
     scope: str = "current-original-cast-construction-not-historical-executable"
     numerical_activation: bool = False
     nan_contract: str = "original-criterion-specific-no-payload-certification"
+
+
+@dataclass(frozen=True, slots=True)
+class SelectedCastEmission:
+    contract: SelectedCastContract
+    checked_nodes: int
+    literal_roles: int
+    constant_definitions: int
+    facade_identity: bool
+    structure: str = "validated"
+    runtime: str = "unverified"
 
 
 class _CastPermit:
@@ -103,6 +124,8 @@ class _CastTransaction:
         "_permit",
         "_context",
         "_audit",
+        "_session",
+        "_selected",
     )
 
     def __init__(self, seal: object, nonce: object, opset: int) -> None:
@@ -116,6 +139,8 @@ class _CastTransaction:
         self._permit: _CastPermit | None = None
         self._context: Any = None
         self._audit: SelectedCastContract | None = None
+        self._session: _CastExecutionSession | None = None
+        self._selected = False
 
     @property
     def audit(self) -> SelectedCastContract | None:
@@ -229,11 +254,19 @@ class _CastTransaction:
         self._permit = _CastPermit(_PERMIT_SEAL, self, context, handoff, value, audit)
         context._source_cast_permit = self._permit
         context._source_cast_audit = audit
+        if self._opset == 23:
+            self._session = _CastExecutionSession(
+                _SESSION_SEAL, self, context, handoff._equation, value, audit
+            )
+            self._selected = True
+            context._source_cast_selected = True
+            context._source_cast_session = self._session
+            context._source_cast_rule = self._session.rule
         self._handoff = None
         self._proof = ""
         self._body_proof = ""
 
-    def discard(self) -> None:
+    def _release_permit(self) -> None:
         if self._handoff is not None:
             self._handoff.clear()
         if (
@@ -248,6 +281,12 @@ class _CastTransaction:
         self._body_proof = ""
         self._seal = None
         self._released = True
+
+    def discard(self) -> None:
+        self._release_permit()
+        if self._session is not None:
+            self._session.close()
+        self._session = None
 
     def __copy__(self) -> Any:
         raise TypeError("cast transaction cannot be copied")
@@ -266,7 +305,7 @@ def _begin_cast_transaction(nonce: object, opset: int) -> _CastTransaction:
 def _consume_cast_permit(
     context: object, equation: object
 ) -> SelectedCastContract | None:
-    """Future dispatch boundary; milestone A never calls this from a plugin."""
+    """Consume actual native provenance once; immutable records are not tokens."""
     from .ir_context import IRContext
 
     if type(context) is not IRContext:
@@ -288,7 +327,7 @@ def _consume_cast_permit(
             owner._audit = None
             if owner._context is not None:
                 owner._context._source_cast_audit = None
-            owner.discard()
+            owner._release_permit()
         return None
     consumed = False
     try:
@@ -322,7 +361,209 @@ def _consume_cast_permit(
         if not consumed:
             owner._audit = None
             context._source_cast_audit = None
-        owner.discard()
+        owner._release_permit()
+
+
+class _CastExecutionSession:
+    __slots__ = (
+        "_seal",
+        "_owner",
+        "_context",
+        "_equation",
+        "_value",
+        "_audit",
+        "_rule",
+        "_input_witness",
+        "_output_witness",
+        "_state",
+        "_receipt",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        owner: _CastTransaction,
+        context: Any,
+        equation: Any,
+        value: ir.Value,
+        audit: SelectedCastContract,
+    ) -> None:
+        from jax2onnx.plugins.jax._source_f64_f16_structure import (
+            freeze_selected_cast_rule,
+        )
+        from .source_structure import _witness
+
+        if seal is not _SESSION_SEAL:
+            raise SourceCastSelectionError(
+                "selected-cast-session-cannot-be-constructed"
+            )
+        self._seal = seal
+        self._owner: Any = owner
+        self._context: Any = context
+        self._equation: Any = equation
+        self._value: Any = value
+        self._audit: SelectedCastContract | None = audit
+        self._rule: SelectedF64F16Rule | None = freeze_selected_cast_rule(
+            equation, audit
+        )
+        self._input_witness: Any = _witness(value)
+        self._output_witness: Any = None
+        self._state = "prepared"
+        self._receipt: SelectedCastEmission | None = None
+
+    @property
+    def rule(self) -> SelectedF64F16Rule | None:
+        return self._rule
+
+    @property
+    def audit(self) -> SelectedCastContract | None:
+        return self._audit
+
+    def _current(
+        self, context: object
+    ) -> tuple[SelectedCastContract, SelectedF64F16Rule]:
+        from jax2onnx.plugins.jax._source_f64_f16_structure import SelectedF64F16Rule
+        from .ir_context import IRContext
+
+        audit, rule = self._audit, self._rule
+        if (
+            self._seal is not _SESSION_SEAL
+            or type(context) is not IRContext
+            or context is not self._context
+            or type(self._owner) is not _CastTransaction
+            or self._owner._session is not self
+            or not self._owner._selected
+            or not context._source_cast_selected
+            or context._source_cast_session is not self
+            or type(audit) is not SelectedCastContract
+            or self._owner._audit is not audit
+            or context._source_cast_audit is not audit
+            or audit.opset != 23
+            or type(rule) is not SelectedF64F16Rule
+            or rule.contract is not audit
+            or context._source_cast_rule is not rule
+            or context.builder.opset != 23
+            or context.precision_policy is not PrecisionPolicy.SOURCE
+        ):
+            raise SourceCastSelectionError("selected-cast-session-binding-differs")
+        return audit, rule
+
+    def prepared_rule(self, context: object, equation: object) -> SelectedF64F16Rule:
+        _, rule = self._current(context)
+        if self._state != "prepared" or equation is not self._equation:
+            raise SourceCastSelectionError("selected-cast-original-equation-differs")
+        return rule
+
+    def take(self, context: object, equation: object) -> SelectedCastContract:
+        audit, _ = self._current(context)
+        if (
+            self._state != "prepared"
+            or equation is not self._equation
+            or self._owner._seal is not _TRANSACTION_SEAL
+            or self._context.require_value_for_var(
+                cast("JaxprEqn", self._equation).invars[0]
+            )
+            is not self._value
+        ):
+            raise SourceCastSelectionError(
+                "selected-cast-permit-already-lost-or-consumed"
+            )
+        if _consume_cast_permit(context, equation) is not audit:
+            raise SourceCastSelectionError("selected-cast-native-permit-unavailable")
+        self._state = "taken"
+        self._equation = self._value = None
+        return audit
+
+    def result(self, context: object, value: ir.Value) -> None:
+        from .source_structure import _witness
+
+        _, rule = self._current(context)
+        if self._state != "taken" or not rule.result.matches(value):
+            raise SourceCastSelectionError("selected-cast-result-binding-differs")
+        self._output_witness = _witness(value)
+        self._state = "emitted"
+
+    def finalize(self, model: ir.Model) -> SelectedCastEmission:
+        from .source_structure import _resolve_bindings
+
+        audit, rule = self._current(self._context)
+        if self._state != "emitted" or self._receipt is not None or model.functions:
+            raise SourceCastSelectionError("selected-cast-emission-incomplete")
+        wanted = {self._input_witness, self._output_witness}
+        values = _resolve_bindings(model.graph, wanted)
+        source, result = values[self._input_witness], values[self._output_witness]
+        matched = rule.match(model.graph, source, result)
+        self._receipt = SelectedCastEmission(
+            audit,
+            len(matched.nodes),
+            len(matched.literal_obligations),
+            len(matched.constants),
+            model.graph.outputs[0] is not result,
+        )
+        self._state = "validated"
+        return self._receipt
+
+    def close(self) -> None:
+        if self._context is not None:
+            self._context._source_cast_session = None
+            self._context._source_cast_rule = None
+        self._seal = self._owner = self._context = self._equation = self._value = None
+        self._audit = self._rule = self._input_witness = self._output_witness = None
+        self._state = "closed"
+
+    def __copy__(self) -> Any:
+        raise TypeError("selected cast session cannot be copied")
+
+    def __deepcopy__(self, memo: Any) -> Any:
+        raise TypeError("selected cast session cannot be copied")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("selected cast session cannot be serialized")
+
+
+def _selected_cast_session(context: object) -> _CastExecutionSession | None:
+    from .ir_context import IRContext
+
+    if type(context) is not IRContext:
+        return None
+    session = context._source_cast_session
+    if not context._source_cast_selected:
+        if session is not None or context._source_cast_rule is not None:
+            raise SourceCastSelectionError("selected-cast-session-without-producer")
+        return None
+    if type(session) is not _CastExecutionSession:
+        raise SourceCastSelectionError("selected-cast-session-unavailable")
+    return session
+
+
+def _selected_cast_rule(context: object, equation: object) -> SelectedF64F16Rule | None:
+    session = _selected_cast_session(context)
+    return session.prepared_rule(context, equation) if session is not None else None
+
+
+def _take_selected_cast(
+    context: object, equation: object
+) -> SelectedCastContract | None:
+    session = _selected_cast_session(context)
+    return session.take(context, equation) if session is not None else None
+
+
+def _record_selected_cast_result(context: object, value: ir.Value) -> None:
+    session = _selected_cast_session(context)
+    if session is None:
+        raise SourceCastSelectionError("selected-cast-result-without-session")
+    session.result(context, value)
+
+
+def finalize_selected_cast(
+    model: ir.Model, transaction: _CastTransaction | None
+) -> None:
+    if transaction is not None and transaction._selected:
+        if type(transaction._session) is not _CastExecutionSession:
+            raise SourceCastSelectionError(
+                "selected-cast-session-lost-before-finalization"
+            )
+        model.meta[EMISSION_KEY] = transaction._session.finalize(model)
 
 
 def attach_cast_authority_audit(

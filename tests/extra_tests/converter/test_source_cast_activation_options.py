@@ -14,7 +14,6 @@ import pytest
 
 from jax2onnx._compat import _cast_activation_options as options
 
-
 _VERSIONS = ("0.10.2", "0.12.0.1")
 
 
@@ -760,4 +759,8 @@ def test_actual_conversion_owned_current_options_without_extra_source_work(
         model.meta[planning.PLAN_KEY].algorithm
         is planning.UnresolvedAlgorithm.UNRESOLVED
     )
-    assert [node.op_type for node in model.graph] == ["Cast"]
+    from tests.extra_tests.converter.test_source_cast_selected_emission import (
+        assert_selected_model,
+    )
+
+    assert_selected_model(model)

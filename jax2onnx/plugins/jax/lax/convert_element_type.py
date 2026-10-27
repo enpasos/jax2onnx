@@ -53,6 +53,34 @@ class ConvertElementTypePlugin(PrimitiveLeafPlugin):
         result_dtype = np.dtype(out_var.aval.dtype)
         if (
             ctx.precision_policy is PrecisionPolicy.SOURCE
+            and source_dtype == np.dtype(np.float64)
+            and result_dtype == np.dtype(np.float16)
+        ):
+            from jax2onnx.converter._source_cast_authority import (
+                _take_selected_cast,
+                _record_selected_cast_result,
+            )
+
+            selected = _take_selected_cast(ctx, eqn)
+            if selected is not None:
+                from jax2onnx.plugins.jax._f64_to_f16_rne import emit_f64_to_f16_rne
+                from jax2onnx.plugins.jax._f64_to_f16_double_round import (
+                    emit_f64_to_f16_double_round,
+                )
+
+                if selected.algorithm == "DIRECT_RNE_53_TO_11":
+                    result = emit_f64_to_f16_rne(ctx, operand_val)
+                elif selected.algorithm == "DOUBLE_ROUND_RNE_53_TO_24_TO_11":
+                    result = emit_f64_to_f16_double_round(ctx, operand_val)
+                else:
+                    raise RuntimeError("selected cast algorithm unavailable")
+                _stamp_type_and_shape(result, tuple(out_var.aval.shape))
+                _ensure_value_metadata(ctx, result)
+                ctx.bind_value_for_var(out_var, result)
+                _record_selected_cast_result(ctx, result)
+                return
+        if (
+            ctx.precision_policy is PrecisionPolicy.SOURCE
             and source_dtype.name in {"float16", "bfloat16", "float32", "float64"}
             and np.issubdtype(result_dtype, np.integer)
         ):
