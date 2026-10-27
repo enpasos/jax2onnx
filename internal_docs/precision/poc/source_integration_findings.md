@@ -2,6 +2,65 @@
 
 ## Current checkpoint
 
+At the 2026-10-27 00:48:47 UTC observation, exact published head
+`a0a1ef51213bff0f6edb4e193c55723362aee096` had **all eight terminal SUCCESS**
+checks in [CI #542](https://github.com/enpasos/jax2onnx/actions/runs/40416289647),
+including Python 3.11–3.14. The final check completed at 00:45:02 UTC; observation
+`ci-a0a1ef51-eight-success.json` is at 00:48:47 UTC. This closes that revision's
+CI-restoration gate as a dated checkpoint; no later revision inherits it. Public
+defaults remain **LEGACY** and the full **B–F** goal remains open.
+
+### Private Function region checkpoint
+
+The Function checkpoint was developed in an isolated detached tree. It freezes
+original typed/weak/static-shape SSA and exact constant storage before lowering,
+retains stable equation handles through local
+replacement, and checks every ordered Function call/definition binding even on
+registry reuse. Independent declarations retain expected invocation obligations;
+missing proof is UNVERIFIED and observed contradiction FAILED. Unhandled native
+JIT/Scan bodies have an explicit unknown total, not an exact outer-prefix count.
+Body hashing has one child authority; no recovery trace is added. Real controls
+retain exact abstract invocation counts and require ledger-on/off model bytes,
+full reports and context/call sequences to agree. The explicit native-input
+observer adapter preserves its original frame/body/edge/callback authority.
+
+The feasible grouped local ledger records **2,874 modern PASS** and **2,873 older
+PASS / one unchanged native `one_minus_square` availability skip**. This is a
+mixed-epoch finite selection: v13 source `fd9f4a2d` covers the earlier groups,
+including normalization 368 each and CNN 130 each; the v15 observer pair passes
+74 each at source `fb9acb67`, retaining the original 64 IDs plus ten controls
+while all prior nine candidate files remain byte-identical. It is neither one
+global final source run nor a full suite. All seven pinned candidate hooks pass
+at source `69e1547c`/index `7cdeae48`, with held fences and empty cleanup. Root
+typing, strict docs, normal commit closeout and next-head CI require separate
+actual receipts; no result is inherited from the candidate hooks. The exact
+source hashes and evidence boundaries are in the
+[handoff](../implementation_handoff.md#private-function-region-checkpoint).
+
+Older CNN v1 remains disk-censored after 48 passes with no terminal JUnit;
+lossless D storage/PAX/stat-manifest relocation is administrative evidence, not
+qualification. Fresh older CNN v2 is a separate full result. The entire unchanged
+12-item native-model owner remains **LOCAL_UNVERIFIED_RESOURCE_HELD**, retaining
+all ten full-model items and both negatives for mandatory fresh exact-head CI.
+No model/input/criterion/routing/cap change or blind local 4 GiB call is implied.
+Hosted a0 original22 completion remains distinct from the censored local B=5
+trial, absent detailed saved-artifact replay and full migration acceptance.
+Historical cast HIGH disagreements have no general numerical-cause explanation
+or assertion amendment from the current passing run.
+
+Manual census v2 is 318 files/2,740 test functions, 47 additions to 316/2,693,
+with every predecessor and all 752 anchors retained; neither inventory JSON is
+rewritten. Historical 1,852/3,704 and current 1,856/3,712, optional/opaque and
+conditional obligations retain their own epochs. Dynamic If, then scalar While
+with mixed-ranked carries and nested Function bindings are the immediate next
+region work. Remaining source, runtime/numerical/artifact/resource and public
+transition obligations stay open. Reviewed reversible isolated local work is
+permitted; publication still follows the exact-head gate, and a regression
+preempts feature work. The [next concrete work](../implementation_handoff.md#next-concrete-work)
+retains the full scope.
+
+### Retained earlier checkpoint context
+
 Snapshot: 2026-10-26; earlier observations retain their own source epochs.
 The latest local CI repair follows committed checkpoint **`3869ba31`**;
 Local quality is qualified below; all eight exact-head remote checks remain pending.
@@ -11,7 +70,7 @@ The earlier generalized-dot **1,065-case pair and 575-file typing**
 retain source snapshot **`4845b6cb`**. The atomic-symbol evidence remains bound
 to **`7604c11a`** and stored checkpoint **`038dc9eb`**. The retained read-only GitHub
 observation of 2026-10-25 recorded Draft PR #277 at **`73f4a7a5`**.
-**`fe214590`** remains the last fully green checkpoint. The retained
+**`fe214590`** was the last fully green checkpoint at that observation. The retained
 deployment-test and inventory-test snapshots are **`c9f5812b`** and **`b7eceac8`**;
 results below retain their own source epochs.
 Public routes and defaults remain **LEGACY**; the full **B–F** goal remains open.

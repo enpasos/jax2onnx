@@ -141,6 +141,7 @@ class _SourceFunctionTrace:
     default_matmul_precision: str | None
     numpy_dtype_promotion: str
     numpy_rank_promotion: str
+    body: object | None = None
     debug_key_reuse: bool = field(
         default_factory=lambda: bool(jax.config.jax_debug_key_reuse)
     )
@@ -941,15 +942,14 @@ class FunctionPlugin(PrimitivePlugin):
         call_dtype_promotion = str(jax.config.jax_numpy_dtype_promotion)
         call_rank_promotion = str(jax.config.jax_numpy_rank_promotion)
         call_debug_key_reuse = bool(jax.config.jax_debug_key_reuse)
-        if adapter is None:
-            outputs = jax.eval_shape(source_call, *operands)
-        else:
-            closed_body, outputs = jax.make_jaxpr(source_call, return_shape=True)(
-                *operands
-            )
+        from jax2onnx.converter._source_regions import freeze_closed_body
+
+        closed_body, outputs = jax.make_jaxpr(source_call, return_shape=True)(*operands)
+        original_body = freeze_closed_body(closed_body)
+        if adapter is not None:
             parameters[_SOURCE_KEY_REUSE] = self._source_key_reuse(closed_body)
-            del closed_body
             register_function_key_reuse_rule(self._source_primitive, _SOURCE_KEY_REUSE)
+        del closed_body
         if adapter is not None:
             if len(observed_effects) != 1:
                 raise ValueError(
@@ -969,6 +969,7 @@ class FunctionPlugin(PrimitivePlugin):
             default_matmul_precision=call_matmul_precision,
             numpy_dtype_promotion=call_dtype_promotion,
             numpy_rank_promotion=call_rank_promotion,
+            body=original_body,
             debug_key_reuse=call_debug_key_reuse,
             call=(
                 _SourceFunctionCall.capture(
@@ -1269,6 +1270,13 @@ class FunctionPlugin(PrimitivePlugin):
         layout: FunctionOperandLayout | None = cast(
             FunctionOperandLayout | None, params.pop(_FUNCTION_LAYOUT, None)
         )
+        keyword_ports = tuple(
+            value.index
+            for value in params.values()
+            if isinstance(value, _DynamicParamRef)
+        )
+        original_arity = len(eqn.invars)
+        proof_order = (*range(original_arity - len(keyword_ports)), *keyword_ports)
         invars, params = _unpack_function_arguments(eqn.invars, params, layout=layout)
         if adapter is not None:
             if (
@@ -1287,6 +1295,13 @@ class FunctionPlugin(PrimitivePlugin):
                     layout.argument_count, layout.argument_count + layout.state_count
                 ),
                 *range(layout.positional_count, layout.argument_count),
+            )
+            proof_order = (
+                *range(layout.positional_count),
+                *range(
+                    layout.argument_count, layout.argument_count + layout.state_count
+                ),
+                *keyword_ports,
             )
             callee: Callable[..., object] = FunctionStateCall(
                 adapter, layout.positional_count, key_reuse.reorder_inputs(body_order)
@@ -1316,10 +1331,24 @@ class FunctionPlugin(PrimitivePlugin):
         definition = registry.get(key)
         if definition is None:
             definition = self._build_function(
-                ctx, callee, eqn, captures, source_trace=source_trace
+                ctx,
+                callee,
+                eqn,
+                captures,
+                source_trace=source_trace,
+                source_body_order=tuple(proof_order),
             )
             registry.put(key, definition)
         self._emit_function_call(ctx, eqn, definition, captures)
+        if ctx._source_structure is not None and source_trace is not None:
+            from jax2onnx.plugins._source_function_structure import record_function_call
+
+            ctx._source_structure._observe(
+                "function-call",
+                lambda: record_function_call(
+                    ctx, eqn, definition, source_trace.body, tuple(proof_order)
+                ),
+            )
 
     def _resolve_lowering_callee(
         self, params: dict[str, object]
@@ -1616,6 +1645,7 @@ class FunctionPlugin(PrimitivePlugin):
         captures: FunctionCaptures,
         *,
         source_trace: _SourceFunctionTrace | None = None,
+        source_body_order: tuple[int, ...] = (),
     ) -> ir.Function:
         name, domain = self._allocate_friendly_name(ctx)
         scope = FunctionScope(ctx, name=name, domain=domain)
@@ -1636,6 +1666,20 @@ class FunctionPlugin(PrimitivePlugin):
             source_trace=source_trace,
         )
         body = closed.jaxpr
+        structure_ledger = ctx._source_structure
+        if structure_ledger is not None and source_trace is not None:
+            from jax2onnx.converter._source_regions import freeze_closed_body
+
+            actual_body = freeze_closed_body(closed)
+            structure_ledger._observe(
+                "function-body",
+                lambda: structure_ledger.function_body(
+                    scope.ctx.builder.graph,
+                    source_trace.body,
+                    source_body_order,
+                    actual_body,
+                ),
+            )
         if (
             source_trace is not None
             and tuple(var.aval for var in body.outvars) != source_trace.output_avals

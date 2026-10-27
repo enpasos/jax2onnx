@@ -4,8 +4,9 @@
 
 The dispatcher freezes the actual source equations before invoking plugins.
 Rules owned by plugins check the final IR, after optimization and facade changes.
-This first contract covers a single flat graph. Missing rules, scopes or clone
-witnesses keep the audit unverified; observation never rejects an export.
+Original region contracts precede dispatch; definition reuse retains every call
+obligation. Missing rules, attachments or clone witnesses keep the audit
+unverified; observation never rejects an export.
 """
 
 from __future__ import annotations
@@ -265,6 +266,14 @@ class _Receipt:
     outputs: tuple[_ValueWitness, ...]
 
 
+@dataclass(frozen=True)
+class EquationHandle:
+    """Original equation authority, independent of a plugin's local replace()."""
+
+    invocation: object
+    index: int
+
+
 @dataclass
 class _Scope:
     invocation: object
@@ -274,6 +283,7 @@ class _Scope:
     outputs: tuple[_Use, ...]
     input_values: tuple[_ValueWitness, ...]
     variables: dict[int, _ValueWitness]
+    body: Any = None
     pending: dict[int, tuple[_Binding, ...]] = field(default_factory=dict)
     receipts: dict[int, _Receipt] = field(default_factory=dict)
     result_values: tuple[_Binding, ...] | None = None
@@ -282,7 +292,7 @@ class _Scope:
 @dataclass(frozen=True)
 class StructureResult:
     status: Literal["validated", "failed", "unverified"]
-    expected_equations: int
+    expected_equations: int | None
     checked_equations: int
     reasons: tuple[str, ...]
     runtime: Literal["unverified"] = "unverified"
@@ -298,7 +308,40 @@ class SourceStructureLedger:
         self.constants: dict[_ValueWitness, ConstantContract] = {}
         self.gaps: set[str] = set()
         self.failures: set[str] = set()
-        self.expected_equations = 0
+        self.expected_equations: int | None = 0
+        self.handles: list[EquationHandle | None] = []
+        self.function_bodies: dict[object, Any] = {}
+        self.function_calls: dict[EquationHandle, Any] = {}
+        self.root_body: Any = None
+
+    @contextmanager
+    def dispatch(self, eqn: JaxprEqn, index: int) -> Iterator[None]:
+        def handle() -> EquationHandle:
+            scope, _ = self._expected(eqn, index)
+            return EquationHandle(scope.invocation, index)
+
+        self.handles.append(self._observe("equation-handle", handle))
+        try:
+            yield
+        finally:
+            self.handles.pop()
+
+    def function_body(
+        self, graph: ir.Graph, original: Any, order: tuple[int, ...], actual: Any
+    ) -> None:
+        from ._source_regions import FrozenBody
+
+        if type(original) is not FrozenBody or type(actual) is not FrozenBody:
+            raise StructureUnavailable("original-function-body-unavailable")
+        if original.gaps or actual.gaps:
+            raise StructureUnavailable("original-function-body-contract-unavailable")
+        expected = original.permuted_inputs(order)
+        if expected != actual:
+            raise StructureMismatch("original-function-body-differs")
+        owner = graph.meta.setdefault(_OWNER, object())
+        if owner in self.function_bodies:
+            raise StructureUnavailable("function-definition-reused-owner")
+        self.function_bodies[owner] = actual
 
     def _observe(self, stage: str, action: Callable[[], Any]) -> Any:
         try:
@@ -333,7 +376,15 @@ class SourceStructureLedger:
             EquationRule | None,
         ],
     ) -> Iterator[None]:
-        self.expected_equations += len(jaxpr.eqns)
+        if not self.scopes and not self.active:
+            # Root capture establishes the denominator before any child plugin
+            # dispatch. A reused definition cannot remove expected invocations.
+            from ._source_regions import declare_body
+
+            self.root_body = declare_body(jaxpr)
+            self.expected_equations = self.root_body.expected_equations
+            if self.expected_equations is None:
+                self.gaps.add("expected-region-total-unknown")
 
         def begin() -> _Scope:
             graph = ctx.builder.graph
@@ -375,6 +426,19 @@ class SourceStructureLedger:
             for var in jaxpr.constvars:
                 if variables[id(var)] not in self.constants:
                     raise StructureUnavailable("source-constant-capture-unavailable")
+            from ._source_regions import freeze_body
+
+            body = freeze_body(
+                jaxpr,
+                constant_contracts=tuple(
+                    self.constants[variables[id(var)]] for var in jaxpr.constvars
+                ),
+            )
+            if not self.scopes and not self.active:
+                if body.expected_equations != self.expected_equations:
+                    raise StructureUnavailable("source-region-declaration-differs")
+                if any(equation.children for equation in body.equations) and body.gaps:
+                    self.gaps.update("original-regions:" + gap for gap in body.gaps)
             scope = _Scope(
                 object(),
                 owner,
@@ -383,6 +447,7 @@ class SourceStructureLedger:
                 outputs,
                 values,
                 variables,
+                body,
             )
             self.scopes.append(scope)
             return scope
@@ -504,8 +569,7 @@ def attach_source_structure(
         model.meta[_LEDGER] = ledger
 
 
-def _resolve(model: ir.Model, scope: _Scope) -> dict[_ValueWitness, ir.Value]:
-    graph = model.graph
+def _resolve(graph: ir.Graph, scope: _Scope) -> dict[_ValueWitness, ir.Value]:
     if graph.meta.get(_OWNER) is not scope.owner:
         raise StructureUnavailable("final-graph-owner-unavailable")
     wanted = {
@@ -549,32 +613,22 @@ def _resolve(model: ir.Model, scope: _Scope) -> dict[_ValueWitness, ir.Value]:
     return found
 
 
-def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
-    total = ledger.expected_equations
-    if ledger.failures:
-        return StructureResult("failed", total, 0, tuple(sorted(ledger.failures))[:16])
-    if ledger.gaps:
-        return StructureResult("unverified", total, 0, tuple(sorted(ledger.gaps))[:16])
-    if len(ledger.scopes) != 1 or model.functions:
-        return StructureResult(
-            "unverified", total, 0, ("flat-scope-contract-unavailable",)
-        )
-    scope = ledger.scopes[0]
-    if any(
-        attribute.type in (ir.AttributeType.GRAPH, ir.AttributeType.GRAPHS)
-        for node in model.graph
-        for attribute in node.attributes.values()
-    ):
-        return StructureResult(
-            "unverified", total, 0, ("nested-graph-contract-unavailable",)
-        )
+def _audit_scope(
+    graph: ir.Graph,
+    scope: _Scope,
+    ledger: SourceStructureLedger,
+    definitions: dict[object, ir.Function],
+) -> StructureResult:
+    from jax2onnx.plugins._source_function_structure import FunctionRule
+
+    total = len(scope.equations)
     if set(scope.receipts) != set(range(total)) or scope.result_values is None:
         return StructureResult("unverified", total, 0, ("source-coverage-incomplete",))
-    values = _resolve(model, scope)
-    if len(model.graph.inputs) != len(scope.inputs) or any(
+    values = _resolve(graph, scope)
+    if len(graph.inputs) != len(scope.inputs) or any(
         actual is not values[witness] or not use.tensor.matches(actual)
         for actual, witness, use in zip(
-            model.graph.inputs, scope.input_values, scope.inputs, strict=True
+            graph.inputs, scope.input_values, scope.inputs, strict=True
         )
     ):
         raise StructureMismatch("source-input-interface-differs")
@@ -586,18 +640,18 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     def match_literal(value: ir.Value | None, expected: LiteralOperand) -> None:
         if value is None:
             raise StructureMismatch("literal-input-missing")
-        if value.is_graph_input() or any(item is value for item in model.graph.inputs):
+        if value.is_graph_input() or any(item is value for item in graph.inputs):
             raise StructureMismatch("literal-runtime-input-substitute")
-        if value.graph is not model.graph:
+        if value.graph is not graph:
             raise StructureUnavailable("literal-owner-unavailable")
         producer = value.producer()
         if producer is None:
-            if not any(item is value for item in model.graph.initializers.values()):
+            if not any(item is value for item in graph.initializers.values()):
                 raise StructureUnavailable("literal-definition-unavailable")
             tensor = value.const_value
         elif (
-            producer.graph is model.graph
-            and any(node is producer for node in model.graph)
+            producer.graph is graph
+            and any(node is producer for node in graph)
             and not producer.domain
             and not producer.overload
             and producer.op_type == "Constant"
@@ -635,11 +689,33 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
             raise StructureMismatch("source-value-type-differs")
         expected = ledger.constants.get(witness)
         if expected is not None:
-            if value.const_value is None:
+            producer = value.producer()
+            constant_tensor: ir.TensorProtocol | None
+            if producer is not None:
+                if (
+                    producer.graph is not graph
+                    or producer not in set(graph)
+                    or producer.domain
+                    or producer.overload
+                    or producer.op_type != "Constant"
+                    or producer.inputs
+                    or len(producer.outputs) != 1
+                    or producer.outputs[0] is not value
+                    or set(producer.attributes) != {"value"}
+                    or producer.attributes["value"].type is not ir.AttributeType.TENSOR
+                ):
+                    raise StructureUnavailable("source-constant-definition-unavailable")
+                constant_tensor = producer.attributes["value"].as_tensor()
+                checked.add(producer)
+            else:
+                if not any(item is value for item in graph.initializers.values()):
+                    raise StructureUnavailable("source-constant-definition-unavailable")
+                constant_tensor = value.const_value
+            if constant_tensor is None:
                 raise StructureUnavailable("source-constant-storage-unavailable")
             if id(value) not in constant_cache:
                 constant_cache[id(value)] = ConstantContract.from_array(
-                    value.const_value.numpy()
+                    constant_tensor.numpy()
                 )
             if constant_cache[id(value)] != expected:
                 raise StructureMismatch("source-constant-storage-differs")
@@ -671,20 +747,31 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         if expected.rule is None:
             reasons.append("equation-" + str(index) + ":rule-unavailable")
             continue
-        checked.update(expected.rule.check(model.graph, inputs, outputs, match_literal))
+        if type(expected.rule) is FunctionRule:
+            call = ledger.function_calls.get(EquationHandle(scope.invocation, index))
+            if call is None or call.owner not in definitions:
+                reasons.append("function-call-coverage-incomplete")
+                continue
+            checked.update(
+                expected.rule.check_call(
+                    graph, inputs, outputs, match_literal, call, definitions[call.owner]
+                )
+            )
+        else:
+            checked.update(expected.rule.check(graph, inputs, outputs, match_literal))
         count += 1
-    if len(model.graph.outputs) != len(scope.outputs):
+    if len(graph.outputs) != len(scope.outputs):
         raise StructureMismatch("source-output-arity-differs")
     for actual, use, witness in zip(
-        model.graph.outputs, scope.outputs, scope.result_values, strict=True
+        graph.outputs, scope.outputs, scope.result_values, strict=True
     ):
         expected_value = check_operand(use, witness)
         if isinstance(expected_value, LiteralOperand):
             producer = actual.producer()
             if producer is not None and producer.op_type == "Identity":
                 if (
-                    producer.graph is not model.graph
-                    or not any(node is producer for node in model.graph)
+                    producer.graph is not graph
+                    or not any(node is producer for node in graph)
                     or producer.domain
                     or producer.overload
                     or producer.attributes
@@ -704,7 +791,7 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
             producer = actual.producer()
             if (
                 producer is None
-                or producer.graph is not model.graph
+                or producer.graph is not graph
                 or producer.domain
                 or producer.overload
                 or producer.op_type != "Identity"
@@ -718,14 +805,14 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
             checked.add(producer)
         if not use.tensor.matches(actual):
             raise StructureMismatch("source-output-type-differs")
-    if checked != set(model.graph):
+    if checked != set(graph):
         reasons.append("artifact-node-coverage-incomplete")
     used_constants = {
         value
-        for node in model.graph
+        for node in graph
         for value in node.inputs
         if value is not None and value.is_initializer()
-    } | {value for value in model.graph.outputs if value.is_initializer()}
+    } | {value for value in graph.outputs if value.is_initializer()}
     recorded_constants = {
         values[witness] for witness in ledger.constants if witness in values
     }
@@ -733,6 +820,89 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         reasons.append("artifact-constant-coverage-incomplete")
     return StructureResult(
         "unverified" if reasons else "validated", total, count, tuple(reasons[:16])
+    )
+
+
+def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
+    from jax2onnx.ir_utils import iter_ir_functions
+    from jax2onnx.plugins._source_function_structure import FunctionRule
+
+    total = ledger.expected_equations
+    if ledger.failures:
+        return StructureResult("failed", total, 0, tuple(sorted(ledger.failures))[:16])
+    if ledger.gaps:
+        return StructureResult("unverified", total, 0, tuple(sorted(ledger.gaps))[:16])
+    graphs: dict[object, ir.Graph] = {}
+
+    def collect(graph: ir.Graph) -> None:
+        owner = graph.meta.get(_OWNER)
+        if type(owner) is not object or owner in graphs:
+            raise StructureUnavailable("final-graph-owner-unavailable")
+        graphs[owner] = graph
+        for node in graph:
+            for attribute in node.attributes.values():
+                if attribute.type is ir.AttributeType.GRAPH:
+                    collect(attribute.as_graph())
+                elif attribute.type is ir.AttributeType.GRAPHS:
+                    for child in attribute.as_graphs():
+                        collect(child)
+
+    collect(model.graph)
+    definitions: dict[object, ir.Function] = {}
+    for definition in iter_ir_functions(model.functions):
+        collect(definition.graph)
+        definitions[definition.graph.meta[_OWNER]] = definition
+    scopes: dict[object, _Scope] = {}
+    results: dict[object, StructureResult] = {}
+    wanted_calls: set[EquationHandle] = set()
+    for scope in ledger.scopes:
+        if scope.owner in scopes or scope.owner not in graphs:
+            raise StructureUnavailable("scope-owner-coverage-incomplete")
+        scopes[scope.owner] = scope
+        if scope.owner in definitions:
+            definition_body = ledger.function_bodies.get(scope.owner)
+            if definition_body is None:
+                raise StructureUnavailable(
+                    "function-definition-source-body-unavailable"
+                )
+            if definition_body != scope.body:
+                raise StructureMismatch("function-definition-source-body-differs")
+            if scope.body is None or scope.body.gaps:
+                raise StructureUnavailable("function-definition-contract-unavailable")
+        wanted_calls.update(
+            EquationHandle(scope.invocation, index)
+            for index, equation in enumerate(scope.equations)
+            if type(equation.rule) is FunctionRule
+        )
+        results[scope.owner] = _audit_scope(
+            graphs[scope.owner], scope, ledger, definitions
+        )
+    if set(scopes) != set(graphs) or wanted_calls != set(ledger.function_calls):
+        raise StructureUnavailable("region-or-call-coverage-incomplete")
+    if set(definitions) != {call.owner for call in ledger.function_calls.values()}:
+        raise StructureUnavailable("function-definition-coverage-incomplete")
+
+    def logical_count(owner: object, ancestors: frozenset[object]) -> int:
+        if owner in ancestors:
+            raise StructureUnavailable("recursive-function-contract-unavailable")
+        scope = scopes[owner]
+        return results[owner].checked_equations + sum(
+            logical_count(
+                ledger.function_calls[EquationHandle(scope.invocation, index)].owner,
+                ancestors | {owner},
+            )
+            for index, equation in enumerate(scope.equations)
+            if type(equation.rule) is FunctionRule
+        )
+
+    checked = logical_count(model.graph.meta[_OWNER], frozenset())
+    reasons = tuple(
+        sorted({reason for result in results.values() for reason in result.reasons})
+    )
+    if checked != total and not reasons:
+        reasons = (*reasons, "expected-region-coverage-incomplete")
+    return StructureResult(
+        "unverified" if reasons else "validated", total, checked, reasons[:16]
     )
 
 

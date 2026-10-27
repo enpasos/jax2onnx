@@ -126,19 +126,27 @@ def freeze_source_structure_rule(
     primitive = eqn.primitive
     if primitive is None:
         return None
+    from jax2onnx.plugins._source_function_structure import (
+        FunctionRule,
+        original_function_body,
+    )
+
+    body = original_function_body(eqn)
+    if body is not None:
+        return FunctionRule(body)
     if primitive is jax.lax.dot_general_p:
         from jax2onnx.plugins.jax.lax._source_dot_structure import (
             freeze_dot_structure_rule,
         )
 
         return freeze_dot_structure_rule(eqn, inputs, outputs)
-    if primitive in (jax.lax.reduce_sum_p, jax.lax.reduce_max_p):
+    if primitive is jax.lax.reduce_sum_p or primitive is jax.lax.reduce_max_p:
         from jax2onnx.plugins.jax.lax._source_reduce_structure import (
             freeze_reduction_structure_rule,
         )
 
         return freeze_reduction_structure_rule(eqn, inputs, outputs)
-    if primitive in (jax.lax.reshape_p, jax.lax.broadcast_in_dim_p):
+    if primitive is jax.lax.reshape_p or primitive is jax.lax.broadcast_in_dim_p:
         from jax2onnx.plugins.jax.lax._source_shape_structure import (
             freeze_shape_structure_rule,
         )
@@ -174,6 +182,11 @@ def freeze_source_structure_rule(
         operation, arity = _DIRECT[name]
         if name in {"exp", "sin", "cos", "sqrt"} and params.get("accuracy") is None:
             params.pop("accuracy", None)
+        # Native newer JAX spells the unchanged default explicitly. Typed
+        # output multiplication and every additional setting remain separate
+        # unreviewed source operations, even when their endpoint dtypes match.
+        if name == "mul" and "out_dtype" in params and params["out_dtype"] is None:
+            params.pop("out_dtype")
         if (
             params
             or len(inputs) != arity
@@ -240,5 +253,50 @@ def freeze_source_structure_rule(
             "Cast",
             (("to", int(outputs[0].dtype.value)),),
             identity_alias=inputs[0].dtype == outputs[0].dtype,
+        )
+    return None
+
+
+def freeze_source_semantic_key(
+    eqn: JaxprEqn,
+    inputs: tuple[TensorContract, ...],
+    outputs: tuple[TensorContract, ...],
+) -> tuple[object, ...] | None:
+    """Plugin-owned source keys, selected by exact native primitive identity."""
+    primitive = eqn.primitive
+    if primitive is None:
+        return None
+    primitive_name = primitive.name
+    from jax2onnx.plugins._source_function_structure import (
+        FunctionRule,
+    )
+    from jax2onnx.plugins.jax.lax._source_dot_structure import _DotRule
+    from jax2onnx.plugins.jax.lax._source_reduce_structure import _ReductionRule
+    from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule
+
+    rule = freeze_source_structure_rule(eqn, inputs, outputs)
+    if type(rule) is FunctionRule:
+        # FrozenEquation.children is the sole child-body content authority.
+        # Repeating the entire body in this key doubles hash/equality traversal
+        # at every nested call, even for a one-call-per-level chain.
+        return ("function",)
+    if type(rule) is _DotRule and eqn.primitive is jax.lax.dot_general_p:
+        return ("dot_general", rule.axes, rule.precision, rule.preferred)
+    if type(rule) is _ReductionRule and (
+        eqn.primitive is jax.lax.reduce_sum_p or eqn.primitive is jax.lax.reduce_max_p
+    ):
+        return ("reduction", rule.operation, rule.axes)
+    if type(rule) is _ShapeRule and (
+        eqn.primitive is jax.lax.reshape_p
+        or eqn.primitive is jax.lax.broadcast_in_dim_p
+    ):
+        return ("shape", rule.operation, rule.permutation, rule.broadcast_dimensions)
+    if type(rule) is _DirectRule and _PRIMITIVES.get(primitive_name) is primitive:
+        return (
+            "direct",
+            primitive_name,
+            rule.op_type,
+            rule.attributes,
+            rule.identity_alias,
         )
     return None

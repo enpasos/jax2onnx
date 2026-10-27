@@ -1,12 +1,22 @@
-# Precision migration handoff — 2026-10-26
+# Precision migration handoff — 2026-10-27
 
-This continues requested main-integration commit `a69d0730`, with parents
-`3d023218` and main `48054bb3`. It follows native-file diagnostic `b8888c40`
-and annotation repair `87b2b3c6`. The reviewed merge is pushed; its finite
-qualification is recorded below. The observer-off control is pushed,
-but precise same-call unprofiled word evidence and the full CI gate remain open.
-Continue on branch
-`precision-migration` in `/home/enpasos/projects/jax2onnx`.
+At the 2026-10-27 00:48:47 UTC observation, published PR #277 head
+`a0a1ef51213bff0f6edb4e193c55723362aee096` had **all eight terminal SUCCESS**
+checks in
+[CI #542](https://github.com/enpasos/jax2onnx/actions/runs/40416289647), including
+Python 3.11–3.14. The final check completed at 2026-10-27 00:45:02 UTC; the
+observation is `ci-a0a1ef51-eight-success.json`. Its event merge
+`e5e2c4d2e692f975e0660170e00d75a0fbec8abe` remains distinct from the PR head.
+This dated checkpoint qualifies that revision; the prepared Function checkpoint
+and any successor require their own exact-head CI. The prior merge, diagnostic
+and failure epochs remain recorded with their original outcomes.
+
+The branch remains `precision-migration` in `/home/enpasos/projects/jax2onnx`.
+The Function checkpoint was developed in the isolated detached
+`/tmp/jax2onnx-goal-validation/source-region-worktree-a0a1ef51` checkout.
+Its seven pinned candidate hooks pass as recorded below. Root typing, strict docs,
+normal commit closeout and successor CI have separate required evidence gates.
+Public defaults remain LEGACY and the full B–F goal stays open.
 
 ## Objective and immediate priority
 
@@ -16,10 +26,15 @@ behavior must have one consistent source-preserving precision contract, with
 evidenced technical limits and no permanent legacy/SOURCE mixture or feature
 loss. Keep public defaults LEGACY until the coordinated transition is qualified.
 
-First restore **all eight checks on the exact latest head of PR #277**, including
+Maintain **all eight checks on the exact latest head of PR #277**, including
 the full Python 3.11–3.14 jobs. Preserve original model sizes, inputs, cases and
-numerical/bitwise criteria. Keep CI passing after subsequent pushes. A green
-earlier head or a local subset does not satisfy this gate.
+numerical/bitwise criteria. A green earlier head or a local subset does not
+qualify a successor. Reversible isolated local work may continue under the
+reviewed import-origin/resource/freeze controls; publication requires the
+current head's complete gate and the checkpoint's local checks/review. After
+each push, verify its fresh exact-head CI. An actual CI regression preempts
+feature work. This replaces the earlier broader implementation hold, not the
+binding publication gate.
 
 Use `gpt-6.1-sol` with ultra reasoning for implementation/tests and `gpt-6-astra`
 with ultra reasoning for architecture and independent reviews. Ordinary commits
@@ -415,19 +430,115 @@ historical weights or full-size numerical model support. The plain-wrapper
 state-capture gap is a static finding, not a measured model outcome. These
 fixed-source/model obligations remain open B–F work.
 
+## Private Function region checkpoint
+
+The candidate freezes original logical/physical types, weakness, static shapes,
+alpha-SSA operands/results and exact constant/literal storage digests before
+lowering. Stable immutable body keys retain no native traces, arrays or receivers
+in the new ledger. A pure Function uses one `make_jaxpr(..., return_shape=True)`
+in place of `eval_shape`; stateful calls reuse their existing trace. Freezer
+gaps never trigger another callee invocation. Configuration, state, keyword and
+native key-reuse ordering retain their original behavior.
+
+An independent declaration precedes shape/storage/rule observation. Original
+`EquationHandle` authority survives local equation replacement; every call,
+including registry reuse, must match its frozen body and ordered ports to the
+retained definition. Final graph ownership, SSA edges and node/constant coverage
+are checked while logical expected counts include every invocation. Missing
+evidence is UNVERIFIED; a present contradiction is FAILED. Unknown native
+JIT/Scan child bodies produce `expected_equations=None` and an explicit
+`expected-region-total-unknown` gap, rather than an exact outer-prefix total.
+Their detection is passive and bounded, without foreign traversal or execution.
+If/while attachments, unsupported semantics, cross-region symbols and provenance
+lost through existing identical-call CSE remain UNVERIFIED. Final IR structural
+evidence does not qualify a reloaded artifact, runtime or numerical agreement.
+
+Controls cover original/retrace body changes, reused-call edges, constants,
+state/keyword permutations, missing receipts and no native-owner retention.
+Normal and unavailable-freezer binding retain exactly two abstract callee
+invocations. Real nested/reused Function ledger-on/off exports require identical
+serialized bytes, complete precision reports, call/context sequences and ambient
+restoration. The test-only observer adapter accepts the explicit immutable port
+metadata without reordering its actual parent bindings or weakening native-body,
+definition, frame, call or callback guards.
+
+The feasible grouped local ledger records **2,874 PASS on Python 3.14/JAX
+0.12.0.1** and **2,873 PASS / one original skip on Python 3.11/JAX 0.10.2**.
+The unchanged `one_minus_square` availability skip belongs to the older stack.
+These are mixed source epochs, not one final global run or an ordinary full
+suite: v13 groups use source-files
+`fd9f4a2da0defd4678565f61e7eb8e946cc8b087a1eeab2cc466cb5f389373d2`;
+the v15 native-input observer pair uses
+`fb9acb67f12b4ab2b3b2b1a318dc4704196aa827786b02281b2f2e6bd17e1d04`.
+That pair passes **74 each**, preserving all 64 predecessor IDs and adding ten
+controls; all prior nine candidate files remain byte-identical. Normalization
+passes **368 each** and CNN **130 each** at the v13 source. All seven actual
+pinned candidate hooks pass at source-files
+`69e1547c2421dd08585ad64342233cc50e04626e4e79ced4b4ee14f2549ff3e6`
+and index tree `7cdeae48`, with held fences and empty cleanup. Root typing,
+strict docs, normal commit closeout and a new head's complete CI require their
+own receipts; this candidate hook result does not prequalify those gates.
+The mixed ledger is `region-function-mixed-epoch-regression-audit-v1.json`, SHA
+`698353964e9337fd5bab51ce3dd026a6ed010a2c922195f2c0530cb6a1dda25b`.
+
+Keep the initial cached-tuple hash-test failure and flat-diagnostic failure as
+failed predecessors; their assertion-preserving repairs have separate receipts.
+The original native-input attempt fails on its observer's missing known keyword;
+v15 fixes that explicit signature. Older CNN v1 remains disk-censored after a
+48-PASS prefix, without terminal JUnit. Its closed artifacts and modern CNN v1
+were losslessly copied and PAX/stat-manifest archived on D, with original-path
+links and before-deletion verification. Proof is
+`closed-cnn-archive-administrative-3ec45ee8ebfc426b82727b106285915b/09-complete.json`.
+This is administrative storage evidence only; fresh older CNN v2 supplies its
+own complete 130-PASS result. Future outputs and all resource caps remain local
+and unchanged.
+
+The entire unchanged 12-item
+`tests/extra_tests/converter/test_source_model_native_bindings_exports.py` owner
+is **LOCAL_UNVERIFIED_RESOURCE_HELD**: ten full-model items and both negatives
+remain mandatory fresh exact-head CI coverage. The reviewed resource/publication
+decision is `region-function-full-model-resource-publication-review.md`.
+Accepted a0 archives contain whole-GPT worker observations above the local
+4 GiB aggregate cap, not evidence that fresh isolated local calls are safe.
+No inputs, criteria, model sizes, routing or caps change. The new head's full
+owner and all eight checks must pass before further feature publication; a
+separate local resource solution remains open even after hosted success.
+
+The a0 hosted archives also complete all 44 original22 cases per full Python
+job, including their configured B=2/B=5 runs; their full-B–F field remains
+UNVERIFIED. They neither qualify changed Function code nor close the separate
+local 4 GiB first-B=5 censor, explain the earlier stop/SIG11, or provide missing
+saved artifacts for independent replay. Historical HIGH cast disagreements
+retain their exact failures; current passing words establish no general cause
+and authorize no assertion amendment.
+
+Manual census v2 records **318 files / 2,740 test functions**, 47 additions to
+the 316/2,693 snapshot, with every predecessor function and all 752 original
+anchors retained. Proof `source-region-function-manual-census-v2.json` has SHA
+`79775548d7b7006731354780bdb5a1a23dd936862e8251757cb9da51f1fdf8da`.
+This AST-only observation does not rewrite either inventory JSON or transfer
+runtime/source acceptance. Historical 1,852/3,704, 63 opaque and all 50 optional
+obligations, and current 1,856/3,712 with 56 opaque rows, retain their epochs.
+
 ## Next concrete work
 
-Verify publication of the reviewed inventory-repair checkpoint and inspect all
-eight checks on its exact PR head. Do not inherit the failed `a69d0730` results.
-The precise postmortem packet has finite local qualification; hosted same-call
-unprofiled HIGH words remain missing. Preserve the original assertion and all
-historical interrupted/failed outcomes.
-Preserve original models, cases, inputs, assertions and criteria; a diagnostic
-commit alone does not repair the numerical mismatch.
+Finish final quality/docs, review and the normal meaningful checkpoint closeout,
+then verify all eight checks and the complete held model owner on its newly
+published head. Preserve every predecessor, original model, input, assertion
+and criterion. Continue reversible isolated implementation under the reviewed
+controls; a fresh CI regression takes priority.
 
-Only after the CI gate is green, resume the held shared-comparison work and the
-remaining full migration. The full-model resource gate and final public
-transition are still open; narrower profiles are intermediate milestones.
+Continue the same region packet with dynamic If, then scalar-predicate While,
+including mixed-ranked carries and nested/reused Functions. Separate region
+invocations from physical graph owners; verify branch captures/roles/selectors,
+initial and next conditions, exact Loop header/constants/carries/lazy parameters
+and ordered results, then union checked coverage per graph. Erased Loop/Scan
+dimensions must derive independently from checked final operators, connected
+ports and exact tensor storage, never expected-shape substitution or wildcards.
+Preserve native scope authority for symbols. The remaining carriers, symbols,
+types, parameters/options/serialization, numerical families, fixed sources,
+full models/artifact/runtime/resource evidence and coordinated public transition
+all remain B–F obligations; this Function milestone does not reduce that scope.
 
 ## Local evidence and execution constraints
 

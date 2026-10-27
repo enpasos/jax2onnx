@@ -9,6 +9,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+from flax import nnx
 import numpy as np
 import onnx
 import onnx_ir as ir
@@ -17,6 +18,7 @@ import pytest
 from jax2onnx import onnx_function, user_interface as ui
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins.plugin_system import FunctionPlugin
 from tests.extra_tests.converter.source_integer_structure import (
     _called_scopes,
     check_integer_callback_counterpart,
@@ -48,6 +50,24 @@ def _usage_outer(x: Any, y: Any, flag: Any) -> Any:
 
 def _usage_root(x: Any, y: Any, flag: Any) -> Any:
     return _usage_outer(x, y, flag)
+
+
+@onnx_function(name="NativeUsageStateKeyword")
+class _StateKeyword(nnx.Module):
+    def __init__(self) -> None:
+        self.total = nnx.Variable(jnp.zeros((2,), np.float32))
+
+    def __call__(self, value: Any, *, increment: Any) -> Any:
+        self.total[...] = self.total[...] + increment
+        return value - self.total[...]
+
+
+class _PortSubclass(int):
+    pass
+
+
+class _OrderSubclass(tuple):
+    pass
 
 
 def _export() -> tuple[NativeInputUsage, Any]:
@@ -263,3 +283,119 @@ def test_exact_build_frames_restore_after_error_and_reject_wrong_body_owner() ->
     assert not proof._stack and not proof._definitions
     with pytest.raises(ValueError, match="exact active build frame"):
         proof.retain_body(first, body)
+
+
+def test_actual_state_keyword_port_metadata_is_retained_and_forwarded_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graphdef, state = nnx.split(_StateKeyword())
+    leaves, tree = jax.tree.flatten(state)
+    assert len(leaves) == 1
+
+    def target(value: Any, increment: Any, total: Any) -> Any:
+        owner = nnx.merge(graphdef, jax.tree.unflatten(tree, [total]))
+        result = owner(value, increment=increment)
+        return result, owner.total[...]
+
+    proof = NativeInputUsage()
+    original = FunctionPlugin._build_function
+    observed = []
+
+    def build(
+        plugin: Any,
+        ctx: Any,
+        callee: Any,
+        equation: Any,
+        captures: Any,
+        *,
+        source_trace: Any = None,
+        source_body_order: tuple[int, ...] = (),
+    ) -> Any:
+        assert proof._stack[-1].source_body_order is source_body_order
+        assert source_body_order == (0, 2, 1)
+        observed.append(source_body_order)
+        return original(
+            plugin,
+            ctx,
+            callee,
+            equation,
+            captures,
+            source_trace=source_trace,
+            source_body_order=source_body_order,
+        )
+
+    monkeypatch.setattr(FunctionPlugin, "_build_function", build)
+    with proof.observe():
+        artifact = ui._to_onnx(
+            target,
+            [jax.ShapeDtypeStruct((2,), np.float32)] * 3,
+            precision_policy=PrecisionPolicy.SOURCE,
+            opset=23,
+        )
+    assert observed == [(0, 2, 1)]
+    result = proof.seal(artifact)
+    assert result["actual_native_function_definitions"] == 1
+    assert result["actual_native_function_calls"] == 1
+    assert result["root_unused_exemptions"] == []
+    assert not proof._stack
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        [0, 1, 2],
+        (0, 0, 2),
+        (0, 1),
+        (0, 1, 3),
+        (0, False, 2),
+        (0, 1.0, 2),
+        (0, _PortSubclass(1), 2),
+        _OrderSubclass((0, 1, 2)),
+    ],
+)
+def test_native_build_rejects_malformed_known_port_metadata_without_binding(
+    order: Any,
+) -> None:
+    proof = NativeInputUsage()
+    reads = []
+    ctx = SimpleNamespace(
+        precision_policy=PrecisionPolicy.SOURCE,
+        require_value_for_var=lambda value: reads.append(value),
+    )
+    equation = SimpleNamespace(invars=[object(), object()])
+    captures = SimpleNamespace(dynamic=[SimpleNamespace(value=object())])
+    with pytest.raises(ValueError, match="source port metadata.*complete permutation"):
+        with proof.build(
+            object(),
+            ctx,
+            None,
+            equation,
+            captures,
+            source_trace=object(),
+            source_body_order=order,
+        ):
+            pytest.fail("invalid source port metadata entered a build frame")
+    assert reads == [] and proof._stack == [] and proof._definitions == {}
+
+
+def test_native_build_preserves_empty_default_and_rejects_unknown_keyword() -> None:
+    proof = NativeInputUsage()
+    ctx = SimpleNamespace(precision_policy=PrecisionPolicy.SOURCE)
+    equation, captures = SimpleNamespace(invars=[]), SimpleNamespace(dynamic=[])
+    with proof.build(
+        object(), ctx, None, equation, captures, source_trace=object()
+    ) as frame:
+        assert frame.source_body_order == () and frame.parent_values == ()
+    assert not proof._stack
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        with proof.build(
+            object(),
+            ctx,
+            None,
+            equation,
+            captures,
+            source_trace=object(),
+            unknown_port_metadata=(),
+        ):
+            pytest.fail("unknown metadata keyword entered a build frame")
+    assert not proof._stack

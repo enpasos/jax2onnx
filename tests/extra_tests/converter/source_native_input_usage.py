@@ -118,6 +118,7 @@ class _BuildFrame:
     equation: Any
     captures: Any
     source_trace: Any
+    source_body_order: tuple[int, ...] = ()
     body: Any = None
     definition: Any = None
     parent_values: tuple[Any, ...] = ()
@@ -162,12 +163,30 @@ class NativeInputUsage:
         captures: Any,
         *,
         source_trace: Any = None,
+        source_body_order: tuple[int, ...] = (),
     ) -> Iterator[_BuildFrame]:
         if ctx.precision_policy is not PrecisionPolicy.SOURCE or source_trace is None:
             raise ValueError(
                 "Native declaration proof requires the actual SOURCE call-site context"
             )
-        frame = _BuildFrame(plugin, ctx, callee, eqn, captures, source_trace)
+        arity = len(eqn.invars) + len(captures.dynamic)
+        if (
+            type(source_body_order) is not tuple
+            or any(type(port) is not int for port in source_body_order)
+            or sorted(source_body_order) != list(range(arity))
+        ):
+            raise ValueError(
+                "Native Function source port metadata is not a complete permutation"
+            )
+        frame = _BuildFrame(
+            plugin,
+            ctx,
+            callee,
+            eqn,
+            captures,
+            source_trace,
+            source_body_order=source_body_order,
+        )
         frame.parent_values = (
             *(ctx.require_value_for_var(var) for var in eqn.invars),
             *(capture.value for capture in captures.dynamic),

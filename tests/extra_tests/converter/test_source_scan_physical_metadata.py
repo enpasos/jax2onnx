@@ -17,6 +17,8 @@ import pytest
 
 from jax2onnx import onnx_function, user_interface as ui
 from jax2onnx.converter.conversion_api import _activate_plugin_worlds
+from jax2onnx.converter._source_regions import FrozenBody, FrozenEquation, FrozenUse
+from jax2onnx.converter.source_structure import ConstantContract, TensorContract
 from jax2onnx.converter.precision_policy import PrecisionPolicy, precision_policy_scope
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.converter.source_representation import (
@@ -96,7 +98,9 @@ def _trace_facts(trace: Any) -> Any:
         "numpy_rank_promotion",
         "debug_key_reuse",
         "call",
+        "body",
     }
+    assert trace.body is None or type(trace.body) is FrozenBody
     call = trace.call
     assert type(call) is _SourceFunctionCall
     assert set(vars(call)) == {"original", "identity", "instance", "receiver"}
@@ -114,6 +118,7 @@ def _trace_facts(trace: Any) -> Any:
         "numpy_dtype_promotion": trace.numpy_dtype_promotion,
         "numpy_rank_promotion": trace.numpy_rank_promotion,
         "debug_key_reuse": trace.debug_key_reuse,
+        "body": _body_facts(trace.body),
         "call": {
             "original": (
                 call.original.__module__,
@@ -123,6 +128,47 @@ def _trace_facts(trace: Any) -> Any:
             "identity": call.identity,
             "instance": call.instance,
             "receiver": call.receiver,
+        },
+    }
+
+
+def _body_facts(value: Any) -> Any:
+    """Complete finite body record; unknown capsule fields/types still fail."""
+    if value is None or type(value) in (str, int, bool):
+        return value
+    if type(value) is tuple:
+        return tuple(_body_facts(item) for item in value)
+    members = {
+        FrozenBody: ("inputs", "constants", "equations", "outputs", "gaps"),
+        FrozenEquation: ("inputs", "outputs", "semantics", "children"),
+        FrozenUse: ("kind", "index", "port", "tensor", "literal"),
+        ConstantContract: ("dtype", "shape", "byte_count", "sha256"),
+        TensorContract: (
+            "logical_dtype",
+            "logical_shape",
+            "weak_type",
+            "dtype",
+            "shape",
+            "encoding",
+            "symbol_token",
+            "logical_symbol_axis",
+            "symbol_axis",
+        ),
+    }
+    assert type(value) in members
+    names = members[type(value)]
+    assert set(vars(value)) == set(names)
+    if type(value) is TensorContract:
+        assert value.symbol_token is None
+    return {
+        "record_type": type(value).__name__,
+        **{
+            name: (
+                int(value.dtype.value)
+                if type(value) is TensorContract and name == "dtype"
+                else _body_facts(getattr(value, name))
+            )
+            for name in names
         },
     }
 
@@ -580,6 +626,7 @@ def _scan_call_fact_fixture() -> Any:
     [
         "trace-type",
         "trace-extra",
+        "body-type",
         "call-none",
         "call-type",
         "call-extra",
@@ -610,6 +657,8 @@ def test_scan_trace_call_rejects_malformed_free_function_capsules(defect: str) -
         trace = SimpleNamespace(**vars(trace))
     elif defect == "trace-extra":
         object.__setattr__(trace, "extra", None)
+    elif defect == "body-type":
+        trace = replace(trace, body=SimpleNamespace())
     elif defect == "call-none":
         trace = replace(trace, call=None)
     elif defect == "call-type":

@@ -285,7 +285,13 @@ def _lower_registered_equation(
         )
         if ctx._source_structure is not None:
             ctx._source_structure.before_equation(ctx, eqn, eqn_index)
-        entry.lower(ctx, eqn)
+        structure_dispatch = (
+            ctx._source_structure.dispatch(eqn, eqn_index)
+            if ctx._source_structure is not None
+            else nullcontext()
+        )
+        with structure_dispatch:
+            entry.lower(ctx, eqn)
         assert_eqn_outputs_bound(
             ctx,
             eqn,
