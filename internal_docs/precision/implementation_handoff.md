@@ -1,21 +1,31 @@
 # Precision migration handoff — 2026-10-27
 
-At the 2026-10-27 00:48:47 UTC observation, published PR #277 head
+Published Function checkpoint `5b97f9ce149267e3109b2b97eb524ce647fc4f6f`
+has **all eight terminal SUCCESS** checks in
+[CI #543](https://github.com/enpasos/jax2onnx/actions/runs/40437936428), including
+Python 3.11–3.14; the last check completed at **2026-10-27 04:01:06 UTC**.
+Receipt `ci-5b97f9ce-eight-success-v2.json` has SHA
+`fac7ea031a9c5dd286e7ccef9617bb57d4de8374d86bf5b81b2cf14797352a54`.
+Its archived checkout `56300fa4f45eaf946f4bf002f281dca5835ecfe4` remains distinct
+from the PR head. This qualifies the Function revision, not the prepared If
+successor; each newly published head needs its own complete gate.
+
+Earlier, at the 2026-10-27 00:48:47 UTC observation, published PR #277 head
 `a0a1ef51213bff0f6edb4e193c55723362aee096` had **all eight terminal SUCCESS**
 checks in
 [CI #542](https://github.com/enpasos/jax2onnx/actions/runs/40416289647), including
 Python 3.11–3.14. The final check completed at 2026-10-27 00:45:02 UTC; the
 observation is `ci-a0a1ef51-eight-success.json`. Its event merge
 `e5e2c4d2e692f975e0660170e00d75a0fbec8abe` remains distinct from the PR head.
-This dated checkpoint qualifies that revision; the prepared Function checkpoint
-and any successor require their own exact-head CI. The prior merge, diagnostic
+This earlier dated checkpoint qualifies that revision. The prior merge, diagnostic
 and failure epochs remain recorded with their original outcomes.
 
 The branch remains `precision-migration` in `/home/enpasos/projects/jax2onnx`.
-The Function checkpoint was developed in the isolated detached
+The region checkpoints were developed in the isolated detached
 `/tmp/jax2onnx-goal-validation/source-region-worktree-a0a1ef51` checkout.
-Its seven pinned candidate hooks pass as recorded below. Root typing, strict docs,
-normal commit closeout and successor CI have separate required evidence gates.
+The If checkpoint's seven pinned hooks, both root typing cohorts and strict docs
+pass at their recorded epochs below. Normal commit closeout and successor CI
+have separate required evidence gates.
 Public defaults remain LEGACY and the full B–F goal stays open.
 
 ## Objective and immediate priority
@@ -449,8 +459,9 @@ evidence is UNVERIFIED; a present contradiction is FAILED. Unknown native
 JIT/Scan child bodies produce `expected_equations=None` and an explicit
 `expected-region-total-unknown` gap, rather than an exact outer-prefix total.
 Their detection is passive and bounded, without foreign traversal or execution.
-If/while attachments, unsupported semantics, cross-region symbols and provenance
-lost through existing identical-call CSE remain UNVERIFIED. Final IR structural
+At this Function epoch, If/while attachments remained UNVERIFIED. Unsupported
+semantics, cross-region symbols and provenance lost through existing identical-call
+CSE remain UNVERIFIED. Final IR structural
 evidence does not qualify a reloaded artifact, runtime or numerical agreement.
 
 Controls cover original/retrace body changes, reused-call edges, constants,
@@ -520,25 +531,100 @@ This AST-only observation does not rewrite either inventory JSON or transfer
 runtime/source acceptance. Historical 1,852/3,704, 63 opaque and all 50 optional
 obligations, and current 1,856/3,712 with 56 opaque rows, retain their epochs.
 
+## Private dynamic If region checkpoint
+
+The ledger freezes both original false/true bodies and their typed, weak,
+static-shape SSA, ordered ports and exact storage before lowering. Every expected
+child role has one invocation binding; the complete root-reachable invocation
+closure and union of checked node/constant coverage must hold per physical graph.
+Branch graphs have zero formal inputs. Used captures retain exact local Identity
+edges to actual visible ancestor definitions before the If; only independently
+SSA-proven unused ports may disappear, without shrinking expected slots/types.
+Every retained branch initializer needs checked original storage/definition or
+literal authority. Names and unknown dimensions establish no proof.
+
+The original scalar BOOL-to-strong-INT32 equation stays counted when its closed
+return-to-BOOL roundtrip is folded. The composed proof requires the original
+Boolean edge and every original INT32 use to be accounted for by complete
+selector attachments; an observed INT32 result retains its own Cast obligation.
+No Boolean Value receives an INT32 witness. Source execution, admission,
+optimizer policy and public defaults are unchanged.
+
+Real controls cover nested/reused Functions and If regions, ordered and repeated,
+passthrough, literal and mixed-dtype results, exact captures/constant bits,
+missing/duplicate/orphan scopes and extra initializers. Observation-on/off model
+bytes, full reports and callee/context sequences agree; no native trace, array
+or IR owner is retained in the ledger. Separate bitwise sample validation executes
+both Boolean values on FP32/FP64 with disabled/all ORT optimization against the
+unchanged source. Structural `runtime`/`numerics` remain **UNVERIFIED**; these
+samples provide no reloaded-artifact or wider-input certificate.
+
+The final **65 complete owners / 32 jobs** record **2,993 PASS on modern** and
+**2,992 PASS / one original availability skip on older**, at source-files
+`15e9d4eb2168d5115946705d41d46c6468a125214f33444b816db196cf68b08c`
+and index `ca70e11c42f3e2ab6686d2f1419b540aa23cf69e`. All 2,874 predecessor
+IDs and 119 additionally selected IDs are retained, with full CNN 130 and
+normalization 368 on each stack. These are test outcomes, including intentional
+negative controls, not universal runtime/numerical acceptance. Original older Scan remains raw guard
+**rc1 / accepted=false**, with driver closeout **UNVERIFIED**: its 18 PASS/one
+skip is separately matched to the exact original node, reason, XML and absent
+call phase. No verifier criterion is broadened. All source/environment/origin,
+harness, both-repository, cleanup and unchanged resource fences hold.
+Auditor `region-if-final65-owner-regression-audit-v1.json` has SHA
+`b4446560f5276b6913a78088c1c921ee714689dbc0b0b93ba96750f54433b483`.
+
+The earlier thirteen-owner 406-case pairs belong to preformat source
+`9092460d579fb49b6aa4b5444a40e3a86fb8f4e2060fccc33d9ab722699800ee`;
+their final formatted reruns and all seven pinned hooks pass at `15e9d4eb`.
+Keep the first **6 PASS/1 FAIL** fixture attempt: exporting a decorated root
+did not create the asserted Function call. An ordinary caller repairs the
+fixture while preserving five expected equations/one call. The first hook run's
+five Black-formatted files and five mypy errors remain predecessors; the narrow
+integer-loop variable rename has its separate clean receipt. These results are
+the pre-documentation code epoch.
+
+At the separate prose/typing source
+`18e93ca67d9c6dbfae260538bc1b28acfe8035d4a0023f99fb1b6e263b316452`
+and index `226ccd0aec7f9d713c69728feca85866df32785f`, actual root
+`check_typing.sh` passes **582 files on each locked cohort**, with the same
+**17 RNG entries**. Strict MkDocs passes into a fresh external site.
+Receipts are `region-if-root-typing-{modern,python311}-v1` and
+`region-if-root-docs-v1`, with their separate closeouts. Both-repository,
+environment, editable/Poetry metadata and cleanup fences hold. These completed
+checks do not prequalify the prose refresh's final docs, normal commit
+hooks/closeout or the successor's exact-head CI.
+
+AST census `source-region-if-manual-census-v1.json`, SHA
+`89d545aff61123c753704fc1fd6cfa0381c69bcf8fe261de2c0d9566eaa3c32c`,
+records **319 files / 2,770 functions**, adding 30 while retaining all 2,740
+parent functions and all 752 original anchors. This is identity accounting,
+not parametrized-case/runtime coverage; neither inventory JSON is rewritten.
+The entire unchanged 12-item full-model owner stays
+**LOCAL_UNVERIFIED_RESOURCE_HELD**, outside the feasible local pass denominator.
+The predecessor's hosted twelve-item and original22 completions do not qualify
+the If successor or close local 4 GiB gates. Its CI ZIPs do not retain the
+full-model temporary ONNX/NumPy payloads for independent replay. Full B–F,
+artifact/runtime/numerical evidence and the public transition remain open.
+
 ## Next concrete work
 
-Finish final quality/docs, review and the normal meaningful checkpoint closeout,
+Complete the prose refresh's final docs and normal commit hooks/closeout,
 then verify all eight checks and the complete held model owner on its newly
 published head. Preserve every predecessor, original model, input, assertion
 and criterion. Continue reversible isolated implementation under the reviewed
 controls; a fresh CI regression takes priority.
 
-Continue the same region packet with dynamic If, then scalar-predicate While,
-including mixed-ranked carries and nested/reused Functions. Separate region
-invocations from physical graph owners; verify branch captures/roles/selectors,
-initial and next conditions, exact Loop header/constants/carries/lazy parameters
+Continue the same region packet with scalar-predicate While, including
+mixed-ranked carries and nested/reused Function/If bindings. Separate region
+invocations from physical graph owners; verify initial and next conditions,
+exact Loop header/constants/carries/lazy parameters
 and ordered results, then union checked coverage per graph. Erased Loop/Scan
 dimensions must derive independently from checked final operators, connected
 ports and exact tensor storage, never expected-shape substitution or wildcards.
 Preserve native scope authority for symbols. The remaining carriers, symbols,
 types, parameters/options/serialization, numerical families, fixed sources,
 full models/artifact/runtime/resource evidence and coordinated public transition
-all remain B–F obligations; this Function milestone does not reduce that scope.
+all remain B–F obligations; these region checkpoints do not reduce that scope.
 
 ## Local evidence and execution constraints
 

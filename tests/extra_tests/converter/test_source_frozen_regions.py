@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 import pytest
 
-from jax2onnx._compat.jax import ClosedJaxpr, Jaxpr, Primitive
+from jax2onnx._compat.jax import ClosedJaxpr, Jaxpr, Literal, Primitive
 from jax2onnx.converter import _source_regions as regions
 from jax2onnx.converter.source_structure import (
     ConstantContract,
@@ -310,6 +310,8 @@ def test_constant_observation_error_keeps_available_constant_and_equation(
 
 
 def test_nested_real_if_keeps_branch_denominators_and_explicit_attachment_gap() -> None:
+    # Retain the original test ID. The new complete source-body contract does
+    # not by itself assert that an emitted target attachment was validated.
     def branching(flag: Any, x: Any) -> Any:
         return jax.lax.cond(
             flag,
@@ -331,7 +333,472 @@ def test_nested_real_if_keeps_branch_denominators_and_explicit_attachment_gap() 
     equation = next(equation for equation in frozen.equations if equation.children)
     assert tuple(role for role, _ in equation.children) == ("false", "true")
     assert frozen.expected_equations == expected
+    assert frozen.gaps == ()
+    assert equation.semantics == ("dynamic-if",)
+    selector_index = next(
+        index
+        for index, source in enumerate(native.jaxpr.eqns)
+        if source.primitive is jax.lax.convert_element_type_p
+    )
+    assert frozen.equations[selector_index].semantics == ("boolean-index",)
+    assert equation.inputs[0].kind == "equation"
+    assert equation.inputs[0].index == selector_index
+    assert equation.inputs[0].port == 0
+    false_body, true_body = (body for _, body in equation.children)
+    assert false_body.inputs == true_body.inputs == (frozen.inputs[1],)
+    assert false_body.equations[0].semantics[:2] == ("direct", "sub")
+    assert true_body.equations[0].semantics[:2] == ("direct", "add")
+    assert false_body != true_body
+    _assert_only_immutable_contracts(frozen)
+
+
+def _dynamic_if_equation(body: Any) -> Any:
+    equations = [
+        equation for equation in body.equations if equation.semantics == ("dynamic-if",)
+    ]
+    assert len(equations) == 1
+    assert tuple(role for role, _ in equations[0].children) == ("false", "true")
+    return equations[0]
+
+
+def test_alpha_distinct_native_boolean_branches_have_equal_frozen_contracts() -> None:
+    def original(flag: Any, left: Any, right: Any) -> Any:
+        return jax.lax.cond(
+            flag,
+            lambda x, y: jax.lax.sub(x, y),
+            lambda x, y: jax.lax.add(x, y),
+            left,
+            right,
+        )
+
+    def renamed(predicate: Any, first: Any, second: Any) -> Any:
+        return jax.lax.cond(
+            predicate,
+            lambda lhs, rhs: jax.lax.sub(lhs, rhs),
+            lambda lhs, rhs: jax.lax.add(lhs, rhs),
+            first,
+            second,
+        )
+
+    first = _closed(original, _spec((), np.bool_), _spec(), _spec())
+    second = _closed(renamed, _spec((), np.bool_), _spec(), _spec())
+    assert first.jaxpr.invars[0] is not second.jaxpr.invars[0]
+    before = regions.freeze_closed_body(first)
+    after = regions.freeze_closed_body(second)
+    assert before.gaps == after.gaps == ()
+    assert before == after and hash(before) == hash(after)
+    assert _dynamic_if_equation(before) == _dynamic_if_equation(after)
+    assert before.expected_equations == after.expected_equations == 4
+    _assert_only_immutable_contracts(before)
+
+
+@pytest.mark.parametrize("change", ("branch-roles", "child-body", "child-operands"))
+def test_real_boolean_branch_role_body_and_ssa_changes_are_distinct(
+    change: str,
+) -> None:
+    def traced(flag: Any, left: Any, right: Any, changed: bool) -> Any:
+        def difference(x: Any, y: Any) -> Any:
+            return jax.lax.sub(x, y)
+
+        def total(x: Any, y: Any) -> Any:
+            return jax.lax.add(x, y)
+
+        def product(x: Any, y: Any) -> Any:
+            return jax.lax.mul(x, y)
+
+        def reversed_difference(x: Any, y: Any) -> Any:
+            return jax.lax.sub(y, x)
+
+        true_branch, false_branch = difference, total
+        if changed and change == "branch-roles":
+            true_branch, false_branch = false_branch, true_branch
+        elif changed and change == "child-body":
+            true_branch = product
+        elif changed and change == "child-operands":
+            true_branch = reversed_difference
+        return jax.lax.cond(flag, true_branch, false_branch, left, right)
+
+    before = _body(
+        lambda flag, x, y: traced(flag, x, y, False),
+        _spec((), np.bool_),
+        _spec(),
+        _spec(),
+    )
+    after = _body(
+        lambda flag, x, y: traced(flag, x, y, True),
+        _spec((), np.bool_),
+        _spec(),
+        _spec(),
+    )
+    assert before.gaps == after.gaps == ()
+    assert before.inputs == after.inputs
+    assert before.expected_equations == after.expected_equations == 4
+    original = _dynamic_if_equation(before)
+    changed = _dynamic_if_equation(after)
+    assert original.semantics == changed.semantics == ("dynamic-if",)
+    assert original.outputs == changed.outputs
+    assert original.inputs == changed.inputs
+    assert original.children != changed.children and before != after
+    if change == "branch-roles":
+        assert original.children[0][1] == changed.children[1][1]
+        assert original.children[1][1] == changed.children[0][1]
+    else:
+        assert original.children[0] == changed.children[0]
+        assert original.children[1] != changed.children[1]
+    _assert_only_immutable_contracts(before)
+    _assert_only_immutable_contracts(after)
+
+
+def test_real_branch_result_slots_keep_order_with_equal_typed_outputs() -> None:
+    def traced(flag: Any, x: Any, y: Any, reverse: bool) -> Any:
+        def true_branch(left: Any, right: Any) -> Any:
+            difference = jax.lax.sub(left, right)
+            total = jax.lax.add(left, right)
+            return (total, difference) if reverse else (difference, total)
+
+        def false_branch(left: Any, right: Any) -> Any:
+            return jax.lax.mul(left, right), jax.lax.neg(left)
+
+        return jax.lax.cond(flag, true_branch, false_branch, x, y)
+
+    before = _body(
+        lambda flag, x, y: traced(flag, x, y, False),
+        _spec((), np.bool_),
+        _spec(),
+        _spec(),
+    )
+    after = _body(
+        lambda flag, x, y: traced(flag, x, y, True),
+        _spec((), np.bool_),
+        _spec(),
+        _spec(),
+    )
+    assert before.gaps == after.gaps == ()
+    original, changed = _dynamic_if_equation(before), _dynamic_if_equation(after)
+    assert original.outputs == changed.outputs
+    assert original.children[0] == changed.children[0]
+    true_before, true_after = original.children[1][1], changed.children[1][1]
+    assert true_before.equations == true_after.equations
+    assert true_before.outputs == tuple(reversed(true_after.outputs))
+    assert true_before.outputs != true_after.outputs
+    assert tuple(use.tensor for use in true_before.outputs) == tuple(
+        use.tensor for use in true_after.outputs
+    )
+    assert before != after
+    _assert_only_immutable_contracts(before)
+    _assert_only_immutable_contracts(after)
+
+
+@pytest.mark.parametrize(
+    "changed_bits", ((0x00000000, 0x7FC00001), (0x80000000, 0x7FC00002))
+)
+def test_real_branch_capture_signed_zero_and_nan_payloads_remain_exact(
+    changed_bits: tuple[int, int],
+) -> None:
+    original = np.array((0x80000000, 0x7FC00001), dtype=np.uint32).view(np.float32)
+    changed = np.array(changed_bits, dtype=np.uint32).view(np.float32)
+
+    def frozen(captured: Any) -> Any:
+        return _body(
+            lambda flag, x: jax.lax.cond(
+                flag,
+                lambda value: jax.lax.add(value, captured),
+                lambda value: jax.lax.sub(value, captured),
+                x,
+            ),
+            _spec((), np.bool_),
+            _spec((2,)),
+        )
+
+    before, after = frozen(original), frozen(changed)
+    assert before.gaps == after.gaps == ()
+    assert before.inputs == after.inputs
+    assert before.expected_equations == after.expected_equations
+    assert _dynamic_if_equation(before).outputs == _dynamic_if_equation(after).outputs
+
+    def storage_digests(body: Any) -> set[str]:
+        digests = {constant.sha256 for _, constant in body.constants}
+        for equation in body.equations:
+            for _, child in equation.children:
+                digests.update(storage_digests(child))
+        return digests
+
+    assert hashlib.sha256(original.tobytes()).hexdigest() in storage_digests(before)
+    assert hashlib.sha256(changed.tobytes()).hexdigest() in storage_digests(after)
+    assert before != after
+    saved_hash = hash(before)
+    saved_digests = storage_digests(before)
+    original[0] = 123
+    assert hash(before) == saved_hash and storage_digests(before) == saved_digests
+    _assert_only_immutable_contracts(before)
+    _assert_only_immutable_contracts(after)
+
+
+@pytest.mark.parametrize("weak", (False, True))
+def test_exact_native_scalar_boolean_index_freezes_default_conversion(
+    weak: bool,
+) -> None:
+    native = _closed(
+        lambda flag: jax.lax.convert_element_type(flag, np.int32),
+        _spec((), np.bool_, weak=weak),
+    )
+    assert len(native.jaxpr.eqns) == 1
+    equation = native.jaxpr.eqns[0]
+    assert equation.primitive is jax.lax.convert_element_type_p
+    assert set(equation.params) in (
+        {"new_dtype", "weak_type"},
+        {"new_dtype", "weak_type", "sharding"},
+    )
+    assert equation.params["new_dtype"] == np.dtype(np.int32)
+    assert equation.params["weak_type"] is False
+    assert equation.params.get("sharding") is None
+    frozen = regions.freeze_closed_body(native)
+    assert frozen.gaps == () and frozen.expected_equations == 1
+    assert frozen.equations[0].semantics == ("boolean-index",)
+    assert frozen.inputs[0].logical_dtype == "bool"
+    assert frozen.inputs[0].weak_type is weak
+    assert frozen.equations[0].outputs[0].logical_dtype == "int32"
+    assert frozen.equations[0].outputs[0].weak_type is False
+    _assert_only_immutable_contracts(frozen)
+
+
+@pytest.mark.parametrize("kind", ("ranked-bool", "int64-result", "integer-input"))
+def test_other_native_integer_boolean_conversions_do_not_borrow_selector_key(
+    kind: str,
+) -> None:
+    if kind == "ranked-bool":
+        native = _closed(
+            lambda flag: jax.lax.convert_element_type(flag, np.int32),
+            _spec((2,), np.bool_),
+        )
+    elif kind == "int64-result":
+        native = _closed(
+            lambda flag: jax.lax.convert_element_type(flag, np.int64),
+            _spec((), np.bool_),
+        )
+    else:
+        native = _closed(
+            lambda index: jax.lax.convert_element_type(index, np.bool_),
+            _spec((), np.int32),
+        )
+    assert len(native.jaxpr.eqns) == 1
+    frozen = regions.freeze_closed_body(native)
+    assert frozen.expected_equations == 1
+    assert frozen.equations[0].semantics is None and frozen.gaps
+    _assert_only_immutable_contracts(frozen)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "missing-weak",
+        "weak-true",
+        "foreign-weak",
+        "sharding",
+        "foreign-sharding",
+        "unknown-param",
+    ),
+)
+def test_native_boolean_index_nondefault_or_unknown_params_fail_passively(
+    fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    native = _closed(
+        lambda flag: jax.lax.convert_element_type(flag, np.int32),
+        _spec((), np.bool_),
+    )
+    equation = native.jaxpr.eqns[0]
+    attempts = []
+
+    class Foreign:
+        def __bool__(self) -> Any:
+            attempts.append("bool")
+            raise AssertionError("foreign conversion parameter was coerced")
+
+        def __eq__(self, other: Any) -> Any:
+            attempts.append("eq")
+            raise AssertionError("foreign conversion parameter was compared")
+
+        def __repr__(self) -> Any:
+            attempts.append("repr")
+            raise AssertionError("foreign conversion parameter was formatted")
+
+    if fault == "missing-weak":
+        monkeypatch.delitem(equation.params, "weak_type")
+    elif fault in ("weak-true", "foreign-weak"):
+        monkeypatch.setitem(
+            equation.params, "weak_type", True if fault == "weak-true" else Foreign()
+        )
+    elif fault in ("sharding", "foreign-sharding"):
+        monkeypatch.setitem(
+            equation.params, "sharding", "cpu" if fault == "sharding" else Foreign()
+        )
+    else:
+        monkeypatch.setitem(equation.params, "unreviewed_selector_parameter", False)
+    frozen = regions.freeze_closed_body(native)
+    assert frozen.expected_equations == 1
+    assert frozen.equations[0].semantics is None and frozen.gaps
+    assert attempts == []
+    _assert_only_immutable_contracts(frozen)
+
+
+def test_real_dynamic_if_freezing_never_retraces_or_retains_mutable_child_params(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def original(flag: Any, x: Any) -> Any:
+        calls.append("source")
+
+        def true_branch(value: Any) -> Any:
+            calls.append("true")
+            return jax.lax.neg(value)
+
+        def false_branch(value: Any) -> Any:
+            calls.append("false")
+            return jax.lax.add(value, value)
+
+        return jax.lax.cond(flag, true_branch, false_branch, x)
+
+    native = _closed(original, _spec((), np.bool_), _spec())
+    before_calls = tuple(calls)
+    conditional = next(
+        equation
+        for equation in native.jaxpr.eqns
+        if equation.primitive is jax.lax.cond_p
+    )
+    expected = len(native.jaxpr.eqns) + sum(
+        len(branch.jaxpr.eqns) for branch in conditional.params["branches"]
+    )
+    monkeypatch.setattr(
+        jax,
+        "make_jaxpr",
+        lambda *args, **kwargs: pytest.fail("dynamic If freezer retraced source"),
+    )
+    monkeypatch.setattr(
+        jax,
+        "eval_shape",
+        lambda *args, **kwargs: pytest.fail("dynamic If freezer evaluated source"),
+    )
+    frozen = regions.freeze_closed_body(native)
+    assert frozen.gaps == () and frozen.expected_equations == expected
+    original_hash = hash(frozen)
+    original_child = _dynamic_if_equation(frozen).children[0][1]
+    branch = conditional.params["branches"][0]
+    monkeypatch.setitem(
+        branch.jaxpr.eqns[0].params, "unreviewed_branch_parameter", False
+    )
+    changed = regions.freeze_closed_body(native)
+    assert changed.gaps and changed.expected_equations == expected
+    assert hash(frozen) == original_hash
+    assert _dynamic_if_equation(frozen).children[0][1] == original_child
+    assert tuple(calls) == before_calls
+    _assert_only_immutable_contracts(frozen)
+    _assert_only_immutable_contracts(changed)
+
+
+def test_effectful_real_boolean_branches_keep_counts_and_never_run_callback() -> None:
+    calls = []
+
+    def true_branch(value: Any) -> Any:
+        jax.debug.callback(lambda result: calls.append(result), value, ordered=True)
+        return jax.lax.neg(value)
+
+    native = _closed(
+        lambda flag, x: jax.lax.cond(flag, true_branch, jax.lax.neg, x),
+        _spec((), np.bool_),
+        _spec(),
+    )
+    conditional = next(
+        equation
+        for equation in native.jaxpr.eqns
+        if equation.primitive is jax.lax.cond_p
+    )
+    assert conditional.effects and calls == []
+    expected = len(native.jaxpr.eqns) + sum(
+        len(branch.jaxpr.eqns) for branch in conditional.params["branches"]
+    )
+    frozen = regions.freeze_closed_body(native)
+    assert frozen.expected_equations == expected
+    assert frozen.gaps and "source-effects-contract-unavailable" in frozen.gaps
+    assert not any(
+        equation.semantics == ("dynamic-if",) for equation in frozen.equations
+    )
+    assert calls == []
+    _assert_only_immutable_contracts(frozen)
+
+
+@pytest.mark.parametrize("fault", ("unknown-param", "platform-param"))
+def test_real_cond_unreviewed_schema_keeps_original_children_and_gap(
+    fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    native = _closed(
+        lambda flag, x: jax.lax.cond(
+            flag, jax.lax.neg, lambda value: jax.lax.add(value, value), x
+        ),
+        _spec((), np.bool_),
+        _spec(),
+    )
+    conditional = next(
+        equation
+        for equation in native.jaxpr.eqns
+        if equation.primitive is jax.lax.cond_p
+    )
+    expected = len(native.jaxpr.eqns) + sum(
+        len(branch.jaxpr.eqns) for branch in conditional.params["branches"]
+    )
+    key, value = (
+        ("unreviewed_if_parameter", False)
+        if fault == "unknown-param"
+        else ("branches_platforms", ("cpu", "gpu"))
+    )
+    monkeypatch.setitem(conditional.params, key, value)
+    frozen = regions.freeze_closed_body(native)
+    equation = next(equation for equation in frozen.equations if equation.children)
+    assert equation.semantics is None
+    assert tuple(role for role, _ in equation.children) == ("false", "true")
+    assert frozen.expected_equations == expected
     assert "if-attachment-contract-unavailable" in frozen.gaps
+    _assert_only_immutable_contracts(frozen)
+
+
+def test_real_literal_condition_keeps_its_separate_unverified_attachment() -> None:
+    native = _closed(
+        lambda x: jax.lax.cond(
+            True, jax.lax.neg, lambda value: jax.lax.add(value, value), x
+        ),
+        _spec(),
+    )
+    conditional = next(
+        equation
+        for equation in native.jaxpr.eqns
+        if equation.primitive is jax.lax.cond_p
+    )
+    assert type(conditional.invars[0]) is Literal
+    expected = len(native.jaxpr.eqns) + sum(
+        len(branch.jaxpr.eqns) for branch in conditional.params["branches"]
+    )
+    frozen = regions.freeze_closed_body(native)
+    equation = next(equation for equation in frozen.equations if equation.children)
+    assert equation.semantics is None
+    assert tuple(role for role, _ in equation.children) == ("false", "true")
+    assert frozen.expected_equations == expected
+    assert "if-attachment-contract-unavailable" in frozen.gaps
+    _assert_only_immutable_contracts(frozen)
+
+
+def test_counterfeit_cond_name_never_supplies_dynamic_if_authority() -> None:
+    counterfeit = Primitive("cond")
+    calls = []
+    counterfeit.def_impl(lambda flag, value: calls.append((flag, value)))
+    counterfeit.def_abstract_eval(lambda flag, value: value)
+    native = _closed(
+        lambda flag, x: counterfeit.bind(flag, x), _spec((), np.bool_), _spec()
+    )
+    frozen = regions.freeze_closed_body(native)
+    assert frozen.expected_equations == len(native.jaxpr.eqns) == 1
+    assert frozen.equations[0].semantics is None
+    assert frozen.equations[0].children == () and frozen.gaps
+    assert calls == []
     _assert_only_immutable_contracts(frozen)
 
 

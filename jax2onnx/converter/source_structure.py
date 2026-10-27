@@ -274,6 +274,52 @@ class EquationHandle:
     index: int
 
 
+@dataclass(frozen=True)
+class RegionKey:
+    """An expected invocation role, independent of its physical graph owner."""
+
+    parent: EquationHandle
+    role: str
+
+
+@dataclass(frozen=True)
+class CapturePort:
+    binding: _Binding
+    outer: _ValueWitness
+    local: _ValueWitness
+    tensor: TensorContract
+    unused: bool
+
+
+@dataclass(frozen=True)
+class RegionReceipt:
+    key: RegionKey
+    expected: Any
+    captures: tuple[CapturePort, ...]
+
+
+@dataclass
+class _PendingRegion:
+    key: RegionKey
+    expected: Any
+    bindings: tuple[_Binding, ...]
+    outer: tuple[_ValueWitness, ...]
+    claimed: bool = False
+
+
+def _unused_inputs(body: Any) -> frozenset[int]:
+    if body.gaps:
+        raise StructureUnavailable("region-use-def-contract-unavailable")
+    used = {
+        use.index
+        for equation in body.equations
+        for use in equation.inputs
+        if use.kind == "input"
+    }
+    used.update(use.index for use in body.outputs if use.kind == "input")
+    return frozenset(set(range(len(body.inputs))) - used)
+
+
 @dataclass
 class _Scope:
     invocation: object
@@ -287,6 +333,7 @@ class _Scope:
     pending: dict[int, tuple[_Binding, ...]] = field(default_factory=dict)
     receipts: dict[int, _Receipt] = field(default_factory=dict)
     result_values: tuple[_Binding, ...] | None = None
+    region: RegionReceipt | None = None
 
 
 @dataclass(frozen=True)
@@ -312,7 +359,54 @@ class SourceStructureLedger:
         self.handles: list[EquationHandle | None] = []
         self.function_bodies: dict[object, Any] = {}
         self.function_calls: dict[EquationHandle, Any] = {}
+        self.if_calls: dict[EquationHandle, Any] = {}
+        self.regions: dict[RegionKey, object] = {}
+        self.pending_regions: list[_PendingRegion | None] = []
         self.root_body: Any = None
+
+    @contextmanager
+    def region(
+        self, role: str, operands: Sequence[ir.Value]
+    ) -> Iterator[RegionKey | None]:
+        """Bracket only the already-planned lowering of one original child body."""
+
+        def begin() -> _PendingRegion:
+            from jax2onnx.plugins._source_control_flow_structure import IfRule
+
+            handle = self.handles[-1] if self.handles else None
+            if handle is None:
+                raise StructureUnavailable("region-parent-handle-unavailable")
+            scope = next(
+                (
+                    item
+                    for item in self.active
+                    if item is not None and item.invocation is handle.invocation
+                ),
+                None,
+            )
+            if scope is None or type(scope.equations[handle.index].rule) is not IfRule:
+                raise StructureUnavailable("region-parent-contract-unavailable")
+            expected = dict(scope.body.equations[handle.index].children).get(role)
+            if expected is None or expected.gaps:
+                raise StructureUnavailable("original-region-body-unavailable")
+            key = RegionKey(handle, role)
+            if key in self.regions or handle.index not in scope.pending:
+                raise StructureUnavailable("region-identity-unavailable")
+            bindings = scope.pending[handle.index][1:]
+            if len(bindings) != len(operands) or len(expected.inputs) != len(operands):
+                raise StructureMismatch("region-capture-arity-differs")
+            return _PendingRegion(
+                key, expected, bindings, tuple(_witness(value) for value in operands)
+            )
+
+        pending = self._observe("region-capture", begin)
+        self.pending_regions.append(pending)
+        try:
+            yield pending.key if pending is not None else None
+        finally:
+            if pending is not None and not pending.claimed:
+                self.gaps.add("region-scope-unobserved")
+            self.pending_regions.pop()
 
     @contextmanager
     def dispatch(self, eqn: JaxprEqn, index: int) -> Iterator[None]:
@@ -449,6 +543,31 @@ class SourceStructureLedger:
                 variables,
                 body,
             )
+            pending = self.pending_regions[-1] if self.pending_regions else None
+            if pending is not None and not pending.claimed:
+                if body.gaps:
+                    raise StructureUnavailable("original-region-contract-unavailable")
+                if body != pending.expected:
+                    raise StructureMismatch("original-region-body-differs")
+                unused = _unused_inputs(pending.expected)
+                scope.region = RegionReceipt(
+                    pending.key,
+                    pending.expected,
+                    tuple(
+                        CapturePort(binding, outer, local, use.tensor, index in unused)
+                        for index, (binding, outer, local, use) in enumerate(
+                            zip(
+                                pending.bindings,
+                                pending.outer,
+                                values,
+                                inputs,
+                                strict=True,
+                            )
+                        )
+                    ),
+                )
+                pending.claimed = True
+                self.regions[pending.key] = scope.invocation
             self.scopes.append(scope)
             return scope
 
@@ -569,7 +688,48 @@ def attach_source_structure(
         model.meta[_LEDGER] = ledger
 
 
-def _resolve(graph: ir.Graph, scope: _Scope) -> dict[_ValueWitness, ir.Value]:
+def _resolve_bindings(
+    graph: ir.Graph,
+    wanted: set[_ValueWitness],
+    optional: frozenset[_ValueWitness] = frozenset(),
+) -> dict[_ValueWitness, ir.Value]:
+    """Resolve actual retained definitions, without recovering identities by name."""
+    found: dict[_ValueWitness, ir.Value] = {}
+    values = [*graph.inputs, *graph.initializers.values()]
+    for node in graph:
+        values.extend(node.outputs)
+    seen_values: set[int] = set()
+    for value in values:
+        if id(value) in seen_values:
+            continue
+        seen_values.add(id(value))
+        markers = value.meta.get(_VALUES, ())
+        if type(markers) is not tuple or any(
+            type(item) is not _ValueWitness for item in markers
+        ):
+            raise StructureUnavailable("final-value-marker-unavailable")
+        for witness in markers:
+            if witness not in wanted:
+                continue
+            actual_graph, definition, role, port = _location(value)
+            if (
+                actual_graph is not graph
+                or graph.meta.get(_OWNER) is not witness.owner
+                or definition.meta.get(_ORIGIN) is not witness.origin
+                or role != witness.role
+                or port != witness.port
+                or witness in found
+            ):
+                raise StructureUnavailable("final-value-witness-unavailable")
+            found[witness] = value
+    if wanted - set(found) - optional:
+        raise StructureUnavailable("final-value-witness-lost")
+    return found
+
+
+def _resolve(
+    graph: ir.Graph, scope: _Scope, optional: frozenset[_ValueWitness] = frozenset()
+) -> dict[_ValueWitness, ir.Value]:
     if graph.meta.get(_OWNER) is not scope.owner:
         raise StructureUnavailable("final-graph-owner-unavailable")
     wanted = {
@@ -584,33 +744,268 @@ def _resolve(graph: ir.Graph, scope: _Scope) -> dict[_ValueWitness, ir.Value]:
         for binding in scope.result_values or ()
         if isinstance(binding, _ValueWitness)
     )
-    found: dict[_ValueWitness, ir.Value] = {}
-    values = [*graph.inputs, *graph.initializers.values()]
-    for node in graph:
-        values.extend(node.outputs)
-    seen_values: set[int] = set()
-    for value in values:
-        # Overridable inputs are one actual definition listed in both containers.
-        if id(value) in seen_values:
-            continue
-        seen_values.add(id(value))
-        for witness in value.meta.get(_VALUES, ()):
-            if witness not in wanted:
-                continue
-            actual_graph, definition, role, port = _location(value)
+    return _resolve_bindings(graph, wanted, optional)
+
+
+@dataclass(frozen=True)
+class _IfAudit:
+    node: ir.Node
+    selector: EquationHandle
+    boolean: _ValueWitness
+    index: _ValueWitness
+    foldable: bool
+    regions: tuple[_Scope, _Scope]
+    captures: tuple[ir.Value, ...]
+    adapters: tuple[ir.Node, ...]
+
+
+@dataclass
+class _Coverage:
+    nodes: set[ir.Node] = field(default_factory=set)
+    constants: set[ir.Value] = field(default_factory=set)
+
+
+def _visible_before(
+    value: ir.Value, node: ir.Node, parents: dict[object, tuple[ir.Graph, ir.Node]]
+) -> bool:
+    owner_graph, definition, _, _ = _location(value)
+    current = node.graph
+    boundary = node
+    while current is not None:
+        if current is owner_graph:
+            if isinstance(definition, ir.Value):
+                return True
+            nodes = list(current)
+            return nodes.index(definition) < nodes.index(boundary)
+        link = parents.get(current.meta.get(_OWNER))
+        if link is None:
+            return False
+        current, boundary = link
+    return False
+
+
+def _plan_if_calls(
+    ledger: SourceStructureLedger,
+    scopes: dict[object, _Scope],
+    graphs: dict[object, ir.Graph],
+    parents: dict[object, tuple[ir.Graph, ir.Node]],
+) -> dict[EquationHandle, _IfAudit]:
+    from jax2onnx.plugins._source_control_flow_structure import (
+        BooleanIndexRule,
+        IfAttachment,
+        IfRule,
+    )
+
+    wanted = {
+        EquationHandle(scope.invocation, index)
+        for scope in scopes.values()
+        for index, equation in enumerate(scope.equations)
+        if type(equation.rule) is IfRule
+    }
+    if wanted != set(ledger.if_calls):
+        raise StructureUnavailable("if-call-coverage-incomplete")
+    by_invocation = {scope.invocation: scope for scope in scopes.values()}
+    wanted_regions: set[RegionKey] = set()
+    plans: dict[EquationHandle, _IfAudit] = {}
+    for handle, attachment in ledger.if_calls.items():
+        if type(attachment) is not IfAttachment:
+            raise StructureUnavailable("if-attachment-unavailable")
+        scope = by_invocation[handle.invocation]
+        expected = scope.equations[handle.index]
+        receipt = scope.receipts.get(handle.index)
+        if receipt is None:
+            raise StructureUnavailable("if-source-receipt-unavailable")
+        graph = graphs[scope.owner]
+        outputs = _resolve_bindings(graph, set(receipt.outputs))
+        node = outputs[receipt.outputs[0]].producer()
+        if (
+            node is None
+            or node.graph is not graph
+            or node not in set(graph)
+            or node.meta.get(_ORIGIN) is not attachment.origin
+            or attachment.owner is not scope.owner
+            or node.domain
+            or node.overload
+            or node.op_type != "If"
+            or len(node.inputs) != 1
+            or len(node.outputs) != len(receipt.outputs)
+            or any(
+                actual is not outputs[witness]
+                for actual, witness in zip(node.outputs, receipt.outputs, strict=True)
+            )
+            or set(node.attributes) != {"then_branch", "else_branch"}
+        ):
+            raise StructureMismatch("if-target-or-results-differ")
+        children: list[_Scope] = []
+        captures: tuple[ir.Value, ...] | None = None
+        body_children = dict(scope.body.equations[handle.index].children)
+        for role, key, owner, attr in (
+            ("false", attachment.false, attachment.false_owner, "else_branch"),
+            ("true", attachment.true, attachment.true_owner, "then_branch"),
+        ):
+            wanted_regions.add(RegionKey(handle, role))
+            if key != RegionKey(handle, role) or key not in ledger.regions:
+                raise StructureUnavailable("if-region-role-unavailable")
+            child = by_invocation.get(ledger.regions[key])
             if (
-                actual_graph is not graph
-                or graph.meta.get(_OWNER) is not witness.owner
-                or definition.meta.get(_ORIGIN) is not witness.origin
-                or role != witness.role
-                or port != witness.port
-                or witness in found
+                child is None
+                or child.owner is not owner
+                or child.region is None
+                or child.region.key != key
             ):
-                raise StructureUnavailable("final-value-witness-unavailable")
-            found[witness] = value
-    if set(found) != wanted:
-        raise StructureUnavailable("final-value-witness-lost")
-    return found
+                raise StructureUnavailable("if-region-owner-unavailable")
+            attribute = node.attributes[attr]
+            if (
+                attribute.type is not ir.AttributeType.GRAPH
+                or attribute.as_graph() is not graphs.get(owner)
+            ):
+                raise StructureMismatch("if-child-attachment-differs")
+            link = parents.get(owner)
+            if link is None or link[0] is not graph or link[1] is not node:
+                raise StructureMismatch("if-child-ancestry-differs")
+            if graphs[owner].inputs:
+                raise StructureMismatch("if-child-formals-differ")
+            if (
+                child.region.expected != body_children.get(role)
+                or child.body != child.region.expected
+                or child.body.gaps
+            ):
+                raise StructureMismatch("if-original-child-body-differs")
+            ports = child.region.captures
+            if (
+                len(ports) != len(expected.inputs) - 1
+                or tuple(port.binding for port in ports) != receipt.inputs[1:]
+            ):
+                raise StructureMismatch("if-ordered-captures-differ")
+            actual: dict[_ValueWitness, ir.Value] = {}
+            for port in ports:
+                owner_graph = graphs.get(port.outer.owner)
+                if owner_graph is None:
+                    raise StructureUnavailable("if-capture-owner-unavailable")
+                actual.update(_resolve_bindings(owner_graph, {port.outer}))
+            ordered = tuple(actual[port.outer] for port in ports)
+            unused = _unused_inputs(body_children[role])
+            for index, (port, value) in enumerate(zip(ports, ordered, strict=True)):
+                if (
+                    type(port) is not CapturePort
+                    or port.local != child.input_values[index]
+                    or port.tensor != child.body.inputs[index]
+                    or type(port.unused) is not bool
+                    or port.unused != (index in unused)
+                    or port.tensor != expected.inputs[index + 1].tensor
+                    or not port.tensor.matches(value)
+                ):
+                    raise StructureMismatch("if-capture-type-differs")
+                if not _visible_before(value, node, parents):
+                    raise StructureMismatch("if-capture-not-visible-before-call")
+                if (
+                    isinstance(port.binding, _ValueWitness)
+                    and port.outer != port.binding
+                ):
+                    raise StructureMismatch("if-capture-source-edge-differs")
+            if captures is not None and any(
+                left is not right for left, right in zip(captures, ordered, strict=True)
+            ):
+                raise StructureMismatch("if-branch-capture-edges-differ")
+            captures = ordered
+            children.append(child)
+        selector_variable = expected.inputs[0].variable_id
+        producers = [
+            (index, equation)
+            for index, equation in enumerate(scope.equations)
+            if type(equation.rule) is BooleanIndexRule
+            and len(equation.outputs) == 1
+            and equation.outputs[0].variable_id == selector_variable
+        ]
+        if len(producers) != 1:
+            raise StructureUnavailable("if-boolean-index-source-unavailable")
+        selector_index, conversion = producers[0]
+        conversion_receipt = scope.receipts.get(selector_index)
+        if (
+            conversion_receipt is None
+            or len(conversion_receipt.inputs) != 1
+            or len(conversion_receipt.outputs) != 1
+        ):
+            raise StructureUnavailable("if-boolean-index-receipt-unavailable")
+        boolean = conversion_receipt.inputs[0]
+        if (
+            type(boolean) is not _ValueWitness
+            or receipt.inputs[0] != conversion_receipt.outputs[0]
+        ):
+            raise StructureMismatch("if-boolean-index-source-edge-differs")
+        foldable = not any(
+            use.variable_id == selector_variable for use in scope.outputs
+        )
+        for index, equation in enumerate(scope.equations):
+            for source_port, use in enumerate(equation.inputs):
+                if use.variable_id == selector_variable and not (
+                    source_port == 0
+                    and type(equation.rule) is IfRule
+                    and EquationHandle(scope.invocation, index) in wanted
+                ):
+                    foldable = False
+        index_witness = conversion_receipt.outputs[0]
+        selector_values = _resolve_bindings(
+            graph,
+            {boolean, index_witness},
+            frozenset({index_witness}) if foldable else frozenset(),
+        )
+        boolean_value = selector_values[boolean]
+        if not conversion.inputs[0].tensor.matches(
+            boolean_value
+        ) or not _visible_before(boolean_value, node, parents):
+            raise StructureMismatch("if-boolean-source-type-or-visibility-differs")
+        condition = node.inputs[0]
+        if (
+            condition is None
+            or condition.dtype is not ir.DataType.BOOL
+            or condition.shape is None
+            or tuple(condition.shape) != ()
+        ):
+            raise StructureMismatch("if-condition-type-differs")
+        adapters: tuple[ir.Node, ...] = ()
+        if condition is not boolean_value:
+            index_value = selector_values.get(index_witness)
+            cast = condition.producer()
+            if (
+                index_value is None
+                or cast is None
+                or cast.graph is not graph
+                or cast not in set(graph)
+                or cast.domain
+                or cast.overload
+                or cast.op_type != "Cast"
+                or len(cast.inputs) != 1
+                or cast.inputs[0] is not index_value
+                or len(cast.outputs) != 1
+                or cast.outputs[0] is not condition
+                or set(cast.attributes) != {"to"}
+                or cast.attributes["to"].type is not ir.AttributeType.INT
+                or cast.attributes["to"].as_int() != int(ir.DataType.BOOL.value)
+            ):
+                raise StructureMismatch("if-selector-composition-differs")
+            adapters = (cast,)
+        plans[handle] = _IfAudit(
+            node,
+            EquationHandle(scope.invocation, selector_index),
+            boolean,
+            index_witness,
+            foldable,
+            (children[0], children[1]),
+            captures or (),
+            adapters,
+        )
+    observed_regions: dict[RegionKey, object] = {}
+    for scope in scopes.values():
+        if scope.region is None:
+            continue
+        key = scope.region.key
+        if key in observed_regions or ledger.regions.get(key) is not scope.invocation:
+            raise StructureUnavailable("region-invocation-binding-unavailable")
+        observed_regions[key] = scope.invocation
+    if set(ledger.regions) != wanted_regions or set(observed_regions) != wanted_regions:
+        raise StructureUnavailable("if-region-coverage-incomplete")
+    return plans
 
 
 def _audit_scope(
@@ -618,24 +1013,68 @@ def _audit_scope(
     scope: _Scope,
     ledger: SourceStructureLedger,
     definitions: dict[object, ir.Function],
+    plans: dict[EquationHandle, _IfAudit],
+    coverage: _Coverage,
 ) -> StructureResult:
     from jax2onnx.plugins._source_function_structure import FunctionRule
+    from jax2onnx.plugins._source_control_flow_structure import BooleanIndexRule, IfRule
 
     total = len(scope.equations)
     if set(scope.receipts) != set(range(total)) or scope.result_values is None:
         return StructureResult("unverified", total, 0, ("source-coverage-incomplete",))
-    values = _resolve(graph, scope)
-    if len(graph.inputs) != len(scope.inputs) or any(
-        actual is not values[witness] or not use.tensor.matches(actual)
-        for actual, witness, use in zip(
-            graph.inputs, scope.input_values, scope.inputs, strict=True
+    region = scope.region
+    optional = {
+        plan.index
+        for plan in plans.values()
+        if plan.selector.invocation is scope.invocation and plan.foldable
+    }
+    if region is not None:
+        optional.update(port.local for port in region.captures if port.unused)
+    values = _resolve(graph, scope, frozenset(optional))
+    if region is None and (
+        len(graph.inputs) != len(scope.inputs)
+        or any(
+            actual is not values[witness] or not use.tensor.matches(actual)
+            for actual, witness, use in zip(
+                graph.inputs, scope.input_values, scope.inputs, strict=True
+            )
         )
     ):
         raise StructureMismatch("source-input-interface-differs")
-    checked: set[ir.Node] = set()
+    checked = coverage.nodes
     constant_cache: dict[int, ConstantContract] = {}
     literal_cache: dict[int, ConstantContract] = {}
-    literal_initializers: set[ir.Value] = set()
+    literal_initializers = coverage.constants
+
+    if region is not None:
+        if region.key.parent not in plans:
+            raise StructureUnavailable("region-attachment-unavailable")
+        plan = plans[region.key.parent]
+        if graph.inputs or len(region.captures) != len(scope.inputs):
+            raise StructureMismatch("region-formal-interface-differs")
+        for port, outer in zip(region.captures, plan.captures, strict=True):
+            local = values.get(port.local)
+            if local is None:
+                if not port.unused:
+                    raise StructureUnavailable("used-region-capture-lost")
+                continue
+            producer = local.producer()
+            if (
+                producer is None
+                or producer.graph is not graph
+                or producer not in set(graph)
+                or producer.domain
+                or producer.overload
+                or producer.op_type != "Identity"
+                or producer.attributes
+                or len(producer.inputs) != 1
+                or producer.inputs[0] is not outer
+                or len(producer.outputs) != 1
+                or producer.outputs[0] is not local
+                or not port.tensor.matches(local)
+            ):
+                raise StructureMismatch("region-capture-identity-edge-differs")
+            checked.add(producer)
 
     def match_literal(value: ir.Value | None, expected: LiteralOperand) -> None:
         if value is None:
@@ -719,6 +1158,8 @@ def _audit_scope(
                 )
             if constant_cache[id(value)] != expected:
                 raise StructureMismatch("source-constant-storage-differs")
+            if producer is None:
+                coverage.constants.add(value)
         return value
 
     def check_operand(use: _Use, binding: _Binding) -> RuleOperand:
@@ -732,10 +1173,64 @@ def _audit_scope(
             raise StructureMismatch("literal-source-binding-differs")
         return check_value(use, binding)
 
+    if region is not None:
+        # DCE may retain an original unused initializer. It still needs exact
+        # source storage and definition authority; absence of consumers is not
+        # permission to admit arbitrary additional branch storage.
+        for initializer in graph.initializers.values():
+            for witness in initializer.meta.get(_VALUES, ()):
+                storage = ledger.constants.get(witness)
+                if storage is None:
+                    continue
+                resolved = _resolve_bindings(graph, {witness})
+                if resolved[witness] is not initializer:
+                    raise StructureMismatch("region-initializer-definition-differs")
+                tensors = [
+                    tensor
+                    for tensor, original in scope.body.constants
+                    if original == storage and tensor is not None
+                ]
+                if not tensors:
+                    raise StructureUnavailable("region-initializer-source-unavailable")
+                if not any(tensor.matches(initializer) for tensor in tensors):
+                    raise StructureMismatch("region-initializer-type-differs")
+                tensor_storage = initializer.const_value
+                if tensor_storage is None:
+                    raise StructureUnavailable("region-initializer-storage-unavailable")
+                if ConstantContract.from_array(tensor_storage.numpy()) != storage:
+                    raise StructureMismatch("region-initializer-storage-differs")
+                coverage.constants.add(initializer)
+
     count = 0
     reasons: list[str] = []
     for index, expected in enumerate(scope.equations):
         receipt = scope.receipts[index]
+        handle = EquationHandle(scope.invocation, index)
+        if type(expected.rule) is BooleanIndexRule and receipt.outputs[0] not in values:
+            users = [plan for plan in plans.values() if plan.selector == handle]
+            if not users or any(
+                not plan.foldable or plan.node.inputs[0] is not values[plan.boolean]
+                for plan in users
+            ):
+                raise StructureUnavailable("boolean-index-composition-unavailable")
+            check_operand(expected.inputs[0], receipt.inputs[0])
+            count += 1
+            continue
+        if type(expected.rule) is IfRule:
+            plan = plans[handle]
+            for capture_index, (use, binding) in enumerate(
+                zip(expected.inputs[1:], receipt.inputs[1:], strict=True)
+            ):
+                operand = check_operand(use, binding)
+                if isinstance(operand, LiteralOperand):
+                    match_literal(plan.captures[capture_index], operand)
+                elif operand is not plan.captures[capture_index]:
+                    raise StructureMismatch("if-capture-operand-edge-differs")
+            for use, witness in zip(expected.outputs, receipt.outputs, strict=True):
+                check_value(use, witness)
+            checked.update((plan.node, *plan.adapters))
+            count += 1
+            continue
         inputs = tuple(
             check_operand(use, binding)
             for use, binding in zip(expected.inputs, receipt.inputs, strict=True)
@@ -805,19 +1300,6 @@ def _audit_scope(
             checked.add(producer)
         if not use.tensor.matches(actual):
             raise StructureMismatch("source-output-type-differs")
-    if checked != set(graph):
-        reasons.append("artifact-node-coverage-incomplete")
-    used_constants = {
-        value
-        for node in graph
-        for value in node.inputs
-        if value is not None and value.is_initializer()
-    } | {value for value in graph.outputs if value.is_initializer()}
-    recorded_constants = {
-        values[witness] for witness in ledger.constants if witness in values
-    }
-    if used_constants - recorded_constants - literal_initializers:
-        reasons.append("artifact-constant-coverage-incomplete")
     return StructureResult(
         "unverified" if reasons else "validated", total, count, tuple(reasons[:16])
     )
@@ -826,6 +1308,7 @@ def _audit_scope(
 def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     from jax2onnx.ir_utils import iter_ir_functions
     from jax2onnx.plugins._source_function_structure import FunctionRule
+    from jax2onnx.plugins._source_control_flow_structure import IfRule
 
     total = ledger.expected_equations
     if ledger.failures:
@@ -833,19 +1316,24 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     if ledger.gaps:
         return StructureResult("unverified", total, 0, tuple(sorted(ledger.gaps))[:16])
     graphs: dict[object, ir.Graph] = {}
+    parents: dict[object, tuple[ir.Graph, ir.Node]] = {}
 
-    def collect(graph: ir.Graph) -> None:
+    def collect(
+        graph: ir.Graph, parent: tuple[ir.Graph, ir.Node] | None = None
+    ) -> None:
         owner = graph.meta.get(_OWNER)
         if type(owner) is not object or owner in graphs:
             raise StructureUnavailable("final-graph-owner-unavailable")
         graphs[owner] = graph
+        if parent is not None:
+            parents[owner] = parent
         for node in graph:
             for attribute in node.attributes.values():
                 if attribute.type is ir.AttributeType.GRAPH:
-                    collect(attribute.as_graph())
+                    collect(attribute.as_graph(), (graph, node))
                 elif attribute.type is ir.AttributeType.GRAPHS:
                     for child in attribute.as_graphs():
-                        collect(child)
+                        collect(child, (graph, node))
 
     collect(model.graph)
     definitions: dict[object, ir.Function] = {}
@@ -853,12 +1341,14 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         collect(definition.graph)
         definitions[definition.graph.meta[_OWNER]] = definition
     scopes: dict[object, _Scope] = {}
+    owner_scopes: dict[object, list[_Scope]] = {}
     results: dict[object, StructureResult] = {}
     wanted_calls: set[EquationHandle] = set()
     for scope in ledger.scopes:
-        if scope.owner in scopes or scope.owner not in graphs:
+        if scope.invocation in scopes or scope.owner not in graphs:
             raise StructureUnavailable("scope-owner-coverage-incomplete")
-        scopes[scope.owner] = scope
+        scopes[scope.invocation] = scope
+        owner_scopes.setdefault(scope.owner, []).append(scope)
         if scope.owner in definitions:
             definition_body = ledger.function_bodies.get(scope.owner)
             if definition_body is None:
@@ -874,31 +1364,101 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
             for index, equation in enumerate(scope.equations)
             if type(equation.rule) is FunctionRule
         )
-        results[scope.owner] = _audit_scope(
-            graphs[scope.owner], scope, ledger, definitions
-        )
-    if set(scopes) != set(graphs) or wanted_calls != set(ledger.function_calls):
+    if set(owner_scopes) != set(graphs) or wanted_calls != set(ledger.function_calls):
         raise StructureUnavailable("region-or-call-coverage-incomplete")
     if set(definitions) != {call.owner for call in ledger.function_calls.values()}:
         raise StructureUnavailable("function-definition-coverage-incomplete")
 
-    def logical_count(owner: object, ancestors: frozenset[object]) -> int:
-        if owner in ancestors:
+    plans = _plan_if_calls(ledger, scopes, graphs, parents)
+
+    def definition_scope(owner: object) -> _Scope:
+        candidates = owner_scopes[owner]
+        if len(candidates) != 1 or candidates[0].region is not None:
+            raise StructureUnavailable("definition-region-ownership-unavailable")
+        return candidates[0]
+
+    children: dict[object, tuple[object, ...]] = {}
+    for scope in scopes.values():
+        attached: list[object] = []
+        for index, equation in enumerate(scope.equations):
+            handle = EquationHandle(scope.invocation, index)
+            if type(equation.rule) is FunctionRule:
+                attached.append(
+                    definition_scope(ledger.function_calls[handle].owner).invocation
+                )
+            elif type(equation.rule) is IfRule:
+                attached.extend(child.invocation for child in plans[handle].regions)
+        children[scope.invocation] = tuple(attached)
+    root_invocation = definition_scope(model.graph.meta[_OWNER]).invocation
+    reached: set[object] = set()
+
+    def visit(invocation: object, ancestors: frozenset[object]) -> None:
+        if invocation in ancestors:
             raise StructureUnavailable("recursive-function-contract-unavailable")
-        scope = scopes[owner]
-        return results[owner].checked_equations + sum(
-            logical_count(
-                ledger.function_calls[EquationHandle(scope.invocation, index)].owner,
-                ancestors | {owner},
-            )
-            for index, equation in enumerate(scope.equations)
-            if type(equation.rule) is FunctionRule
+        reached.add(invocation)
+        for child in children[invocation]:
+            visit(child, ancestors | {invocation})
+
+    visit(root_invocation, frozenset())
+    if reached != set(scopes):
+        raise StructureUnavailable("unclaimed-region-invocation")
+    coverage = {owner: _Coverage() for owner in graphs}
+    for scope in scopes.values():
+        results[scope.invocation] = _audit_scope(
+            graphs[scope.owner],
+            scope,
+            ledger,
+            definitions,
+            plans,
+            coverage[scope.owner],
         )
 
-    checked = logical_count(model.graph.meta[_OWNER], frozenset())
+    def logical_count(invocation: object, ancestors: frozenset[object]) -> int:
+        if invocation in ancestors:
+            raise StructureUnavailable("recursive-function-contract-unavailable")
+        return results[invocation].checked_equations + sum(
+            logical_count(child, ancestors | {invocation})
+            for child in children[invocation]
+        )
+
+    checked = logical_count(root_invocation, frozenset())
     reasons = tuple(
         sorted({reason for result in results.values() for reason in result.reasons})
     )
+    used_constants: dict[object, set[ir.Value]] = {owner: set() for owner in graphs}
+    for graph in graphs.values():
+        consumed = [
+            value for node in graph for value in node.inputs if value is not None
+        ]
+        for value in (*consumed, *graph.outputs):
+            if value.is_initializer():
+                owner_graph = value.graph
+                if (
+                    owner_graph is None
+                    or graphs.get(owner_graph.meta.get(_OWNER)) is not owner_graph
+                ):
+                    raise StructureUnavailable("artifact-constant-owner-unavailable")
+                used_constants[owner_graph.meta[_OWNER]].add(value)
+    for owner, graph in graphs.items():
+        if any(
+            "source-coverage-incomplete" in results[scope.invocation].reasons
+            for scope in owner_scopes[owner]
+        ):
+            # Preserve the established primary diagnostic for an unobserved
+            # original equation; its independently declared count still holds.
+            continue
+        if coverage[owner].nodes != set(graph):
+            reasons = (*reasons, "artifact-node-coverage-incomplete")
+        # Lexical consumers can live in descendant graphs; ownership is the
+        # actual initializer definition, not the spelling of its name.
+        if used_constants[owner] - coverage[owner].constants:
+            reasons = (*reasons, "artifact-constant-coverage-incomplete")
+        if (
+            any(scope.region is not None for scope in owner_scopes[owner])
+            and set(graph.initializers.values()) - coverage[owner].constants
+        ):
+            reasons = (*reasons, "artifact-constant-coverage-incomplete")
+    reasons = tuple(dict.fromkeys(reasons))
     if checked != total and not reasons:
         reasons = (*reasons, "expected-region-coverage-incomplete")
     return StructureResult(

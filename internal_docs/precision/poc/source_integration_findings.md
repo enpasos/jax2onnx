@@ -2,7 +2,16 @@
 
 ## Current checkpoint
 
-At the 2026-10-27 00:48:47 UTC observation, exact published head
+Published Function head `5b97f9ce149267e3109b2b97eb524ce647fc4f6f` has **all
+eight terminal SUCCESS** checks in
+[CI #543](https://github.com/enpasos/jax2onnx/actions/runs/40437936428), last
+completed **2026-10-27 04:01:06 UTC**. Receipt
+`ci-5b97f9ce-eight-success-v2.json` has SHA
+`fac7ea031a9c5dd286e7ccef9617bb57d4de8374d86bf5b81b2cf14797352a54`.
+This qualifies that Function revision; the prepared If successor requires its
+own exact-head CI. Public defaults remain **LEGACY** and full **B–F** stays open.
+
+Earlier, at the 2026-10-27 00:48:47 UTC observation, exact published head
 `a0a1ef51213bff0f6edb4e193c55723362aee096` had **all eight terminal SUCCESS**
 checks in [CI #542](https://github.com/enpasos/jax2onnx/actions/runs/40416289647),
 including Python 3.11–3.14. The final check completed at 00:45:02 UTC; observation
@@ -51,13 +60,60 @@ or assertion amendment from the current passing run.
 Manual census v2 is 318 files/2,740 test functions, 47 additions to 316/2,693,
 with every predecessor and all 752 anchors retained; neither inventory JSON is
 rewritten. Historical 1,852/3,704 and current 1,856/3,712, optional/opaque and
-conditional obligations retain their own epochs. Dynamic If, then scalar While
-with mixed-ranked carries and nested Function bindings are the immediate next
-region work. Remaining source, runtime/numerical/artifact/resource and public
+conditional obligations retain their own epochs. The successor If checkpoint
+is recorded below; scalar While with mixed-ranked carries and nested
+Function/If bindings is the next region adapter. Remaining source,
+runtime/numerical/artifact/resource and public
 transition obligations stay open. Reviewed reversible isolated local work is
 permitted; publication still follows the exact-head gate, and a regression
 preempts feature work. The [next concrete work](../implementation_handoff.md#next-concrete-work)
 retains the full scope.
+
+### Private dynamic If region checkpoint
+
+Both original false/true bodies, typed/weak/static-shape SSA and ordered
+capture/result ports are frozen before lowering. Every observed invocation must
+be uniquely bound and root-reachable; node and complete initializer storage
+coverage is checked per graph. Zero-formal branches require exact visible
+ancestor capture edges; only immutable SSA-proven unused ports may disappear.
+The original scalar BOOL-to-INT32 equation stays counted when its closed Boolean
+roundtrip is folded, without fabricating an INT32 witness. Missing proof remains
+UNVERIFIED and a resolved contradiction FAILED. Unknown JIT/Scan totals,
+symbolic gaps and scalar While obligations remain explicit.
+
+At final source `15e9d4eb`/index `ca70e11c`, **65 complete owners / 32 jobs**
+record **2,993 modern PASS** and **2,992 older PASS/one exact original Scan
+availability skip**, retaining all 2,874 predecessor IDs plus 119 selected IDs.
+These test outcomes include intentional negative controls, not universal
+runtime/numerical acceptance.
+The older Scan's raw guard rc1/accepted=false and driver UNVERIFIED are preserved;
+its skip has separate exact baseline XML/reason/no-call-phase adjudication.
+Auditor SHA is `b4446560f5276b6913a78088c1c921ee714689dbc0b0b93ba96750f54433b483`.
+The preformat 406-case pairs at `9092460d` retain their own epoch; final reruns
+and all seven pinned hooks pass at `15e9d4eb`. The initial 6-PASS/1-FAIL fixture
+and Black/mypy outcomes remain failed predecessors. Subsequent prose has separate
+hashes. At separate prose/typing source `18e93ca6`/index `226ccd0a`, actual root
+typing passes **582 files on both locked cohorts**, with identical **17 RNG
+entries**, and strict MkDocs passes into a fresh external site. The
+`region-if-root-typing-{modern,python311}-v1` and `region-if-root-docs-v1`
+receipts/closeouts hold both-tree, environment, editable/Poetry metadata and
+cleanup fences. The prose refresh's final docs, normal commit hooks/closeout
+and successor exact-head CI retain separate required gates.
+
+Real controls reject wrong captures/selectors/bodies/storage, missing or orphan
+proof and extra initializers, retain no native owners, and require identical
+observation-on/off bytes/reports/context/callee sequences. Independent bitwise
+samples execute both Boolean values on FP32/FP64 with both ORT optimization
+settings. Structural runtime/numerics still remain UNVERIFIED, without a reloaded
+artifact or wider-input claim. AST census **319 files/2,770 functions** adds 30,
+retaining all 2,740 parent functions and all 752 anchors; no inventory is rewritten.
+
+The unchanged full-model 12-item local resource hold, original22 hosted versus
+local 4 GiB distinction, HIGH cast uncertainty and all B–F/public-transition
+obligations remain open. Hosted predecessor model passes do not qualify the If
+successor, and CI ZIPs contain no full-model temporary ONNX/NumPy payload proof.
+The [handoff](../implementation_handoff.md#private-dynamic-if-region-checkpoint)
+records exact epochs and the next scalar While work.
 
 ### Retained earlier checkpoint context
 

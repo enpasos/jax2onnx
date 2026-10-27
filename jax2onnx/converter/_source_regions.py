@@ -187,6 +187,7 @@ def freeze_body(
     constant_contracts: tuple[ConstantContract, ...] | None = None,
 ) -> FrozenBody:
     """Observe an existing trace once; retain no native SSA/shape/array owners."""
+    import jax
     from jax2onnx.plugins._source_structure import freeze_source_semantic_key
     from jax2onnx.plugins._source_function_structure import original_function_body
 
@@ -268,8 +269,6 @@ def freeze_body(
         if function is not None:
             children.append(("function", function))
         else:
-            import jax
-
             if equation.primitive is jax.lax.cond_p:
                 branches = equation.params.get("branches")
                 if isinstance(branches, tuple) and len(branches) == 2:
@@ -279,7 +278,6 @@ def freeze_body(
                             ("false", "true"), branches, strict=True
                         )
                     )
-                gaps.add("if-attachment-contract-unavailable")
             elif equation.primitive is jax.lax.while_p:
                 for role, key in (
                     ("initial-condition", "cond_jaxpr"),
@@ -307,6 +305,8 @@ def freeze_body(
                 gaps.add("source-semantic-key:" + type(exc).__name__)
         if semantics is None:
             gaps.add("source-semantic-contract-unavailable")
+        if equation.primitive is jax.lax.cond_p and semantics != ("dynamic-if",):
+            gaps.add("if-attachment-contract-unavailable")
         for _, child in children:
             gaps.update(child.gaps)
         equations.append(FrozenEquation(operands, results, semantics, tuple(children)))

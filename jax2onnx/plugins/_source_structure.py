@@ -134,6 +134,11 @@ def freeze_source_structure_rule(
     body = original_function_body(eqn)
     if body is not None:
         return FunctionRule(body)
+    from jax2onnx.plugins._source_control_flow_structure import freeze_control_flow_rule
+
+    control = freeze_control_flow_rule(eqn, inputs, outputs)
+    if control is not None:
+        return control
     if primitive is jax.lax.dot_general_p:
         from jax2onnx.plugins.jax.lax._source_dot_structure import (
             freeze_dot_structure_rule,
@@ -270,11 +275,16 @@ def freeze_source_semantic_key(
     from jax2onnx.plugins._source_function_structure import (
         FunctionRule,
     )
+    from jax2onnx.plugins._source_control_flow_structure import BooleanIndexRule, IfRule
     from jax2onnx.plugins.jax.lax._source_dot_structure import _DotRule
     from jax2onnx.plugins.jax.lax._source_reduce_structure import _ReductionRule
     from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule
 
     rule = freeze_source_structure_rule(eqn, inputs, outputs)
+    if type(rule) is BooleanIndexRule:
+        return ("boolean-index",)
+    if type(rule) is IfRule:
+        return ("dynamic-if",)
     if type(rule) is FunctionRule:
         # FrozenEquation.children is the sole child-body content authority.
         # Repeating the entire body in this key doubles hash/equality traversal

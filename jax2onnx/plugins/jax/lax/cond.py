@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any, Iterable, Tuple
 
 import jax
@@ -455,20 +456,31 @@ class CondPlugin(PrimitiveLeafPlugin):
             eqn.params
         )
 
-        then_graph = self._build_branch_graph(
-            ctx,
-            true_jaxpr,
-            true_consts,
-            branch_input_vals,
-            prefix="cond_then",
-        )
-        else_graph = self._build_branch_graph(
-            ctx,
-            false_jaxpr,
-            false_consts,
-            branch_input_vals,
-            prefix="cond_else",
-        )
+        ledger = getattr(ctx, "_source_structure", None)
+        with (
+            ledger.region("true", branch_input_vals)
+            if ledger is not None
+            else nullcontext(None)
+        ) as true_region:
+            then_graph = self._build_branch_graph(
+                ctx,
+                true_jaxpr,
+                true_consts,
+                branch_input_vals,
+                prefix="cond_then",
+            )
+        with (
+            ledger.region("false", branch_input_vals)
+            if ledger is not None
+            else nullcontext(None)
+        ) as false_region:
+            else_graph = self._build_branch_graph(
+                ctx,
+                false_jaxpr,
+                false_consts,
+                branch_input_vals,
+                prefix="cond_else",
+            )
 
         output_names = [ctx.fresh_name("cond_out") for _ in eqn.outvars]
         if_outputs = builder.If(
@@ -499,6 +511,23 @@ class CondPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(out_val, _shape_for_aval(ctx, aval))
             _ensure_value_metadata(ctx, out_val)
             ctx.bind_value_for_var(var, out_val)
+
+        if ledger is not None and true_region is not None and false_region is not None:
+            from jax2onnx.plugins._source_control_flow_structure import (
+                record_if_attachment,
+            )
+
+            ledger._observe(
+                "if-attachment",
+                lambda: record_if_attachment(
+                    ctx,
+                    eqn,
+                    true_region,
+                    false_region,
+                    then_graph,
+                    else_graph,
+                ),
+            )
 
     def _lower_source_literal(
         self, ctx: LoweringContextProtocol, eqn: JaxprEqn, index: int
