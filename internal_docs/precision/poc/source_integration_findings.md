@@ -2,13 +2,48 @@
 
 ## Current checkpoint
 
+Published If head `211b266fc6fd364e04c9bd076e87191a050325f6` has a Python 3.14
+**FAILURE** in [CI #544](https://github.com/enpasos/jax2onnx/actions/runs/40450888745).
+The original strict `ties-float16-float64` case retains native HIGH versus target
+LOW words with the observer OFF under the same recorded batch history.
+The original failed cohort executed 1,750 passes and one failure, leaving
+13,654 planned items unexecuted. The independently archived Python 3.13 cohort
+separately passed 15,397 cases with eleven original skips, including all twelve
+model-owner cases and original22. Four support jobs succeeded; Python 3.11/3.12
+were still running at the latest observation. No complete exact-head gate or
+CPU-causality conclusion follows.
+
+The diagnostic successor binds the first original eager/fresh-JIT compiler
+returns to the actual dispatched native objects, cached executors and original
+reference words. Actual pure `f64[6] -> f16[6]` compiler input is required.
+Only after the original call phase is durable and profiling restored may
+bounded CPU serialization retain the original object payloads. This performs
+additional temporary native linking/allocation and does not measure the
+original live helper binding. Missing/ambiguous cache paths stay UNVERIFIED;
+no new source call, replacement compilation or numerical change is added.
+
+At final formatted source-files epoch `e7b9da7d`, all five complete affected
+owners pass **277 tests each** on both locked stacks, retaining all 203 original
+IDs plus 66 helper and eight runner controls. Both original-node integrations
+also pass all four unchanged comparisons with identical prior input, reference,
+target and model bytes, held fences and two actual bounded executable captures.
+All seven actual pinned hooks pass. Formatting preserves all five complete
+ASTs; earlier unformatted passes and the initial failed formatter/marker hook
+retain their separate receipts. Subsequent actual root typing passes on both
+locked cohorts at source-files `aaa725c2` (582 files and identical seventeen RNG
+entries); strict docs also passes with held fences and empty cleanup.
+Ordinary commit and successor CI require separate qualification.
+A permanent rounding repair and hosted
+HIGH code attribution remain open; While feature work stays behind that
+regression. Public defaults remain **LEGACY**, with full **B–F** unchanged.
+
 Published Function head `5b97f9ce149267e3109b2b97eb524ce647fc4f6f` has **all
 eight terminal SUCCESS** checks in
 [CI #543](https://github.com/enpasos/jax2onnx/actions/runs/40437936428), last
 completed **2026-10-27 04:01:06 UTC**. Receipt
 `ci-5b97f9ce-eight-success-v2.json` has SHA
 `fac7ea031a9c5dd286e7ccef9617bb57d4de8374d86bf5b81b2cf14797352a54`.
-This qualifies that Function revision; the prepared If successor requires its
+This qualifies that Function revision; its successors require their
 own exact-head CI. Public defaults remain **LEGACY** and full **B–F** stays open.
 
 Earlier, at the 2026-10-27 00:48:47 UTC observation, exact published head

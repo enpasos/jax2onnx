@@ -605,6 +605,18 @@ def _worker(request_path: Path) -> int:
     class Report:
         postmortem_pin: Any = None
         postmortem_module: Any = None
+        cast_observer: Any = None
+
+        def release_capture(self) -> None:
+            observer, self.cast_observer = self.cast_observer, None
+            if observer is not None:
+                try:
+                    observer.close()
+                except BaseException as error:
+                    receipt["cast_executable_cleanup"] = {
+                        "status": "UNVERIFIED",
+                        "error_type": type(error).__name__,
+                    }
 
         def pytest_configure(self, config: Any) -> None:
             if getattr(config.option, "numprocesses", None) not in (None, 0):
@@ -744,6 +756,7 @@ def _worker(request_path: Path) -> int:
                     observer = module.start_observation(
                         folder, item.nodeid, item.module
                     )
+                    self.cast_observer = observer
                 except BaseException as error:
                     diagnostic_error("observer-start-error", error)
             try:
@@ -817,6 +830,42 @@ def _worker(request_path: Path) -> int:
                 entry["longrepr"] = str(report.longrepr)
             receipt["phases"].setdefault(report.nodeid, []).append(entry)
             append_event({"kind": "phase", "nodeid": report.nodeid, **entry})
+            if (
+                report.nodeid == _CAST_OBSERVER_NODE
+                and report.when == "call"
+                and control is None
+                and self.cast_observer is not None
+            ):
+                try:
+                    # Exporting an existing CPU executable performs additional
+                    # native linking. Record the authoritative original outcome
+                    # first, on disk, after the call hook restored its profile.
+                    checkpoint()
+                    for name in ("events.jsonl", "receipt.json"):
+                        with (folder / name).open("rb") as stream:
+                            os.fsync(stream.fileno())
+                    descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+                    try:
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                    self.cast_observer.after_report(
+                        {
+                            "nodeid": report.nodeid,
+                            **entry,
+                            "durable_phase_recorded": True,
+                            "phase_receipt": "receipt.json",
+                            "phase_events": "events.jsonl",
+                        }
+                    )
+                except BaseException as error:
+                    receipt["cast_executable_capture"] = {
+                        "status": "UNVERIFIED",
+                        "original_test_outcome_authoritative": True,
+                        "error_type": type(error).__name__,
+                    }
+                finally:
+                    self.release_capture()
 
         def pytest_sessionfinish(self, session: Any, exitstatus: int) -> None:
             receipt["exitstatus"] = int(exitstatus)
@@ -831,17 +880,20 @@ def _worker(request_path: Path) -> int:
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     checkpoint()
+    plugin = Report()
     try:
         result = int(
             pytest.main(
                 [*request["pytest_args"], "--junitxml", str(folder / "junit.xml")],
-                plugins=[Report()],
+                plugins=[plugin],
             )
         )
     except BaseException as exc:
         receipt["worker_exception"] = type(exc).__name__
         checkpoint()
         raise
+    finally:
+        plugin.release_capture()
     receipt["exitstatus"] = result
     receipt["finished"] = _now()
     checkpoint()

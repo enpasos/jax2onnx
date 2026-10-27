@@ -766,6 +766,151 @@ def test_cast_diagnostic_preserves_one_original_call_and_pytest_outcome(
         assert imported.exists() is (diagnostic != "preexisting-profile")
 
 
+@pytest.mark.parametrize("original_pass", (False, True))
+@pytest.mark.parametrize("export_fault", ("none", "serialization", "durability"))
+def test_executable_export_follows_durable_original_report_and_preserves_outcome(
+    original_pass: bool,
+    export_fault: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copied = tmp_path / "runner"
+    copied.mkdir()
+    runner = copied / "run_pytest_batches.py"
+    runner.write_text(_RUNNER.read_text())
+    observer = (
+        "import json, os, sys\nfrom pathlib import Path\n"
+        "class Observation:\n"
+        "    def __init__(self, folder):\n"
+        "        self.folder = folder\n"
+        "        self.fsync = os.fsync\n"
+        "    def finish(self):\n"
+        "        assert sys.getprofile() is None\n"
+    )
+    if export_fault == "durability":
+        observer += (
+            "        def fail(fd):\n"
+            "            raise RuntimeError('durability sentinel')\n"
+            "        os.fsync = fail\n"
+        )
+    observer += (
+        "    def after_report(self, phase):\n"
+        "        assert sys.getprofile() is None\n"
+        "        receipt = json.loads((self.folder / 'receipt.json').read_text())\n"
+        "        entries = receipt['phases'][phase['nodeid']]\n"
+        "        assert [entry['when'] for entry in entries] == ['setup', 'call']\n"
+        "        assert entries[-1]['outcome'] == phase['outcome']\n"
+        "        events = [json.loads(line) for line in (self.folder / 'events.jsonl').read_text().splitlines()]\n"
+        "        assert events[-1]['kind'] == 'phase' and events[-1]['when'] == 'call'\n"
+        "        assert events[-1]['outcome'] == phase['outcome']\n"
+        "        assert phase['durable_phase_recorded'] is True\n"
+        "        Path('export-after-report').write_text(phase['outcome'])\n"
+    )
+    if export_fault == "serialization":
+        observer += "        raise RuntimeError('serialization sentinel')\n"
+    observer += (
+        "    def close(self):\n"
+        "        os.fsync = self.fsync\n"
+        "        Path('capture-closed').write_text('yes')\n"
+        "def start_observation(folder, *args):\n"
+        "    return Observation(folder)\n"
+    )
+    (copied / "_source_cast_observer.py").write_text(observer)
+    monkeypatch.setitem(globals(), "_RUNNER", runner)
+    owner = "tests/extra_tests/converter/test_source_conversion_semantics.py"
+    source = (
+        "from pathlib import Path\nimport pytest\n"
+        "@pytest.mark.parametrize('source', ['float64'])\n"
+        "@pytest.mark.parametrize('target', ['float16'])\n"
+        "@pytest.mark.parametrize('group', ['ties'])\n"
+        "def test_floating_conversion_rounding_and_strict_special_value_gates(source, target, group):\n"
+        "    path = Path('original-calls')\n"
+        "    assert not path.exists()\n"
+        "    path.write_text('once')\n"
+    )
+    if not original_pass:
+        source += "    assert False, 'unchanged original failure sentinel'\n"
+    result, run, folder = _run_suite(tmp_path, {owner: source})
+    root = tmp_path / "suite"
+    assert (root / "original-calls").read_text() == "once"
+    assert (root / "capture-closed").read_text() == "yes"
+    expected = "passed" if original_pass else "failed"
+    if export_fault == "durability":
+        assert not (root / "export-after-report").exists()
+    else:
+        assert (root / "export-after-report").read_text() == expected
+    receipt = json.loads((folder / "batch-0001" / "receipt.json").read_text())
+    phases = next(iter(receipt["phases"].values()))
+    assert [phase["when"] for phase in phases] == ["setup", "call", "teardown"]
+    assert [phase["outcome"] for phase in phases] == ["passed", expected, "passed"]
+    assert (result.returncode == 0) is original_pass
+    assert run["status"] == ("PASS" if original_pass else "FAIL")
+    if not original_pass:
+        assert "unchanged original failure sentinel" in phases[1]["longrepr"]
+    if export_fault != "none":
+        assert receipt["cast_executable_capture"]["status"] == "UNVERIFIED"
+
+
+@pytest.mark.parametrize("fault", ("close", "write"))
+def test_optional_executable_io_failure_preserves_complete_original_word_proof(
+    fault: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _cast_observer_module()
+    observation = module._Observation(tmp_path, module.NODE_ID, type(sys)("owner"))
+    calls = []
+
+    class Capture:
+        def __init__(self) -> None:
+            self.report = {"status": "UNVERIFIED", "native_owners_cleared": False}
+
+        def after_report(self, phase: Any) -> None:
+            calls.append("export")
+            self.report["status"] = "ORIGINAL_EXECUTABLES_SERIALIZED"
+
+        def close(self) -> None:
+            self.report["native_owners_cleared"] = True
+            calls.append("close")
+            if fault == "close":
+                raise OSError("optional close report I/O sentinel")
+
+        def _write(self) -> None:
+            calls.append("write")
+            if fault == "write":
+                raise OSError("optional final report I/O sentinel")
+
+        def _fail(self, stage: str, error: BaseException) -> None:
+            self.report["status"] = "UNVERIFIED"
+
+    capture = Capture()
+    observation.executable_capture = capture
+    observation.report.update(
+        status="ORIGINAL_CALL_WORDS_OBSERVED",
+        executable_capture={"status": "UNVERIFIED"},
+    )
+
+    def fences() -> None:
+        calls.append("original-fences")
+        for name in (
+            "previous_profile_restored",
+            "native_context_restored",
+            "source_settings_restored",
+            "source_fence_held",
+            "code_identity_fence_held",
+        ):
+            observation.report[name] = True
+
+    monkeypatch.setattr(observation, "_end_fences", fences)
+    observation.after_report({"original": "already recorded"})
+    assert calls == ["original-fences", "export", "close", "original-fences", "write"]
+    assert observation.executable_capture is None
+    assert capture.report["native_owners_cleared"] is True
+    assert capture.report["original_fences_after_serialization"] is True
+    assert capture.report["status"] == "UNVERIFIED"
+    assert observation.report["status"] == "ORIGINAL_CALL_WORDS_OBSERVED"
+    assert observation.report["observer_errors"] == []
+    assert observation.report["executable_capture"]["status"] == "UNVERIFIED"
+
+
 def test_cast_observer_preexisting_profile_skips_before_native_or_source_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

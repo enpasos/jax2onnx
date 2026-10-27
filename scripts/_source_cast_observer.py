@@ -259,6 +259,7 @@ class _Observation:
         self.numpy: Any = None
         self.model_type: Any = None
         self.criteria_type: Any = None
+        self.executable_capture: Any = None
         self.report: dict[str, Any] = {
             "status": "UNVERIFIED",
             "nodeid": nodeid,
@@ -397,11 +398,37 @@ class _Observation:
                     cpu[key] = value.strip()
             self.report["cpu_observation"] = cpu
         # Recheck after lazy diagnostic setup. Never displace another owner.
+        try:
+            from importlib.util import module_from_spec, spec_from_file_location
+
+            path = Path(__file__).with_name("_source_cast_executable.py")
+            spec = spec_from_file_location("_jax2onnx_cast_executable", path)
+            _require(
+                spec is not None and spec.loader is not None,
+                "executable capture loader unavailable",
+            )
+            module = module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.executable_capture = module.start_capture(
+                self.folder, self.owner, self.functions["artifact"], self._array
+            )
+            self.report["executable_capture"] = {
+                "report": module.DIRECTORY + "/report.json",
+                "status": self.executable_capture.report["status"],
+                "original_word_observation_is_separate": True,
+            }
+        except BaseException as error:
+            self.report["executable_capture"] = {
+                "status": "UNVERIFIED",
+                "error": _error(error),
+            }
         if sys.getprofile() is not self.previous:
             self.report.update(
                 status="UNVERIFIED", reason="profile-changed-before-start"
             )
             self.write()
+            if self.executable_capture is not None:
+                self.executable_capture.close()
             return
         self.write()
         sys.setprofile(self.callback)
@@ -464,6 +491,8 @@ class _Observation:
         return result
 
     def _profile(self, frame: Any, event: str, argument: Any) -> None:
+        if self.executable_capture is not None:
+            self.executable_capture.observe(frame, event, argument)
         if event != "return":
             return
         try:
@@ -606,6 +635,8 @@ class _Observation:
                         ],
                     }
                 )
+                if self.executable_capture is not None:
+                    self.executable_capture.bind_artifact(events[0])
         except BaseException as error:
             self.error("return-observation", error)
 
@@ -914,6 +945,8 @@ class _Observation:
         )
 
     def finish(self) -> None:
+        if self.executable_capture is not None:
+            self.executable_capture.stop()
         if not self.active:
             self.write()
             return
@@ -1001,6 +1034,81 @@ class _Observation:
                 self.error("finish-final-fences", error)
             self.write()
 
+    def after_report(self, phase: dict[str, Any]) -> None:
+        """Additional native export, only after the durable original call report."""
+        capture = self.executable_capture
+        if capture is None:
+            return
+        try:
+            self._end_fences()
+            _require(
+                all(
+                    self.report.get(name) is True
+                    for name in (
+                        "previous_profile_restored",
+                        "native_context_restored",
+                        "source_settings_restored",
+                        "source_fence_held",
+                        "code_identity_fence_held",
+                    )
+                ),
+                "original fences unavailable before executable serialization",
+            )
+        except BaseException as error:
+            self.error("executable-original-before-fences", error)
+            capture._fail("original-post-report-fences", error)
+        else:
+            try:
+                capture.after_report(phase)
+            except BaseException as error:
+                capture._fail("optional-executable-export", error)
+        finally:
+            try:
+                capture.close()
+            except BaseException as error:
+                capture._fail("optional-executable-close", error)
+            try:
+                self._end_fences()
+                held = all(
+                    self.report.get(name) is True
+                    for name in (
+                        "previous_profile_restored",
+                        "native_context_restored",
+                        "source_settings_restored",
+                        "source_fence_held",
+                        "code_identity_fence_held",
+                    )
+                )
+            except BaseException as error:
+                self.error("executable-final-fences", error)
+                capture._fail("original-final-fences", error)
+                held = False
+            capture.report["original_fences_after_serialization"] = held
+            if not held:
+                self.report["status"] = "UNVERIFIED"
+                capture.report["status"] = "UNVERIFIED"
+            try:
+                capture._write()
+            except BaseException as error:
+                capture._fail("optional-executable-report-write", error)
+            self.report["executable_capture"].update(
+                status=capture.report["status"],
+                native_owners_cleared=capture.report["native_owners_cleared"],
+            )
+            self.executable_capture = None
+            self.write()
+
+    def close(self) -> None:
+        """Release deferred owners even when pytest cannot produce a report."""
+        if self.active and sys.getprofile() is self.callback:
+            sys.setprofile(self.previous)
+            self.active = False
+        if self.executable_capture is not None:
+            try:
+                self.executable_capture.close()
+            finally:
+                self.executable_capture = None
+
 
 def start_observation(
     folder: Path, nodeid: str, owner: types.ModuleType
@@ -1017,5 +1125,6 @@ def start_observation(
                 sys.setprofile(observation.previous)
             except BaseException as restore_error:
                 observation.error("start-profile-restore", restore_error)
+        observation.close()
         observation.write()
     return observation

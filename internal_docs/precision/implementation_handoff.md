@@ -1,5 +1,51 @@
 # Precision migration handoff — 2026-10-27
 
+Published If head `211b266fc6fd364e04c9bd076e87191a050325f6` has an actual
+Python 3.14 **FAILURE** in
+[CI #544](https://github.com/enpasos/jax2onnx/actions/runs/40450888745).
+The unchanged `ties-float16-float64` node observes native eager/fresh-JIT words
+`003c003c013c00bcff7b007c`, versus target `003c003c003c00bcff7b007c`.
+The complete observer-OFF same-history control retains that exact discrepancy;
+an active observer is not necessary for this failure. Matching installed
+native files and differing CPU observations do not establish CPU causality.
+The failed cohort executed 1,750 passes and one failure; 13,654 planned items,
+including its complete twelve-item model owner, were not executed.
+Python 3.13 separately completed 15,397 passes and eleven original skips,
+including the model owner and original22, with LOW native/target cast words.
+At the latest exact-head observation, the four support jobs also succeeded
+and Python 3.11/3.12 remained running. This is not an eight-check acceptance.
+
+The local diagnostic successor captures only the first original eager and
+fresh-JIT reference executables. It binds actual compiler returns through the
+dispatched MeshExecutable and cached executor to the original reference words,
+verifies the actual pure `f64[6] -> f16[6]` compiler input, and serializes only
+after the original call phase is durably recorded and profiling restored.
+Serialization performs additional temporary native linking/allocation; it is
+not an original live helper-address measurement. Missing cache/provenance paths
+remain UNVERIFIED without another source call or forced compilation. The
+original numerical computation, six inputs, comparator and success assertion
+remain unchanged. A permanent numerical repair is still open and preempts
+the planned While work.
+
+Final formatted code epoch
+`e7b9da7d5463243ed6b54a7aff735ea450d821c6cae5feefbdf9c7ea9dd90c5c`
+passes all five complete diagnostic owners: **277 tests on each locked stack**,
+with identical ordered identities and 831 passing phases each. The original
+203 cases are retained, with 66 helper controls and eight runner controls added.
+Both unchanged original-node batch integrations pass with four original
+comparisons, unchanged full input/reference/target words and model bytes,
+and all original fences held. Each captures both actual original executables,
+clears native owners, and retains bounded binary files outside Git.
+Actual all-file pinned hooks also pass at this epoch. Earlier unformatted
+qualification and the first failed formatting/marker hook remain separate
+receipts; the formatting transition preserves all five complete ASTs.
+At subsequent source-files epoch `aaa725c2`, actual root `check_typing.sh`
+passes on both locked cohorts: 582 files and the same seventeen RNG entries.
+Strict MkDocs also passes at that epoch, with held source/environment fences
+and empty owned-process cleanup. Ordinary commit and fresh successor CI require
+separate qualification. These finite results do not qualify hosted HIGH machine code,
+full-suite success, the local model/resource gates or the complete migration.
+
 Published Function checkpoint `5b97f9ce149267e3109b2b97eb524ce647fc4f6f`
 has **all eight terminal SUCCESS** checks in
 [CI #543](https://github.com/enpasos/jax2onnx/actions/runs/40437936428), including
@@ -7,8 +53,8 @@ Python 3.11–3.14; the last check completed at **2026-10-27 04:01:06 UTC**.
 Receipt `ci-5b97f9ce-eight-success-v2.json` has SHA
 `fac7ea031a9c5dd286e7ccef9617bb57d4de8374d86bf5b81b2cf14797352a54`.
 Its archived checkout `56300fa4f45eaf946f4bf002f281dca5835ecfe4` remains distinct
-from the PR head. This qualifies the Function revision, not the prepared If
-successor; each newly published head needs its own complete gate.
+from the PR head. This qualifies the Function revision, not its If or diagnostic
+successors; each newly published head needs its own complete gate.
 
 Earlier, at the 2026-10-27 00:48:47 UTC observation, published PR #277 head
 `a0a1ef51213bff0f6edb4e193c55723362aee096` had **all eight terminal SUCCESS**
