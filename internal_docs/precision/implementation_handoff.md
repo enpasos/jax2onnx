@@ -1,5 +1,93 @@
 # Precision migration handoff — 2026-10-27
 
+At the 2026-10-27 09:33 UTC observation, published diagnostic head
+`09f31f45babe5e365244b7d1f2f38277554f8dc3` had
+**all eight terminal SUCCESS** checks in
+[CI #545](https://github.com/enpasos/jax2onnx/actions/runs/40459341332), including
+the complete Python 3.11–3.14 jobs. The last job completed at
+**2026-10-27 08:11:02 UTC**. Independent inspection of the four untouched
+cohort archives confirms 61,969 case executions: **61,924 passes and 45 original
+skips**, with 185,905 recorded phases. Each cohort retains the complete twelve
+model cases, 44 Original22 cases, and all predecessor case identities, with
+74 diagnostic cases added. The exact-head receipt is
+`ci-09f31f45-eight-success-v1.json`, SHA-256
+`01aaf331e5a4774a95ace4e13b341e975fc03a94fdc80b1ea193e5bc4f6c5667`.
+Its archived checkout `9ce3813534f53148839adceafc2addf37118ee44` remains distinct
+from the PR head. All original cast observations in this run are LOW; the
+predecessor's original HIGH failure below remains binding. This green run
+does not establish a permanent numerical repair or full B–F completion.
+
+The isolated private candidate contains an **unused** direct FP64-to-FP16
+round-to-nearest-even emitter. Its complete 68-case numerical owner and
+fourteen builder/policy cases pass on each locked JAX stack, with all seven
+pinned hooks passing at source-files epoch `1625b586`. Its independent integer
+oracle covers 253,952 finite-half/exact-midpoint-neighbor inputs plus the
+recorded additional shapes and edges. This qualifies the target-side component
+for the measured ORT CPU/opset 23 profiles, not source algorithm selection or
+NaN payload preservation. The emitter is not registered or used by conversion.
+
+A separate bounded empty-program experiment also qualifies acquisition of
+native CPU target metadata on both locked stacks, with one compile/export and
+zero numerical executions per stack. Modern retained-topology target bytes
+agree with that query; the older topology serializer is unavailable. The
+query's default options are not authority for the original source options.
+Independent comparison of retained original eager/JIT option bytes against
+the query identifies the exact differences, including the source's device,
+partitioning, propagation, effort and profile settings. These are finite
+diagnostic results, not a source-equivalence claim.
+
+Current work adds an inactive immutable plan for the exact whole-root dynamic
+FP64-to-FP16 conversion and an independent mathematical graph checker. The
+production plan remains UNRESOLVED while the trusted source compilation context
+and algorithm selection are implemented. Source inspection of both pinned JIT
+linkers and bounded offline inspection of the installed modern provider bind the
+captured LOW kernels to the supplied double-rounding helper. The regular CPU
+execution path also establishes round-to-nearest; live pointer or FENV sampling
+is unnecessary for that closed path. These findings do not establish the hosted
+HIGH instruction path or an arbitrary source-program selector.
+The new plan does not activate the emitter, change the original numerical tests,
+or expose a public option. At source-files epoch
+`7f850f7674e5748f07ea9091262e2d578240a3387e3d0049c74cfd818aacc284`,
+the complete focused and affected selections pass **1,067 identical cases on
+each locked stack**, with 3,201 exact passing phases per cohort. These nineteen
+complete owners include 56 planning controls, 146 graph-checker controls,
+68 RNE-emission cases, fourteen IR-policy cases and 783 existing regressions.
+All fourteen existing regression files remain byte-identical to published
+`09f31f45`, including the original strict conversion owner. Actual candidate
+origins/loaders, source/environment/harness fences and owned-process cleanup
+hold. All seven pinned all-file hooks also pass without changing bytes.
+Independent review accepts this finite checkpoint; root quality checks, normal
+commit hooks and the successor's full CI gate retain their own evidence.
+
+The first focused run's **22 passes, one failed fixture setup and 261 unexecuted
+cases** remain recorded separately. Modern native ShapedArray fields are
+immutable; the fixture now uses the same slot access as JAX construction,
+checks malformed-value/native-object identity and always restores the original
+field. All 56 planning cases and rejection assertions remain. Earlier formatting
+and typing-hook failures also retain their original outcomes. None qualifies
+the final paired result by itself.
+
+The paired qualification record is `root-cast-plan-local-qualification-v1.json`,
+SHA-256 `0c1ba50f19c5046ff9bf69baebafab3fcec07146d3ffa359c2dbd097f8b9587e`.
+The independent existing-owner/hooks review is
+`root-cast-plan-existing-and-hooks-independent-review-v1.json`, SHA-256
+`bcda7af4c701e108bb24a4b4b80e5b771fb5cfc6ebc768c216a901c7d7308df9`.
+These local results do not transfer the parent head's CI acceptance to a new
+commit. The mathematical graph spec is independent of emission; production
+context observations, including fabricated feature/option records, never select
+an algorithm in this checkpoint.
+
+The complete unchanged twelve-case model owner was not rerun locally for this
+checkpoint. It remains outside this finite qualification, with its separate
+local resource hold and fresh successor-CI obligation unchanged.
+
+While/Scan, the remaining full B–F inventory and fixed-source requirements,
+complete model/reference artifact transport, the separate local 4 GiB model
+resource gate and the coordinated public transition remain open. Public defaults
+remain LEGACY. Each newly pushed head needs a fresh complete eight-check gate.
+
+## Retained predecessor and diagnostic qualification
+
 Published If head `211b266fc6fd364e04c9bd076e87191a050325f6` has an actual
 Python 3.14 **FAILURE** in
 [CI #544](https://github.com/enpasos/jax2onnx/actions/runs/40450888745).
@@ -12,7 +100,7 @@ The failed cohort executed 1,750 passes and one failure; 13,654 planned items,
 including its complete twelve-item model owner, were not executed.
 Python 3.13 separately completed 15,397 passes and eleven original skips,
 including the model owner and original22, with LOW native/target cast words.
-At the latest exact-head observation, the four support jobs also succeeded
+At that preserved observation, the four support jobs also succeeded
 and Python 3.11/3.12 remained running. This is not an eight-check acceptance.
 
 The local diagnostic successor captures only the first original eager and

@@ -54,6 +54,7 @@ from .source_profile import SourcePrecisionError, validate_source_input_dtype
 from .source_deployment import DeploymentTarget
 from .source_deployment_bindings import attach_matrix_bindings
 from .source_structure import attach_source_structure
+from ._source_cast_planning import attach_cast_plan, prepare_root_cast_plan
 from .source_representation import representation_for_aval, validate_source_shapes
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
@@ -1171,6 +1172,11 @@ def _convert_to_ir(
     jpr = trace.jaxpr
     if jaxpr_validator is not None:
         jaxpr_validator(jpr, opset)
+    cast_plan = (
+        prepare_root_cast_plan(trace.closed_jaxpr)
+        if precision_policy is PrecisionPolicy.SOURCE
+        else None
+    )
     ctx = _create_ir_context(
         opset=opset,
         enable_double_precision=enable_double_precision,
@@ -1182,6 +1188,7 @@ def _convert_to_ir(
         jaxpr_validator=jaxpr_validator,
         deployment_target=deployment_target,
     )
+    ctx._source_cast_plan = cast_plan
     _bind_closed_jaxpr_constants(
         ctx,
         jpr,
@@ -1206,6 +1213,7 @@ def _convert_to_ir(
         strict_optimizer_failures=strict_optimizer_failures,
     )
     if precision_policy is PrecisionPolicy.SOURCE:
+        attach_cast_plan(model, cast_plan)
         attach_source_structure(
             model,
             ctx._source_structure,

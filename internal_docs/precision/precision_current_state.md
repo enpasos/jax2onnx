@@ -15,10 +15,31 @@ The latest local CI repair after `3869ba31` has its own
 and [handoff](implementation_handoff.md). Local quality and exact-head CI retain
 separate evidence; the detailed qualification epochs below retain their own scope.
 
-Current private snapshot: **2026-10-26**. This unfinished LOCAL WIP continues
-stored **`e4db1943`**; **`fe214590`** remains the last fully green checkpoint.
-The [canonical ledger](poc/source_integration_findings.md#current-checkpoint)
-owns exact source epochs, paired qualifications, failed predecessors and gates.
+Current private snapshot: **2026-10-27**. Published diagnostic checkpoint
+**`09f31f45`** has all eight terminal SUCCESS checks in
+[CI #545](https://github.com/enpasos/jax2onnx/actions/runs/40459341332), including
+the complete Python 3.11–3.14 suites. The
+[handoff](implementation_handoff.md) records the exact head, original cohort
+archives, independent review and retained predecessor failures. That CI result
+does not qualify the later isolated candidate or the complete migration.
+
+The candidate's unused direct FP64-to-FP16 RNE component has separate finite
+dual-stack numerical and policy qualification. Native target metadata acquisition
+also has its own bounded dual-stack evidence. Neither establishes source
+algorithm selection. The installed LOW helper binding and regular CPU rounding
+scope now have separate source/binary evidence; the trusted source compiler
+context and selection logic remain unfinished. The new immutable cast plan
+remains UNRESOLVED. Its finite planning/graph-checker checkpoint passes 1,067
+cases on each locked stack across nineteen complete owners, with all seven
+pinned hooks passing. The handoff records exact source epochs, independent
+review and retained failed fixture/hook outcomes. Root quality and successor CI
+remain separate gates. Numerical lowering and public LEGACY defaults remain
+unchanged.
+
+The earlier **2026-10-26** checkpoint qualifications below retain their original
+source epochs. The
+[canonical ledger](poc/source_integration_findings.md#current-checkpoint)
+records their paired checks, failed predecessors and outstanding gates.
 
 Shared finite SOURCE rules now cover additional reductions and reshape/broadcast
 compositions using typed equations, exact native dimension provenance and final

@@ -334,6 +334,7 @@ class _Scope:
     receipts: dict[int, _Receipt] = field(default_factory=dict)
     result_values: tuple[_Binding, ...] | None = None
     region: RegionReceipt | None = None
+    cast_plan: Any = None
 
 
 @dataclass(frozen=True)
@@ -360,6 +361,7 @@ class SourceStructureLedger:
         self.function_bodies: dict[object, Any] = {}
         self.function_calls: dict[EquationHandle, Any] = {}
         self.if_calls: dict[EquationHandle, Any] = {}
+        self.cast_plans: dict[EquationHandle, Any] = {}
         self.regions: dict[RegionKey, object] = {}
         self.pending_regions: list[_PendingRegion | None] = []
         self.root_body: Any = None
@@ -412,7 +414,15 @@ class SourceStructureLedger:
     def dispatch(self, eqn: JaxprEqn, index: int) -> Iterator[None]:
         def handle() -> EquationHandle:
             scope, _ = self._expected(eqn, index)
-            return EquationHandle(scope.invocation, index)
+            original = EquationHandle(scope.invocation, index)
+            if scope.cast_plan is not None:
+                if (
+                    index != scope.cast_plan.eligibility.root_ordinal
+                    or original in self.cast_plans
+                ):
+                    raise StructureUnavailable("cast-plan-equation-handle-unavailable")
+                self.cast_plans[original] = scope.cast_plan
+            return original
 
         self.handles.append(self._observe("equation-handle", handle))
         try:
@@ -543,6 +553,20 @@ class SourceStructureLedger:
                 variables,
                 body,
             )
+            if (
+                not self.scopes
+                and not self.active
+                and ctx._source_cast_plan is not None
+            ):
+                from ._source_cast_planning import plan_is_current
+
+                plan = ctx._source_cast_plan
+                if not plan_is_current(plan):
+                    raise StructureUnavailable("cast-plan-contract-unavailable")
+                if plan.eligibility is not None:
+                    if plan.eligibility.body != body:
+                        raise StructureMismatch("cast-plan-original-body-differs")
+                    scope.cast_plan = plan
             pending = self.pending_regions[-1] if self.pending_regions else None
             if pending is not None and not pending.claimed:
                 if body.gaps:
@@ -1315,6 +1339,20 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         return StructureResult("failed", total, 0, tuple(sorted(ledger.failures))[:16])
     if ledger.gaps:
         return StructureResult("unverified", total, 0, tuple(sorted(ledger.gaps))[:16])
+    from ._source_cast_planning import plan_is_current
+
+    expected_cast_plans = {
+        EquationHandle(
+            scope.invocation, scope.cast_plan.eligibility.root_ordinal
+        ): scope.cast_plan
+        for scope in ledger.scopes
+        if scope.cast_plan is not None
+    }
+    if set(ledger.cast_plans) != set(expected_cast_plans) or any(
+        ledger.cast_plans[handle] is not plan or not plan_is_current(plan)
+        for handle, plan in expected_cast_plans.items()
+    ):
+        raise StructureUnavailable("cast-plan-handle-coverage-incomplete")
     graphs: dict[object, ir.Graph] = {}
     parents: dict[object, tuple[ir.Graph, ir.Node]] = {}
 

@@ -1,8 +1,8 @@
 # Computation Precision: Current User Experience
 
 Public precision-policy reference: `main` at `fae17822`, 2026-10-17, after the
-merged double-consumer repair. The local-branch snapshot below is dated
-2026-10-26; it does not change the public export options or defaults.
+merged double-consumer repair. The latest local-branch snapshot below is dated
+2026-10-27; it does not change the public export options or defaults.
 
 This document explains the precision behavior available to JAX model exporters.
 See the [technical details](precision_current_state.md) for implementation and
@@ -31,8 +31,19 @@ original callable state. It also accounts for original registered cases without
 changing their supplied comparison criteria. These bounded checks establish
 neither all-model support nor a general numerical guarantee.
 
-This unfinished local WIP continues stored **`e4db1943`**; **`fe214590`** remains
-the last fully green checkpoint. The complete available Python 3.13/JAX 0.11
+Published diagnostic checkpoint **`09f31f45`** passes all eight CI checks,
+including the complete Python 3.11–3.14 test suites. The private rounding
+component and native target-metadata experiment have separate focused checks;
+the exporter does not yet use the new rounding component. The later candidate's
+precision-plan and graph checks pass their complete focused and regression
+selections on both locked stacks. Selecting the correct source-dependent
+rounding procedure remains unfinished, as do the complete migration and public
+transition.
+The [handoff](implementation_handoff.md) distinguishes these results and retains
+the earlier host-observed rounding failure.
+
+The earlier 2026-10-26 qualifications retain their own scope. The complete
+available Python 3.13/JAX 0.11
 native-callable test owner now passes 312 cases, including all original 282
 identities; this is not locked modern-Python or all-model support. Current
 focused and broader pairs pass their recorded scopes. Current package typing

@@ -36,6 +36,7 @@ from .source_deployment import DeploymentTarget, MatrixPrecisionRequirement
 from .source_deployment_bindings import MatrixSiteBinding, record_matrix_site
 from .source_representation import representation_for_aval
 from .source_structure import SourceStructureLedger
+from ._source_cast_planning import WholeRootCastPlan
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
@@ -203,6 +204,7 @@ class IRContext:
             if precision_policy is PrecisionPolicy.SOURCE
             else None
         )
+        self._source_cast_plan: WholeRootCastPlan | None = None
         self._jaxpr_validator = jaxpr_validator
         if stacktrace_metadata is None:
             env_flag = os.getenv(_STACKTRACE_METADATA_ENV)

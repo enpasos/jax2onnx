@@ -272,6 +272,14 @@ def freeze_source_semantic_key(
     if primitive is None:
         return None
     primitive_name = primitive.name
+    if primitive is jax.lax.convert_element_type_p:
+        from jax2onnx.plugins.jax._source_f64_f16_structure import (
+            freeze_f64_f16_semantic_key,
+        )
+
+        cast_semantics = freeze_f64_f16_semantic_key(eqn, inputs, outputs)
+        if cast_semantics is not None:
+            return cast_semantics
     from jax2onnx.plugins._source_function_structure import (
         FunctionRule,
     )
