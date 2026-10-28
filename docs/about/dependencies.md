@@ -31,6 +31,82 @@ Node.js and Chromium WASM validation flows. The supported Python runtime
 minimum remains ONNX Runtime 1.24.1; exports do not select operators based on
 the runtime installed on the export machine.
 
+## Native CPU BF16 conversion in the JAX 0.10.2 cohort
+
+CI549 and CI551 captured an original JAX CPU BF16 TopK failure before ONNX
+conversion. On the affected hosted CPU, the first B2 native call ordered the
+distinct positive BF16 subnormal words `0001` and `007f` as indices `[0, 1]`
+instead of `[1, 0]`; the returned selected-input words themselves were retained.
+Passing local runs do not erase that hosted counterexample.
+
+The pinned XLA nested CPU emitter selects a different F32/BF16 conversion route
+from its ordinary emitter when certain native target features are available.
+The branch-owned patch makes the nested factory use the existing integer
+round-to-nearest-even and exact BF16 widening implementation consistently with
+the ordinary emitter. It changes neither CPU features nor the TopK algorithm,
+source program, runtime flags or numerical comparisons. This is a compiler
+repair candidate until an actual corrected build passes the affected workload;
+the particular instruction executed in the failed call has not been established.
+
+The inputs are recorded in `build_support/jaxlib/cpu-bf16-build-recipe.json`:
+JAX `990e6a0b84138346e6a38785412f36356e0e5dc3`, XLA
+`5a9e73cbd92530cac2ac36f4736a774b2412afe2`, its existing LLVM source revision,
+the exact compiler patch, Bazel 7.7.0, hermetic toolchain and Python requirement
+locks. The build uses the upstream `--local_xla_path` and `--python_version`
+interfaces. Its wheel has the visible local version
+`0.10.2+jax2onnx.bf16.<recipe-digest-prefix>`; official 0.10.2 bytes are never
+renamed or silently treated as corrected.
+
+The separate **Corrected CPU jaxlib build pilot** workflow runs on pushes to
+`precision-migration` that change its six build-support, controller, workflow,
+test or dependency-documentation paths. Optional user-initiated manual dispatch
+also remains available. It builds Linux x86_64 cp311 and cp312 candidates and
+does not replace ordinary CI. Push trials use the exact completed-wheel cache;
+manual dispatch can explicitly request a cache miss. It
+first measures actual capacity and stops unavailable unless at least 12 GiB
+memory and 64 GiB disk are free. The owned build is limited to 12 GiB aggregate
+RSS, one Bazel action, a 1 GiB JVM and 300 minutes, with live floors of 2 GiB
+available memory and 4 GiB disk. Bazel runs in batch mode with a fresh owned
+output root; the public Bazel cache is read-only, without remote execution.
+Linux subreaper adoption and PID/starttime-bound pidfds keep accounting and
+cleanup complete when compiler descendants create their own sessions.
+A standard runner's cold-build capacity remains unproved. Resource or log-limit
+exhaustion retains a failed trial, not a repaired-wheel fallback.
+
+Completed wheels and manifests use an exact recipe/platform/ABI cache key with
+no prefix restore. The standalone controller checks source archives, patch
+pre/postimages, tool versions, resolved dependency archives, compiler regression
+and manylinux tests, then every wheel RECORD hash, version, ABI and native
+member identity. A cache hit repeats wheel-byte verification. Neither these
+checks nor a caller-supplied manifest grant private SOURCE numerical authority;
+bit-for-bit build reproducibility also requires a separate matching build.
+An accepted cache manifest is committed only after final source/environment and
+owned-process cleanup fences; it binds the durable final-success evidence.
+Failed trials keep unverified wheel bytes and logs without an accepted marker.
+
+Installation is a later, explicit native-overlay step after independent review
+of the actual wheel hashes and renewed private build-authority records. In an
+owned environment, before any JAX import, the eventual command is:
+
+```bash
+sha256sum --check /absolute/path/to/independently-reviewed-wheel.sha256
+poetry run python -m pip install --no-deps --force-reinstall /absolute/path/to/reviewed-corrected-jaxlib.whl
+```
+
+The paths above are placeholders for a retained, independently accepted wheel,
+not currently published package coordinates. Preserve the original environment
+and its binary receipts before creating that overlay. Keep the base Poetry/uv
+locks and Python markers unchanged in this stage. Python 3.13/3.14 retain their
+original modern artifacts; the separate uv resolution is not rewritten.
+An expiring Actions cache or artifact URL is not a permanent package dependency.
+
+Qualification still requires the unchanged original 99-case native owner and
+385-case context request, complete B2/B5 fresh/warmed/eager inputs, exact words
+and indices, stable ties, signed zero and the original NaN policies. The affected
+hosted target and all four supported full CI cohorts, plus existing support
+checks, must pass on their reviewed binaries. The new focused compiler tests
+add obligations; they do not weaken or replace these gates.
+
 ## ONNX Runtime kernel gaps
 
 Some lowerings depend on kernels or behavior that ONNX Runtime lacks. Because

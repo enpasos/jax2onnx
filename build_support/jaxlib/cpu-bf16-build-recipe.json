@@ -1,0 +1,167 @@
+{
+  "derived": {
+    "recipe_sha256": "a4dbdd4045f22883233107a3a959a12998e31966ec70edcb399caecf9138c401",
+    "version": "0.10.2+jax2onnx.bf16.a4dbdd4045f22883"
+  },
+  "inputs": {
+    "abis": {
+      "3.11": "cp311",
+      "3.12": "cp312"
+    },
+    "bazel": {
+      "sha256": "fe7e799cbc9140f986b063e06800a3d4c790525075c877d00a7112669824acbf",
+      "url": "https://releases.bazel.build/7.7.0/release/bazel-7.7.0-linux-x86_64",
+      "version": "7.7.0"
+    },
+    "build_config": "ci_linux_x86_64",
+    "controller_sha256": "51ed5bbc5972f6c5175a6016a8e63d127077ddd87e4fee5cf36936a596e859bc",
+    "hermetic_toolchain": {
+      "cc_deps_bzl_sha256": "057c9ca72701c893fa4d517ff3836791abb52bad1b1c1c9e083f897d6c4623d7",
+      "compiler": "Clang18.1.8 (pinned default, not host discovery)",
+      "required_archive_alternatives": [
+        [
+          "40963e4bc262dfa9a43146f610140af0068b023ace8f3c50f1705a7b50de0830"
+        ],
+        [
+          "54ec30358afcc9fb8aa74307db3046f5187f9fb89fb37064cdde906e062ebf36",
+          "01b8e95e34e7d0117edd085577529b375ec422130ed212d2911727545314e6c2"
+        ],
+        [
+          "9a06397f9dc4fe2237d126f964f1a3c942ce0036ba51976ea0d7fce0bc3e2fb7",
+          "114a7d09078c6a2d29b506033e07442346099847ce6107c78ec3da86388ea4a5"
+        ]
+      ],
+      "rules_ml_toolchain_commit": "cad1047facbac4fb3c1124da68bf2cb36c7eb9ac",
+      "rules_ml_toolchain_integrity": "sha256-QJY+S8Ji36mkMUb2EBQK8AaLAjrOjzxQ8XBae1DeCDA=",
+      "sysroot": "x86_64_ubuntu18_gcc8.4-0.2.1 / glibc2.27"
+    },
+    "input_authority_receipts": {
+      "build_plan_sha256": "07d3af6689723bf3f1e24c73892dd84958bf524f5efad39abf592c8900a78a5b",
+      "compiler_static_review_sha256": "d540c274adebdc84d1643643e2e6bde58331a017dc4d7fe6aa51231d7b48f719",
+      "primary_tar_api_binding_sha256": "d2fe4cc0c37df63b99de51701815e93bf90bdf1e6825b1dd5d34d8fd6823f3bf",
+      "real_patch_apply_reverse_sha256": "b373c985e339c60f1c87eb8894d96cb2bbb741be80fb9327e6fcda49d1a2227c",
+      "resource_completion_review_contract_sha256": "1c5c6f3673e53cea9e4960095833ba7bea42ac3b565e9ee067207ff2e8753f9d",
+      "source_archive_acquisition_sha256": "a88337179c0ed25d27d93bea9a96d53f96097fe92f3e08d22ec39f73be75dabe"
+    },
+    "jax": {
+      "bytes": 20056129,
+      "commit": "990e6a0b84138346e6a38785412f36356e0e5dc3",
+      "sha256": "df668a015f8b1cd5ecddcb45cdb7a798580573bcff0eb452422358629403488c",
+      "url": "https://codeload.github.com/jax-ml/jax/tar.gz/990e6a0b84138346e6a38785412f36356e0e5dc3"
+    },
+    "llvm_commit": "35901313800ea6e6cbeb9226e51c7c4b29bfc40e",
+    "patch": {
+      "sha256": "0068ea6413ef79971b026d121838236b8622f093f2ba508ada06611fdb71aad0",
+      "targets": {
+        "xla/service/cpu/ir_emitter.cc": {
+          "after_sha256": "09cce871b6bd7063d7a6654a5a0250a79e9ed697167d4ea3c9b50026610239d7",
+          "before_sha256": "235ba806045eabc2848698e299f62dd5c8a1c6a8b64705363d3c46fef3da657f"
+        },
+        "xla/service/cpu/tests/BUILD": {
+          "after_sha256": "a591ea47865936565310a0dccd561bb9b6c2d4a91496f5e062dab7eb552afe55",
+          "before_sha256": "15c87fb74ee399d3bbc3d0c7781e41896d05759663c15d971f1ca31991835cf2"
+        },
+        "xla/service/cpu/tests/nested_bf16_conversion_test.cc": {
+          "after_sha256": "8c912e987793833f415805b0c6ecc1732b0b980b3046d91f0ef12357a218dfe6",
+          "before_sha256": null
+        }
+      }
+    },
+    "platform": "manylinux_2_27_x86_64",
+    "public_bazel_cache": "https://storage.googleapis.com/jax-bazel-cache/",
+    "resources": {
+      "live_disk": 4294967296,
+      "live_memory": 2147483648,
+      "log_bytes": 536870912,
+      "owned_rss": 12884901888,
+      "startup_disk": 68719476736,
+      "startup_memory": 12884901888,
+      "timeout_seconds": 18000
+    },
+    "source_files": [
+      {
+        "path": ".bazelrc",
+        "sha256": "cc7d6a1b6fd09526c20622c313919e299b3ef669e14a319e23c20517f7474e1e",
+        "tree": "jax"
+      },
+      {
+        "path": ".bazelversion",
+        "sha256": "4eadffff0f101ee257a59e681df1ec9f163ead7c2f0d0865e2be54470c6f3c1b",
+        "tree": "jax"
+      },
+      {
+        "path": "build/build.py",
+        "sha256": "6e4483441a6da4149bb9b5e5a641c193b2c85a1b7366ec7d64b0f8d179b23ba7",
+        "tree": "jax"
+      },
+      {
+        "path": "build/requirements_lock_3_11.txt",
+        "sha256": "9d01053de8a641811e7be085974720847df8b2ca1037df4d83be8697a9748da9",
+        "tree": "jax"
+      },
+      {
+        "path": "build/requirements_lock_3_12.txt",
+        "sha256": "029dc8a221c724518f021b7a2ccf533468072dfbc59687e720478c4f212267c8",
+        "tree": "jax"
+      },
+      {
+        "path": "build/tools/utils.py",
+        "sha256": "2e1c7401a1be5a8a3df10b97b106cf579b6068f01e7a03a27adf2b99c47f3083",
+        "tree": "jax"
+      },
+      {
+        "path": "jax/version.py",
+        "sha256": "96431a0e76ef4bc5fb35f128b77e987af47403893724dbd4147875517ba7e5e8",
+        "tree": "jax"
+      },
+      {
+        "path": "jaxlib/setup.py",
+        "sha256": "45c6b4d7ed972e1c065fc2b9f9403846f6a215cdc3d63b84fe51e75d8eabe0e2",
+        "tree": "jax"
+      },
+      {
+        "path": "jaxlib/jax.bzl",
+        "sha256": "3fb9e22d4f2f4d526ba45bf8516f73fd4c741f01d203a376cdb013005d6928db",
+        "tree": "jax"
+      },
+      {
+        "path": "jaxlib/tools/BUILD.bazel",
+        "sha256": "e3ffa016c744ff65cf55476d9816490e5e98e494186fc6764db9ce6b1ed016a2",
+        "tree": "jax"
+      },
+      {
+        "path": "third_party/xla/revision.bzl",
+        "sha256": "5e04b20a125884b63dd756d69818b4b29658597f8099e823da912b618fb952e9",
+        "tree": "jax"
+      },
+      {
+        "path": "MODULE.bazel",
+        "sha256": "3bf60db126d75bd3647ed65473b26b9208d7cfd8be2fc9a1b2382cdcbb2ff7a5",
+        "tree": "xla"
+      },
+      {
+        "path": "third_party/llvm/workspace.bzl",
+        "sha256": "a7153420876205a28022ebc8e915487e27e8015227e614d27169d6d9497319ec",
+        "tree": "xla"
+      },
+      {
+        "path": "xla/codegen/intrinsic/fptrunc.cc",
+        "sha256": "d8f159d57bbdcd483e6b7cf6f5407328a353a918f39d55c8a0f69df3b1713ea0",
+        "tree": "xla"
+      },
+      {
+        "path": "xla/service/cpu/ir_emitter2.cc",
+        "sha256": "55c94f2096187a757b7f2ef7db38504583914320dcdc96e4ca7ecb0c379da0be",
+        "tree": "xla"
+      }
+    ],
+    "target_cpu_features": "release",
+    "xla": {
+      "bytes": 28172460,
+      "commit": "5a9e73cbd92530cac2ac36f4736a774b2412afe2",
+      "sha256": "08a52210a04cd68d38f6201d56273d04ac0f8b4e0da9f72677c74a48cc637422",
+      "url": "https://codeload.github.com/openxla/xla/tar.gz/5a9e73cbd92530cac2ac36f4736a774b2412afe2"
+    }
+  },
+  "schema": "corrected-jaxlib-cpu-bf16-recipe-v1"
+}
