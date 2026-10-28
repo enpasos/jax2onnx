@@ -222,6 +222,10 @@ def validate_recipe(recipe, patch):
     )
     require(inputs["resources"] == LIMITS, "resource policy mismatch")
     require(
+        type(inputs.get("build_jobs")) is int and inputs["build_jobs"] == 3,
+        "build scheduling policy mismatch",
+    )
+    require(
         sha(patch)
         == inputs["patch"]["sha256"]
         == "0068ea6413ef79971b026d121838236b8622f093f2ba508ada06611fdb71aad0",
@@ -1403,7 +1407,7 @@ def build_options(out, recipe, python_version):
         "--repo_env=ML_WHEEL_VERSION_SUFFIX=+"
         + recipe["derived"]["version"].split("+", 1)[1],
         "--repo_env=HERMETIC_PYTHON_VERSION=" + python_version,
-        "--jobs=1",
+        "--jobs=" + str(recipe["inputs"]["build_jobs"]),
         "--remote_executor=",
         "--remote_cache=" + recipe["inputs"]["public_bazel_cache"],
         "--remote_upload_local_results=false",

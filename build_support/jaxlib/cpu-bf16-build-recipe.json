@@ -1,7 +1,7 @@
 {
   "derived": {
-    "recipe_sha256": "13be4ef47e6c16192e890d54e087dfc9cfa06e823bae5d030ef5e6849dfd08ae",
-    "version": "0.10.2+jax2onnx.bf16.13be4ef47e6c1619"
+    "recipe_sha256": "eb0065fd497fab5fa965114ede422cb2f441b223c9f6a14b980262babedfb086",
+    "version": "0.10.2+jax2onnx.bf16.eb0065fd497fab5f"
   },
   "inputs": {
     "abis": {
@@ -14,7 +14,8 @@
       "version": "7.7.0"
     },
     "build_config": "ci_linux_x86_64",
-    "controller_sha256": "9db978d7bf7afe08b48fb6bf0b738833d140f56f4b7a25703452792a0c28cdaf",
+    "build_jobs": 3,
+    "controller_sha256": "f664433fa6e710fa5a5b66ed8bc538c886af32035dd54034beea53d0782a7834",
     "hermetic_toolchain": {
       "cc_deps_bzl_sha256": "057c9ca72701c893fa4d517ff3836791abb52bad1b1c1c9e083f897d6c4623d7",
       "compiler": "Clang18.1.8 (pinned default, not host discovery)",

@@ -65,12 +65,16 @@ does not replace ordinary CI. Push trials use the exact completed-wheel cache;
 manual dispatch can explicitly request a cache miss. It
 first measures actual capacity and stops unavailable unless at least 12 GiB
 memory and 64 GiB disk are free. The owned build is limited to 12 GiB aggregate
-RSS, one Bazel action, a 1 GiB JVM and 300 minutes, with live floors of 2 GiB
-available memory and 4 GiB disk. Bazel runs in batch mode with a fresh owned
-output root; the public Bazel cache is read-only, without remote execution.
+RSS, up to three concurrent Bazel jobs, a 1 GiB JVM and 300 minutes, with live
+floors of 2 GiB available memory and 4 GiB disk. Bazel runs in batch mode with a
+fresh owned output root; the public Bazel cache is read-only, without remote execution.
 Linux subreaper adoption and PID/starttime-bound pidfds keep accounting and
 cleanup complete when compiler descendants create their own sessions.
-A standard runner's cold-build capacity remains unproved. Resource or log-limit
+The earlier [one-job cp311 and cp312 trials](https://github.com/enpasos/jax2onnx/actions/runs/40643345683)
+reached the 300-minute limit during the wheel build; neither reached compiler
+tests or produced an accepted corrected wheel. Three jobs are a bounded
+scheduling trial, with completion and memory use still unproved under the
+unchanged limits. No native numerical repair is qualified. Resource or log-limit
 exhaustion retains a failed trial, not a repaired-wheel fallback.
 
 Completed wheels and manifests use an exact recipe/platform/ABI cache key with

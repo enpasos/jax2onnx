@@ -809,6 +809,191 @@ class CorrectedJaxlibRecipeTest(unittest.TestCase):
                     builder.unpack(archive, folder / "owned", "prefix", NoNativeTrial())
                 self.assertFalse((folder / "escape").exists())
 
+    def test_three_job_recipe_is_exact_and_preserves_both_abi_options(self):
+        value = recipe()
+        builder.validate_recipe(value, builder.PATCH.read_bytes())
+        self.assertIs(type(value["inputs"]["build_jobs"]), int)
+        self.assertEqual(value["inputs"]["build_jobs"], 3)
+        out = Path("/owned/trial")
+        for python_version in ("3.11", "3.12"):
+            options = builder.build_options(out, value, python_version)
+            self.assertEqual(
+                options,
+                [
+                    "--config=ci_linux_x86_64",
+                    "--repo_env=ML_WHEEL_TYPE=release",
+                    "--repo_env=ML_WHEEL_VERSION_SUFFIX=+"
+                    + value["derived"]["version"].split("+", 1)[1],
+                    "--repo_env=HERMETIC_PYTHON_VERSION=" + python_version,
+                    "--jobs=3",
+                    "--remote_executor=",
+                    "--remote_cache=https://storage.googleapis.com/jax-bazel-cache/",
+                    "--remote_upload_local_results=false",
+                    "--bes_backend=",
+                    "--repository_cache=/owned/trial/repository-cache",
+                    "--override_repository=xla=/owned/trial/xla",
+                    "--override_module=xla=/owned/trial/xla",
+                ],
+            )
+            self.assertEqual(
+                [option for option in options if option.startswith("--jobs=")],
+                ["--jobs=3"],
+            )
+        missing = recipe()
+        del missing["inputs"]["build_jobs"]
+        with self.assertRaisesRegex(ValueError, "scheduling policy"):
+            builder.validate_recipe(redigest(missing), builder.PATCH.read_bytes())
+        for invalid in (None, True, False, 3.0, "3", 0, 1, 2, 4, -1, "auto"):
+            changed = recipe()
+            changed["inputs"]["build_jobs"] = invalid
+            with self.assertRaisesRegex(ValueError, "scheduling policy"):
+                builder.validate_recipe(redigest(changed), builder.PATCH.read_bytes())
+
+    def test_three_job_common_options_reach_actual_build_and_compiler_commands(self):
+        tree = ast.parse((ROOT / "scripts/build_corrected_jaxlib.py").read_text())
+        trial = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "build_trial"
+        )
+
+        def expression(source):
+            return ast.dump(
+                ast.parse(source, mode="eval").body, include_attributes=False
+            )
+
+        assignments = {
+            node.targets[0].id: node.value
+            for node in ast.walk(trial)
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        }
+        self.assertEqual(
+            ast.dump(assignments["common"], include_attributes=False),
+            expression("build_options(out, recipe, python_version)"),
+        )
+        self.assertEqual(
+            ast.dump(assignments["forwarded"], include_attributes=False),
+            expression(
+                "[v for v in common if not v.startswith(("
+                "'--repo_env=HERMETIC_PYTHON_VERSION=', "
+                "'--override_repository=', '--override_module='))]"
+            ),
+        )
+        additions = [
+            ast.dump(node.value, include_attributes=False)
+            for node in ast.walk(trial)
+            if isinstance(node, ast.AugAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "argv"
+            and isinstance(node.op, ast.Add)
+        ]
+        self.assertEqual(
+            additions,
+            [
+                expression(
+                    "['--bazel_startup_options=' + option "
+                    "for option in startup_options(out)]"
+                ),
+                expression("['--bazel_options=' + option for option in forwarded]"),
+            ],
+        )
+        commands = {
+            node.args[2].value: node.args[0]
+            for node in ast.walk(trial)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "trial"
+            and node.func.attr == "run"
+            and len(node.args) == 3
+            and isinstance(node.args[2], ast.Constant)
+        }
+        self.assertEqual(
+            list(commands),
+            [
+                "bazel-version",
+                "jaxlib-build",
+                "compiler-and-manylinux-tests",
+                "resolved-module-graph",
+            ],
+        )
+        self.assertEqual(
+            ast.dump(commands["jaxlib-build"], include_attributes=False),
+            expression("argv"),
+        )
+        self.assertEqual(
+            ast.dump(
+                commands["compiler-and-manylinux-tests"], include_attributes=False
+            ),
+            expression(
+                "[*base, 'test', *common, "
+                "'@xla//xla/service/cpu/tests:nested_bf16_conversion_test_cpu', "
+                "'//jaxlib/tools:jaxlib_manylinux_compliance_test', '--test_output=all']"
+            ),
+        )
+
+    def test_three_job_identity_rejects_the_old_completed_recipe_for_both_abis(self):
+        value = recipe()
+        current_digest = builder.recipe_digest(value)
+        previous = copy.deepcopy(value)
+        del previous["inputs"]["build_jobs"]
+        previous["inputs"][
+            "controller_sha256"
+        ] = "9db978d7bf7afe08b48fb6bf0b738833d140f56f4b7a25703452792a0c28cdaf"
+        redigest(previous)
+        previous_digest = (
+            "13be4ef47e6c16192e890d54e087dfc9cfa06e823bae5d030ef5e6849dfd08ae"
+        )
+        self.assertEqual(builder.recipe_digest(previous), previous_digest)
+        self.assertNotEqual(current_digest, previous_digest)
+        self.assertEqual(value["derived"]["recipe_sha256"], current_digest)
+        self.assertEqual(
+            value["derived"]["version"],
+            "0.10.2+jax2onnx.bf16." + current_digest[:16],
+        )
+        self.assertEqual(
+            value["inputs"]["controller_sha256"],
+            builder.file_record(ROOT / "scripts/build_corrected_jaxlib.py")["sha256"],
+        )
+        for python_version, abi in (("3.11", "cp311"), ("3.12", "cp312")):
+            self.assertEqual(
+                builder.cache_key(value, python_version),
+                "corrected-jaxlib-linux-x86_64-" + abi + "-" + current_digest,
+            )
+            self.assertNotEqual(
+                builder.cache_key(value, python_version),
+                builder.cache_key(previous, python_version),
+            )
+            with tempfile.TemporaryDirectory() as name:
+                folder = Path(name)
+                wheel = wheel_fixture(folder, previous, python_version)
+                manifest = {
+                    "schema": "corrected-jaxlib-wheel-provenance-v1",
+                    "recipe_sha256": previous_digest,
+                    "cache_key": builder.cache_key(previous, python_version),
+                    "python_version": python_version,
+                    "numerical_authority": False,
+                    "build_status": "BUILT_AND_BYTE_VERIFIED_NOT_NUMERICALLY_QUALIFIED",
+                    "source_commits": {
+                        "jax": builder.JAX,
+                        "xla": builder.XLA,
+                        "llvm": builder.LLVM,
+                    },
+                    "patch_sha256": previous["inputs"]["patch"]["sha256"],
+                    "compiler_tests_and_manylinux_status": "PASSED",
+                    "bit_reproducibility": "UNPROVEN",
+                    "wheel": builder.verify_wheel(wheel, previous, python_version),
+                }
+                bind_final_fixture(folder, previous, manifest)
+                (folder / "wheel-provenance.json").write_text(json.dumps(manifest))
+                self.assertEqual(
+                    builder.verify_completed(folder, previous, python_version), manifest
+                )
+                with self.assertRaisesRegex(ValueError, "cache provenance mismatch"):
+                    builder.verify_completed(folder, value, python_version)
+
 
 if __name__ == "__main__":
     unittest.main()
