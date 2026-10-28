@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import copy
 import csv
@@ -380,6 +381,52 @@ def real_supervision_case(test, mode):
 
 
 class CorrectedJaxlibRecipeTest(unittest.TestCase):
+    def test_bazel_version_query_matches_pinned_argc_two_fast_path(self):
+        # Bazel 7.7.0 blaze.cc:1361-1363 handles argc==2 and --version
+        # before cwd/options/RunLauncher; with startup options it rejects
+        # --version in OptionProcessor::SplitCommandLine instead. Bind this
+        # source contract to the production call, not an unused helper/mock.
+        tree = ast.parse((ROOT / "scripts/build_corrected_jaxlib.py").read_text())
+        trial = next(
+            n
+            for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == "build_trial"
+        )
+        calls = [
+            n
+            for n in ast.walk(trial)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "run"
+            and isinstance(n.func.value, ast.Name)
+            and n.func.value.id == "trial"
+            and len(n.args) == 3
+            and isinstance(n.args[2], ast.Constant)
+            and n.args[2].value == "bazel-version"
+        ]
+        self.assertEqual(len(calls), 1)
+        argv = calls[0].args[0]
+        self.assertIsInstance(argv, ast.List)
+        self.assertEqual(
+            len(argv.elts), 2, "version metadata must use Bazel's pre-parser fast path"
+        )
+        self.assertEqual(
+            ast.dump(argv.elts[0], include_attributes=False),
+            ast.dump(
+                ast.parse("str(bazel)", mode="eval").body, include_attributes=False
+            ),
+        )
+        actual = ["/owned/bazel-7.7.0", ast.literal_eval(argv.elts[1])]
+        self.assertTrue(len(actual) == 2 and actual[1] == "--version")
+        published_failure = [
+            actual[0],
+            *builder.startup_options(Path("/owned/trial")),
+            "--version",
+        ]
+        self.assertFalse(
+            len(published_failure) == 2 and published_failure[1] == "--version"
+        )
+
     def test_real_count_admission_failure_still_closes_owned_setsid_children(self):
         real_supervision_case(self, "count")
 

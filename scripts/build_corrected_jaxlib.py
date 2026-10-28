@@ -1498,9 +1498,9 @@ def build_trial(out, recipe, python_version, report):
             )
         bazel = trial.download(recipe["inputs"]["bazel"], "bazel-7.7.0")
         bazel.chmod(0o700)
-        trial.run(
-            [str(bazel), *startup_options(out), "--version"], out, "bazel-version"
-        )
+        # Bazel 7.7's argc==2 metadata shortcut precedes startup parsing,
+        # workspace access, JVM launch and installation.
+        trial.run([str(bazel), "--version"], out, "bazel-version")
         require(
             (out / "bazel-version.log").read_text().strip() == "bazel 7.7.0",
             "actual Bazel version mismatch",
