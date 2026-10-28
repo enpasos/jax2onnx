@@ -27,7 +27,6 @@ import time
 from typing import Any
 import xml.etree.ElementTree as ET
 
-
 _MAX_BATCH_SIZE = 500
 _ISOLATED_OWNER = "test_source_model_native_bindings_exports.py"
 _CAST_OBSERVER_NODE = (
@@ -36,6 +35,10 @@ _CAST_OBSERVER_NODE = (
     "[ties-float16-float64]"
 )
 _CAST_DIAGNOSTIC_NAME = "source-f64-f16-cast-observation.json"
+_BF16_CAPTURE_NODE = (
+    "tests/extra_tests/converter/test_source_native_top_k.py::"
+    "test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-inline]"
+)
 _CONTROL_SCHEMA = "source-cast-observer-off-v1"
 _REQUEST_FIELDS = (
     "kind",
@@ -606,6 +609,18 @@ def _worker(request_path: Path) -> int:
         postmortem_pin: Any = None
         postmortem_module: Any = None
         cast_observer: Any = None
+        bf16_capture: Any = None
+
+        def release_bf16_capture(self) -> None:
+            capture, self.bf16_capture = self.bf16_capture, None
+            if capture is not None:
+                try:
+                    capture.close()
+                except BaseException as error:
+                    receipt["bf16_capture_cleanup"] = {
+                        "status": "UNVERIFIED",
+                        "error_type": type(error).__name__,
+                    }
 
         def release_capture(self) -> None:
             observer, self.cast_observer = self.cast_observer, None
@@ -673,6 +688,47 @@ def _worker(request_path: Path) -> int:
 
         @pytest.hookimpl(hookwrapper=True)
         def pytest_runtest_call(self, item: Any) -> Any:
+            if (
+                request["kind"] == "batch"
+                and control is None
+                and item.nodeid == _BF16_CAPTURE_NODE
+            ):
+                capture: Any = None
+                try:
+                    from importlib.util import module_from_spec, spec_from_file_location
+
+                    receipt["bf16_context_before"] = _worker_context()
+                    path = Path(__file__).with_name("_source_bf16_topk_capture.py")
+                    spec = spec_from_file_location("_source_bf16_topk_capture", path)
+                    if spec is None or spec.loader is None:
+                        raise ValueError("BF16 capture loader unavailable")
+                    module = module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    capture = module.start_observation(
+                        folder, item, receipt["bf16_context_before"]
+                    )
+                    self.bf16_capture = capture
+                except BaseException as error:
+                    receipt["bf16_capture"] = {
+                        "status": "UNVERIFIED",
+                        "stage": "start",
+                        "error_type": type(error).__name__,
+                    }
+                try:
+                    yield
+                finally:
+                    if capture is not None:
+                        try:
+                            capture.finish()
+                            receipt["bf16_context_after"] = _worker_context()
+                            capture.finish_context(receipt["bf16_context_after"])
+                        except BaseException as error:
+                            receipt["bf16_capture"] = {
+                                "status": "UNVERIFIED",
+                                "stage": "finish",
+                                "error_type": type(error).__name__,
+                            }
+                return
             if request["kind"] != "batch" or item.nodeid != _CAST_OBSERVER_NODE:
                 yield
                 return
@@ -774,6 +830,22 @@ def _worker(request_path: Path) -> int:
         def pytest_runtest_makereport(self, item: Any, call: Any) -> Any:
             outcome = yield
             if (
+                request["kind"] == "batch"
+                and control is None
+                and item.nodeid == _BF16_CAPTURE_NODE
+                and call.when == "call"
+            ):
+                if self.bf16_capture is not None:
+                    try:
+                        self.bf16_capture.retain_report(call, outcome.get_result())
+                    except BaseException as error:
+                        receipt["bf16_capture"] = {
+                            "status": "UNVERIFIED",
+                            "stage": "original-report",
+                            "error_type": type(error).__name__,
+                        }
+                return
+            if (
                 control is None
                 or item.nodeid != _CAST_OBSERVER_NODE
                 or call.when != "call"
@@ -830,6 +902,48 @@ def _worker(request_path: Path) -> int:
                 entry["longrepr"] = str(report.longrepr)
             receipt["phases"].setdefault(report.nodeid, []).append(entry)
             append_event({"kind": "phase", "nodeid": report.nodeid, **entry})
+            if (
+                request["kind"] == "batch"
+                and control is None
+                and report.nodeid == _BF16_CAPTURE_NODE
+                and report.when == "call"
+                and self.bf16_capture is not None
+            ):
+                try:
+                    checkpoint()
+                    for name in ("events.jsonl", "receipt.json"):
+                        with (folder / name).open("rb") as stream:
+                            os.fsync(stream.fileno())
+                    descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+                    try:
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                    self.bf16_capture.after_report(
+                        {
+                            "nodeid": report.nodeid,
+                            **entry,
+                            "durable_phase_recorded": True,
+                            "receipt_target_phases": list(
+                                receipt["phases"][report.nodeid]
+                            ),
+                        }
+                    )
+                    receipt["bf16_capture"] = {
+                        "status": self.bf16_capture.report["status"],
+                        "manifest": "source-bf16-topk-native/manifest.json",
+                        "errors": self.bf16_capture.report["errors"],
+                        "original_test_outcome_authoritative": True,
+                    }
+                except BaseException as error:
+                    receipt["bf16_capture"] = {
+                        "status": "UNVERIFIED",
+                        "stage": "after-report",
+                        "error_type": type(error).__name__,
+                        "original_test_outcome_authoritative": True,
+                    }
+                finally:
+                    self.release_bf16_capture()
             if (
                 report.nodeid == _CAST_OBSERVER_NODE
                 and report.when == "call"
@@ -893,6 +1007,7 @@ def _worker(request_path: Path) -> int:
         checkpoint()
         raise
     finally:
+        plugin.release_bf16_capture()
         plugin.release_capture()
     receipt["exitstatus"] = result
     receipt["finished"] = _now()
