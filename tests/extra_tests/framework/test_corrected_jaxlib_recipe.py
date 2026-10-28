@@ -438,8 +438,7 @@ class CorrectedJaxlibRecipeTest(unittest.TestCase):
 
     def test_real_resource_failures_preserve_failure_and_close_descendants(self):
         for mode in ("timeout", "rss", "nonzero"):
-            with self.subTest(mode=mode):
-                real_supervision_case(self, mode)
+            real_supervision_case(self, mode)
 
     def test_reused_pid_starttime_cannot_retain_or_signal_replacement(self):
         owned = object.__new__(builder.OwnedBuildProcesses)
@@ -584,12 +583,9 @@ class CorrectedJaxlibRecipeTest(unittest.TestCase):
             ("RUNNER_OS", "Windows"),
             ("RUNNER_ARCH", "ARM64"),
         ):
-            with self.subTest(field=field, value=value):
-                self.assertFalse(
-                    builder.remote_context_allowed(
-                        {**environment, field: value}, "x86_64"
-                    )
-                )
+            self.assertFalse(
+                builder.remote_context_allowed({**environment, field: value}, "x86_64")
+            )
         self.assertFalse(builder.remote_context_allowed({}, "x86_64"))
         self.assertFalse(builder.remote_context_allowed(environment, "aarch64"))
 
@@ -652,11 +648,10 @@ class CorrectedJaxlibRecipeTest(unittest.TestCase):
             ("jax", "sha256", "0" * 64),
             ("xla", "sha256", "0" * 64),
         ):
-            with self.subTest(tree=tree, field=field):
-                value = recipe()
-                value["inputs"][tree][field] = replacement
-                with self.assertRaises(ValueError):
-                    builder.validate_recipe(redigest(value), builder.PATCH.read_bytes())
+            value = recipe()
+            value["inputs"][tree][field] = replacement
+            with self.assertRaises(ValueError):
+                builder.validate_recipe(redigest(value), builder.PATCH.read_bytes())
         value = recipe()
         value["inputs"]["llvm_commit"] = "0" * 40
         with self.assertRaisesRegex(ValueError, "revision"):
@@ -709,7 +704,7 @@ class CorrectedJaxlibRecipeTest(unittest.TestCase):
             "symlink",
             "duplicate-zip",
         ):
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as name:
+            with tempfile.TemporaryDirectory() as name:
                 path = wheel_fixture(Path(name), recipe(), mutation=mutation)
                 with self.assertRaises(ValueError):
                     builder.verify_wheel(path, recipe(), "3.11")
@@ -800,7 +795,7 @@ class CorrectedJaxlibRecipeTest(unittest.TestCase):
                 pass
 
         for member in ("prefix/../../escape", "/absolute", "prefix/link"):
-            with self.subTest(member=member), tempfile.TemporaryDirectory() as name:
+            with tempfile.TemporaryDirectory() as name:
                 folder = Path(name)
                 archive = folder / "source.tar.gz"
                 with tarfile.open(archive, "w:gz") as target:
