@@ -307,9 +307,18 @@ def test_unhandled_native_body_never_claims_an_exact_outer_prefix_total(
     else:
         model = _source(lambda x, y: _scanned_difference(x, y))
     result = _proof(model)
-    assert result.status == "unverified"
-    assert result.expected_equations is None
-    assert "expected-region-total-unknown" in result.reasons
+    if carrier == "scan":
+        assert result.status == "validated", result
+        assert (
+            result.expected_equations
+            == result.checked_equations
+            == (3 if nested else 2)
+        )
+        assert "expected-region-total-unknown" not in result.reasons
+    else:
+        assert result.status == "unverified"
+        assert result.expected_equations is None
+        assert "expected-region-total-unknown" in result.reasons
     assert "scope-capture:source-region-declaration-differs" not in result.reasons
 
 
@@ -727,7 +736,20 @@ def test_visible_control_descendants_remain_expected_without_attachment_adapter(
             "next-condition",
         }
     else:
-        assert result.status == "unverified"
-        assert any(
-            "attachment-contract-unavailable" in reason for reason in result.reasons
-        )
+        assert result.status == "validated", result
+        assert result.checked_equations == result.expected_equations == 3
+        ledger = model.meta[structure._LEDGER]
+        assert not ledger.if_calls and len(ledger.literal_if_calls) == 1
+        attachment = next(iter(ledger.literal_if_calls.values()))
+        assert attachment.rule.index == 1
+        assert attachment.discharge.selector == attachment.rule.selector
+        assert {key.role for key in ledger.regions} == {"false", "true"}
+        assert attachment.false.body.expected_equations == 1
+        assert attachment.true.body.expected_equations == 1
+        assert attachment.false.invocation is attachment.discharge.inactive_invocation
+        assert attachment.false.body == attachment.discharge.inactive_body
+        assert attachment.discharge.inactive_role == "false"
+        assert attachment.discharge.graph_matched_equations == 1
+        assert attachment.discharge.semantically_discharged_equations == 2
+        assert attachment.discharge.inactive_nodes == ()
+        assert attachment.discharge.inactive_storage == ()

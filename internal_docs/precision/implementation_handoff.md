@@ -1,6 +1,65 @@
-# Precision migration handoff — 2026-10-27
+# Precision migration handoff — 2026-10-28
 
-## Current local checkpoint — 2026-10-27: qualified While structure
+## Current local checkpoint — 2026-10-28: finite Scan/literal/Identity structure
+
+Private SOURCE now binds supported Scan bodies, witnessed Constant-to-initializer
+lifts, Identity CSE/dead-Identity edges and exact literal-If selections. Ordered
+ports, captures, storage, aliases, visibility, clones and graph coverage remain
+strict. Both original literal-If branch counts remain; inactive pure childless
+branches are semantically discharged with zero final graph/storage coverage.
+Structural `runtime`/`numerics` remain **UNVERIFIED**, not a numerical certificate.
+
+Python 3.11 and 3.14 each pass **3,433 unique cases / 10,299 phases across 54
+complete, disjoint owners**, with zero failures, errors or skips and identical
+per-owner ordered IDs. This accepted aggregate spans two explicit source epochs;
+it is neither one-source-epoch execution nor a full-suite/model qualification.
+Ten passed packet runs use source
+`579b34ee3a3b78c6aed2f7fff531d047dd948e99e9c142236f13f626686cace7`
+and index `1928992c309faef0d6546610b202d1c6abe94bd3`.
+The two complete 114-case While/output-binding runs use source
+`37da2fc9f28b52b0df96fd6006e6bc15a5b96b1b00ed603e6722b365cb435614`
+and index `81995b75e9cee79e33e621813719b251ab0b0c60`. Only the While test fixture
+changed; the other seventeen staged files and all other tracked bytes held.
+Independent acceptance: `source-identity-dce-mixed-dual3433-independent-actual-review-612e9bd2ff.json`,
+SHA-256 `67884def4f346cd8fa7e8409b388640ee874527bb75732609dba9e0ea9aeb67f`.
+Root mixed-epoch binding: `d978dc3412c0e10a344f0bed0ce154ad4a6a47fff9997e5df2126eebbe07d605`.
+
+All old 113 focus IDs remain. The original five-equation While positive and
+initial-condition negative pass; a genuine Function/Constant baseline explicitly
+counts six equations and retains the exact visibility rejection after reorder.
+The added inverse-storage negative retains five equations and rejects provenance
+as unverified 5/0. Both earlier **3,431 PASS / one FAIL** aggregates remain in
+`source-identity-dce-complete54-17e-c6e104b8-actual-failed-epoch-v1.json`.
+Diagnostic `fd1084a98ef5` remains **UNQUALIFIED** for environment drift, with no authority.
+
+All seven normal pinned hooks pass at the eighteen-file `37da` epoch. Preferred
+Python 3.11 typing reports **596 files**; both RNG reports retain the same **17
+entries**. Modern mypy passes without a printed source-file count; none is inferred.
+Source/environment/resource/cleanup fences held. Quality acceptance:
+`source-identity-dce-staged18-quality-independent-review-a771aed97b.json`, SHA-256
+`e864dd7e7b047ca7fbe1abdb1747c641c582a3139b9c772d1ff21019ed20ad22`.
+
+Published HEAD `17e53847c85ba5c4bdab63613785067324ab64b7` contains the CI reporting
+repair, distinct from this unpublished eighteen-file SOURCE packet. At
+**2026-10-28 10:44:05 UTC**, [CI #555](https://github.com/enpasos/jax2onnx/actions/runs/40656763093) has **all eight terminal SUCCESS**.
+The PR merge `1ebe7ce0` against base `81ad6ca2` is distinct from the PR head; the `17e` publication gate is satisfied, and each successor head needs its own eight checks.
+The corrected-compiler pilots for [710](https://github.com/enpasos/jax2onnx/actions/runs/40643345683)
+and [17e](https://github.com/enpasos/jax2onnx/actions/runs/40656753772), recipe `13be4ef47e6c1619`,
+each have two LIVE jobs at **10:42:05 UTC**. No accepted wheel, installation or
+native numerical fix is claimed; original native99/full-context385 and CI gates remain.
+
+Public defaults remain **LEGACY**. Whole-Loop elision, native conditional-skip
+accounting, remaining JIT/scoped/symbolic and D1–D3 work, operators, fixed supplied
+and third-party models, durable artifacts/replay, full inventory/runtime/resource
+closure and the coordinated public transition remain open. The mandatory local
+full-model twelve-case MEMORY hold and full suite are separate unresolved gates;
+this checkpoint does not shorten **B–F**. This leading handoff is a docs-only
+successor to runtime/quality epoch `37da`; Python/test bytes are unchanged.
+Strict docs V2 PASS at nineteen-file docs-only epoch `1af22c52` using fresh external `--site-dir`; `site/` is versioned.
+The default-output rc0 trial remains **UNQUALIFIED** after its source-fence failure: 94 outputs/7.1 MB retained and eleven tracked files restored (closure `59d556d8cceb1bf6c974a877c27e556765a72b83a3fe0fa5fe997dd61f25ef2e`).
+Normal commit and the successor head's complete CI remain pending.
+
+## Earlier local checkpoint — 2026-10-27: qualified While structure
 
 The SOURCE While adapter now binds the three original condition/body invocations
 to their two actual graph owners, validates ordered state and captures, and

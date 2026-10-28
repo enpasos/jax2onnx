@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Final, Union, cast
+from contextlib import nullcontext
+from typing import Any, Final, TYPE_CHECKING, Union, cast
 
 import jax
 import jax.numpy as jnp
@@ -46,6 +47,9 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
     _unsqueeze_scalar,
 )
+
+if TYPE_CHECKING:
+    from jax2onnx.converter.source_structure import RegionKey
 
 
 def _jaxpr_contains_scatter(jpr_like: Any) -> bool:
@@ -971,7 +975,17 @@ class ScanPlugin(PrimitiveLeafPlugin):
         keep_float32 = function_keep_float32
         allow_double_outputs = ctx.builder.enable_double_precision and not keep_float32
 
-        lower_jaxpr_eqns(loop_ctx, jaxpr, source="scan")
+        ledger = ctx._source_structure
+        region = (
+            ledger.region(
+                "scan-body",
+                tuple(loop_ctx.require_value_for_var(var) for var in jaxpr.invars),
+            )
+            if ctx.precision_policy is PrecisionPolicy.SOURCE and ledger is not None
+            else nullcontext(None)
+        )
+        with region as source_region:
+            lower_jaxpr_eqns(loop_ctx, jaxpr, source="scan")
 
         body_outputs: list[ir.Value] = []
 
@@ -1255,6 +1269,17 @@ class ScanPlugin(PrimitiveLeafPlugin):
             output_names=call_parameters.output_names(output_names),
         )
 
+        if ctx.precision_policy is PrecisionPolicy.SOURCE and ledger is not None:
+            from jax2onnx.plugins.jax.lax._source_loop_structure import (
+                record_scan_attachment,
+            )
+
+            ledger._observe(
+                "scan-attachment",
+                lambda: record_scan_attachment(
+                    ctx, cast("RegionKey", source_region), body_graph, call_parameters
+                ),
+            )
         if not isinstance(loop_results, tuple):
             loop_results = (loop_results,)
         loop_results = call_parameters.original_results(loop_results)
@@ -1587,7 +1612,17 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     _ensure_value_metadata(loop_ctx, expanded)
                     loop_ctx.bind_value_for_var(per_step_var, expanded)
 
-        lower_jaxpr_eqns(loop_ctx, jaxpr, source="scan")
+        ledger = ctx._source_structure
+        region = (
+            ledger.region(
+                "scan-body",
+                tuple(loop_ctx.require_value_for_var(var) for var in jaxpr.invars),
+            )
+            if ctx.precision_policy is PrecisionPolicy.SOURCE and ledger is not None
+            else nullcontext(None)
+        )
+        with region as source_region:
+            lower_jaxpr_eqns(loop_ctx, jaxpr, source="scan")
 
         body_outputs: list[ir.Value] = []
 
@@ -1885,6 +1920,17 @@ class ScanPlugin(PrimitiveLeafPlugin):
             output_names=call_parameters.output_names(output_names),
         )
 
+        if ctx.precision_policy is PrecisionPolicy.SOURCE and ledger is not None:
+            from jax2onnx.plugins.jax.lax._source_loop_structure import (
+                record_scan_attachment,
+            )
+
+            ledger._observe(
+                "scan-attachment",
+                lambda: record_scan_attachment(
+                    ctx, cast("RegionKey", source_region), body_graph, call_parameters
+                ),
+            )
         if not isinstance(loop_results, tuple):
             loop_results = (loop_results,)
         loop_results = call_parameters.original_results(loop_results)

@@ -20,6 +20,7 @@ from jax2onnx._compat.jax import ClosedJaxpr, Jaxpr, Literal, Primitive
 from jax2onnx.converter import _source_regions as regions
 from jax2onnx.converter.source_structure import (
     ConstantContract,
+    LiteralOperand,
     StructureUnavailable,
     TensorContract,
 )
@@ -55,6 +56,7 @@ def _assert_only_immutable_contracts(value: Any) -> None:
         regions.FrozenUse,
         TensorContract,
         ConstantContract,
+        LiteralOperand,
     ), f"Native or opaque owner retained: {type(value)!r}"
     for field in fields(value):
         _assert_only_immutable_contracts(getattr(value, field.name))
@@ -779,10 +781,24 @@ def test_real_literal_condition_keeps_its_separate_unverified_attachment() -> No
     )
     frozen = regions.freeze_closed_body(native)
     equation = next(equation for equation in frozen.equations if equation.children)
-    assert equation.semantics is None
+    selector = equation.inputs[0]
+    assert selector.kind == "literal" and selector.tensor is not None
+    assert selector.tensor.logical_dtype == "int32"
+    assert selector.tensor.dtype is ir.DataType.INT32
+    assert selector.tensor.logical_shape == selector.tensor.shape == ()
+    assert selector.tensor.weak_type is False
+    assert selector.tensor.encoding == "identity"
+    assert selector.literal is not None
+    assert selector.literal == ConstantContract.from_array(np.asarray(1, np.int32))
+    assert equation.semantics == (
+        "literal-if",
+        1,
+        LiteralOperand(selector.tensor, selector.literal),
+    )
     assert tuple(role for role, _ in equation.children) == ("false", "true")
     assert frozen.expected_equations == expected
-    assert "if-attachment-contract-unavailable" in frozen.gaps
+    assert frozen.gaps == ()
+    assert all(child.gaps == () for _, child in equation.children)
     _assert_only_immutable_contracts(frozen)
 
 
@@ -872,9 +888,20 @@ def test_unhandled_real_native_child_regions_never_report_outer_prefix_as_total(
     declaration = regions.declare_body(native)
     frozen = regions.freeze_closed_body(native)
     assert len(declaration.equations) == len(frozen.equations) == len(outer)
-    assert declaration.expected_equations is frozen.expected_equations is None
-    assert "expected-region-total-unknown" in declaration.gaps
-    assert "expected-region-total-unknown" in frozen.gaps
+    if kind == "scan":
+        expected = len(outer) + sum(
+            len(getattr(child, "jaxpr", child).eqns) for child in children
+        )
+        assert (
+            declaration.expected_equations == frozen.expected_equations == expected == 3
+        )
+        assert "expected-region-total-unknown" not in declaration.gaps
+        assert frozen.gaps == ()
+        assert tuple(role for role, _ in frozen.equations[0].children) == ("scan-body",)
+    else:
+        assert declaration.expected_equations is frozen.expected_equations is None
+        assert "expected-region-total-unknown" in declaration.gaps
+        assert "expected-region-total-unknown" in frozen.gaps
     assert len(frozen.inputs) == len(native.jaxpr.invars)
     assert len(frozen.outputs) == len(native.jaxpr.outvars)
     _assert_only_immutable_contracts(declaration)

@@ -2477,7 +2477,10 @@ def remove_dead_nodes_ir(model: ir.Model) -> None:
         # Keep the graph intact when stacktrace metadata is requested so downstream
         # tooling (e.g. sandbox repros) can inspect unused nodes.
         return
-    common_passes.RemoveUnusedNodesPass()(model)
+    from ._source_identity_dce import observe_identity_dce
+
+    with observe_identity_dce(model):
+        common_passes.RemoveUnusedNodesPass()(model)
 
 
 # ---------------- Targeted cleanup: orphan Transpose nodes ----------------
@@ -2679,11 +2682,17 @@ def _run_name_fix_pass(model: ir.Model) -> None:
 
 
 def _run_common_subexpression_elimination_pass(model: ir.Model) -> None:
-    common_passes.CommonSubexpressionEliminationPass()(model)
+    from ._source_identity_cse import observe_identity_cse
+
+    with observe_identity_cse(model):
+        common_passes.CommonSubexpressionEliminationPass()(model)
 
 
 def _run_lift_constants_to_initializers_pass(model: ir.Model) -> None:
-    common_passes.LiftConstantsToInitializersPass(size_limit=0)(model)
+    from .source_structure import observe_constant_lifts
+
+    with observe_constant_lifts(model):
+        common_passes.LiftConstantsToInitializersPass(size_limit=0)(model)
 
 
 def _model_pass(

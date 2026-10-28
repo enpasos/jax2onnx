@@ -165,6 +165,8 @@ def declare_body(jaxpr: Any) -> FrozenBody:
                             ("next-condition", "cond_jaxpr"),
                         ):
                             children.append((role, walk(equation.params[key])))
+                    elif equation.primitive is jax.lax.scan_p:
+                        children.append(("scan-body", walk(equation.params["jaxpr"])))
                     elif _unhandled_native_body(equation.params):
                         gaps.add("expected-region-total-unknown")
                 except Exception:
@@ -286,6 +288,9 @@ def freeze_body(
                 ):
                     if key in equation.params:
                         children.append((role, closed(equation.params[key])))
+            elif equation.primitive is jax.lax.scan_p:
+                if "jaxpr" in equation.params:
+                    children.append(("scan-body", closed(equation.params["jaxpr"])))
             elif _unhandled_native_body(equation.params):
                 gaps.add("expected-region-total-unknown")
         semantics = None
@@ -304,12 +309,18 @@ def freeze_body(
                 gaps.add("source-semantic-key:" + type(exc).__name__)
         if semantics is None:
             gaps.add("source-semantic-contract-unavailable")
-        if equation.primitive is jax.lax.cond_p and semantics != ("dynamic-if",):
+        if equation.primitive is jax.lax.cond_p and (
+            semantics is None or semantics[0] not in ("dynamic-if", "literal-if")
+        ):
             gaps.add("if-attachment-contract-unavailable")
         if equation.primitive is jax.lax.while_p and (
             semantics is None or semantics[0] != "while"
         ):
             gaps.add("while-attachment-contract-unavailable")
+        if equation.primitive is jax.lax.scan_p and (
+            semantics is None or semantics[0] != "scan"
+        ):
+            gaps.add("scan-attachment-contract-unavailable")
         for _, child in children:
             gaps.update(child.gaps)
         equations.append(FrozenEquation(operands, results, semantics, tuple(children)))

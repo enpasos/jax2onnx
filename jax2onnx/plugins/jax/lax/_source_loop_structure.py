@@ -1,21 +1,27 @@
 # jax2onnx/plugins/jax/lax/_source_loop_structure.py
 
-"""Original scalar While roles and independent final Loop port/shape proofs.
+"""Original While/Scan roles and independent final Loop port/shape proofs.
 
 This module observes existing traces and final IR. It neither admits new source
-programs nor changes graph metadata. Scan remains a separate following rule.
+programs nor changes graph metadata. Each original invocation stays distinct.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx._compat.jax import ClosedJaxpr, Jaxpr
+from jax2onnx._compat.jax import (
+    ClosedJaxpr,
+    Jaxpr,
+    native_scan_flat_tree_partitions,
+    native_scan_parameter_names,
+    scan_arity,
+)
 from jax2onnx.converter.source_structure import (
     EquationHandle,
     LiteralOperand,
@@ -54,14 +60,138 @@ class WhileRule:
 
 @dataclass(frozen=True)
 class ScanRule:
-    """Reserved distinct rule type; no Scan attachment is supplied here."""
+    constants: int
+    carries: int
+    sequences: int
+    results: int
+    length: int
+    unroll: int
+    linear: tuple[bool, ...] | None
+    split_transpose: bool | None
+    partitions: tuple[tuple[int, ...], tuple[int, ...]] | None
+
+    def check(self, graph: Any, inputs: Any, outputs: Any, match_literal: Any) -> Any:
+        raise StructureUnavailable("scan-attachment-unavailable")
+
+
+def _freeze_scan_rule(
+    equation: Any,
+    inputs: tuple[TensorContract, ...],
+    outputs: tuple[TensorContract, ...],
+) -> ScanRule | None:
+    params = equation.params
+    fields = native_scan_parameter_names()
+    if (
+        equation.effects
+        or type(params) is not dict
+        or not fields <= set(params) <= fields | {"sharding", "out_sharding"}
+        or any(params.get(key) is not None for key in ("sharding", "out_sharding"))
+        or type(params["reverse"]) is not bool
+        or params["reverse"]
+        or type(params["length"]) is not int
+        or params["length"] < 0
+        or type(params["unroll"]) is not int
+        or params["unroll"] < 0
+        or any(
+            value.encoding != "identity" or value.symbol_token is not None
+            for value in (*inputs, *outputs)
+        )
+    ):
+        return None
+    closed = params["jaxpr"]
+    if type(closed) is not ClosedJaxpr and type(closed) is not Jaxpr:
+        return None
+    body = closed.jaxpr  # Native JAX 0.11+ may return self.
+    if body.effects or len(body.constvars) != len(closed.consts):
+        return None
+    partitions = native_scan_flat_tree_partitions(params)
+    if partitions is None:
+        if any(
+            type(params[key]) is not int or params[key] < 0
+            for key in ("num_consts", "num_carry")
+        ):
+            return None
+    elif not partitions[2]:
+        return None
+    nc, nk, nx = scan_arity(params, len(body.invars))
+    ny = len(body.outvars) - nk
+    if (
+        ny < 0
+        or len(inputs) != nc + nk + nx
+        or len(outputs) != nk + ny
+        or partitions is not None
+        and (partitions[0] != (nc, nk, nx) or partitions[1] != (nk, ny))
+    ):
+        return None
+    linear = params.get("linear")
+    split = params.get("_split_transpose")
+    if "linear" in fields and (
+        type(linear) is not tuple
+        or len(linear) != len(inputs)
+        or any(type(value) is not bool for value in linear)
+        or type(split) is not bool
+    ):
+        return None
+    length = params["length"]
+    sequence_inputs = inputs[nc + nk :]
+    if any(
+        not value.shape or value.shape[0] != length or value.logical_shape[0] != length
+        for value in sequence_inputs
+    ):
+        return None
+    shapes = _ShapeFreezer()
+    incoming = tuple(TensorContract.from_aval(var.aval, shapes) for var in body.invars)
+    outgoing = tuple(TensorContract.from_aval(var.aval, shapes) for var in body.outvars)
+    expected_inputs = (
+        *inputs[: nc + nk],
+        *(
+            replace(value, shape=value.shape[1:], logical_shape=value.logical_shape[1:])
+            for value in sequence_inputs
+        ),
+    )
+    if incoming != expected_inputs:
+        return None
+    # Native result weakness is independently validated by SOURCE admission.
+    # Carries preserve value dtype/shape even if a weak initial value strengthens.
+    for initial, final in zip(inputs[nc : nc + nk], outgoing[:nk], strict=True):
+        if replace(initial, weak_type=final.weak_type) != final:
+            return None
+    expected_outputs = (
+        *outgoing[:nk],
+        *(
+            replace(
+                value,
+                shape=(length, *value.shape),
+                logical_shape=(length, *value.logical_shape),
+            )
+            for value in outgoing[nk:]
+        ),
+    )
+    if any(
+        replace(expected, weak_type=actual.weak_type) != actual
+        for expected, actual in zip(expected_outputs, outputs, strict=True)
+    ):
+        return None
+    return ScanRule(
+        nc,
+        nk,
+        nx,
+        ny,
+        length,
+        params["unroll"],
+        linear,
+        split,
+        None if partitions is None else partitions[:2],
+    )
 
 
 def freeze_loop_rule(
     equation: Any,
     inputs: tuple[TensorContract, ...],
     outputs: tuple[TensorContract, ...],
-) -> WhileRule | None:
+) -> WhileRule | ScanRule | None:
+    if equation.primitive is jax.lax.scan_p:
+        return _freeze_scan_rule(equation, inputs, outputs)
     if equation.primitive is not jax.lax.while_p or equation.effects:
         return None
     params = equation.params
@@ -364,12 +494,70 @@ class ActualShapeFacts:
                     self._record(formal, fact)
                 self._graph(child, ancestors, True)
                 outgoing = tuple(self.values.get(value) for value in child.outputs)
-                if len(outgoing) != len(arguments) - 1:
+                carried_count = len(arguments) - 2
+                if len(outgoing) < 1 + carried_count:
                     continue
-                for initial, final in zip(arguments[2:], outgoing[1:], strict=True):
+                for initial, final in zip(
+                    arguments[2:], outgoing[1 : 1 + carried_count], strict=True
+                ):
                     if final is not None and initial != final:
                         raise StructureMismatch("while-carried-shape-induction-differs")
-                results = outgoing[1:]
+                results = outgoing[1 : 1 + carried_count]
+                scanned = outgoing[1 + carried_count :]
+                if scanned:
+                    trip = (
+                        self._storage(node.inputs[0])
+                        if node.inputs[0] is not None
+                        else None
+                    )
+                    condition = (
+                        self._storage(node.inputs[1])
+                        if node.inputs[1] is not None
+                        else None
+                    )
+                    if trip is None or condition is None:
+                        continue
+                    trip_array, condition_array = trip.numpy(), condition.numpy()
+                    if (
+                        trip.dtype is not ir.DataType.INT64
+                        or tuple(trip.shape) != ()
+                        or condition.dtype is not ir.DataType.BOOL
+                        or tuple(condition.shape) != ()
+                        or not bool(condition_array.item())
+                    ):
+                        continue
+                    _identity_edge(child, child.outputs[0], child.inputs[1])
+                    length = int(trip_array.item())
+                    if length < 0:
+                        continue
+                    results = (
+                        *results,
+                        *(
+                            (
+                                _Fact(fact.dtype, (length, *fact.shape))
+                                if fact is not None
+                                else None
+                            )
+                            for fact in scanned
+                        ),
+                    )
+            elif (
+                node.op_type == "Gather"
+                and len(arguments) == 2
+                and all(fact is not None for fact in arguments)
+                and set(node.attributes) == {"axis"}
+            ):
+                data, index = arguments
+                axis = node.attributes["axis"]
+                assert data is not None and index is not None
+                if (
+                    axis.type is ir.AttributeType.INT
+                    and axis.as_int() == 0
+                    and data.shape
+                    and index.dtype is ir.DataType.INT64
+                    and index.shape == ()
+                ):
+                    results = (_Fact(data.dtype, data.shape[1:]),)
             elif (
                 node.op_type in unary
                 and len(arguments) == 1
@@ -699,5 +887,317 @@ def plan_while_calls(
             tuple(role_inputs),
             tuple(role_outputs),
             tuple(adapters),
+        )
+    return plans
+
+
+@dataclass(frozen=True)
+class ScanAttachment:
+    origin: object
+    owner: object
+    body_owner: object
+    region: RegionKey
+    lazy: tuple[tuple[_ValueWitness, _ValueWitness], ...]
+
+
+def record_scan_attachment(
+    ctx: Any, region: RegionKey, body_graph: ir.Graph, call_parameters: Any
+) -> None:
+    ledger = ctx._source_structure
+    handle = ledger.handles[-1] if ledger.handles else None
+    if type(handle) is not EquationHandle or handle in ledger.scan_calls:
+        raise StructureUnavailable("scan-original-handle-unavailable")
+    if type(region) is not RegionKey or region != RegionKey(handle, "scan-body"):
+        raise StructureUnavailable("scan-attachment-role-unavailable")
+    # Observe the emitted node directly: zero carries/ys need no user result,
+    # and zero-trip ys may subsequently be replaced by static empty storage.
+    nodes = [
+        node
+        for node in ctx.builder.graph
+        if not node.domain
+        and node.op_type == "Loop"
+        and "body" in node.attributes
+        and node.attributes["body"].type is ir.AttributeType.GRAPH
+        and node.attributes["body"].as_graph() is body_graph
+    ]
+    if len(nodes) != 1:
+        raise StructureUnavailable("scan-emitted-loop-unavailable")
+    requested = call_parameters.port_bindings
+    first_lazy = len(body_graph.inputs) - len(requested)
+    ledger.scan_calls[handle] = ScanAttachment(
+        nodes[0].meta.setdefault(_ORIGIN, object()),
+        ctx.builder.graph.meta[_OWNER],
+        body_graph.meta[_OWNER],
+        region,
+        tuple(
+            (_witness(outer), _witness(body_graph.inputs[first_lazy + index]))
+            for index, (outer, _) in enumerate(requested)
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class ScanAudit:
+    node: ir.Node
+    regions: tuple[Any, ...]
+    inputs: tuple[ir.Value, ...]
+    region_outputs: tuple[tuple[ir.Value, ...], ...]
+    adapters: tuple[ir.Node, ...]
+    constants: tuple[ir.Value, ...]
+
+
+def _scan_storage(graph: ir.Graph, value: ir.Value) -> Any:
+    tensor = ActualShapeFacts._storage(value)
+    producer = value.producer()
+    if tensor is None:
+        raise StructureMismatch("scan-required-literal-storage-differs")
+    if (
+        value.graph is not graph
+        or (
+            producer is not None
+            and (producer.graph is not graph or producer not in set(graph))
+        )
+        or (
+            producer is None
+            and not any(item is value for item in graph.initializers.values())
+        )
+    ):
+        raise StructureUnavailable("scan-literal-owner-unavailable")
+    # Tensor storage supplies dimensions. Loop postprocessing may erase these
+    # dimensions from ValueInfo; ActualShapeFacts independently checks every
+    # retained concrete dimension and rejects conflicting or named metadata.
+    if (
+        value.dtype is not tensor.dtype
+        or value.shape is None
+        or len(value.shape) != len(tensor.shape)
+    ):
+        raise StructureMismatch("scan-literal-type-or-shape-differs")
+    return tensor
+
+
+def plan_scan_calls(
+    ledger: Any, scopes: Any, graphs: Any, parents: Any, matches: Any
+) -> dict[EquationHandle, ScanAudit]:
+    wanted = {
+        EquationHandle(scope.invocation, index)
+        for scope in scopes.values()
+        for index, equation in enumerate(scope.equations)
+        if type(equation.rule) is ScanRule
+    }
+    if wanted != set(ledger.scan_calls):
+        raise StructureUnavailable("scan-call-coverage-incomplete")
+    plans = {}
+    for handle, attachment in ledger.scan_calls.items():
+        if type(attachment) is not ScanAttachment:
+            raise StructureUnavailable("scan-attachment-unavailable")
+        scope = scopes[handle.invocation]
+        equation = scope.equations[handle.index]
+        rule = equation.rule
+        receipt = scope.receipts.get(handle.index)
+        if receipt is None:
+            raise StructureUnavailable("scan-source-receipt-unavailable")
+        graph = graphs[scope.owner]
+        nodes = [node for node in graph if node.meta.get(_ORIGIN) is attachment.origin]
+        if len(nodes) != 1:
+            raise StructureUnavailable("scan-final-node-unavailable")
+        node = nodes[0]
+        body = graphs.get(attachment.body_owner)
+        original_count = rule.constants + rule.carries + rule.sequences
+        count = original_count + len(attachment.lazy)
+        if (
+            attachment.owner is not scope.owner
+            or node.domain
+            or node.overload
+            or node.op_type != "Loop"
+            or set(node.attributes) != {"body"}
+            or node.attributes["body"].type is not ir.AttributeType.GRAPH
+            or node.attributes["body"].as_graph() is not body
+            or len(node.inputs) != 2 + count
+            or len(node.outputs) != count + rule.results
+            or any(value is None for value in node.inputs)
+            or body is None
+            or len(body.inputs) != 2 + count
+            or len(body.outputs) != 1 + count + rule.results
+        ):
+            raise StructureMismatch("scan-loop-protocol-differs")
+        link = parents.get(attachment.body_owner)
+        if link is None or link[0] is not graph or link[1] is not node:
+            raise StructureMismatch("scan-body-ancestry-differs")
+        for value, dtype in (
+            (node.inputs[0], ir.DataType.INT64),
+            (node.inputs[1], ir.DataType.BOOL),
+            (body.inputs[0], ir.DataType.INT64),
+            (body.inputs[1], ir.DataType.BOOL),
+            (body.outputs[0], ir.DataType.BOOL),
+        ):
+            if (
+                value.dtype is not dtype
+                or value.shape is None
+                or tuple(value.shape) != ()
+            ):
+                raise StructureMismatch("scan-header-type-differs")
+        constants = [node.inputs[0], node.inputs[1]]
+        trip = _scan_storage(graph, node.inputs[0]).numpy()
+        condition = _scan_storage(graph, node.inputs[1]).numpy()
+        if (
+            trip.dtype != np.dtype(np.int64)
+            or trip.shape != ()
+            or int(trip.item()) != rule.length
+        ):
+            raise StructureMismatch("scan-original-length-differs")
+        if (
+            condition.dtype != np.dtype(np.bool_)
+            or condition.shape != ()
+            or condition.tobytes() != np.asarray(True, np.bool_).tobytes()
+        ):
+            raise StructureMismatch("scan-initial-condition-differs")
+        outer, formals = tuple(node.inputs[2:]), tuple(body.inputs[2:])
+        adapters = list(_identity_edge(body, body.outputs[0], body.inputs[1]))
+        nc, nk, _nx = rule.constants, rule.carries, rule.sequences
+        for index in (*range(nc), *range(nc + nk, count)):
+            adapters.extend(
+                _identity_edge(body, body.outputs[1 + index], formals[index])
+            )
+        for index, (outer_witness, local_witness) in enumerate(attachment.lazy):
+            outer_values = _resolve_bindings(graph, {outer_witness})
+            local_values = _resolve_bindings(body, {local_witness})
+            if (
+                outer_values[outer_witness] is not outer[original_count + index]
+                or local_values[local_witness] is not formals[original_count + index]
+            ):
+                raise StructureMismatch("scan-lazy-parameter-order-differs")
+            for value in (
+                outer[original_count + index],
+                formals[original_count + index],
+                body.outputs[1 + original_count + index],
+                node.outputs[original_count + index],
+            ):
+                if (
+                    value.dtype is not ir.DataType.BOOL
+                    or value.shape is None
+                    or tuple(value.shape) != ()
+                ):
+                    raise StructureMismatch("scan-lazy-parameter-type-differs")
+        key = attachment.region
+        if key != RegionKey(handle, "scan-body") or key not in ledger.regions:
+            raise StructureUnavailable("scan-region-role-unavailable")
+        child = scopes.get(ledger.regions[key])
+        if (
+            child is None
+            or child.owner is not attachment.body_owner
+            or child.region is None
+            or child.region.key != key
+        ):
+            raise StructureUnavailable("scan-region-owner-unavailable")
+        original_body = dict(scope.body.equations[handle.index].children).get(
+            "scan-body"
+        )
+        if (
+            child.body != original_body
+            or child.region.expected != child.body
+            or child.body.gaps
+        ):
+            raise StructureMismatch("scan-original-child-body-differs")
+        if child.result_values is None:
+            raise StructureUnavailable("scan-body-results-unavailable")
+        ports = child.region.captures
+        if (
+            len(ports) != original_count
+            or tuple(port.binding for port in ports) != receipt.inputs
+        ):
+            raise StructureMismatch("scan-original-input-partition-differs")
+        unused = _unused_inputs(child.body)
+        for index, port in enumerate(ports):
+            if (
+                port.outer != port.local
+                or port.local != child.input_values[index]
+                or port.tensor != child.body.inputs[index]
+                or type(port.unused) is not bool
+                or port.unused != (index in unused)
+            ):
+                raise StructureMismatch("scan-original-input-port-differs")
+            # Ordinary DCE can remove an unused per-step Gather while the
+            # full sequence remains mandatory explicit Loop state. Only the
+            # independently frozen body's use-def proof permits this absence;
+            # retained markers still require unique definitions and exact edges.
+            optional = (
+                frozenset({port.local})
+                if index >= nc + nk and index in unused
+                else frozenset()
+            )
+            actual = _resolve_bindings(body, {port.local}, optional).get(port.local)
+            if actual is None:
+                continue
+            if index < nc + nk:
+                if actual is not formals[index]:
+                    raise StructureMismatch("scan-body-input-edge-differs")
+            else:
+                gather = actual.producer()
+                if (
+                    gather is None
+                    or gather.graph is not body
+                    or gather not in set(cast(ir.Graph, body))
+                    or gather.domain
+                    or gather.overload
+                    or gather.op_type != "Gather"
+                    or len(gather.inputs) != 2
+                    or gather.inputs[0] is not formals[index]
+                    or gather.inputs[1] is not cast(ir.Graph, body).inputs[0]
+                    or len(gather.outputs) != 1
+                    or gather.outputs[0] is not actual
+                    or set(gather.attributes) != {"axis"}
+                    or gather.attributes["axis"].type is not ir.AttributeType.INT
+                    or gather.attributes["axis"].as_int() != 0
+                ):
+                    raise StructureMismatch("scan-sequence-gather-edge-or-axis-differs")
+                adapters.append(gather)
+            if not matches(port.tensor, actual):
+                raise StructureMismatch("scan-body-input-type-or-shape-differs")
+        for index, use in enumerate(equation.inputs):
+            for actual in (
+                outer[index],
+                formals[index],
+                body.outputs[1 + index],
+                node.outputs[index],
+            ):
+                if not matches(use.tensor, actual):
+                    raise StructureMismatch("scan-carried-type-or-shape-differs")
+        actual_outputs = (
+            *body.outputs[1 + nc : 1 + nc + nk],
+            *body.outputs[1 + count :],
+        )
+        projected = (*node.outputs[nc : nc + nk], *node.outputs[count:])
+        resolved = _resolve_bindings(graph, set(receipt.outputs))
+        for index, (binding, stacked) in enumerate(
+            zip(receipt.outputs, projected, strict=True)
+        ):
+            actual = resolved[binding]
+            if index >= nk and rule.length == 0:
+                tensor = _scan_storage(graph, actual)
+                storage = tensor.numpy()
+                if (
+                    not storage.shape
+                    or storage.shape[0] != 0
+                    or storage.size != 0
+                    or storage.nbytes != 0
+                    or storage.tobytes() != b""
+                    or not matches(equation.outputs[index].tensor, actual)
+                    or not matches(equation.outputs[index].tensor, stacked)
+                ):
+                    raise StructureMismatch("scan-zero-trip-empty-storage-differs")
+                constants.append(actual)
+            elif actual is not stacked:
+                raise StructureMismatch("scan-parent-result-order-differs")
+        for value in constants:
+            producer = value.producer()
+            if producer is not None:
+                adapters.append(producer)
+        plans[handle] = ScanAudit(
+            node,
+            (child,),
+            outer[:original_count],
+            (tuple(actual_outputs),),
+            tuple(adapters),
+            tuple(value for value in constants if value.is_initializer()),
         )
     return plans

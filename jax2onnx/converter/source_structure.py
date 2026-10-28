@@ -13,9 +13,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 from typing import Any, Final, Literal, Protocol, TYPE_CHECKING, TypeAlias, cast
+from weakref import WeakSet
 
 import numpy as np
 import onnx_ir as ir
@@ -28,7 +29,7 @@ from .source_representation import (
 )
 
 if TYPE_CHECKING:
-    from jax2onnx.plugins.jax.lax._source_loop_structure import WhileAudit
+    from jax2onnx.plugins.jax.lax._source_loop_structure import ScanAudit, WhileAudit
 
     from .typing_support import ConverterContext
 
@@ -37,6 +38,8 @@ _ORIGIN: Final = "jax2onnx.source.structure.origin"
 _VALUES: Final = "jax2onnx.source.structure.values"
 _LEDGER: Final = "jax2onnx.source.structure.ledger"
 RESULT_KEY: Final = "jax2onnx.source.structure.result"
+_CONSTANT_LIFTS: Final = "jax2onnx.source.structure.constant_lifts"
+_CONSTANT_LIFT_GAPS: Final = "jax2onnx.source.structure.constant_lift_gaps"
 
 
 class StructureUnavailable(ValueError):
@@ -141,9 +144,13 @@ class ConstantContract:
     def from_array(cls, array: np.ndarray[Any, Any]) -> ConstantContract:
         # Exact original storage: signed zero and NaN payloads are not normalized.
         payload = (
-            memoryview(array).cast("B")
-            if array.flags.c_contiguous
-            else memoryview(array.tobytes(order="C"))
+            memoryview(b"")
+            if array.nbytes == 0
+            else (
+                memoryview(array).cast("B")
+                if array.flags.c_contiguous
+                else memoryview(array.tobytes(order="C"))
+            )
         )
         return cls(
             array.dtype.str,
@@ -332,6 +339,7 @@ class _Scope:
     input_values: tuple[_ValueWitness, ...]
     variables: dict[int, _ValueWitness]
     body: Any = None
+    closed_constant_values: tuple[_ValueWitness, ...] = ()
     pending: dict[int, tuple[_Binding, ...]] = field(default_factory=dict)
     receipts: dict[int, _Receipt] = field(default_factory=dict)
     result_values: tuple[_Binding, ...] | None = None
@@ -364,7 +372,9 @@ class SourceStructureLedger:
         self.function_bodies: dict[object, Any] = {}
         self.function_calls: dict[EquationHandle, Any] = {}
         self.if_calls: dict[EquationHandle, Any] = {}
+        self.literal_if_calls: dict[EquationHandle, Any] = {}
         self.while_calls: dict[EquationHandle, Any] = {}
+        self.scan_calls: dict[EquationHandle, Any] = {}
         self.cast_plans: dict[EquationHandle, Any] = {}
         self.cast_selections: dict[EquationHandle, Any] = {}
         self.regions: dict[RegionKey, object] = {}
@@ -378,8 +388,14 @@ class SourceStructureLedger:
         """Bracket only the already-planned lowering of one original child body."""
 
         def begin() -> _PendingRegion:
-            from jax2onnx.plugins._source_control_flow_structure import IfRule
-            from jax2onnx.plugins.jax.lax._source_loop_structure import WhileRule
+            from jax2onnx.plugins._source_control_flow_structure import (
+                IfRule,
+                LiteralIfRule,
+            )
+            from jax2onnx.plugins.jax.lax._source_loop_structure import (
+                ScanRule,
+                WhileRule,
+            )
 
             handle = self.handles[-1] if self.handles else None
             if handle is None:
@@ -395,7 +411,7 @@ class SourceStructureLedger:
             if scope is None:
                 raise StructureUnavailable("region-parent-contract-unavailable")
             rule = scope.equations[handle.index].rule
-            if type(rule) not in (IfRule, WhileRule):
+            if type(rule) not in (IfRule, LiteralIfRule, WhileRule, ScanRule):
                 raise StructureUnavailable("region-parent-contract-unavailable")
             expected = dict(scope.body.equations[handle.index].children).get(role)
             if expected is None or expected.gaps:
@@ -404,8 +420,12 @@ class SourceStructureLedger:
             if key in self.regions or handle.index not in scope.pending:
                 raise StructureUnavailable("region-identity-unavailable")
             original = scope.pending[handle.index]
-            if type(rule) is IfRule:
+            if type(rule) in (IfRule, LiteralIfRule):
                 bindings = original[1:]
+            elif type(rule) is ScanRule:
+                if role != "scan-body":
+                    raise StructureUnavailable("scan-original-role-unavailable")
+                bindings = original
             elif type(rule) is WhileRule:
                 bindings = tuple(
                     original[port] for port in rule.input_ports(role, len(original))
@@ -600,6 +620,9 @@ class SourceStructureLedger:
                 values,
                 variables,
                 body,
+                closed_constant_values=tuple(
+                    variables[id(var)] for var in jaxpr.constvars
+                ),
             )
             from jax2onnx.plugins.jax._source_f64_f16_structure import (
                 SelectedF64F16Rule,
@@ -778,7 +801,7 @@ def attach_source_structure(
         model.meta[_LEDGER] = ledger
 
 
-def _resolve_bindings(
+def _resolve_direct_bindings(
     graph: ir.Graph,
     wanted: set[_ValueWitness],
     optional: frozenset[_ValueWitness] = frozenset(),
@@ -815,6 +838,543 @@ def _resolve_bindings(
     if wanted - set(found) - optional:
         raise StructureUnavailable("final-value-witness-lost")
     return found
+
+
+@dataclass(frozen=True)
+class _ConstantLiftUse:
+    owner: object
+    origin: object
+    port: int
+
+
+@dataclass(frozen=True, eq=False)
+class _ConstantLift:
+    before: _ValueWitness
+    after: _ValueWitness
+    dtype: ir.DataType
+    shape: tuple[int, ...]
+    storage: ConstantContract
+    markers: tuple[_ValueWitness, ...]
+    uses: tuple[_ConstantLiftUse, ...]
+
+    def __deepcopy__(self, memo: Any) -> _ConstantLift:
+        # The receipt contains immutable witness tokens, never live IR owners.
+        return self
+
+
+_REGISTERED_CONSTANT_LIFTS: WeakSet[_ConstantLift] = WeakSet()
+
+
+@dataclass(frozen=True)
+class _LiftCandidate:
+    graph: ir.Graph
+    node: ir.Node
+    value: ir.Value
+    tensor: ir.TensorProtocol
+    dtype: ir.DataType
+    shape: tuple[int, ...]
+    storage: ConstantContract
+    markers: tuple[_ValueWitness, ...]
+    witnesses: tuple[_ValueWitness, ...]
+    uses: tuple[tuple[ir.Node, int], ...]
+    use_contracts: tuple[_ConstantLiftUse, ...]
+
+
+@dataclass(frozen=True)
+class _LiftGraph:
+    graph: ir.Graph
+    nodes: tuple[ir.Node, ...]
+    inputs: tuple[ir.Value, ...]
+    outputs: tuple[ir.Value, ...]
+    initializers: tuple[ir.Value, ...]
+    value_types: tuple[tuple[ir.Value, ir.DataType | None, tuple[Any, ...] | None], ...]
+    interfaces: tuple[
+        tuple[
+            ir.Node,
+            tuple[str, str, str],
+            tuple[ir.Value | None, ...],
+            tuple[ir.Value, ...],
+            tuple[tuple[str, Any], ...],
+        ],
+        ...,
+    ]
+
+
+def _constant_lift_graphs(graph: ir.Graph) -> tuple[ir.Graph, ...]:
+    result = [graph]
+    for node in graph:
+        for attribute in node.attributes.values():
+            if attribute.type is ir.AttributeType.GRAPH:
+                result.extend(_constant_lift_graphs(attribute.as_graph()))
+            elif attribute.type is ir.AttributeType.GRAPHS:
+                for child in attribute.as_graphs():
+                    result.extend(_constant_lift_graphs(child))
+    return tuple(result)
+
+
+def _constant_lift_storage(
+    value: ir.Value, tensor: ir.TensorProtocol | None
+) -> tuple[ir.DataType, tuple[int, ...], ConstantContract]:
+    if value.dtype is None or value.shape is None or tensor is None:
+        raise StructureUnavailable("constant-lift-storage-unavailable")
+    dimensions = tuple(value.shape)
+    if (
+        any(type(dim) is not int or dim < 0 for dim in dimensions)
+        or tensor.dtype is not value.dtype
+        or tuple(tensor.shape) != dimensions
+    ):
+        raise StructureMismatch("constant-lift-type-or-shape-differs")
+    storage = ConstantContract.from_array(tensor.numpy())
+    if storage.shape != dimensions:
+        raise StructureMismatch("constant-lift-backing-shape-differs")
+    return value.dtype, cast(tuple[int, ...], dimensions), storage
+
+
+def _constant_lift_receipts(graph: ir.Graph) -> tuple[_ConstantLift, ...]:
+    receipts = graph.meta.get(_CONSTANT_LIFTS, ())
+    if (
+        type(receipts) is not tuple
+        or any(
+            type(item) is not _ConstantLift or item not in _REGISTERED_CONSTANT_LIFTS
+            for item in receipts
+        )
+        or len({item.before for item in receipts}) != len(receipts)
+        or len({item.after for item in receipts}) != len(receipts)
+    ):
+        raise StructureUnavailable("constant-lift-receipt-unavailable")
+    return receipts
+
+
+def _capture_constant_lifts(
+    model: ir.Model,
+) -> tuple[tuple[_LiftGraph, ...], tuple[_LiftCandidate, ...]]:
+    graphs = _constant_lift_graphs(model.graph)
+    states = []
+    candidates = []
+    for graph in graphs:
+        _constant_lift_receipts(graph)
+        nodes = tuple(graph)
+        states.append(
+            _LiftGraph(
+                graph,
+                nodes,
+                tuple(graph.inputs),
+                tuple(graph.outputs),
+                tuple(graph.initializers.values()),
+                tuple(
+                    (
+                        value,
+                        value.dtype,
+                        None if value.shape is None else tuple(value.shape),
+                    )
+                    for value in (
+                        *graph.inputs,
+                        *graph.initializers.values(),
+                        *(value for node in nodes for value in node.outputs),
+                    )
+                ),
+                tuple(
+                    (
+                        node,
+                        (node.domain, node.op_type, node.overload),
+                        tuple(node.inputs),
+                        tuple(node.outputs),
+                        tuple(node.attributes.items()),
+                    )
+                    for node in nodes
+                ),
+            )
+        )
+        for node in nodes:
+            if node.domain not in ("", "onnx.ai") or node.op_type != "Constant":
+                continue
+            if len(node.outputs) != 1 or node.outputs[0].is_graph_output():
+                continue
+            if (
+                set(node.attributes) != {"value"}
+                or node.attributes["value"].type is not ir.AttributeType.TENSOR
+            ):
+                continue
+            value = node.outputs[0]
+            if (
+                node.inputs
+                or node.overload
+                or node.graph is not graph
+                or value.producer() is not node
+                or value.index() != 0
+            ):
+                raise StructureMismatch("constant-lift-original-definition-differs")
+            tensor = node.attributes["value"].as_tensor()
+            dtype, shape, storage = _constant_lift_storage(value, tensor)
+            markers = value.meta.get(_VALUES, ())
+            if type(markers) is not tuple or any(
+                type(item) is not _ValueWitness for item in markers
+            ):
+                raise StructureUnavailable("constant-lift-original-markers-unavailable")
+            # Selected literal branches may retain staging witnesses beside an
+            # independently issued caller witness. Only actual current owners
+            # and producer ports can earn a transition.
+            witnesses = tuple(
+                item
+                for item in markers
+                if (
+                    item.owner is graph.meta.get(_OWNER)
+                    and item.origin is node.meta.get(_ORIGIN)
+                    and item.role == "producer"
+                    and item.port == 0
+                )
+            )
+            if len(set(witnesses)) != len(witnesses):
+                raise StructureUnavailable("constant-lift-original-witness-ambiguous")
+            if witnesses:
+                resolved = _resolve_direct_bindings(graph, set(witnesses))
+                if any(resolved[item] is not value for item in witnesses):
+                    raise StructureMismatch("constant-lift-original-witness-differs")
+            uses = tuple((use.node, use.idx) for use in value.uses())
+            contracts = []
+            for consumer, port in uses:
+                owner = consumer.graph
+                if (
+                    owner not in graphs
+                    or consumer not in set(owner)
+                    or type(port) is not int
+                    or port < 0
+                    or port >= len(consumer.inputs)
+                    or consumer.inputs[port] is not value
+                ):
+                    raise StructureMismatch("constant-lift-original-use-differs")
+                token = owner.meta.get(_OWNER)
+                if witnesses and type(token) is not object:
+                    raise StructureUnavailable("constant-lift-use-owner-unavailable")
+                contracts.append(
+                    _ConstantLiftUse(
+                        token, consumer.meta.setdefault(_ORIGIN, object()), port
+                    )
+                )
+            candidates.append(
+                _LiftCandidate(
+                    graph,
+                    node,
+                    value,
+                    tensor,
+                    dtype,
+                    shape,
+                    storage,
+                    markers,
+                    witnesses,
+                    uses,
+                    tuple(contracts),
+                )
+            )
+    return tuple(states), tuple(candidates)
+
+
+def _finish_constant_lifts(
+    model: ir.Model,
+    states: tuple[_LiftGraph, ...],
+    candidates: tuple[_LiftCandidate, ...],
+) -> None:
+    if _constant_lift_graphs(model.graph) != tuple(state.graph for state in states):
+        raise StructureMismatch("constant-lift-graph-tree-differs")
+    replacements: dict[ir.Value, ir.Value] = {}
+    lifted: list[tuple[_LiftCandidate, ir.Value]] = []
+    claimed: set[ir.Value] = set()
+    unreceipted_nodes: set[ir.Node] = set()
+    unreceipted_values: dict[ir.Graph, set[ir.Value]] = {}
+    for candidate in candidates:
+        graph, node, old = candidate.graph, candidate.node, candidate.value
+        if node in unreceipted_nodes:
+            continue
+        if node in set(graph):
+            # A no-change candidate earns no receipt and must remain exact.
+            if (
+                node.graph is not graph
+                or old.producer() is not node
+                or _constant_lift_storage(old, node.attributes["value"].as_tensor())
+                != (candidate.dtype, candidate.shape, candidate.storage)
+            ):
+                raise StructureMismatch("constant-lift-retained-definition-differs")
+            continue
+        previous = next(state.initializers for state in states if state.graph is graph)
+        # The existing value-TENSOR pass preserves the actual tensor object.
+        # This identity is transient evidence, never a permanent source token.
+        fresh = [
+            value
+            for value in graph.initializers.values()
+            if value not in previous
+            and value not in claimed
+            and value.const_value is candidate.tensor
+            and value.meta.get(_VALUES, ()) == candidate.markers
+        ]
+        if len(fresh) != 1:
+            fresh = [
+                value
+                for value in fresh
+                if set((use.node, use.idx) for use in value.uses())
+                == set(candidate.uses)
+                and all(
+                    consumer.inputs[port] is value for consumer, port in candidate.uses
+                )
+            ]
+        if (
+            len(fresh) > 1
+            and not candidate.markers
+            and not candidate.witnesses
+            and not candidate.uses
+        ):
+            # Shared tensor / no-use members are genuinely indistinguishable.
+            # Check the complete unmarked class without assigning source edges
+            # or borrowing a witnessed replacement to satisfy its multiplicity.
+            members = [
+                item
+                for item in candidates
+                if item.graph is graph
+                and item.tensor is candidate.tensor
+                and not item.markers
+                and not item.witnesses
+                and not item.uses
+                and item.dtype is candidate.dtype
+                and item.shape == candidate.shape
+                and item.storage == candidate.storage
+                and item.node not in set(graph)
+                and item.node not in unreceipted_nodes
+                and item.value not in replacements
+            ]
+            if len(fresh) != len(members):
+                raise StructureMismatch("constant-lift-unmarked-multiplicity-differs")
+            for item in members:
+                if (
+                    item.node.graph is not None
+                    or item.value.uses()
+                    or any(
+                        value is item.value
+                        for child in _constant_lift_graphs(model.graph)
+                        for consumer in child
+                        for value in consumer.inputs
+                    )
+                ):
+                    raise StructureMismatch(
+                        "constant-lift-unmarked-original-use-differs"
+                    )
+            for value in fresh:
+                if (
+                    value.graph is not graph
+                    or value.producer() is not None
+                    or value.is_graph_input()
+                    or value.is_graph_output()
+                    or value.uses()
+                    or _constant_lift_storage(value, value.const_value)
+                    != (candidate.dtype, candidate.shape, candidate.storage)
+                ):
+                    raise StructureMismatch(
+                        "constant-lift-unmarked-replacement-differs"
+                    )
+            unreceipted_nodes.update(item.node for item in members)
+            unreceipted_values.setdefault(graph, set()).update(fresh)
+            claimed.update(fresh)
+            continue
+        if len(fresh) != 1:
+            raise StructureUnavailable("constant-lift-new-definition-unavailable")
+        new = fresh[0]
+        if (
+            node.graph is not None
+            or old.uses()
+            or new.graph is not graph
+            or new.producer() is not None
+            or new.is_graph_input()
+            or new.is_graph_output()
+            or _constant_lift_storage(new, new.const_value)
+            != (candidate.dtype, candidate.shape, candidate.storage)
+            or any(
+                consumer.inputs[port] is not new for consumer, port in candidate.uses
+            )
+            or set((use.node, use.idx) for use in new.uses()) != set(candidate.uses)
+        ):
+            raise StructureMismatch("constant-lift-replacement-differs")
+        replacements[old] = new
+        lifted.append((candidate, new))
+        claimed.add(new)
+    removed = {candidate.node for candidate, _ in lifted} | unreceipted_nodes
+    for state in states:
+        graph = state.graph
+        expected_initializers = {
+            *state.initializers,
+            *(new for candidate, new in lifted if candidate.graph is graph),
+            *unreceipted_values.get(graph, set()),
+        }
+        if (
+            tuple(graph.inputs) != state.inputs
+            or tuple(graph.outputs) != state.outputs
+            or tuple(graph)
+            != tuple(node for node in state.nodes if node not in removed)
+            or set(graph.initializers.values()) != expected_initializers
+        ):
+            raise StructureMismatch("constant-lift-unexpected-graph-change")
+        for value, dtype, shape in state.value_types:
+            if value in replacements:
+                continue
+            if (
+                value.dtype is not dtype
+                or (None if value.shape is None else tuple(value.shape)) != shape
+            ):
+                raise StructureMismatch("constant-lift-unexpected-value-type-change")
+        for node, primitive, inputs, outputs, attributes in state.interfaces:
+            if node in removed:
+                continue
+            if (
+                (node.domain, node.op_type, node.overload) != primitive
+                or tuple(node.inputs)
+                != tuple(
+                    replacements.get(value, value) if value is not None else None
+                    for value in inputs
+                )
+                or tuple(node.outputs) != outputs
+                or tuple(node.attributes.items()) != attributes
+            ):
+                raise StructureMismatch("constant-lift-unexpected-node-change")
+    # No receipt is issued until the complete existing pass has been checked.
+    for candidate, new in lifted:
+        if not candidate.witnesses:
+            continue
+        new.meta[_ORIGIN] = object()
+        after = _witness(new)
+        for before in candidate.witnesses:
+            receipt = _ConstantLift(
+                before,
+                after,
+                candidate.dtype,
+                candidate.shape,
+                candidate.storage,
+                candidate.markers,
+                candidate.use_contracts,
+            )
+            _REGISTERED_CONSTANT_LIFTS.add(receipt)
+            previous_receipts = _constant_lift_receipts(candidate.graph)
+            candidate.graph.meta[_CONSTANT_LIFTS] = (*previous_receipts, receipt)
+
+
+def _constant_lift_failure(graph: ir.Graph, stage: str, exc: Exception) -> None:
+    code = (
+        str(exc)
+        if isinstance(exc, (StructureUnavailable, StructureMismatch))
+        else type(exc).__name__
+    )
+    kind = "failed" if isinstance(exc, StructureMismatch) else "unverified"
+    previous = graph.meta.get(_CONSTANT_LIFT_GAPS, ())
+    graph.meta[_CONSTANT_LIFT_GAPS] = (*previous, (kind, stage + ":" + code))
+
+
+@contextmanager
+def observe_constant_lifts(model: ir.Model) -> Iterator[None]:
+    """Observe the existing pass once; never change its graph or exception path."""
+    if type(model.graph.meta.get(_OWNER)) is not object:
+        yield
+        return
+    snapshot = None
+    try:
+        snapshot = _capture_constant_lifts(model)
+    except Exception as exc:
+        _constant_lift_failure(model.graph, "constant-lift-before", exc)
+    yield
+    if snapshot is not None:
+        try:
+            _finish_constant_lifts(model, *snapshot)
+        except Exception as exc:
+            _constant_lift_failure(model.graph, "constant-lift-after", exc)
+
+
+def _resolve_constant_lift(
+    graph: ir.Graph, receipt: _ConstantLift, value: ir.Value
+) -> None:
+    if (
+        receipt.before.owner is not graph.meta.get(_OWNER)
+        or receipt.after.owner is not receipt.before.owner
+        or receipt.before.role != "producer"
+        or receipt.before.port != 0
+        or receipt.after.role != "initializer"
+        or receipt.after.port != 0
+        or receipt.before.origin is receipt.after.origin
+        or value.meta.get(_VALUES, ()) != (*receipt.markers, receipt.after)
+        or _constant_lift_storage(value, value.const_value)
+        != (receipt.dtype, receipt.shape, receipt.storage)
+    ):
+        raise StructureMismatch("constant-lift-final-definition-differs")
+    graphs = _constant_lift_graphs(graph)
+    actual_uses = []
+    for use in value.uses():
+        consumer = use.node
+        if consumer.graph not in graphs or consumer not in set(consumer.graph):
+            raise StructureMismatch("constant-lift-final-use-owner-differs")
+        actual_uses.append(
+            _ConstantLiftUse(
+                consumer.graph.meta.get(_OWNER),
+                consumer.meta.get(_ORIGIN),
+                use.idx,
+            )
+        )
+    if len(actual_uses) != len(receipt.uses) or set(actual_uses) != set(receipt.uses):
+        raise StructureMismatch("constant-lift-final-uses-differ")
+    for expected_use in receipt.uses:
+        matching = [
+            node
+            for child in graphs
+            if child.meta.get(_OWNER) is expected_use.owner
+            for node in child
+            if node.meta.get(_ORIGIN) is expected_use.origin
+        ]
+        if (
+            len(matching) != 1
+            or type(expected_use.port) is not int
+            or expected_use.port < 0
+            or expected_use.port >= len(matching[0].inputs)
+            or matching[0].inputs[expected_use.port] is not value
+        ):
+            raise StructureMismatch("constant-lift-final-consumer-differs")
+
+
+def _resolve_bindings(
+    graph: ir.Graph,
+    wanted: set[_ValueWitness],
+    optional: frozenset[_ValueWitness] = frozenset(),
+) -> dict[_ValueWitness, ir.Value]:
+    from ._source_identity_dce import resolve_dead_identity_bindings
+
+    dead_values = resolve_dead_identity_bindings(
+        graph, wanted, optional, _resolve_bindings
+    )
+    if dead_values is not None:
+        return dead_values
+    from ._source_identity_cse import resolve_identity_bindings
+
+    identity_values = resolve_identity_bindings(
+        graph, wanted, optional, _resolve_bindings
+    )
+    if identity_values is not None:
+        return identity_values
+    receipts = _constant_lift_receipts(graph)
+    redirected = {item.before: item for item in receipts if item.before in wanted}
+    direct_wanted = (wanted - set(redirected)) | {
+        item.after for item in redirected.values()
+    }
+    direct_optional = optional - set(redirected)
+    found = _resolve_direct_bindings(graph, direct_wanted, frozenset(direct_optional))
+    result = {witness: value for witness, value in found.items() if witness in wanted}
+    for before, receipt in redirected.items():
+        value = found[receipt.after]
+        _resolve_constant_lift(graph, receipt, value)
+        if (
+            sum(
+                before in item.meta.get(_VALUES, ())
+                for item in [
+                    *graph.initializers.values(),
+                    *(output for node in graph for output in node.outputs),
+                ]
+            )
+            != 1
+        ):
+            raise StructureUnavailable("constant-lift-final-marker-ambiguous")
+        result[before] = value
+    return result
 
 
 def _resolve(
@@ -1087,20 +1647,371 @@ def _plan_if_calls(
     return plans
 
 
+def _audit_closed_constants(
+    graph: ir.Graph,
+    scope: _Scope,
+    ledger: SourceStructureLedger,
+    matches: Callable[[TensorContract, ir.Value], bool],
+    coverage: _Coverage,
+) -> None:
+    # Own closed constants have ordered native constvar authority. Captured
+    # inputs and nested results retain their parent port/literal/plan duties.
+    if len(scope.closed_constant_values) != len(scope.body.constants):
+        raise StructureUnavailable("region-constant-bindings-unavailable")
+    for witness, (tensor, storage) in zip(
+        scope.closed_constant_values, scope.body.constants, strict=True
+    ):
+        retained = [
+            value
+            for value in graph.initializers.values()
+            if witness in value.meta.get(_VALUES, ())
+        ]
+        if not retained:
+            continue
+        if (
+            tensor is None
+            or storage is None
+            or ledger.constants.get(witness) != storage
+        ):
+            raise StructureUnavailable("region-initializer-source-unavailable")
+        resolved = _resolve_bindings(graph, {witness})
+        initializer = resolved[witness]
+        if len(retained) != 1 or retained[0] is not initializer:
+            raise StructureMismatch("region-initializer-definition-differs")
+        if not matches(tensor, initializer):
+            raise StructureMismatch("region-initializer-type-differs")
+        tensor_storage = initializer.const_value
+        if tensor_storage is None:
+            raise StructureUnavailable("region-initializer-storage-unavailable")
+        if ConstantContract.from_array(tensor_storage.numpy()) != storage:
+            raise StructureMismatch("region-initializer-storage-differs")
+        coverage.constants.add(initializer)
+
+
+@dataclass(frozen=True)
+class _LiteralIfAudit:
+    selected: _Scope
+    inactive: _Scope
+    projected: _Scope
+    captures: tuple[ir.Value, ...]
+    returned: tuple[ir.Value, ...]
+    adapters: tuple[ir.Node, ...]
+
+    @property
+    def regions(self) -> tuple[_Scope, _Scope]:
+        return self.selected, self.inactive
+
+
+def _plan_literal_if_calls(
+    ledger: SourceStructureLedger,
+    scopes: dict[object, _Scope],
+    graphs: dict[object, ir.Graph],
+    parents: dict[object, tuple[ir.Graph, ir.Node]],
+    matches: Callable[[TensorContract, ir.Value], bool],
+) -> dict[EquationHandle, _LiteralIfAudit]:
+    from jax2onnx.plugins._source_control_flow_structure import (
+        LiteralIfAttachment,
+        LiteralIfDischarge,
+        LiteralIfRule,
+        literal_if_body,
+    )
+
+    wanted = {
+        EquationHandle(scope.invocation, index)
+        for scope in scopes.values()
+        for index, equation in enumerate(scope.equations)
+        if type(equation.rule) is LiteralIfRule
+    }
+    if wanted != set(ledger.literal_if_calls):
+        raise StructureUnavailable("literal-if-call-coverage-incomplete")
+    plans = {}
+    claimed: set[object] = set()
+    for handle, attachment in ledger.literal_if_calls.items():
+        if type(attachment) is not LiteralIfAttachment or attachment.handle != handle:
+            raise StructureUnavailable("literal-if-attachment-unavailable")
+        parent = scopes[handle.invocation]
+        expected = parent.equations[handle.index]
+        receipt = parent.receipts.get(handle.index)
+        rule = expected.rule
+        if (
+            type(rule) is not LiteralIfRule
+            or attachment.rule is not rule
+            or attachment.owner is not parent.owner
+            or receipt is None
+            or not receipt.inputs
+            or receipt.inputs[0] != rule.selector
+            or expected.inputs[0].literal != rule.selector.storage
+            or expected.inputs[0].tensor != rule.selector.tensor
+            or receipt.outputs != attachment.results
+        ):
+            raise StructureMismatch("literal-if-original-selector-or-receipt-differs")
+        graph = graphs.get(parent.owner)
+        if graph is None:
+            raise StructureUnavailable("literal-if-caller-owner-unavailable")
+        children = dict(parent.body.equations[handle.index].children)
+        originals = []
+        captures = None
+        for role, snapshot in (("false", attachment.false), ("true", attachment.true)):
+            child = scopes.get(snapshot.invocation)
+            key = RegionKey(handle, role)
+            if (
+                child is None
+                or child.invocation in claimed
+                or child.owner in graphs
+                or literal_if_body(child) != snapshot
+                or child.region is None
+                or child.region.key != key
+                or ledger.regions.get(key) is not child.invocation
+                or child.body != children.get(role)
+                or child.body.gaps
+                or any(
+                    item.children or item.semantics is None
+                    for item in child.body.equations
+                )
+                or set(child.receipts) != set(range(len(child.equations)))
+                or child.pending
+                or child.result_values is None
+                or child.cast_plan is not None
+                or child.cast_selection is not None
+            ):
+                raise StructureUnavailable(
+                    "literal-if-original-child-evidence-unavailable"
+                )
+            claimed.add(child.invocation)
+            ports = child.region.captures
+            unused = _unused_inputs(child.body)
+            if (
+                len(ports) != len(expected.inputs) - 1
+                or tuple(port.binding for port in ports) != receipt.inputs[1:]
+                or child.region.expected != child.body
+            ):
+                raise StructureMismatch("literal-if-ordered-captures-differ")
+            ordered = []
+            for index, port in enumerate(ports):
+                owner_graph = graphs.get(port.outer.owner)
+                if owner_graph is None:
+                    raise StructureUnavailable("literal-if-capture-owner-unavailable")
+                value = _resolve_bindings(owner_graph, {port.outer})[port.outer]
+                if (
+                    type(port) is not CapturePort
+                    or port.local != child.input_values[index]
+                    or port.tensor != child.body.inputs[index]
+                    or port.tensor != expected.inputs[index + 1].tensor
+                    or type(port.unused) is not bool
+                    or port.unused != (index in unused)
+                    or not matches(port.tensor, value)
+                    or (
+                        isinstance(port.binding, _ValueWitness)
+                        and port.outer != port.binding
+                    )
+                ):
+                    raise StructureMismatch("literal-if-capture-contract-differs")
+                ordered.append(value)
+            current = tuple(ordered)
+            if captures is not None and any(
+                a is not b for a, b in zip(captures, current, strict=True)
+            ):
+                raise StructureMismatch("literal-if-branch-capture-edges-differ")
+            captures = current
+            originals.append(child)
+        selected, inactive = originals[rule.index], originals[1 - rule.index]
+        discharge = LiteralIfDischarge(
+            rule.selector,
+            "true" if rule.index == 0 else "false",
+            inactive.invocation,
+            inactive.body,
+            len(selected.equations),
+            1 + len(inactive.equations),
+        )
+        if attachment.discharge != discharge:
+            raise StructureMismatch("literal-if-unreachable-discharge-differs")
+        mapping = dict(attachment.values)
+        if (
+            len(mapping) != len(attachment.values)
+            or len(set(mapping.values())) != len(mapping)
+            or len(set(attachment.node_origins)) != len(attachment.node_origins)
+            or len(attachment.node_origins) != len(attachment.node_ports)
+            or any(
+                type(count) is not int or count < 1 for count in attachment.node_ports
+            )
+            or {(source.origin, source.port) for source in mapping}
+            != {
+                (origin, port)
+                for origin, count in zip(
+                    attachment.node_origins, attachment.node_ports, strict=True
+                )
+                for port in range(count)
+            }
+            or any(
+                type(source) is not _ValueWitness
+                or type(target) is not _ValueWitness
+                or source.owner is not selected.owner
+                or target.owner is not parent.owner
+                or source.origin is not target.origin
+                or source.role != "producer"
+                or target.role != "producer"
+                or source.port != target.port
+                for source, target in attachment.values
+            )
+        ):
+            raise StructureMismatch("literal-if-selected-clone-map-differs")
+        required = set(selected.input_values) | set(selected.variables.values())
+        required.update(selected.closed_constant_values)
+        required.update(
+            binding
+            for item in selected.receipts.values()
+            for binding in (*item.inputs, *item.outputs)
+            if isinstance(binding, _ValueWitness)
+        )
+        required.update(
+            binding
+            for binding in selected.result_values or ()
+            if isinstance(binding, _ValueWitness)
+        )
+        required.update(attachment.original_returned)
+        if required - set(mapping):
+            raise StructureUnavailable("literal-if-selected-clone-map-incomplete")
+        if (
+            tuple(mapping[item] for item in attachment.original_returned)
+            != attachment.returned
+        ):
+            raise StructureMismatch("literal-if-selected-result-map-differs")
+        for source, target in attachment.values:
+            if (
+                source in ledger.constants
+                and ledger.constants.get(target) != ledger.constants[source]
+            ):
+                raise StructureMismatch("literal-if-selected-constant-map-differs")
+        _resolve_bindings(graph, set(mapping.values()), frozenset(mapping.values()))
+        retained = []
+        for origin in attachment.node_origins:
+            nodes = [node for node in graph if node.meta.get(_ORIGIN) is origin]
+            if len(nodes) > 1:
+                raise StructureUnavailable("literal-if-selected-producer-replayed")
+            if nodes:
+                ordinal = attachment.node_origins.index(origin)
+                if len(nodes[0].outputs) != attachment.node_ports[ordinal]:
+                    raise StructureMismatch("literal-if-selected-producer-ports-differ")
+                retained.append(nodes[0])
+        positions = [list(graph).index(node) for node in retained]
+        if positions != sorted(positions):
+            raise StructureMismatch("literal-if-selected-producer-order-differs")
+        for node in retained:
+            for input_value in node.inputs:
+                if input_value is not None and not _visible_before(
+                    input_value, node, parents
+                ):
+                    raise StructureMismatch(
+                        "literal-if-input-not-visible-before-consumer"
+                    )
+        final = _resolve_bindings(graph, {*attachment.returned, *attachment.results})
+        returned = tuple(final[witness] for witness in attachment.returned)
+        adapters = []
+        for index, (source, witness) in enumerate(
+            zip(returned, attachment.results, strict=True)
+        ):
+            output = final[witness]
+            from ._source_identity_dce import eliminated_identity_edge
+
+            if eliminated_identity_edge(
+                graph,
+                attachment.returned[index],
+                witness,
+                source,
+                output,
+                expected.outputs[index].tensor,
+                _resolve_bindings,
+            ):
+                continue
+            alias = output.producer()
+            if (
+                alias is None
+                or alias.graph is not graph
+                or alias not in set(graph)
+                or alias.domain
+                or alias.overload
+                or alias.op_type != "Identity"
+                or alias.attributes
+                or len(alias.inputs) != 1
+                or alias.inputs[0] is not source
+                or len(alias.outputs) != 1
+                or alias.outputs[0] is not output
+                or not _visible_before(source, alias, parents)
+            ):
+                raise StructureMismatch(
+                    "literal-if-selected-outer-result-alias-differs"
+                )
+            adapters.append(alias)
+        for value in captures or ():
+            if any(not _visible_before(value, node, parents) for node in adapters):
+                raise StructureMismatch("literal-if-capture-not-visible-before-call")
+        # No original inactive definition can claim final node or storage coverage.
+        for final_graph in graphs.values():
+            for value in (
+                *final_graph.inputs,
+                *final_graph.initializers.values(),
+                *(value for node in final_graph for value in node.outputs),
+            ):
+                if any(
+                    type(marker) is _ValueWitness and marker.owner is inactive.owner
+                    for marker in value.meta.get(_VALUES, ())
+                ):
+                    raise StructureMismatch(
+                        "literal-if-inactive-physical-definition-present"
+                    )
+
+        def binding(item: _Binding) -> _Binding:
+            return mapping[item] if isinstance(item, _ValueWitness) else item
+
+        region = cast(RegionReceipt, selected.region)
+        projected = replace(
+            selected,
+            owner=parent.owner,
+            closed_constant_values=tuple(
+                mapping[item] for item in selected.closed_constant_values
+            ),
+            input_values=tuple(mapping[item] for item in selected.input_values),
+            variables={key: mapping[item] for key, item in selected.variables.items()},
+            receipts={
+                key: _Receipt(
+                    tuple(binding(item) for item in item.inputs),
+                    tuple(mapping[value] for value in item.outputs),
+                )
+                for key, item in selected.receipts.items()
+            },
+            result_values=tuple(binding(item) for item in selected.result_values or ()),
+            region=replace(
+                region,
+                captures=tuple(
+                    replace(port, local=mapping[port.local]) for port in region.captures
+                ),
+            ),
+        )
+        plans[handle] = _LiteralIfAudit(
+            selected, inactive, projected, captures or (), returned, tuple(adapters)
+        )
+    return plans
+
+
 def _audit_scope(
     graph: ir.Graph,
     scope: _Scope,
     ledger: SourceStructureLedger,
     definitions: dict[object, ir.Function],
     plans: dict[EquationHandle, _IfAudit],
+    literal_plans: dict[EquationHandle, _LiteralIfAudit],
     coverage: _Coverage,
-    while_plans: dict[EquationHandle, Any],
+    loop_plans: dict[EquationHandle, Any],
     matches: Callable[[TensorContract, ir.Value], bool],
 ) -> StructureResult:
     from jax2onnx.plugins._source_function_structure import FunctionRule
-    from jax2onnx.plugins._source_control_flow_structure import BooleanIndexRule, IfRule
+    from jax2onnx.plugins._source_control_flow_structure import (
+        BooleanIndexRule,
+        IfRule,
+        LiteralIfRule,
+    )
 
-    from jax2onnx.plugins.jax.lax._source_loop_structure import WhileRule
+    from jax2onnx.plugins.jax.lax._source_loop_structure import ScanRule, WhileRule
 
     total = len(scope.equations)
     if set(scope.receipts) != set(range(total)) or scope.result_values is None:
@@ -1130,22 +2041,31 @@ def _audit_scope(
     literal_initializers = coverage.constants
 
     actual_outputs = tuple(graph.outputs)
-    if region is not None and region.key.parent in while_plans:
-        while_plan = while_plans[region.key.parent]
-        roles = ("initial-condition", "body", "next-condition")
+    if region is not None and region.key.parent in loop_plans:
+        loop_plan = loop_plans[region.key.parent]
+        roles = tuple(child.region.key.role for child in loop_plan.regions)
         if region.key.role not in roles:
-            raise StructureUnavailable("while-region-role-unavailable")
+            raise StructureUnavailable("loop-region-role-unavailable")
         position = roles.index(region.key.role)
-        if while_plan.regions[position] is not scope:
-            raise StructureMismatch("while-region-invocation-differs")
-        actual_outputs = while_plan.region_outputs[position]
+        if loop_plan.regions[position] is not scope:
+            raise StructureMismatch("loop-region-invocation-differs")
+        actual_outputs = loop_plan.region_outputs[position]
     elif region is not None:
-        if region.key.parent not in plans:
-            raise StructureUnavailable("region-attachment-unavailable")
-        plan = plans[region.key.parent]
-        if graph.inputs or len(region.captures) != len(scope.inputs):
+        literal_plan = literal_plans.get(region.key.parent)
+        if literal_plan is not None:
+            if literal_plan.projected is not scope:
+                raise StructureMismatch("literal-if-selected-invocation-differs")
+            actual_outputs = literal_plan.returned
+            capture_values = literal_plan.captures
+        else:
+            if region.key.parent not in plans:
+                raise StructureUnavailable("region-attachment-unavailable")
+            capture_values = plans[region.key.parent].captures
+        if (literal_plan is None and graph.inputs) or len(region.captures) != len(
+            scope.inputs
+        ):
             raise StructureMismatch("region-formal-interface-differs")
-        for port, outer in zip(region.captures, plan.captures, strict=True):
+        for port, outer in zip(region.captures, capture_values, strict=True):
             local = values.get(port.local)
             if local is None:
                 if not port.unused:
@@ -1267,34 +2187,7 @@ def _audit_scope(
         return check_value(use, binding)
 
     if region is not None:
-        # DCE may retain an original unused initializer. It still needs exact
-        # source storage and definition authority; absence of consumers is not
-        # permission to admit arbitrary additional branch storage.
-        for initializer in graph.initializers.values():
-            for witness in initializer.meta.get(_VALUES, ()):
-                if witness not in scope.variables.values():
-                    continue
-                storage = ledger.constants.get(witness)
-                if storage is None:
-                    continue
-                resolved = _resolve_bindings(graph, {witness})
-                if resolved[witness] is not initializer:
-                    raise StructureMismatch("region-initializer-definition-differs")
-                tensors = [
-                    tensor
-                    for tensor, original in scope.body.constants
-                    if original == storage and tensor is not None
-                ]
-                if not tensors:
-                    raise StructureUnavailable("region-initializer-source-unavailable")
-                if not any(matches(tensor, initializer) for tensor in tensors):
-                    raise StructureMismatch("region-initializer-type-differs")
-                tensor_storage = initializer.const_value
-                if tensor_storage is None:
-                    raise StructureUnavailable("region-initializer-storage-unavailable")
-                if ConstantContract.from_array(tensor_storage.numpy()) != storage:
-                    raise StructureMismatch("region-initializer-storage-differs")
-                coverage.constants.add(initializer)
+        _audit_closed_constants(graph, scope, ledger, matches, coverage)
 
     count = 0
     reasons: list[str] = []
@@ -1309,6 +2202,27 @@ def _audit_scope(
             ):
                 raise StructureUnavailable("boolean-index-composition-unavailable")
             check_operand(expected.inputs[0], receipt.inputs[0])
+            count += 1
+            continue
+        if type(expected.rule) is LiteralIfRule:
+            literal_plan = literal_plans[handle]
+            selector = check_operand(expected.inputs[0], receipt.inputs[0])
+            if selector != expected.rule.selector:
+                raise StructureMismatch("literal-if-selector-storage-differs")
+            for use, binding_value, actual in zip(
+                expected.inputs[1:],
+                receipt.inputs[1:],
+                literal_plan.captures,
+                strict=True,
+            ):
+                operand = check_operand(use, binding_value)
+                if isinstance(operand, LiteralOperand):
+                    match_literal(actual, operand)
+                elif operand is not actual:
+                    raise StructureMismatch("literal-if-capture-operand-edge-differs")
+            for use, witness in zip(expected.outputs, receipt.outputs, strict=True):
+                check_value(use, witness)
+            checked.update(literal_plan.adapters)
             count += 1
             continue
         if type(expected.rule) is IfRule:
@@ -1337,8 +2251,8 @@ def _audit_scope(
         if expected.rule is None:
             reasons.append("equation-" + str(index) + ":rule-unavailable")
             continue
-        if type(expected.rule) is WhileRule:
-            plan = while_plans[handle]
+        if type(expected.rule) in (WhileRule, ScanRule):
+            plan = loop_plans[handle]
             for actual, operand in zip(plan.inputs, inputs, strict=True):
                 if isinstance(operand, LiteralOperand):
                     match_literal(actual, operand)
@@ -1360,10 +2274,10 @@ def _audit_scope(
         count += 1
     if len(actual_outputs) != len(scope.outputs):
         raise StructureMismatch("source-output-arity-differs")
-    for actual, use, witness in zip(
+    for actual, use, result_binding in zip(
         actual_outputs, scope.outputs, scope.result_values, strict=True
     ):
-        expected_value = check_operand(use, witness)
+        expected_value = check_operand(use, result_binding)
         if isinstance(expected_value, LiteralOperand):
             producer = actual.producer()
             if producer is not None and producer.op_type == "Identity":
@@ -1411,7 +2325,7 @@ def _audit_scope(
 def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     from jax2onnx.ir_utils import iter_ir_functions
     from jax2onnx.plugins._source_function_structure import FunctionRule
-    from jax2onnx.plugins._source_control_flow_structure import IfRule
+    from jax2onnx.plugins._source_control_flow_structure import IfRule, LiteralIfRule
 
     total = ledger.expected_equations
     if ledger.failures:
@@ -1473,15 +2387,31 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     for definition in iter_ir_functions(model.functions):
         collect(definition.graph)
         definitions[definition.graph.meta[_OWNER]] = definition
+    from ._source_identity_cse import validate_identity_cse
+    from ._source_identity_dce import validate_identity_dce
+
+    for graph in graphs.values():
+        validate_identity_dce(graph, _resolve_bindings, tuple(graphs.values()))
+        validate_identity_cse(graph, _resolve_bindings)
+        problems = graph.meta.get(_CONSTANT_LIFT_GAPS, ())
+        if problems:
+            kind, reason = problems[0]
+            if kind == "failed":
+                raise StructureMismatch(reason)
+            raise StructureUnavailable(reason)
+        for receipt in _constant_lift_receipts(graph):
+            actual = _resolve_direct_bindings(graph, {receipt.after})[receipt.after]
+            _resolve_constant_lift(graph, receipt, actual)
     scopes: dict[object, _Scope] = {}
     owner_scopes: dict[object, list[_Scope]] = {}
     results: dict[object, StructureResult] = {}
     wanted_calls: set[EquationHandle] = set()
     for scope in ledger.scopes:
-        if scope.invocation in scopes or scope.owner not in graphs:
+        if scope.invocation in scopes:
             raise StructureUnavailable("scope-owner-coverage-incomplete")
         scopes[scope.invocation] = scope
-        owner_scopes.setdefault(scope.owner, []).append(scope)
+        if scope.owner in graphs:
+            owner_scopes.setdefault(scope.owner, []).append(scope)
         if scope.owner in definitions and scope.region is None:
             definition_body = ledger.function_bodies.get(scope.owner)
             if definition_body is None:
@@ -1504,11 +2434,13 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
 
     from jax2onnx.plugins.jax.lax._source_loop_structure import (
         ActualShapeFacts,
+        ScanRule,
         WhileRule,
+        plan_scan_calls,
         plan_while_calls,
     )
 
-    if ledger.while_calls:
+    if ledger.while_calls or ledger.scan_calls:
         # Storage facts do not establish a producer's position. Check actual
         # consumed edges before deriving shapes, including lexical captures.
         for graph in graphs.values():
@@ -1518,15 +2450,36 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
                         raise StructureMismatch(
                             "while-input-not-visible-before-consumer"
                         )
-    facts = ActualShapeFacts(model, definitions) if ledger.while_calls else None
+    facts = (
+        ActualShapeFacts(model, definitions)
+        if ledger.while_calls or ledger.scan_calls
+        else None
+    )
     matches = facts.matches if facts is not None else TensorContract.matches
+    literal_plans = _plan_literal_if_calls(ledger, scopes, graphs, parents, matches)
+    inactive_invocations = {plan.inactive.invocation for plan in literal_plans.values()}
+    for literal_projection in literal_plans.values():
+        scopes[literal_projection.selected.invocation] = literal_projection.projected
+        owner_scopes.setdefault(literal_projection.projected.owner, []).append(
+            literal_projection.projected
+        )
+    if any(
+        scope.owner not in graphs and invocation not in inactive_invocations
+        for invocation, scope in scopes.items()
+    ):
+        raise StructureUnavailable("scope-owner-coverage-incomplete")
     plans = _plan_if_calls(ledger, scopes, graphs, parents, matches)
     while_plans = plan_while_calls(ledger, scopes, graphs, parents, matches)
+    scan_plans = plan_scan_calls(ledger, scopes, graphs, parents, matches)
+    loop_plans: dict[EquationHandle, WhileAudit | ScanAudit] = {
+        **while_plans,
+        **scan_plans,
+    }
     wanted_regions = {
         cast(RegionReceipt, child.region).key
         for plan in cast(
-            "tuple[_IfAudit | WhileAudit, ...]",
-            (*plans.values(), *while_plans.values()),
+            "tuple[_IfAudit | _LiteralIfAudit | WhileAudit | ScanAudit, ...]",
+            (*plans.values(), *literal_plans.values(), *loop_plans.values()),
         )
         for child in plan.regions
     }
@@ -1558,9 +2511,13 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
                 )
             elif type(equation.rule) is IfRule:
                 attached.extend(child.invocation for child in plans[handle].regions)
-            elif type(equation.rule) is WhileRule:
+            elif type(equation.rule) is LiteralIfRule:
                 attached.extend(
-                    child.invocation for child in while_plans[handle].regions
+                    child.invocation for child in literal_plans[handle].regions
+                )
+            elif type(equation.rule) in (WhileRule, ScanRule):
+                attached.extend(
+                    child.invocation for child in loop_plans[handle].regions
                 )
         children[scope.invocation] = tuple(attached)
     root_invocation = definition_scope(model.graph.meta[_OWNER]).invocation
@@ -1577,18 +2534,29 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     if reached != set(scopes):
         raise StructureUnavailable("unclaimed-region-invocation")
     coverage = {owner: _Coverage() for owner in graphs}
-    for plan in while_plans.values():
+    for plan in loop_plans.values():
         for adapter in plan.adapters:
             coverage[cast(ir.Graph, adapter.graph).meta[_OWNER]].nodes.add(adapter)
+    for scan_plan in scan_plans.values():
+        for value in scan_plan.constants:
+            coverage[cast(ir.Graph, value.graph).meta[_OWNER]].constants.add(value)
     for scope in scopes.values():
+        if scope.invocation in inactive_invocations:
+            # Known pure childless source is unreachable under the exact frozen
+            # native selector. It contributes no graph or storage coverage.
+            results[scope.invocation] = StructureResult(
+                "validated", len(scope.equations), len(scope.equations), ()
+            )
+            continue
         results[scope.invocation] = _audit_scope(
             graphs[scope.owner],
             scope,
             ledger,
             definitions,
             plans,
+            literal_plans,
             coverage[scope.owner],
-            while_plans,
+            loop_plans,
             matches,
         )
 
@@ -1634,8 +2602,8 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
             reasons = (*reasons, "artifact-constant-coverage-incomplete")
         if (
             any(scope.region is not None for scope in owner_scopes[owner])
-            and set(graph.initializers.values()) - coverage[owner].constants
-        ):
+            or any(plan.projected.owner is owner for plan in literal_plans.values())
+        ) and set(graph.initializers.values()) - coverage[owner].constants:
             reasons = (*reasons, "artifact-constant-coverage-incomplete")
     reasons = tuple(dict.fromkeys(reasons))
     if checked != total and not reasons:

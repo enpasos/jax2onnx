@@ -595,12 +595,22 @@ def test_final_producer_reorders_keep_edges_but_fail_visibility(
     model = _source()
     _validated(model, 5)
     loop = _loops(model)[0]
+    expected_equations = 5
     if producer_kind == "initial-condition":
         graph = model.graph
         consumer = loop
         producer = loop.inputs[1].producer()
         assert producer is not None and producer.op_type == "Less"
     else:
+        # Resolve the module-global decorated callable during tracing, as in
+        # the existing inside-function case. Its Function invocation adds one
+        # original equation; normal lowering retains its genuine Constant.
+        def target(c: Any, x: Any, flag: Any, limit: Any, step: Any) -> Any:
+            return wrapped(c, x, flag, limit, step)
+
+        model = _source(target)
+        expected_equations = 6
+        loop = _loops(model)[0]
         graph = loop.attributes["body"].as_graph()
         consumer = next(
             node
@@ -610,23 +620,8 @@ def test_final_producer_reorders_keep_edges_but_fail_visibility(
         literal = consumer.inputs[1]
         assert literal is not None
         producer = literal.producer()
-        if producer is None:
-            # Exercise both legal literal forms without changing its storage,
-            # value identity or any consumer edge before the reorder snapshot.
-            assert literal.is_initializer() and literal.const_value is not None
-            tensor = literal.const_value
-            assert literal.name is not None
-            del graph.initializers[literal.name]
-            producer = ir.Node(
-                "",
-                "Constant",
-                [],
-                outputs=[literal],
-                attributes=[ir.AttrTensor("value", tensor)],
-            )
-            graph.insert_before(consumer, producer)
-        assert producer.op_type == "Constant"
-        _validated(model, 5)
+        assert producer is not None and producer.op_type == "Constant"
+        _validated(model, expected_equations)
     before = {
         id(node): (
             tuple(id(value) for value in node.inputs),
@@ -647,7 +642,63 @@ def test_final_producer_reorders_keep_edges_but_fail_visibility(
     proof = _proof(model)
     assert proof.status == "failed", proof
     assert proof.reasons == ("while-input-not-visible-before-consumer",)
+    assert proof.expected_equations == expected_equations
+
+
+def test_post_export_initializer_to_constant_loses_physical_provenance() -> None:
+    model = _source()
+    ledger = _validated(model, 5)
+    graph = _loops(model)[0].attributes["body"].as_graph()
+    consumer = next(
+        node
+        for node in graph
+        if node.op_type == "Add" and node.outputs[0].dtype is ir.DataType.INT32
+    )
+    literal = consumer.inputs[1]
+    assert literal is not None
+    assert literal.producer() is None
+    assert literal.is_initializer() and literal.const_value is not None
+    assert literal.name is not None
+    tensor = literal.const_value
+    inputs = tuple(consumer.inputs)
+    markers = literal.meta.get(structure._VALUES, ())
+    assert type(markers) is tuple and markers
+    assert any(
+        type(witness) is structure._ValueWitness and witness.role == "initializer"
+        for witness in markers
+    )
+    lift_receipts = graph.meta.get(structure._CONSTANT_LIFTS)
+    dce_receipts = graph.meta.get("jax2onnx.source.structure.identity_dce")
+    del graph.initializers[literal.name]
+    producer = ir.Node(
+        "",
+        "Constant",
+        [],
+        outputs=[literal],
+        attributes=[ir.AttrTensor("value", tensor)],
+    )
+    graph.insert_before(consumer, producer)
+    assert tuple(consumer.inputs) == inputs
+    assert producer.outputs[0] is literal
+    assert literal.const_value is tensor
+    assert producer.attributes["value"].as_tensor() is tensor
+    assert producer.graph is consumer.graph is graph
+    assert tuple(graph).index(producer) < tuple(graph).index(consumer)
+    assert literal.meta[structure._VALUES] is markers
+    assert graph.meta.get(structure._CONSTANT_LIFTS) is lift_receipts
+    assert graph.meta.get("jax2onnx.source.structure.identity_dce") is dce_receipts
+    assert model.meta[structure._LEDGER] is ledger
+    # The graph/storage rewrite is legal ONNX, but no inverse provenance
+    # transition was observed or licensed after the original export.
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    proof = _proof(model)
+    assert proof.status == "unverified", proof
+    assert proof.reasons == ("final-value-witness-unavailable",)
     assert proof.expected_equations == 5
+    assert proof.checked_equations == 0
+    assert proof.runtime == proof.numerics == "unverified"
+    assert literal.meta[structure._VALUES] is markers
+    assert graph.meta.get(structure._CONSTANT_LIFTS) is lift_receipts
 
 
 def test_final_graph_clone_preserves_shared_while_and_if_owners() -> None:

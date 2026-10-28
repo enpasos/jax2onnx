@@ -217,6 +217,15 @@ def _attach_selected_branch(
         raise ValueError(
             "SOURCE literal cond requires distinct outer result placeholders"
         )
+    ledger = getattr(ctx, "_source_structure", None)
+    if ledger is not None:
+        from jax2onnx.plugins._source_control_flow_structure import (
+            prepare_literal_if_clone,
+        )
+
+        ledger._observe(
+            "literal-if-clone", lambda: prepare_literal_if_clone(ctx, graph)
+        )
     selected = graph.clone(allow_outer_scope_values=True)
     returned = tuple(selected.outputs)
     if selected.inputs or selected.initializers or len(returned) != len(eqn.outvars):
@@ -244,6 +253,15 @@ def _attach_selected_branch(
         if producer is None or producer.graph is not ctx.builder.graph:
             raise ValueError("SOURCE literal cond outer result is disconnected")
         ctx.bind_value_for_var(var, result)
+    if ledger is not None:
+        from jax2onnx.plugins._source_control_flow_structure import (
+            record_literal_if_attachment,
+        )
+
+        ledger._observe(
+            "literal-if-attachment",
+            lambda: record_literal_if_attachment(ctx, eqn, graph, nodes, returned),
+        )
 
 
 @register_native_primitive(
@@ -540,22 +558,31 @@ class CondPlugin(PrimitiveLeafPlugin):
         )
         # Both original isolated lowerings remain necessary: actual named
         # Function bodies validate on retrace, beyond their raw call markers.
-        then_graph = self._build_branch_graph(
-            ctx,
-            true_body,
-            true_consts,
-            operands,
-            prefix="cond_then",
-            source_literal=True,
-        )
-        else_graph = self._build_branch_graph(
-            ctx,
-            false_body,
-            false_consts,
-            operands,
-            prefix="cond_else",
-            source_literal=True,
-        )
+        ledger = getattr(ctx, "_source_structure", None)
+        with (
+            ledger.region("true", operands) if ledger is not None else nullcontext(None)
+        ):
+            then_graph = self._build_branch_graph(
+                ctx,
+                true_body,
+                true_consts,
+                operands,
+                prefix="cond_then",
+                source_literal=True,
+            )
+        with (
+            ledger.region("false", operands)
+            if ledger is not None
+            else nullcontext(None)
+        ):
+            else_graph = self._build_branch_graph(
+                ctx,
+                false_body,
+                false_consts,
+                operands,
+                prefix="cond_else",
+                source_literal=True,
+            )
         _attach_selected_branch(ctx, then_graph if index else else_graph, eqn)
 
     def _build_branch_graph(

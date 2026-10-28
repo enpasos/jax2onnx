@@ -334,19 +334,38 @@ def freeze_source_semantic_key(
     from jax2onnx.plugins._source_function_structure import (
         FunctionRule,
     )
-    from jax2onnx.plugins._source_control_flow_structure import BooleanIndexRule, IfRule
+    from jax2onnx.plugins._source_control_flow_structure import (
+        BooleanIndexRule,
+        IfRule,
+        LiteralIfRule,
+    )
     from jax2onnx.plugins.jax.lax._source_dot_structure import _DotRule
     from jax2onnx.plugins.jax.lax._source_reduce_structure import _ReductionRule
     from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule
-    from jax2onnx.plugins.jax.lax._source_loop_structure import WhileRule
+    from jax2onnx.plugins.jax.lax._source_loop_structure import ScanRule, WhileRule
 
     rule = freeze_source_structure_rule(eqn, inputs, outputs)
     if type(rule) is BooleanIndexRule:
         return ("boolean-index",)
     if type(rule) is IfRule:
         return ("dynamic-if",)
+    if type(rule) is LiteralIfRule:
+        return ("literal-if", rule.index, rule.selector)
     if type(rule) is WhileRule:
         return ("while", rule.condition_constants, rule.body_constants, rule.carries)
+    if type(rule) is ScanRule:
+        return (
+            "scan",
+            rule.constants,
+            rule.carries,
+            rule.sequences,
+            rule.results,
+            rule.length,
+            rule.unroll,
+            rule.linear,
+            rule.split_transpose,
+            rule.partitions,
+        )
     if type(rule) is FunctionRule:
         # FrozenEquation.children is the sole child-body content authority.
         # Repeating the entire body in this key doubles hash/equality traversal
