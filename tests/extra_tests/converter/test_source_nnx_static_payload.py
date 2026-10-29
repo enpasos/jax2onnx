@@ -706,6 +706,548 @@ def test_delayed_carrier_static_metadata_rejects_nonliteral_before_body() -> Non
     assert calls == [] and owner.payload is carrier and carrier.label == 1
 
 
+@pytest.mark.parametrize("slots", [False, True], ids=["dictionary", "slots"])
+def test_frozen_scalar_carrier_rebuilds_fresh_aliases_without_array_ports(
+    slots: bool,
+) -> None:
+    construction = []
+    hooks = []
+
+    @dataclass(frozen=True, slots=slots)
+    class Configuration:
+        scale: float
+        count: int
+        label: str
+        enabled: bool
+        absent: None = None
+
+        def __post_init__(self) -> None:
+            construction.append(self)
+
+        def __hash__(self) -> int:
+            hooks.append("hash")
+            raise AssertionError("frozen carrier hash executed")
+
+        def __eq__(self, other: Any) -> bool:
+            hooks.append("equality")
+            raise AssertionError("frozen carrier equality executed")
+
+        def __copy__(self) -> Any:
+            hooks.append("copy")
+            raise AssertionError("frozen carrier copy executed")
+
+        def __deepcopy__(self, memo: Any) -> Any:
+            hooks.append("deepcopy")
+            raise AssertionError("frozen carrier deepcopy executed")
+
+    payload = Configuration(0.5, 2, "literal", True)
+    distinct = Configuration(0.5, 2, "literal", True)
+    owner = _Owner(payload)
+    owner.configuration_alias = payload
+    owner.distinct_configuration = distinct
+    owner.value.set_raw_value(())
+    construction.clear()
+
+    def operation(receiver: Any, x: Any) -> Any:
+        assert receiver.payload is receiver.configuration_alias
+        assert receiver.payload is not receiver.distinct_configuration
+        assert receiver.value is receiver.alias
+        return x * receiver.payload.scale + receiver.payload.count
+
+    prepared = prepare_nnx_function_state(owner, operation, 59)
+    assert prepared is not None
+    adapter, state = prepared
+    assert state == () and adapter.state_count == 0
+    assert len(adapter.carriers) == 2
+    assert all(carrier.frozen is True for carrier in adapter.carriers)
+    assert adapter._foreign_ports() == frozenset()
+    assert all(
+        item.port is None for carrier in adapter.carriers for item in carrier.fields
+    )
+    hash(adapter.signature)
+    first, second = adapter.reconstruct(state), adapter.reconstruct(state)
+    assert first.payload is first.configuration_alias
+    assert second.payload is second.configuration_alias
+    assert first.payload is not payload and second.payload is not payload
+    assert first.payload is not second.payload
+    assert type(first.payload) is type(second.payload) is Configuration
+    for configuration in (
+        first.payload,
+        second.payload,
+        first.distinct_configuration,
+        second.distinct_configuration,
+    ):
+        assert (
+            configuration.scale,
+            configuration.count,
+            configuration.label,
+            configuration.enabled,
+            configuration.absent,
+        ) == (0.5, 2, "literal", True, None)
+    assert first.distinct_configuration is not first.payload
+    assert second.distinct_configuration is not second.payload
+    assert first.distinct_configuration is not second.distinct_configuration
+    assert first.distinct_configuration is not distinct
+    assert second.distinct_configuration is not distinct
+    assert first.value is first.alias and first.value is not owner.value
+    actual, updated, effects = adapter.invoke((jnp.asarray(4, np.float32),), {}, state)
+    assert actual.dtype == np.float32 and actual.shape == ()
+    np.testing.assert_array_equal(np.asarray(actual), np.asarray(4, np.float32))
+    assert updated == () and effects == () and construction == [] and hooks == []
+    assert owner.payload is owner.configuration_alias is payload
+    assert owner.distinct_configuration is distinct and distinct is not payload
+    assert owner.value is owner.alias and owner.value.get_raw_value() == ()
+
+
+def test_frozen_scalar_carrier_preserves_private_declared_slot() -> None:
+    @dataclass(frozen=True)
+    class Configuration:
+        __slots__ = ("__count",)
+        __count: int
+
+    payload = Configuration(1)
+    owner = _Owner(payload)
+    owner.value.set_raw_value(())
+    prepared = prepare_nnx_function_state(owner, lambda self: (), 70)
+    assert prepared is not None
+    adapter, state = prepared
+    assert state == () and adapter.state_count == 0
+    assert tuple(item.name for item in adapter.carriers[0].fields) == (
+        "_Configuration__count",
+    )
+    clone = adapter.reconstruct(state)
+    assert type(clone.payload) is Configuration and clone.payload is not payload
+    assert object.__getattribute__(clone.payload, "_Configuration__count") == 1
+    assert object.__getattribute__(payload, "_Configuration__count") == 1
+
+
+@pytest.mark.parametrize("component", ["float", "complex-real", "complex-imaginary"])
+def test_frozen_scalar_carrier_fingerprints_preserve_signed_zero(
+    component: str,
+) -> None:
+    @dataclass(frozen=True)
+    class Configuration:
+        zero: Any
+
+    values = (
+        (0.0, -0.0)
+        if component == "float"
+        else (
+            (complex(0.0, 0.0), complex(-0.0, 0.0))
+            if component == "complex-real"
+            else (complex(0.0, 0.0), complex(0.0, -0.0))
+        )
+    )
+
+    def operation(receiver: Any) -> Any:
+        return receiver.payload.zero
+
+    adapters = []
+    restored = []
+    for value in values:
+        owner = _Owner(Configuration(value))
+        owner.value.set_raw_value(())
+        prepared = prepare_nnx_function_state(owner, operation, 60)
+        assert prepared is not None
+        adapter, state = prepared
+        adapters.append(adapter)
+        restored.append(adapter.reconstruct(state).payload.zero)
+    positive = adapters[0].carriers[0].fields[0].static
+    negative = adapters[1].carriers[0].fields[0].static
+    assert positive is not None and negative is not None
+    assert positive.fingerprint != negative.fingerprint
+    assert adapters[0].signature != adapters[1].signature
+    signs = [
+        np.signbit(value.imag if component == "complex-imaginary" else value.real)
+        for value in restored
+    ]
+    assert signs == [False, True]
+
+
+def test_frozen_scalar_carrier_body_mutation_rejects_and_isolates_original() -> None:
+    @dataclass(frozen=True)
+    class Configuration:
+        count: int = 1
+
+    payload = Configuration()
+    owner = _Owner(payload)
+    owner.configuration_alias = payload
+    owner.value.set_raw_value(())
+    calls = []
+
+    def mutate(receiver: Any) -> Any:
+        calls.append(receiver)
+        assert receiver.payload is receiver.configuration_alias
+        object.__setattr__(receiver.payload, "count", 2)
+        return receiver.payload.count
+
+    prepared = prepare_nnx_function_state(owner, mutate, 61)
+    assert prepared is not None
+    adapter, state = prepared
+    with pytest.raises(SourcePrecisionError, match="carrier schema, metadata"):
+        adapter.invoke((), {}, state)
+    assert len(calls) == 1 and calls[0] is not owner
+    assert calls[0].payload.count == 2 and calls[0].payload is not payload
+    assert owner.payload is owner.configuration_alias is payload and payload.count == 1
+    assert owner.value is owner.alias and owner.value.get_raw_value() == ()
+
+
+def test_frozen_scalar_carrier_original_mutation_fails_delayed_owner_check() -> None:
+    @dataclass(frozen=True)
+    class Configuration:
+        count: int = 1
+
+    payload = Configuration()
+    owner = _Owner(payload)
+    owner.value.set_raw_value(())
+    calls = []
+
+    def operation(receiver: Any) -> Any:
+        calls.append(receiver)
+        return receiver.payload.count
+
+    prepared = prepare_nnx_function_state(owner, operation, 62)
+    assert prepared is not None
+    adapter, state = prepared
+    assert adapter.current_state(owner) == state == ()
+    object.__setattr__(payload, "count", 2)
+    with pytest.raises(SourcePrecisionError, match="carrier schema, metadata"):
+        adapter.current_state(owner)
+    assert calls == [] and owner.payload is payload and payload.count == 2
+
+
+@pytest.mark.parametrize(
+    "kind", ["tuple", "list", "mapping", "frozen", "mutable", "hostile-access"]
+)
+def test_frozen_scalar_carrier_rejects_nested_or_mutable_field_before_body(
+    kind: str,
+) -> None:
+    calls = []
+    armed = False
+
+    class HostileNested:
+        def __getattribute__(self, name: str) -> Any:
+            if armed:
+                calls.append(name)
+                raise AssertionError("nested payload attribute getter executed")
+            return object.__getattribute__(self, name)
+
+    @dataclass(frozen=True)
+    class Configuration:
+        nested: Any
+
+    nested = {
+        "tuple": (1,),
+        "list": [],
+        "mapping": {"value": 1},
+        "frozen": _FrozenEnvelope(_HashableCounter()),
+        "mutable": _HashableCounter(),
+        "hostile-access": HostileNested(),
+    }[kind]
+    payload = Configuration(nested)
+    owner = _Owner(payload)
+    armed = True
+
+    def operation(receiver: Any) -> Any:
+        calls.append(receiver)
+        return receiver.payload.nested
+
+    with pytest.raises(SourcePrecisionError):
+        prepared = prepare_nnx_function_state(owner, operation, 63)
+        assert prepared is not None
+        adapter, state = prepared
+        adapter.invoke((), {}, state)
+    assert calls == [] and owner.payload is payload and payload.nested is nested
+
+
+@pytest.mark.parametrize(
+    "hook", ["__getattribute__", "__getattr__", "field-descriptor"]
+)
+def test_frozen_scalar_carrier_rejects_access_hooks_without_hashing_or_copying(
+    hook: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    @dataclass(frozen=True)
+    class Configuration:
+        count: int = 1
+
+        def __hash__(self) -> int:
+            calls.append("hash")
+            raise AssertionError("unsupported payload hash executed")
+
+        def __copy__(self) -> Any:
+            calls.append("copy")
+            raise AssertionError("unsupported payload copy executed")
+
+        def __deepcopy__(self, memo: Any) -> Any:
+            calls.append("deepcopy")
+            raise AssertionError("unsupported payload deepcopy executed")
+
+    payload = Configuration()
+    owner = _Owner(payload)
+
+    def forbidden(*args: Any) -> Any:
+        calls.append(hook)
+        raise AssertionError("unsupported payload getter executed")
+
+    def operation(receiver: Any) -> Any:
+        calls.append("body")
+        return receiver.payload.count
+
+    with monkeypatch.context() as context:
+        if hook == "field-descriptor":
+            context.setattr(Configuration, "count", property(forbidden))
+        else:
+            context.setattr(Configuration, hook, forbidden, raising=False)
+        with pytest.raises(SourcePrecisionError):
+            prepare_nnx_function_state(owner, operation, 64)
+    assert calls == [] and owner.payload is payload
+    assert object.__getattribute__(payload, "__dict__") == {"count": 1}
+
+
+@pytest.mark.parametrize("storage", ["dictionary", "slots", "dictionary-shadow"])
+def test_frozen_scalar_carrier_rejects_undeclared_storage(storage: str) -> None:
+    if storage == "slots":
+
+        @dataclass(frozen=True)
+        class Configuration:
+            __slots__ = ("count", "hidden")
+            count: int
+
+    elif storage == "dictionary-shadow":
+
+        @dataclass(frozen=True)
+        class Configuration:
+            __dict__ = None
+            count: int
+
+    else:
+
+        @dataclass(frozen=True)
+        class Configuration:
+            count: int
+
+    payload = Configuration(1)
+    hidden = []
+    object.__setattr__(payload, "hidden", hidden)
+    if storage == "dictionary-shadow":
+        assert Configuration.__dictoffset__ != 0
+        assert inspect.getattr_static(Configuration, "__dict__") is None
+    owner = _Owner(payload)
+    calls = []
+
+    def operation(receiver: Any) -> Any:
+        calls.append(receiver)
+        return receiver.payload.count
+
+    with pytest.raises(SourcePrecisionError):
+        prepare_nnx_function_state(owner, operation, 65)
+    assert calls == [] and hidden == [] and owner.payload is payload
+    assert object.__getattribute__(payload, "hidden") is hidden
+
+
+@pytest.mark.parametrize("ingress", ["initial", "delayed"])
+@pytest.mark.parametrize("shadow", ["declaring", "inherited"])
+def test_frozen_scalar_carrier_rejects_shadowed_declared_slot_before_native_hooks(
+    ingress: str, shadow: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @dataclass(frozen=True, slots=True)
+    class Configuration:
+        count: int = 1
+
+    if shadow == "inherited":
+
+        @dataclass(frozen=True, slots=True)
+        class ChildConfiguration(Configuration):
+            pass
+
+        Configuration = ChildConfiguration
+
+    payload = Configuration()
+    owner = _Owner(payload)
+    owner.value.set_raw_value(())
+    descriptor = inspect.getattr_static(Configuration, "count")
+    calls = []
+
+    def operation(receiver: Any) -> Any:
+        calls.append("body")
+        return receiver.payload.count
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        calls.append("split-or-merge")
+        raise AssertionError("unsupported carrier reached native reconstruction")
+
+    prepared = (
+        prepare_nnx_function_state(owner, operation, 68)
+        if ingress == "delayed"
+        else None
+    )
+    hidden = []
+    descriptor.__set__(payload, hidden)
+    with monkeypatch.context() as context:
+        context.setattr(Configuration, "count", 1)
+        context.setattr(nnx, "split" if ingress == "initial" else "merge", forbidden)
+        with pytest.raises(SourcePrecisionError):
+            if ingress == "initial":
+                prepare_nnx_function_state(owner, operation, 68)
+            else:
+                assert prepared is not None
+                adapter, state = prepared
+                adapter.invoke((), {}, state)
+    assert calls == [] and owner.payload is payload and hidden == []
+    assert descriptor.__get__(payload, Configuration) is hidden
+
+
+@pytest.mark.parametrize("ingress", ["initial", "delayed"])
+def test_frozen_scalar_carrier_rejects_inherited_finalizer_before_native_hooks(
+    ingress: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+    armed = False
+
+    def finalize(receiver: Any) -> None:
+        if armed:
+            calls.append("finalizer")
+
+    @dataclass(frozen=True)
+    class Base:
+        if ingress == "initial":
+            __del__ = finalize
+
+    @dataclass(frozen=True)
+    class Configuration(Base):
+        count: int = 1
+
+    payload = Configuration()
+    owner = _Owner(payload)
+    owner.value.set_raw_value(())
+
+    def operation(receiver: Any) -> Any:
+        calls.append("body")
+        return receiver.payload.count
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        calls.append("split-or-merge")
+        raise AssertionError("unsupported finalizer reached native reconstruction")
+
+    prepared = (
+        prepare_nnx_function_state(owner, operation, 69)
+        if ingress == "delayed"
+        else None
+    )
+    with monkeypatch.context() as context:
+        if ingress == "delayed":
+            context.setattr(Base, "__del__", finalize, raising=False)
+        context.setattr(nnx, "split" if ingress == "initial" else "merge", forbidden)
+        armed = True
+        try:
+            with pytest.raises(SourcePrecisionError):
+                if ingress == "initial":
+                    prepare_nnx_function_state(owner, operation, 69)
+                else:
+                    assert prepared is not None
+                    adapter, state = prepared
+                    adapter.invoke((), {}, state)
+        finally:
+            armed = False
+    assert calls == [] and owner.payload is payload and payload.count == 1
+
+
+@pytest.mark.parametrize("kind", ["metaclass", "inheritance"])
+def test_frozen_scalar_carrier_rejects_nonordinary_class_without_class_getters(
+    kind: str,
+) -> None:
+    calls = []
+    armed = False
+
+    class Metaclass(type):
+        def __getattribute__(cls, name: str) -> Any:
+            if armed:
+                calls.append(name)
+                raise AssertionError("unsupported metaclass getter executed")
+            return type.__getattribute__(cls, name)
+
+        def __hash__(cls) -> int:
+            if armed:
+                calls.append("__hash__")
+                raise AssertionError("unsupported metaclass hash executed")
+            return type.__hash__(cls)
+
+        def __eq__(cls, other: Any) -> Any:
+            if armed:
+                calls.append("__eq__")
+                raise AssertionError("unsupported metaclass equality executed")
+            return type.__eq__(cls, other)
+
+    class Base:
+        pass
+
+    if kind == "metaclass":
+
+        @dataclass(frozen=True)
+        class Configuration(metaclass=Metaclass):
+            count: int = 1
+
+    else:
+
+        @dataclass(frozen=True)
+        class Configuration(Base):
+            count: int = 1
+
+    payload = Configuration()
+    owner = _Owner(payload)
+    armed = True
+
+    def operation(receiver: Any) -> Any:
+        calls.append("body")
+        return receiver.payload.count
+
+    with pytest.raises(SourcePrecisionError):
+        prepare_nnx_function_state(owner, operation, 66)
+    assert calls == [] and owner.payload is payload
+    assert object.__getattribute__(payload, "__dict__") == {"count": 1}
+
+
+@pytest.mark.parametrize("change", ["frozen-status", "field-layout", "descriptor"])
+def test_delayed_frozen_scalar_class_change_rejects_before_merge_or_body(
+    change: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @dataclass(frozen=True)
+    class Configuration:
+        count: int = 1
+
+    payload = Configuration()
+    owner = _Owner(payload)
+    owner.value.set_raw_value(())
+    calls = []
+
+    def operation(receiver: Any) -> Any:
+        calls.append("body")
+        return receiver.payload.count
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        calls.append("merge-or-descriptor")
+        raise AssertionError("unsupported delayed reconstruction executed")
+
+    prepared = prepare_nnx_function_state(owner, operation, 67)
+    assert prepared is not None
+    adapter, state = prepared
+    with monkeypatch.context() as context:
+        if change == "frozen-status":
+            parameters = inspect.getattr_static(Configuration, "__dataclass_params__")
+            context.setattr(parameters, "frozen", False)
+        elif change == "field-layout":
+            context.setattr(Configuration, "__dataclass_fields__", {})
+        else:
+            context.setattr(Configuration, "count", property(forbidden))
+        context.setattr(nnx, "merge", forbidden)
+        with pytest.raises(SourcePrecisionError):
+            adapter.invoke((), {}, state)
+    assert calls == [] and owner.payload is payload and payload.count == 1
+    assert owner.value is owner.alias and owner.value.get_raw_value() == ()
+
+
 def test_plain_callback_snapshot_preserves_aliases_and_detaches_function_memory() -> (
     None
 ):

@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, is_dataclass, replace
+from dataclasses import Field, dataclass, field, fields, replace
 import inspect
 import marshal
 from types import (
@@ -771,12 +771,29 @@ def _preflight_native_storage(
             _require_batch_axes_role(containing_type, field_name)
             _snapshot_batch_axes(value, 0)
             return
-        if owner_type in {type(None), bool, int, float, complex, str, bytes}:
+        if any(
+            owner_type is literal
+            for literal in (type(None), bool, int, float, complex, str, bytes)
+        ):
             return
         if _native_anchor(value, containing_type, field_name) is not None:
             return
         if owner_type is FunctionType:
             _capture_callback(callbacks, value, f"NNX field {field_name!r}")
+            return
+        # Audit ordinary dataclass storage before native isinstance/flatten
+        # probes can consult a hostile instance's __class__ accessor.
+        if (
+            _carrier_class_attribute(
+                owner_type, "__dataclass_fields__", _CARRIER_MISSING
+            )
+            is not _CARRIER_MISSING
+            and not any(
+                base is nnx.Module or base is linen_module.Module
+                for base in _carrier_mro(owner_type)
+            )
+            and _carrier_fields(value) is not None
+        ):
             return
         if isinstance(value, nnx.Variable):
             if id(value) in visited:
@@ -944,72 +961,239 @@ class _CarrierField:
 
 
 @dataclass(frozen=True)
+class _CarrierStorage:
+    fields: tuple[tuple[str, MemberDescriptorType | GetSetDescriptorType], ...]
+    slots: tuple[tuple[type[Any], tuple[str, ...]], ...]
+
+
+@dataclass(frozen=True)
 class _CarrierSpec:
     carrier_type: type[Any]
     fields: tuple[_CarrierField, ...]
+    frozen: bool
+    storage: _CarrierStorage
+
+
+_CARRIER_MISSING: object = object()
+_DATACLASS_PARAMS_TYPE: type[Any] = type(
+    inspect.getattr_static(_CarrierSpec, "__dataclass_params__")
+)
+
+
+def _carrier_mro(carrier_type: type[Any]) -> tuple[type[Any], ...]:
+    # The native type descriptor bypasses custom metaclass attribute/hash hooks.
+    return cast(tuple[type[Any], ...], type.__dict__["__mro__"].__get__(carrier_type))
+
+
+def _carrier_class_attribute(
+    carrier_type: type[Any], name: str, default: Any = None
+) -> Any:
+    for base in _carrier_mro(carrier_type):
+        namespace = type.__dict__["__dict__"].__get__(base)
+        if name in namespace:
+            return namespace[name]
+    return default
 
 
 def _numeric_carrier_field(value: Any) -> bool:
-    return isinstance(
-        value, (jax.Array, Tracer, jax.ShapeDtypeStruct, np.ndarray, np.generic)
+    # Never consult an unsupported instance's potentially custom __class__.
+    return any(
+        base is numeric
+        for base in _carrier_mro(type(value))
+        for numeric in (jax.Array, Tracer, jax.ShapeDtypeStruct, np.ndarray, np.generic)
     )
 
 
 def _static_carrier_field(value: Any) -> _StaticField:
-    if type(value) not in {type(None), bool, int, float, complex, str, bytes}:
+    if not any(
+        type(value) is literal
+        for literal in (type(None), bool, int, float, complex, str, bytes)
+    ):
         raise _foreign_failure("nonliteral or nested carrier metadata needs an adapter")
     return _StaticField(type(value), marshal.dumps(value), value)
 
 
 def _require_plain_carrier_descriptor(carrier_type: type[Any], name: str) -> None:
-    descriptor = inspect.getattr_static(carrier_type, name, None)
-    if type(descriptor) is not MemberDescriptorType and any(
-        hasattr(type(descriptor), hook) for hook in ("__get__", "__set__", "__delete__")
+    descriptor = _carrier_class_attribute(carrier_type, name, None)
+    if type(descriptor) is MemberDescriptorType:
+        if descriptor.__name__ != name or not any(
+            descriptor.__objclass__ is base for base in _carrier_mro(carrier_type)
+        ):
+            raise _foreign_failure("carrier field descriptor needs an adapter")
+    elif any(
+        _carrier_class_attribute(type(descriptor), hook, _CARRIER_MISSING)
+        is not _CARRIER_MISSING
+        for hook in ("__get__", "__set__", "__delete__")
     ):
         raise _foreign_failure("carrier field descriptor needs an adapter")
 
 
-def _carrier_fields(value: Any) -> tuple[tuple[str, Any], ...] | None:
-    if is_static_linen_declaration(value, failure=_foreign_failure):
-        return None
-    if isinstance(value, (type, nnx.Module)) or not is_dataclass(value):
-        return None
-    declared = fields(value)
-    names = tuple(field.name for field in declared)
-    # Only ordinary actual dataclass fields are read. Descriptors/custom field
-    # accessors require their own adapter; no header or constructor is evaluated.
+def _carrier_schema(
+    carrier_type: type[Any],
+) -> tuple[tuple[str, ...], bool, _CarrierStorage]:
+    """Validate passive class storage before reading any carrier instance."""
+    if type(carrier_type) is not type:
+        raise _foreign_failure("nonordinary dataclass metaclass needs an adapter")
+    frozen: bool | None = None
+    for base in carrier_type.__mro__:
+        if base is object:
+            continue
+        declared = _carrier_class_attribute(base, "__dataclass_fields__", None)
+        if type(declared) is not dict:
+            raise _foreign_failure("nonordinary dataclass inheritance needs an adapter")
+        if any(name in vars(base) for name in ("__getattribute__", "__getattr__")):
+            raise _foreign_failure("custom dataclass field access needs an adapter")
+        if "__del__" in vars(base):
+            raise _foreign_failure("custom dataclass lifetime hooks need an adapter")
+        if any(
+            type(name) is not str
+            or type(item) is not Field
+            or type(item.name) is not str
+            or item.name != name
+            for name, item in declared.items()
+        ):
+            raise _foreign_failure("dataclass field layout needs an adapter")
+        parameters = _carrier_class_attribute(base, "__dataclass_params__", None)
+        if (
+            type(parameters) is not _DATACLASS_PARAMS_TYPE
+            or type(parameters.frozen) is not bool
+            or (frozen is not None and parameters.frozen is not frozen)
+        ):
+            raise _foreign_failure("dataclass frozen status needs an adapter")
+        frozen = parameters.frozen
+    # Class-only dataclasses.fields is safe after exact metadata/access checks.
+    names = tuple(item.name for item in fields(carrier_type))
     for name in names:
-        _require_plain_carrier_descriptor(type(value), name)
-    values = tuple((name, object.__getattribute__(value, name)) for name in names)
-    if not any(_numeric_carrier_field(item) for _, item in values):
-        return None
-    if type(type(value)) is not type or any(
-        base is not object and not is_dataclass(base)
-        for base in cast(tuple[type[Any], ...], type(value).__mro__)
+        _require_plain_carrier_descriptor(carrier_type, name)
+    dictionary_descriptor = _carrier_class_attribute(carrier_type, "__dict__", None)
+    if (dictionary_descriptor is None and carrier_type.__dictoffset__ != 0) or (
+        dictionary_descriptor is not None
+        and (
+            type(dictionary_descriptor) is not GetSetDescriptorType
+            or dictionary_descriptor.__name__ != "__dict__"
+            or not any(
+                dictionary_descriptor.__objclass__ is base
+                for base in carrier_type.__mro__
+            )
+        )
     ):
-        raise _foreign_failure("nonordinary dataclass inheritance needs an adapter")
-    if any(
-        name in vars(base)
-        for base in cast(tuple[type[Any], ...], type(value).__mro__)
-        if base is not object
-        for name in ("__getattribute__", "__getattr__")
-    ):
-        raise _foreign_failure("custom dataclass field access needs an adapter")
-    dictionary_descriptor = inspect.getattr_static(type(value), "__dict__", None)
-    if type(dictionary_descriptor) not in {
-        type(None),
-        GetSetDescriptorType,
-        MemberDescriptorType,
-    }:
         raise _foreign_failure("custom dataclass storage descriptor needs an adapter")
-    try:
-        dictionary = object.__getattribute__(value, "__dict__")
-    except AttributeError:
-        dictionary = None
+    slot_descriptors: dict[str, MemberDescriptorType] = {}
+    slot_layout: list[tuple[type[Any], tuple[str, ...]]] = []
+    for base in carrier_type.__mro__:
+        namespace = vars(base)
+        slots = namespace.get("__slots__", ())
+        if type(slots) is str:
+            slots = (slots,)
+        if type(slots) is not tuple or any(type(name) is not str for name in slots):
+            raise _foreign_failure("dataclass slot layout needs an adapter")
+        declared_slots = set()
+        normalized_slots = []
+        for slot in slots:
+            name = slot
+            if name.startswith("__") and not name.endswith("__"):
+                owner_name = base.__name__.lstrip("_")
+                if owner_name:
+                    name = f"_{owner_name}{name}"
+            descriptor = namespace.get(name)
+            expected = (
+                GetSetDescriptorType
+                if name in {"__dict__", "__weakref__"}
+                else MemberDescriptorType
+            )
+            if (
+                type(descriptor) is not expected
+                or descriptor.__name__ != name
+                or descriptor.__objclass__ is not base
+                or name in slot_descriptors
+            ):
+                raise _foreign_failure("dataclass slot descriptor or layout changed")
+            if name not in {"__dict__", "__weakref__"}:
+                if name not in names:
+                    raise _foreign_failure(
+                        "carrier has storage outside its declared fields"
+                    )
+                slot_descriptors[name] = cast(MemberDescriptorType, descriptor)
+                declared_slots.add(name)
+            normalized_slots.append(name)
+        if "__slots__" in namespace:
+            slot_layout.append((base, tuple(normalized_slots)))
+        if any(
+            type(descriptor) is MemberDescriptorType and name not in declared_slots
+            for name, descriptor in namespace.items()
+        ):
+            raise _foreign_failure("dataclass slot descriptor or layout changed")
+    if any(
+        _carrier_class_attribute(carrier_type, name) is not descriptor
+        for name, descriptor in slot_descriptors.items()
+    ):
+        raise _foreign_failure("inherited dataclass slot descriptor changed")
+    if (
+        any(name not in slot_descriptors for name in names)
+        and dictionary_descriptor is None
+    ):
+        raise _foreign_failure("carrier declared dictionary storage is missing")
+    storage = _CarrierStorage(
+        tuple(
+            (
+                ("slot", slot_descriptors[name])
+                if name in slot_descriptors
+                else ("dict", cast(GetSetDescriptorType, dictionary_descriptor))
+            )
+            for name in names
+        ),
+        tuple(slot_layout),
+    )
+    assert frozen is not None
+    return names, frozen, storage
+
+
+def _carrier_fields(value: Any) -> tuple[tuple[str, Any], ...] | None:
+    carrier_type = type(value)
+    if any(
+        base is native
+        for base in _carrier_mro(carrier_type)
+        for native in (type, nnx.Module, linen_module.Module)
+    ) or (
+        _carrier_class_attribute(carrier_type, "__dataclass_fields__", _CARRIER_MISSING)
+        is _CARRIER_MISSING
+    ):
+        return None
+    names, frozen, storage = _carrier_schema(carrier_type)
+    dictionary_descriptor = _carrier_class_attribute(carrier_type, "__dict__", None)
+    dictionary = (
+        None
+        if dictionary_descriptor is None
+        else object.__getattribute__(value, "__dict__")
+    )
+    slot_names = {
+        name
+        for name, (kind, _) in zip(names, storage.fields, strict=True)
+        if kind == "slot"
+    }
     if dictionary is not None and (
-        type(dictionary) is not dict or set(dictionary) != set(names)
+        type(dictionary) is not dict
+        or any(type(name) is not str for name in dictionary)
+        or set(dictionary) != set(names) - slot_names
     ):
         raise _foreign_failure("carrier has state outside its declared fields")
+    try:
+        values = tuple((name, object.__getattribute__(value, name)) for name in names)
+    except (AttributeError, TypeError) as exc:
+        raise _foreign_failure("carrier declared storage is incomplete") from exc
+    numeric = any(_numeric_carrier_field(item) for _, item in values)
+    if not numeric and not frozen:
+        return None
+    if not numeric and any(
+        not any(
+            type(item) is literal
+            for literal in (type(None), bool, int, float, complex, str, bytes)
+        )
+        for _, item in values
+    ):
+        raise _static_failure(
+            "GraphDef.Static payload requires literal frozen dataclass fields"
+        )
     for _, item in values:
         if _numeric_carrier_field(item):
             if isinstance(item, np.ndarray):
@@ -1137,7 +1321,10 @@ def _normalize_carriers(
                 carrier_fields.append(
                     _CarrierField(name, None, _static_carrier_field(item))
                 )
-        carriers.append(_CarrierSpec(carrier_type, tuple(carrier_fields)))
+        _, frozen, storage = _carrier_schema(carrier_type)
+        carriers.append(
+            _CarrierSpec(carrier_type, tuple(carrier_fields), frozen, storage)
+        )
     attributes = [
         (
             (key, replace(attribute, value=_CarrierToken(replacements[index])))
@@ -1396,14 +1583,20 @@ class NNXFunctionState:
         carriers = []
         if self.carriers:
             for spec in self.carriers:
-                for base in spec.carrier_type.__mro__:
-                    if base is not object and any(
-                        name in vars(base)
-                        for name in ("__getattribute__", "__getattr__")
-                    ):
-                        raise _foreign_failure(
-                            "custom dataclass field access needs an adapter"
-                        )
+                names, frozen, storage = _carrier_schema(spec.carrier_type)
+                if (
+                    type(spec.frozen) is not bool
+                    or frozen is not spec.frozen
+                    or storage != spec.storage
+                    or any(
+                        type(item) is not _CarrierField or type(item.name) is not str
+                        for item in spec.fields
+                    )
+                    or tuple(item.name for item in spec.fields) != names
+                ):
+                    raise _foreign_failure(
+                        "carrier frozen status or field layout changed"
+                    )
                 for item in spec.fields:
                     _require_plain_carrier_descriptor(spec.carrier_type, item.name)
                     if item.port is None:

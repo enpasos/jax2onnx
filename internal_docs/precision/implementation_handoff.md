@@ -1,6 +1,51 @@
 # Precision migration handoff — 2026-10-29
 
-## Current priorities and evidence — 2026-10-29
+## CI repair: frozen scalar NNX configurations — 2026-10-29
+
+Predecessor `afa6d16e` has four successful support jobs and four failed full Python
+jobs in [CI 40837446240](https://github.com/enpasos/jax2onnx/actions/runs/40837446240).
+All four stop at the same original full NNX Transformer preparation case:
+`GPTOSSConfig` is a frozen, slotted scalar record rejected by the new static
+payload containment. The unchanged original case reproduces that failure locally.
+
+The independently accepted repair reuses carrier reconstruction for ordinary
+frozen records with literal scalar fields and zero array ports. Every clone has
+fresh configuration objects, preserving shared and distinct identities and
+signed-zero fingerprints. Raw storage and delayed reconstruction reject mutable
+or nested contents, access hooks, finalizers, undeclared storage and replaced
+slot descriptors, including inherited shadows. Receiver schema validation now
+precedes configuration serialization. Numeric carrier ports, original factories,
+full Transformer inputs and numerical criteria are unchanged; no dependency or
+native runtime patch is used. This private repair does not complete B–F or
+qualify a public SOURCE transition.
+
+The reviewed v2 source passes the eight existing related owners and the
+unchanged complete Transformer owner in separate guarded runs on each official
+locked framework family:
+
+| Python / JAX / Flax | Related owners | Complete Transformer |
+| --- | --- | --- |
+| 3.11 / 0.10.2 / 0.12.8 | 263 PASS; 62.00/63.88 s; 1,378 MiB | 61 PASS; 61.68/62.82 s; 775 MiB |
+| 3.14 / 0.12.0.1 / 0.12.10 | 263 PASS; 57.02/58.91 s; 923 MiB | 61 PASS; 50.99/52.55 s; 607 MiB |
+
+Evidence roots: `/tmp/jax2onnx-nnx-scalar-regressions-delivery-v2-py311-5zxgewmt`,
+`/tmp/jax2onnx-nnx-scalar-regressions-delivery-v2-py314-oxssgqhf`,
+`/tmp/jax2onnx-nnx-transformer-delivery-v2-py311-v0qjq0zu` and
+`/tmp/jax2onnx-nnx-transformer-delivery-v2-py314-hy47qu4d`.
+The inherited-slot predecessor remains **2 PASS / 2 FAIL** at
+`/tmp/jax2onnx-nnx-inherited-slot-predecessor-v1-py311-sx6bo680`; it reached a
+forbidden native split and an unclassified delayed storage error. The final
+guard rejects both before native execution. Rejection regressions establish
+containment, not numerical equivalence. The complete Transformer retains its
+original finite sample, criteria, state checks and artifact/runtime checks.
+The first normal commit attempt passed six hooks but stopped on two mypy
+descriptor-type errors. Two explicit type casts behind existing validated
+guards resolve those typing errors without changing runtime guards. The v3
+source repeats the complete containment owner on each family; v2 remains the
+epoch for the broader table above. Pinned checks, exact-head CI and full
+migration acceptance remain required.
+
+## Prior correctness checkpoint — 2026-10-29
 
 The complete accepted B–F migration remains the contract. Public behavior stays
 LEGACY until independent acceptance of the coordinated SOURCE transition.
@@ -26,7 +71,7 @@ contexts and optional integrations remain unqualified. Evidence:
 `/tmp/jax2onnx-main-pr314-collection-delta-v2.json`. The superseded routine
 `C-H` split and 35-minute standard budget do not govern this work.
 
-Last published head `0a9638da26585bfafc0485ee9766135cd0a991a6` has eight ordinary
+Earlier published head `0a9638da26585bfafc0485ee9766135cd0a991a6` has eight ordinary
 jobs terminal SUCCESS in [CI 40686137924](https://github.com/enpasos/jax2onnx/actions/runs/40686137924).
 The two custom-compiler jobs in [40686127227](https://github.com/enpasos/jax2onnx/actions/runs/40686127227)
 are terminal FAILURE. These outcomes do not qualify the unpublished worktree.

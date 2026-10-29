@@ -262,14 +262,14 @@ class _PreparedMethod:
         ):
             raise SourcePreparationError("prepared method role binding changed")
         self.record.assert_current()
+        # Validate raw carrier storage before asdict can read configuration fields.
+        self.schema._owner_state(receiver)
         if (
             self.config_json is not None
             and json.dumps(asdict(cast(Any, receiver).config), sort_keys=True)
             != self.config_json
         ):
             raise SourcePreparationError("prepared method configuration changed")
-        # The descriptor has topology/specs/method, without a live receiver.
-        self.schema._owner_state(receiver)
 
     def invoke(self, receiver: object, *args: Any, **kwargs: Any) -> Any:
         from jax2onnx.plugins.plugin_system import _call_prepared_nnx_method
