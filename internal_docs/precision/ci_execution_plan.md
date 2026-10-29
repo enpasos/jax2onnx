@@ -78,6 +78,70 @@ contract and exact-final-commit acceptance remain unchanged.
 
 ## Latest bounded qualification — 2026-10-29
 
+### Hosted frozen-main diagnostic — source proposal only
+
+The separate `main-baseline-feasibility.yml` proposal adds one **non-required**,
+path-scoped `pull_request:synchronize` diagnostic for same-repository PR #277
+on `precision-migration`. It changes none of the existing eight CI jobs or
+their selection. Its job predicate permits only the eligible ordinary transition
+away from `22a26871f9cc6021790e17676297d4f48d5fcb98` (`github.event.before`).
+This is one eligible transition, not a guarantee of exactly one execution:
+a manual rerun would retain the original event; no manual rerun is authorized.
+No hosted execution is qualified by this source proposal.
+
+After source review, the bounded component owner passes **77 tests on each
+official Python 3.11/3.14 family**, including an actual two-worker non-native
+pytest fixture with eight phase reports, both native worker closures and JUnit.
+The stdlib controls cover subreaper double-fork/setsid adoption, fast exit,
+SIGTERM cleanup and parent-PID reuse. Actual external local guards finish in
+2.28 s / 213.00 MiB and 2.89 s / 246.95 MiB. Candidate telemetry/CPU inspection
+is stubbed inside integration fixtures; these controls do not qualify hosted
+safety telemetry, main/model execution or NoIncrease. Raw per-family receipts
+are in `/mnt/d/jax2onnx-hosted-observer-v3-corrected-py311-gtpovn31/` and
+`/mnt/d/jax2onnx-hosted-observer-v3-corrected-py314-8tpkc9vb/`.
+The first owner attempt remains **76 PASS / 1 FAIL**: the toy setup-skip authority
+expected line 5 while pytest correctly reports its requesting test at line 6.
+Only that toy expectation was corrected; the production validator and actual
+main authority remain unchanged. Its complete failed receipt and fences remain
+at `/mnt/d/jax2onnx-hosted-observer-v3-focused-py311-a9gfz7di/`.
+
+Tracked admission precedes original generation; the full 210-file generated
+authority is checked only after that stage. The observer is controller-only;
+there is no worker receipt protocol or scheduler replacement.
+
+The subject stays at `81ad6ca2592635c8d2ced6dbd77292c487f0351b`, separately
+from the exact PR-head driver. Its own official lock and original install,
+path-marker, pre-commit, generation and pytest order are retained. Only driver
+scripts enter `PYTHONPATH`; candidate `jax2onnx` is never installed or overlaid.
+The original unset `PYTEST_ADDOPTS`, two-worker `-n auto`, `loadscope` and
+duration profile remain explicit. Observation/reporting and no-restart additions
+are recorded. Both workers must publish the frozen ordered 4,571-ID digest
+before scheduling; success requires 13,712 complete phases, the two exact skip
+allowances, no `wasxfail` presence, matching native/transport worker and item
+indices and native closures, with one workload source/package binding and JUnit
+corroborating totals/errors/exact skips. Unseen scheduler assignments
+and loaded worker JAX configuration remain unverified.
+
+Hosted limits are 4 GiB aggregate RSS, 1,200 s for the original workload,
+6 GiB startup/2 GiB live effective available memory, 4 GiB free disk and exactly four actual allowed CPUs; unexpected allocation fails without an affinity change. Native thread/JAX controls stay unset; the
+separate local CPUs 4–7, thread-one and 12/8-GiB policy is unchanged. Setup is
+bounded to eight minutes and the job to 35. Closure has a measured, retrospective
+300-s qualification check; it is not a separately enforced five-minute deadline. A Linux subreaper discovers/reaps adopted descendants without consuming the
+Popen leader status; live owned telemetry uncertainty or SIGTERM routes through
+identity-checked cleanup. Each queued parent edge carries PID and start time;
+parent replacement cannot authorize children, and guard adoption needs its own
+persistent-identity proof. Owned PID/start-time, host/cgroup/OOM/swap records and complete scoped failures are retained. The
+successful compressed artifact target is at most 100 MiB for seven days;
+excluded model payloads are explicitly **NOT_RETAINED**, with hashes and sizes.
+
+The local original-main pilot remains **RESOURCE_FAILED/INCOMPLETE** at
+52.26 s / 4,103.35 MiB: 4,571 collected IDs are not completed outcomes, and its
+terminal JSON/JUnit are absent. Its earlier prelaunch bookkeeping assertion is
+an independent ERROR with zero native tests. Both are preserved under
+`/mnt/d/jax2onnx-main-original-two-worker-pilot-7rm_yxaa/`. This hosted proposal
+is no retry, larger-cap approval, paired NoIncrease evidence, candidate gate
+activation or release of the canonical collection-transition rejection.
+
 Astra independently accepts the finite mapped-main-owner Python 3.11 campaign
 at clean `14439a075f18979510ba4a0e6e97fb7342e6c800`: **4,569 PASS plus two
 exact original main skips**, all 4,571 IDs in order, all fourteen actual

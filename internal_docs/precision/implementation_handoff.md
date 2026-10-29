@@ -1,5 +1,32 @@
 # Precision migration handoff — 2026-10-29
 
+## Hosted main feasibility — source proposal only
+
+The new non-required, path-scoped PR #277 diagnostic proposes one frozen-main
+Python 3.11 run with main's own official lock and original stage order. It
+keeps the existing eight CI jobs, candidate selection and numerical code
+unchanged. Its job filter permits only the ordinary transition away from
+`22a26871`; manual reruns could reuse that eligible event and none is authorized.
+The corrected bounded owner passes 77 cases on each official Python family,
+including real two-worker non-native pytest and stdlib ownership/cleanup
+controls. The first 76-PASS/1-FAIL toy skip-line expectation remains preserved;
+only that test expectation changed. These finite component results establish
+no hosted/main/model or NoIncrease acceptance. The [CI plan](ci_execution_plan.md)
+records the receipts and its exact accounting,
+hosted reserve and artifact boundaries. V2 removes the worker-file protocol, separates tracked admission from generated
+source authority and retains one controller phase stream. Owned-process sampling
+fails closed, with Linux subreaper adoption and SIGTERM cleanup. No source-only
+check or synthetic accounting test establishes an actual hosted outcome.
+
+The original local two-worker pilot remains RESOURCE_FAILED/INCOMPLETE:
+52.26 s / 4,103.35 MiB, with missing final reports and unqualified test outcomes.
+Its separate prelaunch assertion ERROR executed no native tests. Source/package
+fences, unchanged swap counters and exact owned-link restoration are preserved
+in `/mnt/d/jax2onnx-main-original-two-worker-pilot-7rm_yxaa/result-summary.json`.
+There is no local retry, changed input/criterion, dependency substitution or cap
+increase. Hosted success would qualify only finite feasibility; NoIncrease,
+other cohorts/support, Full44, full B–F and the strict native contract stay open.
+
 ## CSE capture performance checkpoint — 2026-10-29
 
 The interrupted original Issue52 profile identifies repeated leaf-CSE binding
