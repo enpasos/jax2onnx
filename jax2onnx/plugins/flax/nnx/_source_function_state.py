@@ -850,7 +850,7 @@ def _preflight_native_storage(
             return
         if isinstance(value, np.ndarray):
             raise _static_failure(
-                "mutable native numeric buffers need isolation/effect support"
+                "mutable native numeric buffers: mutable NumPy storage needs an isolation/effect adapter"
             )
         if _numeric_carrier_field(value):
             if static:
@@ -1150,11 +1150,11 @@ def _carrier_schema(
 
 def _carrier_fields(value: Any) -> tuple[tuple[str, Any], ...] | None:
     carrier_type = type(value)
-    if any(
-        base is native
-        for base in _carrier_mro(carrier_type)
-        for native in (type, nnx.Module, linen_module.Module)
-    ) or (
+    carrier_mro = _carrier_mro(carrier_type)
+    if any(base is linen_module.Module for base in carrier_mro):
+        is_static_linen_declaration(value, failure=_static_failure)
+        return None
+    if any(base is native for base in carrier_mro for native in (type, nnx.Module)) or (
         _carrier_class_attribute(carrier_type, "__dataclass_fields__", _CARRIER_MISSING)
         is _CARRIER_MISSING
     ):
@@ -1441,7 +1441,7 @@ class NNXFunctionState:
             )
         if any(isinstance(value, np.ndarray) for value in state):
             raise _static_failure(
-                "mutable native numeric buffers need isolation/effect support"
+                "mutable native numeric buffers: mutable NumPy storage needs an isolation/effect adapter"
             )
         actual = tuple(_StateSpec.of(value) for value in state)
         if actual != self.specs:

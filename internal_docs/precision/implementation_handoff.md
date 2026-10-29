@@ -1,5 +1,49 @@
 # Precision migration handoff — 2026-10-29
 
+## CI repair: native storage and Linen diagnostics — 2026-10-29
+
+Published predecessor `4ec9fad4` in [CI 40847090831](https://github.com/enpasos/jax2onnx/actions/runs/40847090831)
+passes the original Transformer preparation cases, then the full Python 3.11
+and 3.12 jobs fail in batch 40 at the unchanged NumPy-owner rejection contract.
+The rejection happens before source execution, but the low-level diagnostic
+omits the precise storage/effect-adapter wording expected by the whole-call
+constructor. Four support jobs succeeded; the other full jobs were still
+running when this repair was prepared. Preserve those predecessor outcomes.
+
+The repair keeps both existing diagnostic assertions and rejection logic:
+native NumPy state ingress and preflight now identify both the native numeric
+buffer category and the required NumPy storage/effect adapter. A broader check
+also finds six direct-helper Linen rejection failures. They do not demonstrate
+source execution or a general containment bypass: downstream validators still
+reject unsupported declarations. The carrier helper now routes actual Linen
+MROs through that same passive specialized validator before returning `None`.
+Linen stays outside ordinary dataclass/numeric carrier normalization. Scalar
+configuration support, foreign-linked state, constructors, source bodies,
+descriptors, hashes and every existing test assertion remain unchanged.
+
+Independent Astra review accepts the one-file repair. The unchanged original
+NumPy pair first reproduces **2 FAIL** on Python 3.12 at
+`/tmp/jax2onnx-ci-numpy-owner-diagnostic-predecessor-v1-py312-ppev6kx5`.
+The message-only intermediate passes the five focused NumPy cases but has
+**113 PASS / 6 FAIL** across both complete related owners on Python 3.11:
+`/tmp/jax2onnx-ci-numpy-owner-diagnostic-owners-v1-py311-fk5ih4_c`.
+The final source includes the Linen helper routing; neither predecessor is
+relabelled as successful qualification. The four complete state-preparation, static-payload, foreign-carrier and Linen
+pool owners pass **148 cases on every supported Python cohort** at the final
+source hash `fb7e06f7bccd77a749b8b10ea1e2cab3e350aeb44aff3e940145e3089d483ef8`:
+
+| Python | Pytest / guarded wall | Peak owned RSS | Evidence |
+| --- | --- | --- | --- |
+| 3.11 | 10.41 / 11.70 s | 652 MiB | `/tmp/jax2onnx-ci-numpy-linen-contract-regressions-v2-py311-kgrbfuig` |
+| 3.12 | 14.36 / 15.64 s | 1,006 MiB | `/tmp/jax2onnx-ci-numpy-linen-contract-regressions-v2-py312-xa7s93wj` |
+| 3.13 | 12.62 / 14.17 s | 496 MiB | `/tmp/jax2onnx-ci-numpy-linen-contract-regressions-v2-py313-xiu4leuf` |
+| 3.14 | 9.30 / 10.71 s | 516 MiB | `/tmp/jax2onnx-ci-numpy-linen-contract-regressions-v2-py314-35mo246b` |
+
+These runs use supported official releases and unchanged assertions; they do
+not establish full B–F or numerical acceptance. Normal pinned hooks, strict
+documentation and the next exact-head CI retain their separate gates. This
+repair changes no dependency or native runtime.
+
 ## CI repair: frozen scalar NNX configurations — 2026-10-29
 
 Predecessor `afa6d16e` has four successful support jobs and four failed full Python
