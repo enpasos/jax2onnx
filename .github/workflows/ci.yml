@@ -303,6 +303,9 @@ jobs:
         )
         PY
 
+    - name: Report runner CPU profile
+      run: LC_ALL=C lscpu
+
     - name: Report native AxisData compatibility metadata
       run: poetry run python -B scripts/observe_native_axisdata.py
 
@@ -337,6 +340,15 @@ jobs:
       run: |
         poetry run python -B scripts/replay_source_cast_failure.py \
           --receipts-dir "$RUNNER_TEMP/jax2onnx-pytest-batches"
+
+    - name: Upload bounded native TopK capture
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: source-bf16-topk-native-python-${{ matrix.python-version }}
+        path: ${{ runner.temp }}/jax2onnx-pytest-batches/batch-*/source-bf16-topk-native/
+        retention-days: 14
+        if-no-files-found: ignore
 
     - name: Upload full-suite pytest receipts
       if: always()
