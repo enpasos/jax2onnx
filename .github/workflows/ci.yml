@@ -19,6 +19,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Verify checked-out commit
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        set -eu
+        expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
+        actual_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+        echo "checked-out commit: ${actual_commit}"
+        echo "expected commit: ${expected_commit}"
+        test "$actual_commit" = "$expected_commit"
 
     - name: Set up Python 3.12
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -53,6 +66,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Verify checked-out commit
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        set -eu
+        expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
+        actual_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+        echo "checked-out commit: ${actual_commit}"
+        echo "expected commit: ${expected_commit}"
+        test "$actual_commit" = "$expected_commit"
 
     - name: Set up Python 3.11
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -140,6 +166,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Verify checked-out commit
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        set -eu
+        expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
+        actual_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+        echo "checked-out commit: ${actual_commit}"
+        echo "expected commit: ${expected_commit}"
+        test "$actual_commit" = "$expected_commit"
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -202,6 +241,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Verify checked-out commit
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        set -eu
+        expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
+        actual_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+        echo "checked-out commit: ${actual_commit}"
+        echo "expected commit: ${expected_commit}"
+        test "$actual_commit" = "$expected_commit"
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0

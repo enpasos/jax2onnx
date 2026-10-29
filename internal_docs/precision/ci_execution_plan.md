@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status: **Main-baseline architecture accepted. Finite Python 3.11 functional/resource qualification completed at old `9520dfb9`; other cohorts, paired no-increase performance and gate activation remain pending.**
+Status: **Main-baseline architecture accepted. Finite mapped-main-owner Python 3.11 functional/resource qualification accepted at `14439a07`; other cohorts, paired no-increase performance, literal exact-head CI and gate activation remain pending.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -17,7 +17,7 @@ selection and its **35-minute / 160-minute standard runtime budgets**. Neither
 selecting nearly the entire expanded PR suite nor reducing standard coverage to
 two representative Python cohorts satisfies the new instruction. The earlier
 architecture acceptance is historical; it is not acceptance of this amendment.
-No workflow or required check has changed for this revision.
+No standard/extra workflow gate or required check has been activated.
 
 Independent Astra Ultra review on 2026-10-29 by
 `/root/astra_ci_plan_review/main_baseline_architecture_review`: **ACCEPT for
@@ -30,8 +30,29 @@ not accept missing migration verifiers or claim performance results.
 The reference main commit, supplied by root's fresh remote/local observation, is
 `81ad6ca2592635c8d2ced6dbd77292c487f0351b`. Freeze this SHA as the initial baseline;
 record and independently reconcile later main changes instead of silently
-rebasing or shrinking the baseline. Current published PR head `9e37792c` has
-four successful support jobs and four full Python jobs still in progress in
+rebasing or shrinking the baseline. At **16:58:48 UTC on 2026-10-29**, published
+PR head `14439a075f18979510ba4a0e6e97fb7342e6c800` has four successful support
+jobs and four full Python jobs still in progress in
+[CI 40910187730](https://github.com/enpasos/jax2onnx/actions/runs/40910187730).
+This is run-association evidence. The one inspected terminal normalization
+Python 3.12 job checks out merge commit
+`ea7579bb658e4b8b5a6703d06ad81d7d8b8ac55f`, with parents frozen main `81ad6ca`
+and head `14439a07`. Its tree `73d9e6290dda54c6ed85559ba8743ba83e7a5aa1` is
+identical to the head tree; preserve its genuine same-tree pass without calling
+it a literal head checkout. No assertion about the other seven job checkouts
+follows. Evidence:
+`/tmp/jax2onnx-exact-head-checkout-audit-20261029-334e87_v/files.json`
+(SHA256 `58c175305849816afcdc83d3b0e69d1f7149e872c305788f581c01d92862b02b`).
+
+The proposed repair pins each of the four checkout blocks to
+`${{ github.event.pull_request.head.sha || github.sha }}` and immediately
+verifies `HEAD^{commit}` against the expected peeled commit before setup.
+Missing objects and mismatches fail the existing job; annotated tags remain
+supported. `GITHUB_SHA` stays the event commit. Successor CI must prove the
+actual checkout; check names, cohorts, selection and budgets are unchanged.
+
+The earlier published-head `9e37792c` observation retains four successful
+support jobs and four full Python jobs in progress in
 [CI 40891049655](https://github.com/enpasos/jax2onnx/actions/runs/40891049655)
 at **16:05:36 UTC on 2026-10-29**. Predecessor `9a0bc7fb` retains four successful support
 jobs and a successful full Python 3.11 job, with the other three full jobs running in
@@ -57,6 +78,19 @@ contract and exact-final-commit acceptance remain unchanged.
 
 ## Latest bounded qualification — 2026-10-29
 
+Astra independently accepts the finite mapped-main-owner Python 3.11 campaign
+at clean `14439a075f18979510ba4a0e6e97fb7342e6c800`: **4,569 PASS plus two
+exact original main skips**, all 4,571 IDs in order, all fourteen actual
+assignments, fifteen closed workers, 45 context snapshots and 13,712 phase
+reports, with no `wasxfail` fields. The unchanged guard completes in
+**854.56 s / 3,229.37 MiB**, without a trigger. Receipt:
+`/tmp/jax2onnx-owner188-checkpoint14439a07-full-review-receipt-v2.json`
+(SHA256 `140921bdca6e7aa8e4d9faf3990d5edd79da7fce6d98da8555d988a1bd1bc0e5`).
+Its **8,569,970-byte** archive covers canonical/qualification receipts, guards
+and metadata, not all model artifacts. This closes the next finite owner
+qualification at this checkpoint only; NoIncrease, all cohorts/support,
+Full44, full B–F, literal exact-head CI and gate activation remain open.
+
 An independently accepted **temporary candidate**, using existing
 `collection_args` and canonical lifecycle checks, collects all 188 mapped main
 owner modules. At `9e37792c`, separate phase-free controls observe global
@@ -77,10 +111,10 @@ Its full binding scans are batched without changing the CSE algorithm or
 post-pass validation. The complete original Issue52 payload and all six affected
 complete ViT cases pass on each official framework family. Independent review
 accepts this finite checkpoint; residual membership costs, Full44 and broader
-performance gates remain open. Next qualify every mapped standard identity on
-the final clean checkpoint with the existing runner, explicit owner selectors
-and exact main skip controls. This precedes replay feature expansion and does
-not replace the matched main/PR performance campaign or authorize gate activation.
+performance gates remain open. The current finite mapped-owner campaign above
+supersedes the next-qualification step for Python 3.11 at `14439a07` only. It
+does not replace the matched main/PR performance campaign or authorize gate
+activation or replay feature expansion.
 
 The complete locked Python 3.11 standard campaign at old head `9520dfb9`
 finishes the exact original 4,571-case order: **4,569 PASS and two unchanged

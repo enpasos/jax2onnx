@@ -55,26 +55,61 @@ both finite families and the capture-only repair. Aggregates:
 `/mnt/d/jax2onnx-cse-vit-primary311-summary-kzyhpdd_/summary.json` and
 `/mnt/d/jax2onnx-cse-vit-modern314-summary-emb6jz05/summary.json`.
 
-The next accepted qualification is the complete mapped-main-owner standard
-campaign, before replay feature expansion. Its existing temporary helper needs
-the final clean checkpoint binding and all 188 selectors passed explicitly to
-the existing runner; exact original skip/xfail review remains mandatory.
-Normal pinned commit hooks and strict documentation are checkpoint quality
-gates. Full44, broader cohorts, matched main/runtime comparison, residual
-membership costs and exact-head CI remain separate open obligations.
+The repair is committed at `14439a075f18979510ba4a0e6e97fb7342e6c800`, with all
+seven normal pinned hooks and strict documentation passing. The complete
+mapped-main-owner Python 3.11 qualification is independently accepted below.
+Full44, broader cohorts, matched main/runtime comparison, residual membership
+costs and literal exact-head CI remain separate open obligations.
 
 ## Latest qualification and open gates — 2026-10-29
 
-PR #277 now publishes `9e37792c599a4f70bdbbe06661baf943071a4592`, including
-the reviewed repair `9a0bc7fb881d07e2cb696af06c50ab5a1c9b9dd4`.
-[Exact-head CI 40891049655](https://github.com/enpasos/jax2onnx/actions/runs/40891049655)
-has four successful support jobs and four running full Python jobs at
-**16:05:36 UTC on 2026-10-29**. Its eight-check acceptance remains pending. Predecessor
+PR #277 publishes `14439a075f18979510ba4a0e6e97fb7342e6c800` at the latest
+observation, **16:58:48 UTC on 2026-10-29**.
+[CI 40910187730](https://github.com/enpasos/jax2onnx/actions/runs/40910187730)
+has four successful support jobs and four full Python jobs in progress. These
+are run-association outcomes; literal exact-head acceptance remains pending.
+
+The one inspected terminal job,
+[normalization Python 3.12](https://github.com/enpasos/jax2onnx/actions/runs/40910187730/job/123575738849),
+checks out `refs/pull/277/merge` at
+`ea7579bb658e4b8b5a6703d06ad81d7d8b8ac55f`, whose parents are frozen main
+`81ad6ca2592635c8d2ced6dbd77292c487f0351b` and head `14439a07`. Its tree is
+`73d9e6290dda54c6ed85559ba8743ba83e7a5aa1`, identical to the head tree. Preserve
+the genuine same-tree pass without reattributing it to a literal head checkout;
+the other seven job checkouts have not been inspected here. Evidence:
+`/tmp/jax2onnx-exact-head-checkout-audit-20261029-334e87_v/files.json`
+(SHA256 `58c175305849816afcdc83d3b0e69d1f7149e872c305788f581c01d92862b02b`).
+
+The proposed CI repair pins all four checkout blocks to
+`${{ github.event.pull_request.head.sha || github.sha }}` and immediately
+asserts that actual `HEAD^{commit}` equals the expected peeled commit before
+setup. Missing objects or a mismatch fail the existing job; annotated tags
+remain supported. `GITHUB_SHA` retains the event commit, which may legitimately
+differ from the code head. This changes no check name, cohort or selection;
+successor CI must supply actual checkout assertions before exact-head acceptance.
+
+The earlier `9e37792c` observation remains preserved:
+[CI 40891049655](https://github.com/enpasos/jax2onnx/actions/runs/40891049655)
+had four successful support jobs and four running full Python jobs at
+**16:05:36 UTC on 2026-10-29**. Predecessor
 [9a CI 40875416260](https://github.com/enpasos/jax2onnx/actions/runs/40875416260)
 retains four support successes and a successful full Python 3.11 job; its other
 three full jobs are still running at that observation. Earlier
 `4ec9fad4` completed with four support successes and four full-test failures,
 all at the NumPy diagnostic mismatch repaired by `9a`. Preserve each outcome.
+
+Astra independently accepts the finite mapped-main-owner Python 3.11 campaign
+at clean `14439a07`: **4,569 PASS and two exact main skips**, with all 4,571
+original IDs in order. All fourteen actual assignments, fifteen closed workers,
+45 context snapshots and 13,712 phase reports are verified; no `wasxfail` field
+is present. The unchanged guard completes in **854.56 s / 3,229.37 MiB**, without
+a trigger. Receipt:
+`/tmp/jax2onnx-owner188-checkpoint14439a07-full-review-receipt-v2.json`
+(SHA256 `140921bdca6e7aa8e4d9faf3990d5edd79da7fce6d98da8555d988a1bd1bc0e5`).
+The **8,569,970-byte** archive retains canonical/qualification receipts, guards
+and metadata; it is not a complete model-artifact archive. This supersedes the
+next-qualification statement for this finite owner campaign only. NoIncrease,
+all-cohort/support acceptance, Full44, full B–F and exact-head CI remain open.
 
 The complete locked Python 3.11 standard campaign at **old head `9520dfb9`**
 finishes with **4,569 PASS and two unchanged main skips**, in exactly the
