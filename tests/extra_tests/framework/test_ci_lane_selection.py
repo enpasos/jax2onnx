@@ -1004,6 +1004,155 @@ def test_canonical_closed_lane_receipt_binds_terminal_authority_and_raw_files(
         module._ci_lane_closed(folder, request, context)
 
 
+@pytest.mark.parametrize(
+    "snapshot", ["startup_context", "collection_context", "final_context"]
+)
+@pytest.mark.parametrize(
+    "fault", ["environment", "jax-config", "missing", "unverified", "incomplete-stage"]
+)
+def test_staged_closed_receipt_rejects_semantic_snapshot_forgery_with_valid_hashes(
+    tmp_path, snapshot, fault
+):
+    module = _runner()
+    suite, manifest, environment = _suite(
+        tmp_path, {"test_cases.py": _BODY}, ["test_cases.py::test_base"]
+    )
+    payload = json.loads(manifest.read_text())
+    payload["collection_transition"] = {
+        "startup_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "collected_environment": {
+            **payload["environment"],
+            "TF_CPP_MIN_LOG_LEVEL": "1",
+        },
+        "collected_jax_config": {"status": "NOT_LOADED", "values": {}},
+    }
+    manifest.write_text(json.dumps(payload) + "\n")
+    context = module._CiLaneContext(manifest, suite, environment=environment)
+    folder = tmp_path / "closed-worker"
+    folder.mkdir()
+    request = {
+        "kind": "collection",
+        "pytest_args": [
+            "--_j2o-ci-lane=standard",
+            "--_j2o-ci-main-baseline=" + str(manifest),
+            "--_j2o-ci-main-sha256=" + context.sha256,
+            "--collect-only",
+        ],
+    }
+    receipt = {
+        "kind": "collection",
+        "pytest_args": request["pytest_args"],
+        "exitstatus": 0,
+        "finished": "closed",
+        "phases": {},
+        "completed": [],
+        "phase_durations": {},
+        "collection_transition_completed": True,
+        "ci_lane": {
+            "lane": "standard",
+            "manifest_path": str(context.path),
+            "manifest_sha256": context.sha256,
+            "environment": context.manifest["environment"],
+            "source_files": context.sources,
+            "source_files_after": context.sources,
+            "errors": [],
+        },
+    }
+    for name in ("startup_context", "collection_context", "final_context"):
+        receipt[name] = {
+            "status": "OBSERVED",
+            "errors": [],
+            "environment": dict(
+                payload["environment"]
+                if name == "startup_context"
+                else payload["collection_transition"]["collected_environment"]
+            ),
+            "loaded_jax_config": {"status": "NOT_LOADED", "values": {}},
+        }
+    module._write(folder / "request.json", request)
+
+    def close():
+        module._write(folder / "receipt.json", receipt)
+        module._write(
+            folder / "lane-terminal.json",
+            {
+                "receipt_sha256": hashlib.sha256(
+                    (folder / "receipt.json").read_bytes()
+                ).hexdigest(),
+                "request_sha256": hashlib.sha256(
+                    (folder / "request.json").read_bytes()
+                ).hexdigest(),
+                "manifest_sha256": context.sha256,
+                "exitstatus": 0,
+            },
+        )
+
+    close()
+    assert module._ci_lane_closed(folder, request, context) == receipt
+    if fault == "environment":
+        receipt[snapshot]["environment"]["JAX_ENABLE_X64"] = "forged"
+    elif fault == "jax-config":
+        receipt[snapshot]["loaded_jax_config"] = {
+            "status": "OBSERVED",
+            "values": {
+                "x64_enabled": True,
+                "jax_disable_jit": False,
+                "jax_default_matmul_precision": None,
+                "jax_platforms": None,
+                "jax_numpy_dtype_promotion": "standard",
+                "jax_numpy_rank_promotion": "allow",
+            },
+        }
+    elif fault == "unverified":
+        receipt[snapshot]["loaded_jax_config"]["status"] = "UNVERIFIED"
+    elif fault == "incomplete-stage":
+        receipt["collection_transition_completed"] = False
+    else:
+        del receipt[snapshot]
+    close()
+    with pytest.raises(ValueError, match="collection-transition"):
+        module._ci_lane_closed(folder, request, context)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        (),
+        ("--collect-only",),
+        pytest.param(
+            ("-p", "xdist.plugin", "-n", "2"),
+            marks=pytest.mark.skipif(
+                os.environ.get("JAX2ONNX_TEST_CI_LANE_XDIST") != "1",
+                reason="assigned to the opt-in synthetic xdist qualification lane",
+            ),
+        ),
+    ],
+    ids=["serial", "collection", "xdist"],
+)
+def test_direct_staged_context_rejects_before_owner_import(tmp_path, options):
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_cases.py": "from pathlib import Path\nPath('owner-imported').touch()\n"
+            + _BODY
+        },
+        ["test_cases.py::test_base"],
+    )
+    payload = json.loads(manifest.read_text())
+    payload["collection_transition"] = {
+        "startup_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "collected_environment": payload["environment"],
+        "collected_jax_config": {"status": "NOT_LOADED", "values": {}},
+    }
+    manifest.write_text(json.dumps(payload) + "\n")
+    result, receipt = _run(
+        suite, manifest, environment, tmp_path / "report", options=options
+    )
+    _assert_failed_before_body(result, receipt, suite)
+    assert not (suite / "owner-imported").exists()
+    assert "canonical pre-pytest startup evidence" in result.stdout + result.stderr
+
+
 @pytest.mark.parametrize("fault", ["duplicate", "missing", "invalid-sha"])
 def test_private_canonical_lane_authority_rejects_ambiguous_or_unbound_options(fault):
     module = _runner()

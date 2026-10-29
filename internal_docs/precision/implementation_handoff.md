@@ -436,6 +436,44 @@ startup-to-collection environment change must receive explicit staged binding;
 it must not be hidden by a startup rewrite or an ignored field. This remains
 an open real-context qualification gate.
 
+The bounded integration is committed locally at `35f80783`. All seven normal
+pinned hooks pass (26.10 s, 453 MiB), as does strict documentation (4.79 s,
+138 MiB). Evidence: `/tmp/jax2onnx-ci-canonical-lanes-normal-commit-v3-r7_5_h02`
+and `/tmp/jax2onnx-ci-canonical-lanes-docs-strict-v3-xc467gpi`. No feature push or
+CI activation follows from this checkpoint. Astra accepts architecture for a
+small optional canonical-only startup/collected context binding. The two natural-transition
+counterexamples fail against the preceding source (1.32/1.66 s, 232 MiB), with
+the original schema rejection retained at
+`/tmp/jax2onnx-ci-staged-context-predecessor-v1-py311-h5yqr43g` and source hashes
+in `/tmp/jax2onnx-ci-staged-context-predecessor-source-v1.json`.
+
+Astra independently accepts the staged source frozen in
+`/tmp/jax2onnx-ci-staged-context-source-v1.json`. Runner/selector qualification
+passes **246 tests on each family**, including the enabled synthetic xdist
+variants: minimum 76.33/76.66 s, 308 MiB
+(`/tmp/jax2onnx-ci-staged-context-integration-v1-py311-6ijhcsgc`); modern
+138.64/139.50 s, 347 MiB
+(`/tmp/jax2onnx-ci-staged-context-integration-v1-py314-shxvrxdh`). The existing
+artifact/control/replay owners also pass **165 tests each**: minimum
+28.84/29.39 s, 278 MiB
+(`/tmp/jax2onnx-ci-staged-context-consumers-v1-py311-yzxfbssx`); modern
+48.66/49.68 s, 303 MiB
+(`/tmp/jax2onnx-ci-staged-context-consumers-v1-py314-txi9dbr_`). Per-protocol
+context checks do not repeat CPU/Git/source hashing. These results qualify the
+bounded implementation, not original-main context, full standard execution,
+performance, gate activation or complete migration acceptance.
+
+The passive frozen-main Python 3.11 collection now passes with all **4,571
+original ordered IDs**, no phases and unchanged source/package observations:
+`/tmp/jax2onnx-main311-passive-context-iy33qqup`, guarded at
+`/tmp/jax2onnx-main311-passive-context-v1-zr_zxw83` (51.41 s, 601 MiB).
+JAX starts unloaded and ends with x64 enabled and `jax_platforms=None`.
+`PYTEST_VERSION` naturally changes from unset to `9.1.1`, in addition to
+the JAX/TF environment changes; bind the complete observed maps and preserve
+startup. This controlled CPU/thread/current-CI-ADDOPTS profile does not claim
+historical-main ADDOPTS equivalence, executed model outcomes or runtime parity.
+Fresh current-tree counterpart qualification remains open.
+
 Future canonical resource measurements use
 `/tmp/jax2onnx-process-tree-guard-v2.py`, tracking owned PID/start-time descendants
 across new process groups and sessions. CPU/thread, 4-GiB aggregate RSS and
@@ -446,6 +484,14 @@ confirm combined accounting and timeout cleanup:
 The older guard sampled the original process group; its direct model/support
 probes retain their reported scope, but historical nested-controller RSS is not
 proof of aggregate descendant residency.
+
+Existing ignored `onnx/` outputs were relocated to task-owned D storage while
+retaining their original path through a symlink. All 3,136 files, totaling
+3,234,245,236 bytes, matched SHA-256 inventories before and after copying;
+root free space rose to about 7.5 GiB. Evidence:
+`/tmp/jax2onnx-preserved-onnx-storage-v1-kk0fzcke`. No source, model inputs,
+numerical criteria or resource limits changed; generated artifacts remain
+outside version control.
 
 1. Qualify main/PR collections and the reviewed one-to-one baseline-contract
    mapping on all supported cohorts; then demonstrate unchanged complete

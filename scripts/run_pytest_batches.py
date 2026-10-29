@@ -92,6 +92,14 @@ _WORKER_ENV_PREFIXES = (
     "NPY_",
     "NUMEXPR_",
 )
+_CI_VOLATILE_ENV_NAMES = frozenset(
+    (
+        "PYTEST_CURRENT_TEST",
+        "PYTEST_XDIST_WORKER",
+        "PYTEST_XDIST_WORKER_COUNT",
+        "PYTEST_XDIST_TESTRUNUID",
+    )
+)
 _WORKER_SOURCE_FILES = (
     "scripts/run_pytest_batches.py",
     "scripts/_source_cast_observer.py",
@@ -124,6 +132,75 @@ def _context_read(path: Path, limit: int = 2 * 1024 * 1024) -> bytes:
     if len(payload) > limit:
         raise ValueError("worker context file exceeds bound")
     return payload
+
+
+def _worker_environment() -> dict[str, str | None]:
+    environment = {name: os.environ.get(name) for name in _worker_environment_names()}
+    if (
+        any(
+            value is not None and (type(value) is not str or len(value) > 8192)
+            for value in environment.values()
+        )
+        or len(json.dumps(environment).encode()) > 65536
+    ):
+        raise ValueError("worker environment values exceed bounds")
+    return environment
+
+
+def _worker_jax_config() -> dict[str, Any]:
+    # Metadata only: inspect the already loaded official module, never import it.
+    if "jax" not in sys.modules:
+        return {"status": "NOT_LOADED", "values": {}}
+    import types
+
+    jax, native = sys.modules["jax"], sys.modules.get("jax._src.config")
+    if type(jax) is not types.ModuleType or type(native) is not types.ModuleType:
+        raise ValueError("loaded JAX module context is unsupported")
+    config = vars(jax).get("config")
+    if type(config) is not vars(native).get("Config"):
+        raise ValueError("loaded JAX config context is unsupported")
+    values = {}
+    for name in (
+        "x64_enabled",
+        "jax_disable_jit",
+        "jax_default_matmul_precision",
+        "jax_platforms",
+        "jax_numpy_dtype_promotion",
+        "jax_numpy_rank_promotion",
+    ):
+        value = getattr(config, name)
+        if value is None or type(value) is bool or type(value) is str:
+            if type(value) is str and len(value) > 256:
+                raise ValueError("loaded JAX setting exceeds bound")
+            values[name] = value
+        elif name == "jax_numpy_dtype_promotion" and type(value) is vars(native).get(
+            "NumpyDtypePromotion"
+        ):
+            member = next(
+                (
+                    key
+                    for key in ("STANDARD", "STRICT")
+                    if value is vars(type(value)).get(key)
+                ),
+                None,
+            )
+            if member is None:
+                raise ValueError("loaded JAX enum member differs")
+            storage = object.__getattribute__(value, "__dict__")
+            literal = storage.get("_value_") if type(storage) is dict else None
+            if (
+                type(literal) is not str
+                or literal != {"STANDARD": "standard", "STRICT": "strict"}[member]
+            ):
+                raise ValueError("loaded JAX enum storage differs")
+            values[name] = {
+                "type": "jax._src.config.NumpyDtypePromotion",
+                "member": member,
+                "value": literal,
+            }
+        else:
+            raise ValueError("loaded JAX setting is not literal metadata")
+    return {"status": "OBSERVED", "values": values}
 
 
 def _worker_context() -> dict[str, Any]:
@@ -172,18 +249,7 @@ def _worker_context() -> dict[str, Any]:
             result[name] = None
         error("interpreter", exc)
     try:
-        environment = {
-            name: os.environ.get(name) for name in _worker_environment_names()
-        }
-        if (
-            any(
-                value is not None and (type(value) is not str or len(value) > 8192)
-                for value in environment.values()
-            )
-            or len(json.dumps(environment).encode()) > 65536
-        ):
-            raise ValueError("worker environment values exceed bounds")
-        result["environment"] = environment
+        result["environment"] = _worker_environment()
     except BaseException as exc:
         error("environment", exc)
     try:
@@ -239,65 +305,11 @@ def _worker_context() -> dict[str, Any]:
             }
         except BaseException as exc:
             error("source:" + relative, exc)
-    if "jax" in sys.modules:
-        try:
-            import types
-
-            jax, native = sys.modules["jax"], sys.modules.get("jax._src.config")
-            if (
-                type(jax) is not types.ModuleType
-                or type(native) is not types.ModuleType
-            ):
-                raise ValueError("loaded JAX module context is unsupported")
-            config = vars(jax).get("config")
-            if type(config) is not vars(native).get("Config"):
-                raise ValueError("loaded JAX config context is unsupported")
-            values = {}
-            for name in (
-                "x64_enabled",
-                "jax_disable_jit",
-                "jax_default_matmul_precision",
-                "jax_platforms",
-                "jax_numpy_dtype_promotion",
-                "jax_numpy_rank_promotion",
-            ):
-                value = getattr(config, name)
-                if value is None or type(value) is bool or type(value) is str:
-                    if type(value) is str and len(value) > 256:
-                        raise ValueError("loaded JAX setting exceeds bound")
-                    values[name] = value
-                elif name == "jax_numpy_dtype_promotion" and type(value) is vars(
-                    native
-                ).get("NumpyDtypePromotion"):
-                    member = next(
-                        (
-                            key
-                            for key in ("STANDARD", "STRICT")
-                            if value is vars(type(value)).get(key)
-                        ),
-                        None,
-                    )
-                    if member is None:
-                        raise ValueError("loaded JAX enum member differs")
-                    storage = object.__getattribute__(value, "__dict__")
-                    literal = storage.get("_value_") if type(storage) is dict else None
-                    if (
-                        type(literal) is not str
-                        or literal
-                        != {"STANDARD": "standard", "STRICT": "strict"}[member]
-                    ):
-                        raise ValueError("loaded JAX enum storage differs")
-                    values[name] = {
-                        "type": "jax._src.config.NumpyDtypePromotion",
-                        "member": member,
-                        "value": literal,
-                    }
-                else:
-                    raise ValueError("loaded JAX setting is not literal metadata")
-            result["loaded_jax_config"] = {"status": "OBSERVED", "values": values}
-        except BaseException as exc:
-            result["loaded_jax_config"] = {"status": "UNVERIFIED", "values": {}}
-            error("loaded_jax_config", exc)
+    try:
+        result["loaded_jax_config"] = _worker_jax_config()
+    except BaseException as exc:
+        result["loaded_jax_config"] = {"status": "UNVERIFIED", "values": {}}
+        error("loaded_jax_config", exc)
     return result
 
 
@@ -582,6 +594,15 @@ def _worker(request_path: Path) -> int:
     ):
         raise ValueError("invalid canonical worker request schema")
     authority = _ci_lane_worker_authority(request["pytest_args"])
+    lane_context = None
+    if authority is not None:
+        lane_context = _CiLaneContext(
+            Path(authority[_CI_PRIVATE_OPTIONS[1]]),
+            Path.cwd().resolve(),
+            environment=startup_context["environment"],
+            expected_sha256=authority[_CI_PRIVATE_OPTIONS[2]],
+        )
+        lane_context.check_snapshot(startup_context, collected=False)
     # Import pytest only inside disposable collection/execution children.
     import pytest
 
@@ -656,7 +677,7 @@ def _worker(request_path: Path) -> int:
                 checkpoint()
                 pytest.exit(message, returncode=4)
 
-        def audit_lane(self, *, terminal: bool = False) -> None:
+        def audit_lane(self, *, terminal: bool = False, protocol: bool = False) -> None:
             if self.lane_context is None:
                 return
             try:
@@ -683,6 +704,12 @@ def _worker(request_path: Path) -> int:
                     raise ValueError(
                         "independent CI projector conflicts with canonical authority"
                     )
+                if protocol:
+                    self.lane_context.check_collected()
+                    return
+                if terminal and self.lane_context.transition is not None:
+                    receipt["final_context"] = _worker_context()
+                    self.lane_context.check_collected(receipt["final_context"])
                 bindings = self.lane_context.check(self.config, self.full_items)
                 receipt["ci_lane"][
                     "source_files_after" if terminal else "source_files"
@@ -736,6 +763,11 @@ def _worker(request_path: Path) -> int:
         def pytest_runtestloop(self, session: Any) -> Any:
             if authority is not None:
                 self.verify_lane(session)
+                if self.lane_context.transition is not None:
+                    try:
+                        self.lane_context.check_collected()
+                    except ValueError as exc:
+                        self.lane_error(str(exc))
                 self.audit_lane()
             yield
             if authority is not None:
@@ -748,6 +780,8 @@ def _worker(request_path: Path) -> int:
                     self.lane_error(
                         "canonical lane collection cannot execute a test protocol"
                     )
+                if self.lane_context.transition is not None:
+                    self.audit_lane(protocol=True)
                 if self.serial_position == 0:
                     self.verify_lane(item.session)
                 if (
@@ -809,11 +843,7 @@ def _worker(request_path: Path) -> int:
                         raise ValueError(
                             "independent CI projector conflicts with canonical authority"
                         )
-                    self.lane_context = _CiLaneContext(
-                        Path(authority[_CI_PRIVATE_OPTIONS[1]]),
-                        Path.cwd().resolve(),
-                        expected_sha256=authority[_CI_PRIVATE_OPTIONS[2]],
-                    )
+                    self.lane_context = lane_context
                     receipt["ci_lane"].update(
                         environment=self.lane_context.manifest["environment"],
                         source_files=self.lane_context.sources,
@@ -857,6 +887,12 @@ def _worker(request_path: Path) -> int:
                     self.lane_error("canonical full collection changed after ordering")
                 if receipt["collection_errors"]:
                     self.lane_error("canonical lane collection contains errors")
+                try:
+                    self.lane_context.complete_collection(receipt["collection_context"])
+                    if self.lane_context.transition is not None:
+                        receipt["collection_transition_completed"] = True
+                except ValueError as exc:
+                    self.lane_error(str(exc))
                 self.audit_lane()
                 try:
                     standard, extra = _ci_lane_partition(
@@ -1843,17 +1879,80 @@ def _main() -> int:
 # workers reuse these audits while Report owns their sole assignment projection.
 def _ci_lane_environment(environment: Any = None) -> dict[str, str | None]:
     source = os.environ if environment is None else environment
-    volatile = {
-        "PYTEST_CURRENT_TEST",
-        "PYTEST_XDIST_WORKER",
-        "PYTEST_XDIST_WORKER_COUNT",
-        "PYTEST_XDIST_TESTRUNUID",
-    }
     return {
         name: source.get(name)
         for name in _worker_environment_names(source)
-        if name not in volatile
+        if name not in _CI_VOLATILE_ENV_NAMES
     }
+
+
+def _ci_lane_jax_config(snapshot: Any) -> None:
+    if (
+        type(snapshot) is not dict
+        or set(snapshot) != {"status", "values"}
+        or type(snapshot["status"]) is not str
+        or type(snapshot["values"]) is not dict
+    ):
+        raise ValueError("unsupported collection-transition JAX snapshot")
+    values = snapshot["values"]
+    if snapshot["status"] == "NOT_LOADED" and not values:
+        return
+    if snapshot["status"] != "OBSERVED" or set(values) != {
+        "x64_enabled",
+        "jax_disable_jit",
+        "jax_default_matmul_precision",
+        "jax_platforms",
+        "jax_numpy_dtype_promotion",
+        "jax_numpy_rank_promotion",
+    }:
+        raise ValueError("unsupported collection-transition JAX snapshot")
+    if any(
+        type(values[name]) is not bool for name in ("x64_enabled", "jax_disable_jit")
+    ):
+        raise ValueError("collection-transition JAX flags need exact booleans")
+    for name in ("jax_default_matmul_precision", "jax_platforms"):
+        value = values[name]
+        if value is not None and (type(value) is not str or len(value) > 256):
+            raise ValueError("collection-transition JAX settings need bounded literals")
+    if type(values["jax_numpy_rank_promotion"]) is not str or values[
+        "jax_numpy_rank_promotion"
+    ] not in {"allow", "warn", "raise"}:
+        raise ValueError("unsupported collection-transition JAX rank promotion")
+    promotion = values["jax_numpy_dtype_promotion"]
+    if type(promotion) is str and promotion in {"standard", "strict"}:
+        return
+    if (
+        type(promotion) is not dict
+        or set(promotion) != {"type", "member", "value"}
+        or any(type(value) is not str for value in promotion.values())
+        or promotion["type"] != "jax._src.config.NumpyDtypePromotion"
+        or promotion["member"] not in {"STANDARD", "STRICT"}
+        or promotion["value"]
+        != {"STANDARD": "standard", "STRICT": "strict"}[promotion["member"]]
+    ):
+        raise ValueError("unsupported collection-transition JAX dtype promotion")
+
+
+def _ci_lane_transition(transition: Any) -> None:
+    if type(transition) is not dict or set(transition) != {
+        "startup_jax_config",
+        "collected_environment",
+        "collected_jax_config",
+    }:
+        raise ValueError("unsupported collection_transition schema")
+    for name in ("startup_jax_config", "collected_jax_config"):
+        _ci_lane_jax_config(transition[name])
+    environment = transition["collected_environment"]
+    if (
+        type(environment) is not dict
+        or environment != _ci_lane_environment(environment)
+        or any(
+            value is not None and (type(value) is not str or len(value) > 8192)
+            for value in environment.values()
+        )
+        or len(json.dumps(environment).encode()) > 65536
+    ):
+        raise ValueError("collection_transition needs a complete bounded environment")
 
 
 def _ci_lane_manifest(
@@ -1880,10 +1979,14 @@ def _ci_lane_manifest(
     if (
         type(manifest) is not dict
         or not required <= manifest.keys()
-        or manifest.keys() - required - {"packages", "collection_args"}
+        or manifest.keys()
+        - required
+        - {"packages", "collection_args", "collection_transition"}
         or manifest["schema"] != "jax2onnx-ci-baseline-v1"
     ):
         raise ValueError("unsupported baseline manifest schema")
+    if "collection_transition" in manifest:
+        _ci_lane_transition(manifest["collection_transition"])
 
     def digest(value: Any, length: int) -> bool:
         return (
@@ -2144,6 +2247,64 @@ class _CiLaneContext:
         if expected_sha256 is not None and self.sha256 != expected_sha256:
             raise ValueError("baseline manifest SHA changed")
         self.sources = _ci_lane_sources(root, self.manifest["source_files"])
+        self.transition = self.manifest.get("collection_transition")
+        self.collection_completed = False
+
+    def check_snapshot(self, snapshot: Any, *, collected: bool) -> None:
+        if self.transition is None:
+            return
+        if (
+            type(snapshot) is not dict
+            or snapshot.get("status") != "OBSERVED"
+            or snapshot.get("errors") != []
+            or type(snapshot.get("environment")) is not dict
+        ):
+            raise ValueError("collection-transition context snapshot is unverified")
+        _ci_lane_jax_config(snapshot.get("loaded_jax_config"))
+        observed_environment = _ci_lane_environment(snapshot["environment"])
+        if {
+            name: value
+            for name, value in snapshot["environment"].items()
+            if name not in _CI_VOLATILE_ENV_NAMES
+        } != observed_environment:
+            raise ValueError("collection-transition environment snapshot is incomplete")
+        environment = (
+            self.transition["collected_environment"]
+            if collected
+            else self.manifest["environment"]
+        )
+        jax_config = self.transition[
+            "collected_jax_config" if collected else "startup_jax_config"
+        ]
+        if observed_environment != environment:
+            raise ValueError("collection-transition environment differs")
+        if snapshot["loaded_jax_config"] != jax_config:
+            raise ValueError("collection-transition loaded JAX configuration differs")
+
+    def complete_collection(self, snapshot: Any) -> None:
+        if self.transition is not None:
+            if self.collection_completed:
+                raise ValueError("collection-transition stage was already completed")
+            self.check_snapshot(snapshot, collected=True)
+            self.collection_completed = True
+
+    def check_collected(self, snapshot: Any = None) -> None:
+        if self.transition is not None:
+            if not self.collection_completed:
+                raise ValueError("collection-transition stage is incomplete")
+            self.check_snapshot(
+                (
+                    {
+                        "status": "OBSERVED",
+                        "errors": [],
+                        "environment": _worker_environment(),
+                        "loaded_jax_config": _worker_jax_config(),
+                    }
+                    if snapshot is None
+                    else snapshot
+                ),
+                collected=True,
+            )
 
     def check_source(self, path: Any) -> None:
         if path is None:
@@ -2164,7 +2325,15 @@ class _CiLaneContext:
 
     def check(self, config: Any, items: Any = ()) -> dict[str, Any]:
         _ci_lane_qualify(config, self.root, self.manifest, recheck=True)
-        bindings = self.recheck()
+        # Ordinary imports may legitimately be partway through E0 -> E1. The
+        # startup snapshot proves E0; complete_collection alone advances stage.
+        bindings = self.recheck(
+            environment=(
+                self.manifest["environment"] if self.transition is not None else None
+            )
+        )
+        if self.collection_completed:
+            self.check_collected()
         if config.inipath is not None:
             relative = Path(config.inipath).resolve().relative_to(self.root).as_posix()
             if relative not in self.manifest["source_files"]:
@@ -2241,6 +2410,12 @@ def _ci_lane_closed(
     ):
         raise ValueError("closed canonical lane receipt/request binding differs")
     receipt = json.loads(payload)
+    if context.transition is not None:
+        if receipt.get("collection_transition_completed") is not True:
+            raise ValueError("closed collection-transition stage is incomplete")
+        context.check_snapshot(receipt.get("startup_context"), collected=False)
+        context.check_snapshot(receipt.get("collection_context"), collected=True)
+        context.check_snapshot(receipt.get("final_context"), collected=True)
     if request["kind"] == "collection" and not _ci_lane_phase_free(receipt):
         raise ValueError("canonical lane collection recorded test execution")
     lane = receipt.get("ci_lane", {})
@@ -2348,6 +2523,10 @@ def pytest_configure(config: Any) -> None:
 
     try:
         manifest, raw = _ci_lane_manifest(Path(baseline))
+        if "collection_transition" in manifest:
+            raise ValueError(
+                "collection_transition requires canonical pre-pytest startup evidence"
+            )
         collection_args = manifest.get("collection_args", [])
         receipt["qualified_collection_args"] = collection_args
         _ci_lane_qualify(config, root, manifest)

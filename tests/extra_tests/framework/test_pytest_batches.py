@@ -140,6 +140,64 @@ def _run_lane_suite(
     )
 
 
+_COLLECTION_TRANSITION_SOURCE = """import os
+import jax
+os.environ['JAX_PLATFORMS'] = 'cpu'
+os.environ['JAX_ENABLE_X64'] = 'True'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+jax.config.update('jax_enable_x64', True)
+"""
+
+
+def _bind_collection_transition(
+    tmp_path: Path,
+    suite: Path,
+    manifest: Path,
+    environment: dict[str, str],
+) -> dict[str, Any]:
+    for name in ("JAX_PLATFORMS", "JAX_ENABLE_X64", "TF_CPP_MIN_LOG_LEVEL"):
+        environment.pop(name, None)
+    child_environment = {
+        **environment,
+        "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": str(
+            tmp_path / "receipts/native-model-artifacts"
+        ),
+    }
+    # Observe the official installed JAX literal metadata in a separate process.
+    # The canonical runner must reproduce the real transition during collection.
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from importlib.util import module_from_spec, spec_from_file_location\n"
+            "import json\n"
+            f"spec = spec_from_file_location('_transition_probe', {str(_RUNNER)!r})\n"
+            "module = module_from_spec(spec)\nspec.loader.exec_module(module)\n"
+            + _COLLECTION_TRANSITION_SOURCE
+            + "print(json.dumps(module._worker_context()))\n",
+        ],
+        cwd=suite,
+        env=child_environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert probe.returncode == 0, probe.stdout + probe.stderr
+    collected = json.loads(probe.stdout)
+    payload = json.loads(manifest.read_text())
+    payload["environment"] = _runner()._ci_lane_environment(child_environment)
+    payload["collection_transition"] = {
+        "startup_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "collected_environment": _runner()._ci_lane_environment(
+            collected["environment"]
+        ),
+        "collected_jax_config": collected["loaded_jax_config"],
+    }
+    manifest.write_text(json.dumps(payload, indent=2) + "\n")
+    return collected
+
+
 def test_real_batches_preserve_parameter_ids_skip_xfail_and_collection_skip(
     tmp_path: Path,
 ) -> None:
@@ -393,6 +451,234 @@ def test_canonical_empty_extra_lane_retains_collection_without_execution(
     receipt = json.loads((folder / "collection/receipt.json").read_text())
     assert receipt["full_preselection_ids"] == baseline and receipt["phases"] == {}
     assert not (suite / "unexpected-body").exists()
+
+
+@pytest.mark.parametrize("lane", ["standard", "extra"])
+def test_canonical_collection_transition_preserves_true_jax_startup(
+    lane: str, tmp_path: Path
+) -> None:
+    baseline = ["test_a_consumer.py::test_baseline"]
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_a_consumer.py": """from pathlib import Path
+import builtins
+import jax
+import jax.numpy as jnp
+INITIAL_X64 = jax.config.x64_enabled
+INITIAL_DTYPE = str(jnp.asarray(0.0).dtype)
+def check_original_source():
+    assert INITIAL_X64 is False
+    assert INITIAL_DTYPE == 'float32'
+    assert jax.config.x64_enabled is True
+    assert builtins._ci_transition_registration == 'complete'
+def test_baseline():
+    check_original_source()
+    Path('ran-baseline').touch()
+def test_extra():
+    check_original_source()
+    Path('ran-extra').touch()
+""",
+            "test_z_registration.py": _COLLECTION_TRANSITION_SOURCE
+            + "import builtins\nbuiltins._ci_transition_registration = 'complete'\n",
+        },
+        baseline,
+    )
+    collected = _bind_collection_transition(tmp_path, suite, manifest, environment)
+    result, run, folder = _run_lane_suite(
+        tmp_path, suite, manifest, environment, lane=lane, batch_size=1
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    selected = baseline if lane == "standard" else ["test_a_consumer.py::test_extra"]
+    assert run["status"] == "PASS"
+    assert run["completed"] == run["lane_nodeids"] == selected
+    assert run["nodeids"] == baseline + ["test_a_consumer.py::test_extra"]
+    for process in run["processes"]:
+        directory = folder / process["folder"]
+        request = json.loads((directory / "request.json").read_text())
+        receipt = json.loads((directory / "receipt.json").read_text())
+        assert len(request) == (2 if process["kind"] == "collection" else 5)
+        assert receipt["startup_context"]["loaded_jax_config"] == {
+            "status": "NOT_LOADED",
+            "values": {},
+        }
+        for name in ("JAX_PLATFORMS", "JAX_ENABLE_X64", "TF_CPP_MIN_LOG_LEVEL"):
+            assert receipt["startup_context"]["environment"].get(name) is None
+        assert (
+            receipt["collection_context"]["loaded_jax_config"]
+            == collected["loaded_jax_config"]
+        )
+        assert (
+            receipt["final_context"]["loaded_jax_config"]
+            == collected["loaded_jax_config"]
+        )
+        assert receipt["collection_transition_completed"] is True
+        assert receipt["full_preselection_ids"] == run["nodeids"]
+        assert receipt["ci_lane"]["errors"] == []
+    assert (suite / "ran-baseline").exists() is (lane == "standard")
+    assert (suite / "ran-extra").exists() is (lane == "extra")
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "static-context",
+        "startup-environment",
+        "startup-jax",
+        "collected-environment",
+        "collected-jax",
+        "unknown-transition-field",
+        "missing-transition-field",
+        "unknown-jax-field",
+        "missing-jax-field",
+        "unverified-jax",
+        "boolean-coercion",
+        "enum-descriptor",
+        "incomplete-environment",
+        "unknown-environment-field",
+        "unknown-snapshot-field",
+        "invalid-not-loaded",
+    ],
+)
+def test_canonical_collection_transition_rejects_unqualified_context_before_phases(
+    fault: str, tmp_path: Path
+) -> None:
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_case.py": _COLLECTION_TRANSITION_SOURCE
+            + "from pathlib import Path\ndef test_baseline():\n    Path('body-ran').touch()\n"
+        },
+        ["test_case.py::test_baseline"],
+    )
+    _bind_collection_transition(tmp_path, suite, manifest, environment)
+    payload = json.loads(manifest.read_text())
+    transition = payload["collection_transition"]
+    if fault == "static-context":
+        del payload["collection_transition"]
+    elif fault == "startup-environment":
+        payload["environment"]["JAX_PLATFORMS"] = "cpu"
+    elif fault == "startup-jax":
+        transition["startup_jax_config"] = transition["collected_jax_config"]
+    elif fault == "collected-environment":
+        transition["collected_environment"].pop("TF_CPP_MIN_LOG_LEVEL")
+    elif fault == "collected-jax":
+        transition["collected_jax_config"]["values"]["x64_enabled"] = False
+    elif fault == "unknown-transition-field":
+        transition["ignored"] = None
+    elif fault == "missing-transition-field":
+        del transition["collected_jax_config"]
+    elif fault == "unknown-jax-field":
+        transition["collected_jax_config"]["values"]["ignored"] = None
+    elif fault == "missing-jax-field":
+        del transition["collected_jax_config"]["values"]["jax_disable_jit"]
+    elif fault == "unverified-jax":
+        transition["collected_jax_config"]["status"] = "UNVERIFIED"
+    elif fault == "boolean-coercion":
+        transition["collected_jax_config"]["values"]["x64_enabled"] = 1
+    elif fault == "enum-descriptor":
+        transition["collected_jax_config"]["values"]["jax_numpy_dtype_promotion"] = {
+            "type": "jax._src.config.NumpyDtypePromotion",
+            "member": "STANDARD",
+            "value": "strict",
+        }
+    elif fault == "incomplete-environment":
+        del transition["collected_environment"]["JAX_ENABLE_X64"]
+    elif fault == "unknown-environment-field":
+        transition["collected_environment"]["IGNORED"] = "unbound"
+    elif fault == "unknown-snapshot-field":
+        transition["startup_jax_config"]["ignored"] = None
+    else:
+        transition["startup_jax_config"]["values"]["x64_enabled"] = False
+    manifest.write_text(json.dumps(payload, indent=2) + "\n")
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and not (suite / "body-ran").exists()
+    for path in folder.glob("*/receipt.json"):
+        receipt = json.loads(path.read_text())
+        assert receipt["phases"] == receipt["phase_durations"] == {}
+        assert receipt["completed"] == []
+
+
+def test_canonical_transition_requires_completed_stage_before_test_protocol(
+    tmp_path: Path,
+) -> None:
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "conftest.py": """def pytest_collection_modifyitems(session, items):
+    if not session.config.option.collectonly:
+        session.config.hook.pytest_runtest_protocol(item=items[0], nextitem=None)
+""",
+            "test_case.py": _COLLECTION_TRANSITION_SOURCE
+            + "from pathlib import Path\ndef test_baseline():\n    Path('body-ran').touch()\n",
+        },
+        ["test_case.py::test_baseline"],
+    )
+    _bind_collection_transition(tmp_path, suite, manifest, environment)
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and len(run["processes"]) == 2
+    assert not (suite / "body-ran").exists()
+    receipt = json.loads((folder / "batch-0001/receipt.json").read_text())
+    assert receipt["phases"] == receipt["phase_durations"] == {}
+    assert any("stage is incomplete" in error for error in receipt["ci_lane"]["errors"])
+
+
+@pytest.mark.parametrize("field", ["environment", "jax-config"])
+@pytest.mark.parametrize("stage", ["postcollection", "protocol", "unconfigure"])
+def test_canonical_transition_rechecks_protocol_and_final_context(
+    field: str, stage: str, tmp_path: Path
+) -> None:
+    mutation = (
+        "os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'"
+        if field == "environment"
+        else "jax.config.update('jax_enable_x64', False)"
+    )
+    hook = "import os\nimport jax\nimport pytest\n"
+    if stage == "postcollection":
+        hook += (
+            "def pytest_runtestloop(session):\n"
+            "    if not session.config.option.collectonly:\n"
+            f"        {mutation}\n"
+        )
+    elif stage == "protocol":
+        hook += (
+            "@pytest.hookimpl(hookwrapper=True, tryfirst=True)\n"
+            "def pytest_runtest_protocol(item):\n"
+            f"    {mutation}\n"
+            "    yield\n"
+        )
+    else:
+        hook += (
+            "def pytest_unconfigure(config):\n"
+            "    if not config.option.collectonly:\n"
+            f"        {mutation}\n"
+        )
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "conftest.py": hook,
+            "test_case.py": _COLLECTION_TRANSITION_SOURCE
+            + "from pathlib import Path\ndef test_baseline():\n    Path('body-ran').touch()\n",
+        },
+        ["test_case.py::test_baseline"],
+    )
+    _bind_collection_transition(tmp_path, suite, manifest, environment)
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and len(run["processes"]) == 2
+    receipt = json.loads((folder / "batch-0001/receipt.json").read_text())
+    assert receipt["ci_lane"]["errors"]
+    assert (suite / "body-ran").exists() is (stage == "unconfigure")
+    if stage != "unconfigure":
+        assert receipt["phases"] == receipt["phase_durations"] == {}
+    else:
+        assert receipt["completed"] == ["test_case.py::test_baseline"]
+        assert all(
+            phase["outcome"] == "passed"
+            for phase in receipt["phases"]["test_case.py::test_baseline"]
+        )
 
 
 def test_canonical_lane_rejects_collection_mode_change_before_any_test_phase(

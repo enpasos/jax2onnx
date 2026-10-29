@@ -375,6 +375,48 @@ integration refs as unset, and distinguish current-CI `PYTEST_ADDOPTS` from save
 profiles that did not declare it. Direct pytest configuration does not prove
 pre-import process startup; missing startup history remains unverified.
 
+The bounded canonical integration is committed locally at `35f80783`, with all
+seven actual pinned commit hooks passing (26.10 s, 453 MiB) and strict docs
+passing (4.79 s, 138 MiB). It remains unpublished and does not activate a gate.
+The next canonical-only amendment has independent Astra architecture ACCEPT:
+an optional exact `collection_transition` binds startup JAX metadata plus the
+complete collected environment and JAX metadata. Existing `environment` stays
+the complete startup binding. Prove startup before importing pytest, require
+the explicit collected stage before projection/execution, and recheck runtime,
+terminal and closed-receipt context. Static defaults stay strict; direct/xdist
+transition profiles fail explicitly because they lack canonical startup proof.
+No field may be ignored, predeclared or rewritten. Both natural-transition counterexamples fail
+against the preceding source with unsupported-manifest-schema diagnostics;
+retain `/tmp/jax2onnx-ci-staged-context-predecessor-v1-py311-h5yqr43g`.
+
+Independent Astra source review now accepts the frozen staged amendment in
+`/tmp/jax2onnx-ci-staged-context-source-v1.json`. All **246 runner/selector tests
+pass on each JAX family**, including the explicitly enabled synthetic xdist
+cases: minimum 76.33/76.66 s, 308 MiB; modern 138.64/139.50 s, 347 MiB.
+Evidence: `/tmp/jax2onnx-ci-staged-context-integration-v1-py311-6ijhcsgc` and
+`/tmp/jax2onnx-ci-staged-context-integration-v1-py314-shxvrxdh`.
+Existing artifact/control/replay consumers also pass **165 tests on each
+family**: 28.84/29.39 s, 278 MiB and 48.66/49.68 s, 303 MiB; evidence
+`/tmp/jax2onnx-ci-staged-context-consumers-v1-py311-yzxfbssx` and
+`/tmp/jax2onnx-ci-staged-context-consumers-v1-py314-txi9dbr_`.
+Protocol checks reuse bounded environment/JAX readers without adding per-case
+CPU, Git or source hashing. These are bounded infrastructure results; original
+main context, ordered full execution, resource/performance qualification and
+CI activation remain open.
+
+The independently reviewed passive frozen-main probe now passes in main's own
+Python 3.11 lock: exact **4,571 original ordered IDs**, zero executed phases,
+unchanged source/package epochs, 51.41 s and 601 MiB. Evidence:
+`/tmp/jax2onnx-main311-passive-context-iy33qqup`; guard
+`/tmp/jax2onnx-main311-passive-context-v1-zr_zxw83`. Startup JAX is NOT_LOADED;
+collected JAX has x64 enabled with `jax_platforms=None`. The complete observed
+environment transition also adds `PYTEST_VERSION=9.1.1` during pytest import,
+alongside the three previously observed JAX/TF changes. Preserve its unset
+startup value. This explicitly controlled CPU/thread/current-CI-ADDOPTS profile
+differs from historical main's unspecified ADDOPTS; it is context evidence, not
+a historical execution or paired-performance certificate. Fresh current-tree
+context qualification remains required.
+
 Read-only comparison of main `81ad6ca` with PR `17585d7a` accepts the source
 counterparts below. This is **not support-context collection or execution
 acceptance**. Main's three ordinary support jobs run on every existing CI trigger:
