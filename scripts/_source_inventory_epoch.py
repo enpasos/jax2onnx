@@ -9,6 +9,30 @@ import json
 from typing import Any, Mapping
 
 
+def validate_replay_manifest(
+    manifest: Mapping[str, Any], expected_sha256: str | None
+) -> None:
+    """Bind nonempty replay manifests to an independently supplied inventory."""
+    if not isinstance(manifest, Mapping):
+        raise ValueError("Replay manifest must be a mapping; synthetic replay uses {}")
+    if not manifest:
+        return
+    for label, value in (
+        ("expected inventory SHA256", expected_sha256),
+        ("inventory_sha256", manifest.get("inventory_sha256")),
+    ):
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            raise ValueError(f"Replay manifest requires a valid {label}")
+    if manifest["inventory_sha256"] != expected_sha256:
+        raise ValueError(
+            "Replay manifest inventory SHA256 differs from expected inventory"
+        )
+
+
 def digest(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()

@@ -27,6 +27,7 @@ from jax2onnx.plugins.plugin_system import (
     import_all_plugins as import_all_plugins,
 )
 from jax2onnx.user_interface import to_onnx
+from scripts._source_inventory_epoch import validate_replay_manifest
 
 try:
     from onnx import mapping as _onnx_mapping
@@ -1588,9 +1589,12 @@ class SourceMetadataCase:
     adapter_json: str
     adapter_sha256: str
     scenario_sha256: str
+    _inventory_sha256: str | None
 
     def record(self) -> dict[str, Any]:
         result = asdict(self)
+        # Admission-only state stays outside the retained descriptor schema/hash.
+        result.pop("_inventory_sha256")
         result["descriptor_sha256"] = _source_metadata_digest(result)
         return result
 
@@ -1616,6 +1620,7 @@ def source_metadata_epoch() -> SourceMetadataEpoch:
         for name in (
             "scripts/source_precision_probe.py",
             "scripts/source_precision_inventory.py",
+            "scripts/_source_inventory_epoch.py",
             "tests/t_generator.py",
             "tests/extra_tests/converter/source_precision_support.py",
             "tests/extra_tests/converter/source_precision_raw_replay.py",
@@ -1656,6 +1661,8 @@ def source_metadata_cases(
         source_metadata_selector,
     )
 
+    validate_replay_manifest(adapters, plan.baseline_sha256)
+    inventory_sha256 = adapters.get("inventory_sha256")
     if not selection:
         raise ValueError(
             "SOURCE metadata migration needs an explicit bounded selection"
@@ -1718,6 +1725,7 @@ def source_metadata_cases(
                 adapter_json,
                 adapter_sha,
                 scenario_sha,
+                inventory_sha256,
             )
         )
     return tuple(descriptors)
@@ -1788,6 +1796,9 @@ def make_source_test_function(
     if plan.baseline_sha256 != descriptor.baseline_sha256:
         raise ValueError("SOURCE descriptor baseline epoch differs")
 
+    validate_replay_manifest(adapters, plan.baseline_sha256)
+    if adapters.get("inventory_sha256") != descriptor._inventory_sha256:
+        raise ValueError("SOURCE descriptor replay inventory binding differs")
     frozen_adapter = json.loads(descriptor.adapter_json)
     if _source_metadata_digest(frozen_adapter) != descriptor.adapter_sha256:
         raise ValueError("SOURCE descriptor adapter/sample recipe hash differs")
@@ -1798,6 +1809,11 @@ def make_source_test_function(
         for name in ("_source_outcome", "_source_cell"):
             if hasattr(test_func, name):
                 delattr(test_func, name)
+        validate_replay_manifest(adapters, descriptor.baseline_sha256)
+        if adapters.get("inventory_sha256") != descriptor._inventory_sha256:
+            raise AssertionError(
+                "SOURCE metadata inventory binding changed after collection"
+            )
         current_adapter = adapters.get("rows", {}).get(
             f"{descriptor.identity[0]}::{descriptor.identity[1]}", {}
         )
@@ -1819,13 +1835,19 @@ def make_source_test_function(
             cells[0],
             registrations,
             stage=stage,
-            adapters={
-                "rows": {
-                    f"{descriptor.identity[0]}::{descriptor.identity[1]}": frozen_adapter
+            adapters=(
+                {
+                    "inventory_sha256": descriptor._inventory_sha256,
+                    "rows": {
+                        f"{descriptor.identity[0]}::{descriptor.identity[1]}": frozen_adapter
+                    },
                 }
-            },
+                if descriptor._inventory_sha256 is not None
+                else {}
+            ),
             evidence_directory=directory,
             runtime_optimization=runtime_optimization,
+            _inventory_sha256=descriptor.baseline_sha256,
         )
         record = cell.history[-1]
         if record.scenario_sha256 != descriptor.scenario_sha256:

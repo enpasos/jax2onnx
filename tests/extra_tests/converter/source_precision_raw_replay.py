@@ -50,6 +50,7 @@ from jax2onnx.converter.source_representation import (
 )
 from jax2onnx.converter.source_structure import ConstantContract, StructureResult
 from scripts.source_precision_inventory import canonical_contract
+from scripts._source_inventory_epoch import validate_replay_manifest
 from tests.extra_tests.converter.source_precision_support import (
     PRESERVE_FACTORY_DTYPE,
     PreparedSourceCase,
@@ -2681,7 +2682,13 @@ def _capture_target_state(
     return result
 
 
-def replay_adapter(row: Any, manifest: Mapping[str, Any]) -> Mapping[str, Any]:
+def replay_adapter(
+    row: Any,
+    manifest: Mapping[str, Any],
+    *,
+    _inventory_sha256: str | None = None,
+) -> Mapping[str, Any]:
+    validate_replay_manifest(manifest, _inventory_sha256)
     adapter = manifest.get("rows", {}).get(f"{row.origin}::{row.ordinal}", {})
     if adapter and adapter.get("contract_sha256") != row.contract_sha256:
         raise SourcePreparationError(

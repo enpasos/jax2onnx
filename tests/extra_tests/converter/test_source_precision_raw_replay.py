@@ -8,6 +8,7 @@ from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 import warnings
 
@@ -74,6 +75,38 @@ def _execute(original_scope, tmp_path, origin, ordinal, **options):
         evidence_directory=tmp_path,
         **options,
     )
+
+
+@pytest.mark.parametrize("expected", [None, "2" * 64])
+def test_direct_adapter_requires_independent_inventory_binding(expected):
+    row = SimpleNamespace(
+        origin="plugin::synthetic",
+        ordinal=0,
+        contract_sha256="3" * 64,
+        unresolved_recipes=(),
+    )
+    manifest = {
+        "inventory_sha256": "1" * 64,
+        "rows": {"plugin::synthetic::0": {"contract_sha256": row.contract_sha256}},
+    }
+    with pytest.raises(ValueError):
+        raw.replay_adapter(row, manifest, _inventory_sha256=expected)
+
+
+def test_direct_adapter_preserves_explicit_empty_and_bound_row_contracts():
+    row = SimpleNamespace(
+        origin="plugin::synthetic",
+        ordinal=0,
+        contract_sha256="3" * 64,
+        unresolved_recipes=(),
+    )
+    adapter = {"contract_sha256": row.contract_sha256}
+    manifest = {"inventory_sha256": "1" * 64, "rows": {"plugin::synthetic::0": adapter}}
+    assert raw.replay_adapter(row, {}) == {}
+    assert raw.replay_adapter(row, manifest, _inventory_sha256="1" * 64) is adapter
+    adapter["contract_sha256"] = "4" * 64
+    with pytest.raises(ValueError, match="exact raw contract"):
+        raw.replay_adapter(row, manifest, _inventory_sha256="1" * 64)
 
 
 def test_adapter_manifest_keeps_frozen_denominator_and_unbound_dimensions(
@@ -162,7 +195,12 @@ def test_original_opaque_linear_is_captured_without_reconstructing_its_weights(
     capture = raw.RawReplayCapture(tmp_path / "linear")
     scenario = raw_source_scenarios(metadata, SourceProvenance(origin, 2))[1]
     prepared = raw.prepare_raw_source_case(
-        metadata, scenario, adapter=raw.replay_adapter(row, adapters), capture=capture
+        metadata,
+        scenario,
+        adapter=raw.replay_adapter(
+            row, adapters, _inventory_sha256=plan.baseline_sha256
+        ),
+        capture=capture,
     )
     assert prepared.fn is target
     recipe = json.loads(Path(capture.records["original-recipe"]["path"]).read_text())
@@ -527,7 +565,12 @@ def test_original_factory_binds_and_checks_the_actual_instantiated_Eqx_target(
         metadata, SourceProvenance(row.origin, row.ordinal)
     )[1]
     prepared = raw.prepare_raw_source_case(
-        metadata, scenario, adapter=raw.replay_adapter(row, adapters), capture=capture
+        metadata,
+        scenario,
+        adapter=raw.replay_adapter(
+            row, adapters, _inventory_sha256=original_scope[1].baseline_sha256
+        ),
+        capture=capture,
     )
     assert capture.target is prepared.fn and prepared.fn is not metadata["callable"]
     assert capture.records["instantiated-target-state"]["status"] == "captured"

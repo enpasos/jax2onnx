@@ -1,5 +1,28 @@
 # Precision migration handoff — 2026-10-29
 
+## Inventory-header integrity — local correctness checkpoint
+
+Nonempty replay manifests now require an inventory digest matching an
+independent expectation. The CLI rejects invalid binding before explicit registry
+discovery; direct and metadata entrypoints reject it before observation, capture
+or source preparation. Explicit `{}` retains synthetic behavior. Metadata descriptors retain the
+original validated binding through function construction and execution;
+selected-row forwarding preserves it. The checker itself now participates in
+the metadata source epoch. The private binding stays outside retained record
+hashes; row recipe/scenario hashes, historical inventory/adapter files,
+defaults, row guards, criteria and observational CLI exits remain unchanged.
+
+Both official framework families pass the focused **39 admission cases** with
+117 passed pytest phases each. A separate run passes the **four unchanged native
+preparation callers** on each family: repeated symbols, native add, original
+Eqx Linear and MlpExample. Their original eager/JIT recipes and assertions stay
+intact. The respective aggregates are
+`/mnt/d/jax2onnx-manifest-header-v2-dual39-summary-3vfw8of7/aggregate.json` and
+`/mnt/d/jax2onnx-manifest-header-v2-native-callers-dual4-summary-pekxl011/aggregate.json`.
+This finite correctness checkpoint establishes no current-inventory replay,
+ONNX/ORT, numerical migration, performance, NoIncrease or public-transition
+acceptance. The strict official eager/JIT reference contract remains binding.
+
 ## Hosted main feasibility — source proposal only
 
 The new non-required, path-scoped PR #277 diagnostic proposes one frozen-main

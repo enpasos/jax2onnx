@@ -38,6 +38,7 @@ from scripts.source_precision_inventory import (  # noqa: E402
     canonical_contract,
     raw_registrations,
 )
+from scripts._source_inventory_epoch import validate_replay_manifest  # noqa: E402
 from jax2onnx.precision import (  # noqa: E402
     CheckStatus,
     SampleCriteria,
@@ -458,6 +459,7 @@ def execute_probe_plan(
     if raw_replay:
         if _corpus_replay or stage == "diagnostic":
             raise ValueError("General raw replay is an ordinary product/prepare lane")
+        validate_replay_manifest(replay_adapters, plan.baseline_sha256)
         return _execute_raw_probe_plan(
             plan,
             registrations,
@@ -466,7 +468,7 @@ def execute_probe_plan(
             origins=origins,
             scenario=scenario,
             cases=cases,
-            adapters=replay_adapters or {},
+            adapters=replay_adapters,
             evidence_directory=evidence_directory,
         )
     registered = {origin: metadata for origin, _, metadata in registrations}
@@ -1189,6 +1191,7 @@ def execute_raw_probe_cell(
     adapters: Mapping[str, Any],
     evidence_directory: Path,
     runtime_optimization: Literal["disabled", "all"] | None = None,
+    _inventory_sha256: str | None = None,
 ) -> ProbeCell:
     """Execute one unchanged raw recipe; both CLI and metadata use this owner.
 
@@ -1215,6 +1218,7 @@ def execute_raw_probe_cell(
         for item in cell.history
     ):
         raise ValueError("Prior failed source evidence cannot be overwritten")
+    validate_replay_manifest(adapters, _inventory_sha256)
     from tests.extra_tests.converter.source_precision_raw_replay import (
         RawReplayCapture,
         prepare_raw_source_case,
@@ -1244,7 +1248,7 @@ def execute_raw_probe_cell(
     outcome = cell
     try:
         metadata = _resolve_case(row, registered)
-        adapter = replay_adapter(row, adapters)
+        adapter = replay_adapter(row, adapters, _inventory_sha256=_inventory_sha256)
         declared = raw_source_scenarios(
             metadata,
             SourceProvenance(row.origin, row.ordinal),
@@ -1467,6 +1471,7 @@ def _execute_raw_probe_plan(
     evidence_directory: Path | None,
 ) -> SourceProbePlan:
     """Complete-denominator native/product observations, retaining every cell."""
+    validate_replay_manifest(adapters, plan.baseline_sha256)
     import tempfile
 
     registered = {origin: metadata for origin, _, metadata in registrations}
@@ -1514,6 +1519,7 @@ def _execute_raw_probe_plan(
                 stage=stage,
                 adapters=adapters,
                 evidence_directory=directory,
+                _inventory_sha256=plan.baseline_sha256,
             )
         )
     return replace(plan, cells=tuple(cells))
@@ -2037,6 +2043,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         json.loads(payload), baseline_sha256=hashlib.sha256(payload).hexdigest()
     )
     if args.stage != "plan":
+        replay_adapters = None
+        if args.stage in {"prepare", "product"}:
+            replay_adapters = json.loads(args.replay_adapters.read_text())
+            validate_replay_manifest(replay_adapters, plan.baseline_sha256)
         registrations, _ = raw_registrations()
         plan = execute_probe_plan(
             plan,
@@ -2046,11 +2056,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             origins=frozenset(args.origin),
             scenario=args.scenario,
             raw_replay=args.stage in {"prepare", "product"},
-            replay_adapters=(
-                json.loads(args.replay_adapters.read_text())
-                if args.stage in {"prepare", "product"}
-                else None
-            ),
+            replay_adapters=replay_adapters,
             evidence_directory=args.evidence_directory,
             cases=frozenset(
                 SourceProvenance(origin, int(ordinal))

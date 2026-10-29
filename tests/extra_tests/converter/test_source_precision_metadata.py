@@ -980,18 +980,244 @@ def test_fake_dataclass_cannot_replace_actual_stage_evidence():
         _account(scope, _descriptors(scope), stage_evidence=[FakeStage("0" * 64)])
 
 
+def test_metadata_rejects_crossed_inventory_even_when_the_selected_row_matches(
+    monkeypatch, tmp_path
+):
+    scope = _synthetic(
+        {"testcase": "binding", "callable": lambda x: x, "input_shapes": [(1,)]}
+    )
+    row = scope[1].rows[0]
+    adapters = {
+        "inventory_sha256": scope[1].baseline_sha256,
+        "rows": {
+            f"{row.origin}::{row.ordinal}": {"contract_sha256": row.contract_sha256}
+        },
+    }
+    descriptor = _descriptors((*scope, adapters))[0]
+    _forbid_legacy_and_native(monkeypatch)
+    crossed_plan = replace(scope[1], baseline_sha256="0" * 64)
+    with pytest.raises(ValueError):
+        t_generator.source_metadata_cases(
+            crossed_plan,
+            scope[0],
+            scope[2],
+            selection=[descriptor.identity],
+            epoch=_EPOCH,
+            adapters=adapters,
+        )
+    del adapters["inventory_sha256"]
+    with pytest.raises(ValueError):
+        t_generator.make_source_test_function(
+            descriptor,
+            scope[1],
+            scope[2],
+            adapters=adapters,
+            evidence_directory=tmp_path,
+            stage="prepare",
+            expected_statuses={"source_reference": "validated"},
+        )
+
+
+@pytest.mark.parametrize("mutation", ["strip-header", "clear-manifest"])
+def test_metadata_header_mutation_stops_before_execution(
+    mutation, monkeypatch, tmp_path
+):
+    scope = _synthetic(
+        {"testcase": "binding", "callable": lambda x: x, "input_shapes": [(1,)]}
+    )
+    adapters = {"inventory_sha256": scope[1].baseline_sha256, "rows": {}}
+    descriptor = _descriptors((*scope, adapters))[0]
+    function = t_generator.make_source_test_function(
+        descriptor,
+        scope[1],
+        scope[2],
+        adapters=adapters,
+        evidence_directory=tmp_path / "not-created",
+        stage="prepare",
+        expected_statuses={"source_reference": "validated"},
+    )
+    if mutation == "strip-header":
+        del adapters["inventory_sha256"]
+    else:
+        adapters.clear()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Mutated inventory binding reached observation or execution")
+
+    _forbid_legacy_and_native(monkeypatch)
+    monkeypatch.setattr(t_generator, "source_metadata_epoch", forbidden)
+    monkeypatch.setattr(probe, "execute_raw_probe_cell", forbidden)
+    with pytest.raises((ValueError, AssertionError), match="inventory"):
+        function()
+    assert not (tmp_path / "not-created").exists()
+    assert not hasattr(function, "_source_cell")
+    assert not hasattr(function, "_source_outcome")
+
+
+@pytest.mark.parametrize("mutation", ["clear-original", "replace-with-empty"])
+def test_metadata_bound_descriptor_cannot_become_synthetic_before_function_creation(
+    mutation, monkeypatch, tmp_path
+):
+    def constructor():
+        pytest.fail("Descriptor binding validation invoked a factory")
+
+    scope = _synthetic(
+        {
+            "testcase": "binding",
+            "callable": construct_and_call(constructor),
+            "input_shapes": [(1,)],
+        }
+    )
+    adapters = {"inventory_sha256": scope[1].baseline_sha256, "rows": {}}
+    descriptor = _descriptors((*scope, adapters))[0]
+    assert json.loads(descriptor.adapter_json) == {}
+    if mutation == "clear-original":
+        adapters.clear()
+        supplied = adapters
+    else:
+        supplied = {}
+    _forbid_legacy_and_native(monkeypatch)
+    with pytest.raises((ValueError, AssertionError), match="inventory"):
+        t_generator.make_source_test_function(
+            descriptor,
+            scope[1],
+            scope[2],
+            adapters=supplied,
+            evidence_directory=tmp_path / "not-created",
+            stage="prepare",
+            expected_statuses={"source_reference": "validated"},
+        )
+    assert not (tmp_path / "not-created").exists()
+
+
+@pytest.mark.parametrize(
+    "mode", ["synthetic-empty", "bound-absent-row", "bound-selected-row"]
+)
+def test_metadata_forwards_validated_inventory_binding_and_frozen_row(
+    mode, monkeypatch, tmp_path
+):
+    class ReachedExecutor(Exception):
+        pass
+
+    scope = _synthetic(
+        {"testcase": "binding", "callable": lambda x: x, "input_shapes": [(1,)]}
+    )
+    row = scope[1].rows[0]
+    key = f"{row.origin}::{row.ordinal}"
+    selected = (
+        {"contract_sha256": row.contract_sha256} if mode == "bound-selected-row" else {}
+    )
+    adapters = (
+        {
+            "inventory_sha256": scope[1].baseline_sha256,
+            "rows": {key: selected} if mode == "bound-selected-row" else {},
+        }
+        if mode != "synthetic-empty"
+        else {}
+    )
+    descriptor = _descriptors((*scope, adapters))[0]
+    function = t_generator.make_source_test_function(
+        descriptor,
+        scope[1],
+        scope[2],
+        adapters=adapters,
+        evidence_directory=tmp_path,
+        stage="prepare",
+        expected_statuses={"source_reference": "validated"},
+    )
+
+    def execute(received_row, cell, registrations, **kwargs):
+        assert received_row == row and cell.identity == descriptor.identity
+        assert registrations == scope[2]
+        assert kwargs["_inventory_sha256"] == scope[1].baseline_sha256
+        assert kwargs["adapters"] == (
+            {"inventory_sha256": scope[1].baseline_sha256, "rows": {key: selected}}
+            if mode != "synthetic-empty"
+            else {}
+        )
+        raise ReachedExecutor
+
+    _forbid_legacy_and_native(monkeypatch)
+    monkeypatch.setattr(probe, "execute_raw_probe_cell", execute)
+    with pytest.raises(ReachedExecutor):
+        function()
+
+
+def test_metadata_private_inventory_binding_preserves_record_schema_and_accounting(
+    monkeypatch,
+):
+    scope = _synthetic(
+        {"testcase": "binding", "callable": lambda x: x, "input_shapes": [(1,)]}
+    )
+    synthetic = _descriptors(scope)[0]
+    bound = _descriptors(
+        (*scope, {"inventory_sha256": scope[1].baseline_sha256, "rows": {}})
+    )[0]
+    assert synthetic._inventory_sha256 is None
+    assert bound._inventory_sha256 == scope[1].baseline_sha256
+    public_fields = asdict(bound)
+    assert public_fields.pop("_inventory_sha256") == scope[1].baseline_sha256
+    expected_record = {
+        **public_fields,
+        "descriptor_sha256": t_generator._source_metadata_digest(public_fields),
+    }
+    assert bound.record() == synthetic.record() == expected_record
+    assert bound.adapter_sha256 == synthetic.adapter_sha256
+    assert bound.scenario_sha256 == synthetic.scenario_sha256
+    _forbid_legacy_and_native(monkeypatch)
+    report = _account(scope, [bound])
+    assert report["counts"]["planned_source_selectors"] == 1
+    assert report["counts"]["terminal_source_stage_outcomes"] == 0
+
+
+def test_metadata_source_epoch_changes_with_checker_bytes_only(monkeypatch, tmp_path):
+    paths = (
+        "jax2onnx/__init__.py",
+        "scripts/_source_inventory_epoch.py",
+        "scripts/source_precision_probe.py",
+        "scripts/source_precision_inventory.py",
+        "tests/t_generator.py",
+        "tests/extra_tests/converter/source_precision_support.py",
+        "tests/extra_tests/converter/source_precision_raw_replay.py",
+        "tests/extra_tests/converter/source_precision_diagnostics.py",
+    )
+    for relative in paths:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# source epoch data fixture: {relative}\n")
+    environment = probe.ProbeEnvironment.observe()
+    monkeypatch.setattr(probe.ProbeEnvironment, "observe", lambda: environment)
+    monkeypatch.setattr(probe, "REPOSITORY_ROOT", tmp_path)
+    _forbid_legacy_and_native(monkeypatch)
+    before_bytes = {relative: (tmp_path / relative).read_bytes() for relative in paths}
+    before = t_generator.source_metadata_epoch()
+    (tmp_path / "scripts/_source_inventory_epoch.py").write_text(
+        "# changed checker bytes in this disposable data fixture only\n"
+    )
+    after = t_generator.source_metadata_epoch()
+    changed = {
+        relative
+        for relative in paths
+        if (tmp_path / relative).read_bytes() != before_bytes[relative]
+    }
+    assert changed == {"scripts/_source_inventory_epoch.py"}
+    assert before.source_sha256 != after.source_sha256
+    assert before.environment_sha256 == after.environment_sha256
+
+
 def test_adapter_sample_recipe_is_frozen_at_collection(monkeypatch, tmp_path):
     scope = _synthetic(
         {"testcase": "adapter", "callable": lambda x: x, "input_shapes": [("B",)]}
     )
     row = scope[1].rows[0]
     adapters = {
+        "inventory_sha256": scope[1].baseline_sha256,
         "rows": {
             f"{row.origin}::{row.ordinal}": {
                 "contract_sha256": row.contract_sha256,
                 "samples": [{"B": 2}, {"B": 5}],
             }
-        }
+        },
     }
     extended = (*scope, adapters)
     descriptor = _descriptors(extended)[1]
@@ -1286,12 +1512,13 @@ def test_repeated_symbol_uses_one_native_scope_and_original_alternate_samples(tm
     )
     row = scope[1].rows[0]
     adapters = {
+        "inventory_sha256": scope[1].baseline_sha256,
         "rows": {
             f"{row.origin}::{row.ordinal}": {
                 "contract_sha256": row.contract_sha256,
                 "samples": [{"B": 2}, {"B": 4}],
             }
-        }
+        },
     }
     descriptor = _descriptors((*scope, adapters))[1]
     function = t_generator.make_source_test_function(
@@ -1368,7 +1595,9 @@ def test_original_add_metadata_retains_root_and_native_leaf_across_caller_contex
         prepared = raw.prepare_raw_source_case(
             metadata,
             scenario,
-            adapter=raw.replay_adapter(row, adapters),
+            adapter=raw.replay_adapter(
+                row, adapters, _inventory_sha256=plan.baseline_sha256
+            ),
             capture=capture,
         )
         assert prepared.fn is capture.target is original_root

@@ -10,7 +10,10 @@ import json
 
 import pytest
 
-from scripts._source_inventory_epoch import verify_epoch_mapping
+from scripts._source_inventory_epoch import (
+    validate_replay_manifest,
+    verify_epoch_mapping,
+)
 from scripts.source_precision_inventory import (
     CURRENT_BASELINE,
     CURRENT_EPOCH_MAPPING,
@@ -26,6 +29,38 @@ def epoch():
         CURRENT_BASELINE.read_bytes(),
         json.loads(CURRENT_EPOCH_MAPPING.read_text()),
     )
+
+
+@pytest.mark.parametrize(
+    "manifest,expected",
+    (
+        (None, "1" * 64),
+        ([], "1" * 64),
+        ({"rows": {}}, "1" * 64),
+        ({"inventory_sha256": "2" * 64}, "1" * 64),
+        ({"inventory_sha256": None}, "1" * 64),
+        ({"inventory_sha256": "G" * 64}, "1" * 64),
+        ({"inventory_sha256": "1" * 63}, "1" * 64),
+        ({"inventory_sha256": "1" * 64}, None),
+        ({"inventory_sha256": "1" * 64}, "not-a-digest"),
+    ),
+)
+def test_replay_manifest_requires_an_independent_complete_inventory_binding(
+    manifest, expected
+):
+    with pytest.raises(ValueError):
+        validate_replay_manifest(manifest, expected)
+
+
+def test_replay_manifest_accepts_original_bytes_and_explicit_synthetic_empty():
+    manifest = json.loads(
+        HISTORICAL_BASELINE.with_name("source_replay_adapters.json").read_text()
+    )
+    before = copy.deepcopy(manifest)
+    expected = hashlib.sha256(HISTORICAL_BASELINE.read_bytes()).hexdigest()
+    validate_replay_manifest(manifest, expected)
+    validate_replay_manifest({}, None)
+    assert manifest == before
 
 
 def test_complete_current_epoch_preserves_original_bytes_and_all_row_links(epoch):

@@ -45,6 +45,231 @@ def _plan(*cases: dict[str, Any]):
     return probe.build_probe_plan(inventory), registration
 
 
+@pytest.mark.parametrize("header", [None, "wrong", "0" * 64])
+def test_raw_cli_rejects_unbound_manifest_before_registration(
+    header, tmp_path, monkeypatch
+):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Invalid inventory binding reached registration or execution")
+
+    registration = _registration(_metadata(forbidden, input_shapes=[(1,)]))
+    inventory = build_inventory([registration], [], manual=[], optional={})
+    baseline = tmp_path / "inventory.json"
+    baseline.write_text(json.dumps(inventory) + "\n")
+    manifest = {"rows": {}}
+    if header is not None:
+        manifest["inventory_sha256"] = header
+    adapters = tmp_path / "adapters.json"
+    adapters.write_text(json.dumps(manifest))
+    monkeypatch.setattr(probe, "raw_registrations", forbidden)
+    monkeypatch.setattr(probe, "execute_probe_plan", forbidden)
+    with pytest.raises(ValueError):
+        probe.main(
+            [
+                "--baseline",
+                str(baseline),
+                "--replay-adapters",
+                str(adapters),
+                "--stage",
+                "prepare",
+                "--limit",
+                "1",
+            ]
+        )
+
+
+def test_raw_cli_binds_the_provided_inventory_bytes_before_registration(
+    tmp_path, monkeypatch
+):
+    class ReachedExecutor(Exception):
+        pass
+
+    inventory = build_inventory(
+        [_registration(_metadata(lambda x: x, input_shapes=[(1,)]))],
+        [],
+        manual=[],
+        optional={},
+    )
+    payload = (json.dumps(inventory, indent=3) + "\n\n").encode()
+    expected = hashlib.sha256(payload).hexdigest()
+    assert expected != probe._fingerprint(inventory)
+    baseline = tmp_path / "inventory.json"
+    baseline.write_bytes(payload)
+    adapters = tmp_path / "adapters.json"
+    adapters.write_text(json.dumps({"inventory_sha256": expected, "rows": {}}))
+    calls = []
+
+    def registrations():
+        calls.append("registrations")
+        return [], []
+
+    def execute(plan, registered, **kwargs):
+        assert calls == ["registrations"] and registered == []
+        assert plan.baseline_sha256 == expected
+        assert kwargs["replay_adapters"]["inventory_sha256"] == expected
+        raise ReachedExecutor
+
+    monkeypatch.setattr(probe, "raw_registrations", registrations)
+    monkeypatch.setattr(probe, "execute_probe_plan", execute)
+    with pytest.raises(ReachedExecutor):
+        probe.main(
+            [
+                "--baseline",
+                str(baseline),
+                "--replay-adapters",
+                str(adapters),
+                "--stage",
+                "prepare",
+                "--limit",
+                "1",
+            ]
+        )
+
+
+def test_raw_plan_rejects_stripped_header_before_cell_dispatch(tmp_path, monkeypatch):
+    plan, registration = _plan(_metadata(lambda x: x, input_shapes=[(1,)]))
+    row = plan.rows[0]
+    manifest = {
+        "rows": {
+            f"{row.origin}::{row.ordinal}": {"contract_sha256": row.contract_sha256}
+        }
+    }
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("A stripped inventory header reached a raw cell")
+
+    monkeypatch.setattr(probe, "execute_raw_probe_cell", forbidden)
+    directory = tmp_path / "not-created"
+    with pytest.raises(ValueError):
+        probe._execute_raw_probe_plan(
+            plan,
+            [registration],
+            stage="prepare",
+            limit=1,
+            origins=frozenset(),
+            scenario=None,
+            cases=frozenset(),
+            adapters=manifest,
+            evidence_directory=directory,
+        )
+    assert not directory.exists()
+
+
+def test_raw_plan_does_not_coerce_missing_manifest_to_synthetic_empty(
+    tmp_path, monkeypatch
+):
+    plan, registration = _plan(_metadata(lambda x: x, input_shapes=[(1,)]))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("A missing manifest was masked as synthetic replay")
+
+    monkeypatch.setattr(probe, "execute_raw_probe_cell", forbidden)
+    directory = tmp_path / "not-created"
+    with pytest.raises(ValueError):
+        probe.execute_probe_plan(
+            plan,
+            [registration],
+            stage="prepare",
+            raw_replay=True,
+            limit=1,
+            replay_adapters=None,
+            evidence_directory=directory,
+        )
+    assert not directory.exists()
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_raw_plan_forwards_its_independent_inventory_digest(
+    bound, tmp_path, monkeypatch
+):
+    plan, registration = _plan(_metadata(lambda x: x, input_shapes=[(1,)]))
+    manifest = {"inventory_sha256": plan.baseline_sha256, "rows": {}} if bound else {}
+    calls = []
+
+    def execute(row, cell, registrations, **kwargs):
+        assert kwargs["adapters"] is manifest
+        assert kwargs["_inventory_sha256"] == plan.baseline_sha256
+        assert registrations == [registration]
+        calls.append(cell.identity)
+        return cell
+
+    monkeypatch.setattr(probe, "execute_raw_probe_cell", execute)
+    result = probe.execute_probe_plan(
+        plan,
+        [registration],
+        stage="prepare",
+        raw_replay=True,
+        limit=1,
+        replay_adapters=manifest,
+        evidence_directory=tmp_path,
+    )
+    assert calls == [plan.cells[0].identity] and result.cells == plan.cells
+
+
+@pytest.mark.parametrize("expected", [None, "0" * 64])
+def test_direct_raw_cell_rejects_binding_before_observation_or_capture(
+    expected, tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Invalid inventory binding reached source or observation")
+
+    plan, registration = _plan(_metadata(forbidden, input_shapes=[(1,)]))
+    row = plan.rows[0]
+    manifest = {
+        "inventory_sha256": plan.baseline_sha256,
+        "rows": {
+            f"{row.origin}::{row.ordinal}": {"contract_sha256": row.contract_sha256}
+        },
+    }
+    monkeypatch.setattr(probe.ProbeEnvironment, "observe", forbidden)
+    monkeypatch.setattr(probe, "_resolve_case", forbidden)
+    monkeypatch.setattr(raw, "RawReplayCapture", forbidden)
+    monkeypatch.setattr(raw, "prepare_raw_source_case", forbidden)
+    monkeypatch.setattr(raw, "run_raw_source_case", forbidden)
+    with pytest.raises(ValueError):
+        probe.execute_raw_probe_cell(
+            row,
+            plan.cells[0],
+            [registration],
+            stage="prepare",
+            adapters=manifest,
+            evidence_directory=tmp_path,
+            _inventory_sha256=expected,
+        )
+    assert not list(tmp_path.iterdir())
+
+
+def test_direct_raw_cell_forwards_validated_digest_to_adapter(tmp_path, monkeypatch):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    # Escape the observation catch at the next boundary; no source executes.
+    class ReachedAdapter(BaseException):
+        pass
+
+    plan, registration = _plan(_metadata(lambda x: x, input_shapes=[(1,)]))
+    manifest = {"inventory_sha256": plan.baseline_sha256, "rows": {}}
+
+    def adapter(row, received, *, _inventory_sha256=None):
+        assert received is manifest and _inventory_sha256 == plan.baseline_sha256
+        raise ReachedAdapter
+
+    monkeypatch.setattr(probe.ProbeEnvironment, "observe", lambda: None)
+    monkeypatch.setattr(raw, "RawReplayCapture", lambda path: None)
+    monkeypatch.setattr(raw, "replay_adapter", adapter)
+    with pytest.raises(ReachedAdapter):
+        probe.execute_raw_probe_cell(
+            plan.rows[0],
+            plan.cells[0],
+            [registration],
+            stage="prepare",
+            adapters=manifest,
+            evidence_directory=tmp_path,
+            _inventory_sha256=plan.baseline_sha256,
+        )
+
+
 def test_raw_factory_preservation_and_explicit_override_are_distinct() -> None:
     calls = []
 
