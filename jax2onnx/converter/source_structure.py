@@ -29,6 +29,7 @@ from .source_representation import (
 )
 
 if TYPE_CHECKING:
+    from jax2onnx.plugins.jax.core._source_inline_structure import InlineAudit
     from jax2onnx.plugins.jax.lax._source_loop_structure import ScanAudit, WhileAudit
 
     from .typing_support import ConverterContext
@@ -375,6 +376,7 @@ class SourceStructureLedger:
         self.literal_if_calls: dict[EquationHandle, Any] = {}
         self.while_calls: dict[EquationHandle, Any] = {}
         self.scan_calls: dict[EquationHandle, Any] = {}
+        self.inline_calls: dict[EquationHandle, Any] = {}
         self.cast_plans: dict[EquationHandle, Any] = {}
         self.cast_selections: dict[EquationHandle, Any] = {}
         self.regions: dict[RegionKey, object] = {}
@@ -388,6 +390,7 @@ class SourceStructureLedger:
         """Bracket only the already-planned lowering of one original child body."""
 
         def begin() -> _PendingRegion:
+            from jax2onnx.plugins.jax.core._source_inline_structure import InlineRule
             from jax2onnx.plugins._source_control_flow_structure import (
                 IfRule,
                 LiteralIfRule,
@@ -411,7 +414,13 @@ class SourceStructureLedger:
             if scope is None:
                 raise StructureUnavailable("region-parent-contract-unavailable")
             rule = scope.equations[handle.index].rule
-            if type(rule) not in (IfRule, LiteralIfRule, WhileRule, ScanRule):
+            if type(rule) not in (
+                IfRule,
+                LiteralIfRule,
+                WhileRule,
+                ScanRule,
+                InlineRule,
+            ):
                 raise StructureUnavailable("region-parent-contract-unavailable")
             expected = dict(scope.body.equations[handle.index].children).get(role)
             if expected is None or expected.gaps:
@@ -422,6 +431,10 @@ class SourceStructureLedger:
             original = scope.pending[handle.index]
             if type(rule) in (IfRule, LiteralIfRule):
                 bindings = original[1:]
+            elif type(rule) is InlineRule:
+                if role != "inline-body":
+                    raise StructureUnavailable("inline-original-role-unavailable")
+                bindings = original
             elif type(rule) is ScanRule:
                 if role != "scan-body":
                     raise StructureUnavailable("scan-original-role-unavailable")
@@ -1337,6 +1350,12 @@ def _resolve_bindings(
     wanted: set[_ValueWitness],
     optional: frozenset[_ValueWitness] = frozenset(),
 ) -> dict[_ValueWitness, ir.Value]:
+    from ._source_leaf_cse import resolve_leaf_bindings, validate_leaf_catalog
+
+    validate_leaf_catalog(graph)
+    leaf_values = resolve_leaf_bindings(graph, wanted, optional, _resolve_bindings)
+    if leaf_values is not None:
+        return leaf_values
     from ._source_identity_dce import resolve_dead_identity_bindings
 
     dead_values = resolve_dead_identity_bindings(
@@ -1696,6 +1715,10 @@ class _LiteralIfAudit:
     captures: tuple[ir.Value, ...]
     returned: tuple[ir.Value, ...]
     adapters: tuple[ir.Node, ...]
+    selected_tree: tuple[_Scope, ...]
+    inactive_tree: tuple[_Scope, ...]
+    projected_tree: tuple[_Scope, ...]
+    projected_inline_calls: tuple[tuple[EquationHandle, Any], ...]
 
     @property
     def regions(self) -> tuple[_Scope, _Scope]:
@@ -1713,7 +1736,9 @@ def _plan_literal_if_calls(
         LiteralIfAttachment,
         LiteralIfDischarge,
         LiteralIfRule,
+        authentic_literal_if_attachment,
         literal_if_body,
+        literal_if_tree,
     )
 
     wanted = {
@@ -1727,7 +1752,12 @@ def _plan_literal_if_calls(
     plans = {}
     claimed: set[object] = set()
     for handle, attachment in ledger.literal_if_calls.items():
-        if type(attachment) is not LiteralIfAttachment or attachment.handle != handle:
+        if (
+            type(attachment) is not LiteralIfAttachment
+            or attachment.handle != handle
+            or not authentic_literal_if_attachment(ledger, attachment)
+            or len(attachment.trees) != 2
+        ):
             raise StructureUnavailable("literal-if-attachment-unavailable")
         parent = scopes[handle.invocation]
         expected = parent.equations[handle.index]
@@ -1749,7 +1779,8 @@ def _plan_literal_if_calls(
         if graph is None:
             raise StructureUnavailable("literal-if-caller-owner-unavailable")
         children = dict(parent.body.equations[handle.index].children)
-        originals = []
+        originals: list[_Scope] = []
+        trees = []
         captures = None
         for role, snapshot in (("false", attachment.false), ("true", attachment.true)):
             child = scopes.get(snapshot.invocation)
@@ -1764,10 +1795,6 @@ def _plan_literal_if_calls(
                 or ledger.regions.get(key) is not child.invocation
                 or child.body != children.get(role)
                 or child.body.gaps
-                or any(
-                    item.children or item.semantics is None
-                    for item in child.body.equations
-                )
                 or set(child.receipts) != set(range(len(child.equations)))
                 or child.pending
                 or child.result_values is None
@@ -1777,7 +1804,28 @@ def _plan_literal_if_calls(
                 raise StructureUnavailable(
                     "literal-if-original-child-evidence-unavailable"
                 )
-            claimed.add(child.invocation)
+            tree = literal_if_tree(ledger, child)
+            snapshot_tree = attachment.trees[len(originals)]
+            if tree != snapshot_tree or any(
+                current.body is not saved.body
+                or current.equations is not saved.equations
+                or current.region is not saved.region
+                or any(
+                    a is not b
+                    for (_, a), (_, b) in zip(
+                        current.receipts, saved.receipts, strict=True
+                    )
+                )
+                for current, saved in zip(
+                    tree.scopes, snapshot_tree.scopes, strict=True
+                )
+            ):
+                raise StructureMismatch("literal-if-original-inline-tree-differs")
+            invocations = {item.invocation for item in tree.scopes}
+            if claimed & invocations:
+                raise StructureUnavailable("literal-if-original-inline-tree-overlap")
+            claimed.update(invocations)
+            trees.append(tuple(scopes[item.invocation] for item in tree.scopes))
             ports = child.region.captures
             unused = _unused_inputs(child.body)
             if (
@@ -1815,17 +1863,18 @@ def _plan_literal_if_calls(
             captures = current
             originals.append(child)
         selected, inactive = originals[rule.index], originals[1 - rule.index]
+        selected_tree, inactive_tree = trees[rule.index], trees[1 - rule.index]
         discharge = LiteralIfDischarge(
             rule.selector,
             "true" if rule.index == 0 else "false",
             inactive.invocation,
             inactive.body,
-            len(selected.equations),
-            1 + len(inactive.equations),
+            selected.body.expected_equations,
+            1 + inactive.body.expected_equations,
         )
         if attachment.discharge != discharge:
             raise StructureMismatch("literal-if-unreachable-discharge-differs")
-        mapping = dict(attachment.values)
+        mapping: dict[_ValueWitness, _ValueWitness] = dict(attachment.values)
         if (
             len(mapping) != len(attachment.values)
             or len(set(mapping.values())) != len(mapping)
@@ -1855,19 +1904,31 @@ def _plan_literal_if_calls(
             )
         ):
             raise StructureMismatch("literal-if-selected-clone-map-differs")
-        required = set(selected.input_values) | set(selected.variables.values())
-        required.update(selected.closed_constant_values)
-        required.update(
-            binding
-            for item in selected.receipts.values()
-            for binding in (*item.inputs, *item.outputs)
-            if isinstance(binding, _ValueWitness)
-        )
-        required.update(
-            binding
-            for binding in selected.result_values or ()
-            if isinstance(binding, _ValueWitness)
-        )
+        required: set[_ValueWitness] = set()
+        for original in selected_tree:
+            required.update(original.input_values)
+            required.update(original.variables.values())
+            required.update(original.closed_constant_values)
+            required.update(
+                binding
+                for item in original.receipts.values()
+                for binding in (*item.inputs, *item.outputs)
+                if isinstance(binding, _ValueWitness)
+            )
+            required.update(
+                binding
+                for binding in original.result_values or ()
+                if isinstance(binding, _ValueWitness)
+            )
+            for port in cast(RegionReceipt, original.region).captures:
+                required.add(port.local)
+                if port.outer.owner is selected.owner:
+                    required.add(port.outer)
+                if (
+                    isinstance(port.binding, _ValueWitness)
+                    and port.binding.owner is selected.owner
+                ):
+                    required.add(port.binding)
         required.update(attachment.original_returned)
         if required - set(mapping):
             raise StructureUnavailable("literal-if-selected-clone-map-incomplete")
@@ -1946,13 +2007,32 @@ def _plan_literal_if_calls(
             if any(not _visible_before(value, node, parents) for node in adapters):
                 raise StructureMismatch("literal-if-capture-not-visible-before-call")
         # No original inactive definition can claim final node or storage coverage.
+        inactive_origins = {
+            witness.origin
+            for original in inactive_tree
+            for witness in (
+                *original.input_values,
+                *original.variables.values(),
+                *original.closed_constant_values,
+            )
+        } | {
+            witness.origin
+            for witness in ledger.constants
+            if witness.owner is inactive.owner
+        }
         for final_graph in graphs.values():
+            if final_graph.meta.get(_OWNER) is inactive.owner or any(
+                node.meta.get(_ORIGIN) in inactive_origins for node in final_graph
+            ):
+                raise StructureMismatch(
+                    "literal-if-inactive-physical-definition-present"
+                )
             for value in (
                 *final_graph.inputs,
                 *final_graph.initializers.values(),
                 *(value for node in final_graph for value in node.outputs),
             ):
-                if any(
+                if value.meta.get(_ORIGIN) in inactive_origins or any(
                     type(marker) is _ValueWitness and marker.owner is inactive.owner
                     for marker in value.meta.get(_VALUES, ())
                 ):
@@ -1960,35 +2040,85 @@ def _plan_literal_if_calls(
                         "literal-if-inactive-physical-definition-present"
                     )
 
-        def binding(item: _Binding) -> _Binding:
-            return mapping[item] if isinstance(item, _ValueWitness) else item
+        external = frozenset(
+            port.outer for port in cast(RegionReceipt, selected.region).captures
+        )
 
-        region = cast(RegionReceipt, selected.region)
-        projected = replace(
-            selected,
-            owner=parent.owner,
-            closed_constant_values=tuple(
-                mapping[item] for item in selected.closed_constant_values
-            ),
-            input_values=tuple(mapping[item] for item in selected.input_values),
-            variables={key: mapping[item] for key, item in selected.variables.items()},
-            receipts={
-                key: _Receipt(
-                    tuple(binding(item) for item in item.inputs),
-                    tuple(mapping[value] for value in item.outputs),
-                )
-                for key, item in selected.receipts.items()
-            },
-            result_values=tuple(binding(item) for item in selected.result_values or ()),
-            region=replace(
-                region,
-                captures=tuple(
-                    replace(port, local=mapping[port.local]) for port in region.captures
+        def witness(item: _ValueWitness) -> _ValueWitness:
+            if item.owner is selected.owner:
+                if item not in mapping:
+                    raise StructureUnavailable(
+                        "literal-if-selected-clone-map-incomplete"
+                    )
+                return mapping[item]
+            if item in external:
+                return item
+            raise StructureMismatch("literal-if-selected-foreign-binding-differs")
+
+        def binding(item: _Binding) -> _Binding:
+            return witness(item) if isinstance(item, _ValueWitness) else item
+
+        def project(original: _Scope) -> _Scope:
+            region = cast(RegionReceipt, original.region)
+            return replace(
+                original,
+                owner=parent.owner,
+                closed_constant_values=tuple(
+                    witness(item) for item in original.closed_constant_values
                 ),
-            ),
+                input_values=tuple(witness(item) for item in original.input_values),
+                variables={
+                    key: witness(item) for key, item in original.variables.items()
+                },
+                receipts={
+                    key: _Receipt(
+                        tuple(binding(value) for value in item.inputs),
+                        tuple(witness(value) for value in item.outputs),
+                    )
+                    for key, item in original.receipts.items()
+                },
+                result_values=tuple(
+                    binding(item) for item in original.result_values or ()
+                ),
+                region=replace(
+                    region,
+                    captures=tuple(
+                        replace(
+                            port,
+                            binding=binding(port.binding),
+                            outer=witness(port.outer),
+                            local=witness(port.local),
+                        )
+                        for port in region.captures
+                    ),
+                ),
+            )
+
+        projected_tree = tuple(project(original) for original in selected_tree)
+        projected_calls = tuple(
+            (
+                inline_handle,
+                replace(
+                    inline,
+                    owner=parent.owner,
+                    inputs=tuple(witness(item) for item in inline.inputs),
+                    outputs=tuple(witness(item) for item in inline.outputs),
+                    constants=tuple(witness(item) for item in inline.constants),
+                ),
+            )
+            for inline_handle, inline in attachment.trees[rule.index].inline_calls
         )
         plans[handle] = _LiteralIfAudit(
-            selected, inactive, projected, captures or (), returned, tuple(adapters)
+            selected,
+            inactive,
+            projected_tree[0],
+            captures or (),
+            returned,
+            tuple(adapters),
+            selected_tree,
+            inactive_tree,
+            projected_tree,
+            projected_calls,
         )
     return plans
 
@@ -2002,9 +2132,11 @@ def _audit_scope(
     literal_plans: dict[EquationHandle, _LiteralIfAudit],
     coverage: _Coverage,
     loop_plans: dict[EquationHandle, Any],
+    inline_plans: dict[EquationHandle, Any],
     matches: Callable[[TensorContract, ir.Value], bool],
 ) -> StructureResult:
     from jax2onnx.plugins._source_function_structure import FunctionRule
+    from jax2onnx.plugins.jax.core._source_inline_structure import InlineRule
     from jax2onnx.plugins._source_control_flow_structure import (
         BooleanIndexRule,
         IfRule,
@@ -2041,7 +2173,16 @@ def _audit_scope(
     literal_initializers = coverage.constants
 
     actual_outputs = tuple(graph.outputs)
-    if region is not None and region.key.parent in loop_plans:
+    if region is not None and region.key.parent in inline_plans:
+        inline_plan = inline_plans[region.key.parent]
+        if (
+            len(inline_plan.regions) != 1
+            or inline_plan.regions[0] is not scope
+            or region.key.role != "inline-body"
+        ):
+            raise StructureMismatch("inline-region-invocation-differs")
+        actual_outputs = inline_plan.outputs
+    elif region is not None and region.key.parent in loop_plans:
         loop_plan = loop_plans[region.key.parent]
         roles = tuple(child.region.key.role for child in loop_plan.regions)
         if region.key.role not in roles:
@@ -2124,6 +2265,11 @@ def _audit_scope(
             raise StructureUnavailable("literal-storage-unavailable")
         if not matches(expected.tensor, value):
             raise StructureMismatch("literal-type-or-shape-differs")
+        if (
+            tensor.dtype != expected.tensor.dtype
+            or tuple(tensor.shape) != expected.tensor.shape
+        ):
+            raise StructureMismatch("literal-declared-storage-type-differs")
         if id(value) not in literal_cache:
             literal_cache[id(value)] = ConstantContract.from_array(tensor.numpy())
         if literal_cache[id(value)] != expected.storage:
@@ -2165,6 +2311,11 @@ def _audit_scope(
                 constant_tensor = value.const_value
             if constant_tensor is None:
                 raise StructureUnavailable("source-constant-storage-unavailable")
+            if (
+                constant_tensor.dtype != use.tensor.dtype
+                or tuple(constant_tensor.shape) != use.tensor.shape
+            ):
+                raise StructureMismatch("source-constant-declared-storage-type-differs")
             if id(value) not in constant_cache:
                 constant_cache[id(value)] = ConstantContract.from_array(
                     constant_tensor.numpy()
@@ -2259,6 +2410,15 @@ def _audit_scope(
                 elif actual is not operand:
                     raise StructureMismatch("while-original-operand-edge-differs")
             checked.add(plan.node)
+        elif type(expected.rule) is InlineRule:
+            inline_plan = inline_plans[handle]
+            if outputs != inline_plan.outputs:
+                raise StructureMismatch("inline-parent-result-order-differs")
+            for actual, operand in zip(inline_plan.inputs, inputs, strict=True):
+                if isinstance(operand, LiteralOperand):
+                    match_literal(actual, operand)
+                elif actual is not operand:
+                    raise StructureMismatch("inline-parent-input-order-differs")
         elif type(expected.rule) is FunctionRule:
             call = ledger.function_calls.get(EquationHandle(scope.invocation, index))
             if call is None or call.owner not in definitions:
@@ -2327,6 +2487,11 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     from jax2onnx.plugins._source_function_structure import FunctionRule
     from jax2onnx.plugins._source_control_flow_structure import IfRule, LiteralIfRule
 
+    from jax2onnx.plugins.jax.core._source_inline_structure import (
+        InlineRule,
+        plan_inline_calls,
+    )
+
     total = ledger.expected_equations
     if ledger.failures:
         return StructureResult("failed", total, 0, tuple(sorted(ledger.failures))[:16])
@@ -2389,8 +2554,12 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         definitions[definition.graph.meta[_OWNER]] = definition
     from ._source_identity_cse import validate_identity_cse
     from ._source_identity_dce import validate_identity_dce
+    from ._source_leaf_cse import validate_leaf_catalog, validate_leaf_cse
 
     for graph in graphs.values():
+        validate_leaf_catalog(graph)
+    for graph in graphs.values():
+        validate_leaf_cse(graph, _resolve_bindings)
         validate_identity_dce(graph, _resolve_bindings, tuple(graphs.values()))
         validate_identity_cse(graph, _resolve_bindings)
         problems = graph.meta.get(_CONSTANT_LIFT_GAPS, ())
@@ -2440,7 +2609,7 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
         plan_while_calls,
     )
 
-    if ledger.while_calls or ledger.scan_calls:
+    if ledger.while_calls or ledger.scan_calls or ledger.inline_calls:
         # Storage facts do not establish a producer's position. Check actual
         # consumed edges before deriving shapes, including lexical captures.
         for graph in graphs.values():
@@ -2457,12 +2626,25 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     )
     matches = facts.matches if facts is not None else TensorContract.matches
     literal_plans = _plan_literal_if_calls(ledger, scopes, graphs, parents, matches)
-    inactive_invocations = {plan.inactive.invocation for plan in literal_plans.values()}
+    inactive_invocations = {
+        original.invocation
+        for plan in literal_plans.values()
+        for original in plan.inactive_tree
+    }
+    projected_inline_calls: dict[EquationHandle, Any] = {}
     for literal_projection in literal_plans.values():
-        scopes[literal_projection.selected.invocation] = literal_projection.projected
-        owner_scopes.setdefault(literal_projection.projected.owner, []).append(
-            literal_projection.projected
-        )
+        for projected in literal_projection.projected_tree:
+            scopes[projected.invocation] = projected
+            owner_scopes.setdefault(projected.owner, []).append(projected)
+        for handle, inline in literal_projection.projected_inline_calls:
+            if handle in projected_inline_calls:
+                raise StructureUnavailable("literal-if-selected-inline-call-overlap")
+            projected_inline_calls[handle] = inline
+    inactive_inline_calls = frozenset(
+        handle
+        for handle in ledger.inline_calls
+        if handle.invocation in inactive_invocations
+    )
     if any(
         scope.owner not in graphs and invocation not in inactive_invocations
         for invocation, scope in scopes.items()
@@ -2471,6 +2653,14 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     plans = _plan_if_calls(ledger, scopes, graphs, parents, matches)
     while_plans = plan_while_calls(ledger, scopes, graphs, parents, matches)
     scan_plans = plan_scan_calls(ledger, scopes, graphs, parents, matches)
+    inline_plans = plan_inline_calls(
+        ledger,
+        scopes,
+        graphs,
+        matches,
+        projected_calls=projected_inline_calls,
+        inactive_calls=inactive_inline_calls,
+    )
     loop_plans: dict[EquationHandle, WhileAudit | ScanAudit] = {
         **while_plans,
         **scan_plans,
@@ -2478,11 +2668,16 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     wanted_regions = {
         cast(RegionReceipt, child.region).key
         for plan in cast(
-            "tuple[_IfAudit | _LiteralIfAudit | WhileAudit | ScanAudit, ...]",
-            (*plans.values(), *literal_plans.values(), *loop_plans.values()),
+            "tuple[_IfAudit | _LiteralIfAudit | WhileAudit | ScanAudit | InlineAudit, ...]",
+            (
+                *plans.values(),
+                *literal_plans.values(),
+                *loop_plans.values(),
+                *inline_plans.values(),
+            ),
         )
         for child in plan.regions
-    }
+    } | {RegionKey(handle, "inline-body") for handle in inactive_inline_calls}
     observed_regions: dict[RegionKey, object] = {}
     for scope in scopes.values():
         if scope.region is None:
@@ -2519,6 +2714,13 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
                 attached.extend(
                     child.invocation for child in loop_plans[handle].regions
                 )
+            elif type(equation.rule) is InlineRule:
+                if handle in inactive_inline_calls:
+                    attached.append(ledger.regions[RegionKey(handle, "inline-body")])
+                else:
+                    attached.extend(
+                        child.invocation for child in inline_plans[handle].regions
+                    )
         children[scope.invocation] = tuple(attached)
     root_invocation = definition_scope(model.graph.meta[_OWNER]).invocation
     reached: set[object] = set()
@@ -2540,10 +2742,14 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
     for scan_plan in scan_plans.values():
         for value in scan_plan.constants:
             coverage[cast(ir.Graph, value.graph).meta[_OWNER]].constants.add(value)
+    for inline_plan in inline_plans.values():
+        coverage[inline_plan.regions[0].owner].constants.update(inline_plan.constants)
+        coverage[inline_plan.regions[0].owner].nodes.update(inline_plan.adapters)
     for scope in scopes.values():
         if scope.invocation in inactive_invocations:
-            # Known pure childless source is unreachable under the exact frozen
-            # native selector. It contributes no graph or storage coverage.
+            # The complete authenticated pure inline subtree is unreachable
+            # under the exact frozen selector. These are semantic obligations,
+            # disjoint from every final node/storage coverage contribution.
             results[scope.invocation] = StructureResult(
                 "validated", len(scope.equations), len(scope.equations), ()
             )
@@ -2557,6 +2763,7 @@ def _audit(model: ir.Model, ledger: SourceStructureLedger) -> StructureResult:
             literal_plans,
             coverage[scope.owner],
             loop_plans,
+            inline_plans,
             matches,
         )
 

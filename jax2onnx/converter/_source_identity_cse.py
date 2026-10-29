@@ -18,6 +18,8 @@ from weakref import WeakSet
 
 import onnx_ir as ir
 
+from . import _source_cse_output_aliases as output_aliases
+
 if TYPE_CHECKING:
     from .source_structure import _ValueWitness as Witness
 
@@ -65,10 +67,14 @@ class _Row:
 @dataclass(frozen=True)
 class _Output:
     slot: int
+    original: Witness
     canonical: Witness
     actual: Witness
     schema: _Schema
     bridge: bool
+    slots: tuple[int, ...]
+    name: str | None
+    normalized: bool
 
 
 @dataclass(frozen=True, eq=False)
@@ -79,6 +85,10 @@ class IdentityCSE:
     outputs: tuple[_Output, ...]
     output_count: int
     orders: tuple[tuple[object, tuple[object, ...]], ...]
+    output_classes: tuple[tuple[int, ...], ...]
+    output_names: tuple[str | None, ...]
+    output_schemas: tuple[_Schema, ...]
+    normalizations: tuple[output_aliases.Normalization, ...] = ()
 
     def __deepcopy__(self, memo: Any) -> IdentityCSE:
         return self
@@ -106,6 +116,11 @@ class _Before:
     uses: tuple[tuple[ir.Value, ir.Node, int, _Port], ...]
     outputs: tuple[ir.Value, ...]
     nodes: frozenset[ir.Node]
+    originals: tuple[Witness, ...]
+    output_classes: tuple[tuple[int, ...], ...]
+    output_names: tuple[str | None, ...]
+    output_schemas: tuple[_Schema, ...]
+    normalizations: tuple[output_aliases.Normalization, ...] = ()
 
 
 def _graphs(root: ir.Graph) -> tuple[ir.Graph, ...]:
@@ -350,6 +365,8 @@ def _capture(graph: ir.Graph) -> tuple[_Before, ...]:
                 tuple(uses),
                 tuple(graph.outputs),
                 frozenset(nodes),
+                tuple(_current(value) for value in graph.outputs),
+                *output_aliases.output_contract(graph),
             )
         )
     return tuple(components)
@@ -380,6 +397,9 @@ def _finish(before: _Before) -> None:
         return
     if len(graph.outputs) != len(before.outputs):
         raise StructureMismatch("identity-cse-output-count-differs")
+    output_aliases.validate_outputs(
+        graph, before.output_classes, before.output_names, before.output_schemas
+    )
     aliases = {row.value: row.canonical for row in before.rows}
     by_node = {row.node: row for row in before.rows}
     keepers = {row.canonical for row in before.rows}
@@ -444,14 +464,28 @@ def _finish(before: _Before) -> None:
                 or bridge_output is not actual
                 or schema != schemas[old]
                 or actual.uses()
-                or sum(value is actual for value in graph.outputs) != 1
+                or tuple(i for i, value in enumerate(graph.outputs) if value is actual)
+                != next(group for group in before.output_classes if slot in group)
                 or not _visible(canonical, node)
             ):
                 raise StructureMismatch("identity-cse-output-bridge-differs")
             expected_uses[canonical].add((node, 0))
             related.add(node)
         outputs.append(
-            _Output(slot, _current(canonical), _current(actual), schemas[old], bridge)
+            _Output(
+                slot,
+                before.originals[slot],
+                _current(canonical),
+                _current(actual),
+                schemas[old],
+                bridge,
+                next(group for group in before.output_classes if slot in group),
+                before.output_names[slot],
+                any(
+                    fact.original == before.originals[slot]
+                    for fact in before.normalizations
+                ),
+            )
         )
     for value, expected in expected_uses.items():
         actual_uses = {(use.node, use.idx) for use in value.uses()}
@@ -487,6 +521,14 @@ def _finish(before: _Before) -> None:
         tuple(outputs),
         len(before.outputs),
         tuple(orders),
+        before.output_classes,
+        before.output_names,
+        before.output_schemas,
+        tuple(
+            fact
+            for fact in before.normalizations
+            if any(output.original == fact.original for output in outputs)
+        ),
     )
     # No receipt exists until every row, use and ordered output relation passed.
     _REGISTERED.add(receipt)
@@ -508,11 +550,12 @@ def _problem(graph: ir.Graph, stage: str, exc: Exception) -> None:
 
 
 @contextmanager
-def observe_identity_cse(model: ir.Model) -> Iterator[None]:
+def observe_identity_cse(model: ir.Model) -> Iterator[output_aliases.Observation]:
     """Observe the real pass once; preserve its result and exception ownership."""
     from jax2onnx.ir_utils import iter_ir_functions
     from .source_structure import _OWNER
 
+    observation = output_aliases.Observation()
     snapshots: list[_Before] = []
     try:
         roots = [
@@ -530,9 +573,12 @@ def observe_identity_cse(model: ir.Model) -> Iterator[None]:
             snapshots.extend(_capture(graph))
         except Exception as exc:
             _problem(graph, "identity-cse-before", exc)
-    yield
+    for snapshot in snapshots:
+        observation.originals[snapshot.graph] = snapshot.originals
+    yield observation
     for snapshot in snapshots:
         try:
+            snapshot.normalizations = observation.facts(snapshot.graph)
             _finish(snapshot)
         except Exception as exc:
             _problem(snapshot.graph, "identity-cse-after", exc)
@@ -660,6 +706,9 @@ def _validate(
         _VALUES,
     )
 
+    output_aliases.validate_outputs(
+        graph, receipt.output_classes, receipt.output_names, receipt.output_schemas
+    )
     aliases = _congruence(receipt)
     canonical_rows = [row for row in receipt.rows if row.value == row.canonical]
     canonical_wanted = {row.value for row in canonical_rows}
@@ -718,6 +767,19 @@ def _validate(
             or output_record.slot >= len(graph.outputs)
             or output_record.slot in slots
             or output_record.canonical not in canonical_wanted
+            or type(output_record.original) is not type(receipt.rows[0].value)
+            or output_record.original not in {row.value for row in receipt.rows}
+            or output_record.canonical
+            != next(
+                row.canonical
+                for row in receipt.rows
+                if row.value == output_record.original
+            )
+            or type(output_record.normalized) is not bool
+            or output_record.slots
+            != next(
+                group for group in receipt.output_classes if output_record.slot in group
+            )
         ):
             raise StructureUnavailable("identity-cse-final-output-slots-unavailable")
         slots.append(output_record.slot)
@@ -726,6 +788,9 @@ def _validate(
         if (
             graph.outputs[output_record.slot] is not actual
             or _schema(actual) != output_record.schema
+            or actual.name != output_record.name
+            or tuple(i for i, value in enumerate(graph.outputs) if value is actual)
+            != output_record.slots
         ):
             raise StructureMismatch("identity-cse-final-output-slot-differs")
         if output_record.bridge:
@@ -743,6 +808,9 @@ def _validate(
                 raise StructureMismatch("identity-cse-final-bridge-differs")
         elif actual is not canonical:
             raise StructureMismatch("identity-cse-final-direct-output-differs")
+    output_aliases.validate_facts(
+        graph, receipt.normalizations, receipt.outputs, resolved
+    )
     component_values = set(resolved.values())
     if {
         index for index, value in enumerate(graph.outputs) if value in component_values

@@ -6,7 +6,17 @@ contract across existing functionality and fixed sources, without a permanent
 public precision mode/profile selector or capability loss. The private
 source-static milestone is implementation scaffolding, not completion scope.
 
-Current implementation snapshot: **2026-10-26**. Public precision behavior
+The revised user objective of **2026-10-29** overrides obsolete execution
+instructions in the historical snapshots below. Supported official dependencies
+are mandatory; custom JAX/jaxlib/XLA/LLVM builds, patches or binary overlays need
+separate explicit approval. Priorities are the reviewed extrema semantics,
+completed-export ownership and NNX static-isolation defects, followed by a
+measured, independently reviewed reduction in CI cost. The current
+[handoff](implementation_handoff.md), [CI gate](precision_ci_gate.md), and proposed
+[execution plan](ci_execution_plan.md) distinguish active requirements from
+historical evidence. Full B–F and final exact-commit acceptance are unchanged.
+
+Historical implementation snapshot: **2026-10-26**. Public precision behavior
 remains LEGACY. This unfinished WIP continues stored `e4db1943`;
 `fe214590` remains the last fully green checkpoint. The
 [canonical ledger](poc/source_integration_findings.md#current-checkpoint) records

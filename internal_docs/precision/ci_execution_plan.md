@@ -1,0 +1,421 @@
+# Precision migration CI execution plan
+
+Status: **Main-baseline architecture accepted; implementation, gate activation and measured qualification pending.**
+
+## Binding user clarification — 2026-10-29
+
+> die Standardprüfung sollte den Status Quo wie auf main prüfen, damit wir nichts gegenüber diesem Stand verlieren, aber auch nicht länger laufen. Zusatzprüfungen wären on top und dann auch gern extra.
+
+The standard campaign must preserve main's complete existing coverage and must
+not take longer than a comparable main campaign. Every added SOURCE, migration
+or regression check belongs to a separately identified extra lane. Those checks
+remain required at their assigned trigger; separating them does not delete,
+weaken or waive them. Extra work and its runtime must remain visible.
+
+This clarification supersedes the previously accepted `C(p) - H(p)` routine
+selection and its **35-minute / 160-minute standard runtime budgets**. Neither
+selecting nearly the entire expanded PR suite nor reducing standard coverage to
+two representative Python cohorts satisfies the new instruction. The earlier
+architecture acceptance is historical; it is not acceptance of this amendment.
+No workflow or required check has changed for this revision.
+
+Independent Astra Ultra review on 2026-10-29 by
+`/root/astra_ci_plan_review/main_baseline_architecture_review`: **ACCEPT for
+architecture**, including the subsequent one-to-one/phase-F clarification.
+The reviewed candidate permits incremental implementation. Literal selection,
+main-to-PR contract mapping, collection-context equivalence, measured no-increase
+runtime and all gate-activation evidence remain unqualified. This review does
+not accept missing migration verifiers or claim performance results.
+
+The reference main commit, supplied by root's fresh remote/local observation, is
+`81ad6ca2592635c8d2ced6dbd77292c487f0351b`. Freeze this SHA as the initial baseline;
+record and independently reconcile later main changes instead of silently
+rebasing or shrinking the baseline. The last reported published PR head is
+`0a9638d`, whose eight ordinary checks passed. That result does not qualify the
+current worktree, the new selection or any performance budget.
+
+Use supported official packages. Main's modern cohort used JAX/JAXLIB 0.11.2;
+the current PR locks use 0.12.0.1 there. Preserve each revision's own lock
+versions and markers in isolated installations. No custom native builds,
+compiler patches, overlays or substitutions are authorized. The complete B–F
+contract and exact-final-commit acceptance remain unchanged.
+
+## Accepted incremental work and measured starting point
+
+The optional-model duplicate-removal edit retains pinned preparation, test
+generation and the existing four-cohort full runner. Its fresh Python 3.12
+50-identity/outcome qualification remains **UNVERIFIED**; the historical 3m19s
+of duplicate execution is not a measured saving from the edit.
+
+Astra independently accepted the additive phase-duration checkpoint. Timings
+are separate from canonical phase outcomes; semantic comparisons and existing
+checkpoint order are preserved. Supplied completed checks: Python 3.11 runner
+100 PASS; Python 3.11 transport/control/replay 165 PASS; Python 3.14 runner plus
+selected context/cache regressions 141 PASS, 68 deselected. This acceptance
+survives the new lane design. It establishes no scheduling change or runtime
+saving. Ordinary commit hooks remain required and unskipped.
+
+The following completed GitHub job measurements are observational. Test counts,
+scheduling and the modern JAX version differ; hardware was not experimentally
+controlled. They are historical orientation, not a paired no-increase proof.
+
+| Python | Main job | Published PR job | PR Original22 call time, all 44 cases |
+| --- | --- | --- | --- |
+| 3.11 | 11m22s | 2h16m51s | 65m05s |
+| 3.12 | 18m04s | 2h25m12s | 58m30s |
+| 3.13 | 9m31s | 2h11m51s | 66m47s |
+| 3.14 | 10m15s | 1h38m09s | 47m29s |
+
+Sources: [main 81ad6ca, CI 40641446266](https://github.com/enpasos/jax2onnx/actions/runs/40641446266)
+and [published 0a9638d, CI 40686137924](https://github.com/enpasos/jax2onnx/actions/runs/40686137924).
+All eight ordinary jobs passed in each run. Aggregate ordinary job time rose
+from 54m30s to 8h37m08s, excluding failed custom-compiler builds. The old full
+suite used two xdist workers. The PR used 54 serial processes per cohort, each
+recollecting approximately 17,700 tests; summed startup-to-collection-log time
+was 8m33s, 13m30s, 8m34s and 6m34s respectively. This is not pure tracing time.
+One 467-item batch held all 44 Original22 cases and took 48–68m. Twelve batches
+held one case each.
+
+The four PR archives totaled approximately 13.3 GB, about 3.33 GB per cohort,
+with 103–127s upload time each. MaxText's 45 and MaxDiffusion's five cases also
+ran separately before the full suite, costing 3m19s on Python 3.12. All-files
+pre-commit ran four times. Remove duplication only after preserving the affected
+coverage, environment and outcome accounting.
+
+## Standard ownership: main's full contract, executed on PR code
+
+For each supported Python/dependency cohort `p`, define `M(p)` as the complete
+ordered collection on the frozen main revision under its original official
+locked setup, test generation, optional integrations and pytest configuration.
+Record main's support-job commands, conditions, environments and outcomes too;
+`M(p)` alone does not describe the whole standard campaign.
+
+Collect `C(p)` on the PR with its own supported locked setup. Build a reviewed
+total mapping `F(p)` from **every** main test identity/contract into the
+corresponding PR test identity, retaining a distinct reviewed counterpart for
+each original obligation. The standard pytest selection is the mapped baseline
+`S(p)`. Additions are `A(p) = C(p) - S(p)`.
+Missing, ambiguous, changed or unsupported baseline mappings block activation;
+never implement this as the intersection of two node-ID lists. A main identity
+must stay visible even when its equivalent has a different PR ID. Keep this
+mapping one-to-one at the original parameter-contract level; do not collapse
+several original obligations into one passing result. Counts cannot establish
+equivalence.
+
+The mapping must bind more than names:
+
+- Preserve ordered node IDs, parametrizations, original callable/model identity,
+  full inputs, dtypes/shapes, x64 and runtime settings, numerical/structural
+  criteria, setup/call/teardown outcomes and exact collection skips.
+- For handwritten tests, retain the original qualified function/class and the
+  reviewed source/fixture/parameter changes. A file allowlist includes new
+  functions in old files; a matching function or node ID can conceal changed
+  inputs or weakened assertions. Neither is sufficient by itself.
+- For generated tests, bind registry origin, raw case/variant and original
+  metadata/factory/input/criterion contract to the actually collected PR item.
+  Reuse the existing generator and inventory representations where applicable;
+  generated display names and counts are not provenance. Missing optional
+  registrations or generator name collisions remain explicit blockers.
+- New cases or added migration/regression scenarios in existing files belong to
+  extras. Where an old test now embeds separable new checks, move only those
+  additions into a distinct extra owner while retaining every original baseline
+  assertion. An inseparable changed owner needs review before lane assignment;
+  it cannot silently broaden standard or weaken the baseline to fit its budget.
+
+Execute the standard selection against **PR production code, PR tests/fixtures
+and PR generated metadata**. The clean main checkout supplies the control and
+provenance. Never copy main production or test files over the PR to manufacture
+a baseline pass. Hash/source changes identify review work; a hash mismatch is
+not by itself a lost capability, and a matching ID is not equivalence proof.
+
+Reconcile JAX 0.11.2 versus 0.12.0.1 differences explicitly per cohort. Retain a
+main-only ID as an unresolved obligation until a reviewed PR equivalent proves
+its original contract, or a separately authorized support change resolves it.
+New version-conditional PR cases belong to extras. Do not downgrade PR locks or
+normalize removed/renamed cases into apparent agreement. Python 3.11–3.14,
+main's actual minimum-dependency installation check, optional model ownership,
+normalization gates and web smoke all retain their standard owners. Dependency-
+sensitive checks retain main's cohort coverage unless consolidation is proven
+equivalent; platform-independent checks may run once after that review.
+
+Main's existing all-files lint, policy and typing checks still inspect the
+current PR tree under their original contract. Do not freeze their inspected
+file set to main or exclude newly added production code. Their expanded cost
+counts in standard's comparison. Added pytest identities/scenarios and new
+standalone checks are the extra work; this does not narrow existing whole-tree
+quality checks.
+
+Apply the same per-item ownership to pytest-based support jobs. A broad existing
+file command must not silently absorb added tests. Preserve separate main job
+contexts where the same baseline ID runs with different environments/settings.
+
+The current public LEGACY default requires the same main-suite contracts. This
+baseline does not freeze that policy permanently or cancel the coordinated
+phase-F SOURCE transition. A legitimate version-sensitive or phase-F API change
+needs an independently accepted one-to-one counterpart mapping that preserves
+the original sources, full inputs, criteria and features. Retain each original
+obligation and its evidence through the transition; do not keep a permanent
+public LEGACY/SOURCE mixture or silently weaken an assertion to retain a name.
+
+Use one compact per-cohort baseline/mapping artifact and a small literal lane
+table in the existing runner. No service, registry framework, test DSL or second
+executor is required. Cache immutable baseline collection evidence only by base
+SHA, Python/cohort, lock/setup hashes, optional checkout/selection hashes and
+collector version. PR mapping is bound separately to the exact PR SHA. Validate
+artifact hashes on reuse; a changed input invalidates the relevant cached proof.
+Package-download caches are distinct from evidence caches. Installed environment
+caches must distinguish locked, optional and actual minimum-version installs.
+
+## Concrete baseline collection and first implementation step
+
+**Smallest next step: obtain and reconcile main/PR collection evidence, before
+changing scheduling.** Root prepares separate disposable checkouts and isolated
+official locked environments for each cohort, preserving each revision's own
+workflow setup. Source trees remain unchanged except ordinary generated tests
+and local ignored artifacts in disposable collection copies; the reference main
+checkout remains an immutable evidence source. Main has no PR batch runner;
+do not assume that entrypoint exists there or run PR's observer-bearing worker
+against main.
+
+After the original pinned optional setup for the appropriate cohort, the
+existing commands in each prepared checkout are:
+
+```sh
+poetry run python scripts/generate_tests.py
+poetry run pytest --collect-only -q
+```
+
+Capture command, stdout/stderr, exit status, actual resolved packages, source SHA,
+lock/setup hashes, generation output and original pytest options in a fresh
+external evidence directory for each revision/cohort. Use the same generation
+and optional setup as that revision's ordinary workflow; do not use one PR
+virtualenv for both checkouts. These commands collect, not execute, and cannot
+prove assertions, runtime skips or collection-context equivalence. Repeat the
+existing support selectors in their respective environment inventories.
+
+If machine-readable records need a hook, make the next code patch a small
+**collection-only observer in the existing runner**, reused as a pytest plugin
+from an explicit reviewed file path. It must observe actual items and collection
+reports, not enable cast/model observers, import a second converter, install
+framework patches or execute selected tests. Assert that converter/test modules
+resolve inside the intended checkout. This hook, its concrete invocation and
+the main-to-PR mapping/verifier are **NOT IMPLEMENTED**; review them and their
+small synthetic checks before use. Plain collection transcripts are initial
+evidence, not a substitute for the eventual fail-closed selection verifier.
+
+Publish exact main and PR manifests, support-command ownership and every mapping
+exception before proposing a workflow diff. Final executable selection requires
+literal resolved node IDs/contracts and the reviewed mapping artifact, not the
+symbols `M`, `S`, `A`, file globs or placeholders in this document.
+
+## Separate lanes after qualification
+
+| Lane | Exact ownership to implement | Trigger and acceptance meaning |
+| --- | --- | --- |
+| Standard main baseline | `S(p)` on all four locked Python 3.11–3.14 PR cohorts; main's full support coverage, actual minimum-dependency job and original integration ownership | Every PR update and main push under main's existing relevant conditions. Same baseline capabilities, inputs and criteria; comparable standard runtime must not increase. `standard-main` success is only this scope. |
+| Focused extra regressions | Explicit reviewed IDs in `A(p)` for confirmed extrema, completed-export ownership and mutable-static/callback regressions, relevant SOURCE semantics, changed owners and their consumer/integration regressions | Required on every affected PR update on applicable official framework families/settings. Freeze literal selectors before activation. A missing required extra job is not replaced by standard success. |
+| Remaining extra CPU coverage | Every item in `A(p)` not assigned to the focused extra lane, including the complete added SOURCE corpus and full-model cases | Dedicated complete extra acceptance at significant milestones, whenever assumptions change, and on the exact final commit across all supported cohorts. Nightly/manual execution may add evidence. No unmatched addition disappears. |
+| Main full web baseline | The complete mapped main Node/Chrome integration selections and original conditions | Preserve main's nightly/manual ownership, separately from newly added web cases. Qualify worker/isolation configuration and collection mapping before replacing its execution. |
+| Extra integration and migration acceptance | Added web checks and the individually owned inventory/replay/model/runtime/resource obligations below | Relevant milestone and exact-final-SHA acceptance. Missing implementations, references, criteria or verifiers remain explicit blockers. New strict docs (`poetry run mkdocs build --strict --site-dir <fresh-external-dir>`) is an extra check; main-only deployment was not a PR docs gate. |
+
+The exhaustive CPU union is `S(p) + A(p) = C(p)`, with each assigned item executed
+exactly once in its canonical campaign. Repeated baseline support jobs remain
+separately identified when their environments/conditions differ. Standard and
+extras must have distinct check names, artifacts, aggregate times and verdicts;
+extras cannot be hidden inside standard's runtime or silently made optional.
+All added tests default to `A`, including additions in old files and generated
+metadata. The focused subset is explicit; all other additions still have the
+complete extra lane as their owner.
+
+The two previously identified heavy owners stay intact in extra acceptance:
+`test_source_original22_state_preparation.py::test_original22_source_state_preparation_cpu_feedback_and_reset`
+and `test_source_model_native_bindings_exports.py::test_original_full_model_native_bindings_cpu_gate`
+under `tests/extra_tests/converter/`. At the measured epoch these had 44 and ten
+cases. Their negatives and every other added case also remain owned. Preserve
+original callables, B=2/B=5 inputs, caller x64 variants, state/reset sequences,
+native roles and both ORT modes; counts are observations, not future limits.
+
+Nightly acceptance must resolve and record one explicit SHA of the active
+migration branch while PR #277 remains open, then main after transition. Change
+detection and every checkout use that same SHA. Final acceptance checks the
+supplied final commit itself; a PR merge-ref run is additional evidence. This
+wiring and the new lane selections are **NOT IMPLEMENTED**. The published gate
+remains effective until concrete changes and evidence are independently accepted.
+
+### Migration command and acceptance ownership
+
+Commands below document existing entrypoints; none was executed for this plan.
+Angle-bracket paths denote required evidence or fresh external outputs, not
+existing files. Resolve them to reviewed literal paths before enabling a job.
+Use supported official packages and the cohort's isolated installation. Full
+inventory observations require both pinned optional checkouts and `MODELS=all`:
+MaxText `17d805e3488104b5de96bd19be09491ff73c57c1`, MaxDiffusion
+`b4f95730bf4f00c4fd9e3dd2fdda1b50484afda2`. Record older-cohort conditional
+differences; do not normalize a contract mismatch into agreement.
+
+| Obligation / owner lane | Existing command and required evidence | Acceptance boundary and current blocker |
+| --- | --- | --- |
+| Current inventory identities / migration inventory | `poetry run python scripts/source_precision_inventory.py --output internal_docs/precision/source_migration_inventory_current.json` on both official framework families with complete optional setup; retain stdout, manifest hash and cohort. Without `--refresh` this checks rather than rewrites the manifest. | Identity agreement only. The committed manifest has 316 manual rows; the separately reported later 319-file AST observation also predates new owners. Current identities need reviewed reconciliation, including authorized experimental removals. **UNVERIFIED**; never auto-refresh to obtain green. |
+| Current caller-obligation plan / migration inventory | `poetry run python scripts/source_precision_probe.py --baseline internal_docs/precision/source_migration_inventory_current.json --output <fresh>/plan.json` | Planning executes no models. Preserve the modern 1,856 rows / 3,712 caller obligations, manual anchors, optional models and explicit cohort differences. A generated plan is not execution or numerical acceptance. |
+| Current replay adapters and artifact checks / migration replay | Existing execution interface: `poetry run python scripts/source_precision_probe.py --baseline internal_docs/precision/source_migration_inventory_current.json --replay-adapters <reviewed-current-adapters.json> --stage product --limit <reviewed-positive-batch-size> --output <fresh>/product.json --evidence-directory <fresh>/artifacts`; `--stage prepare` is preparation only. | Current-epoch adapters and a complete current replay schedule/verifier are **UNVERIFIED / not supplied**. Default baseline/adapters are historical. Product and diagnostic main paths return zero even with failed/pending cells; their exit status cannot be an acceptance gate. Require a verifier of every assigned outcome, scope and artifact, not just counts or process exit. |
+| Historical 26-cell corpus supplement / migration replay | `poetry run python scripts/source_precision_probe.py --corpus-replay --limit 26 --history <original36.json> --history <two-dot.json> --output <fresh>/corpus.json --preparation-output <fresh>/preparation.json` | Hard-pins inventory from `158ce625` and both unchanged same-stack history files. Earlier `/tmp` proofs are unavailable; locate authenticated retained bytes or remain **UNVERIFIED**. This invariant check is historical finite evidence, not a replay of the current inventory. |
+| Finite 24-cell numerical supplement / migration numerics | `poetry run python scripts/source_precision_numerical_probe.py --approval <approved.json> --accepted-artifact <accepted-artifact.json> --criterion-version source-corpus-fp32-conjunction-v1 --limit 24 --execute --output <fresh>/numerics.json --preparation-output <fresh>/preparation.json` with the exact pinned approvals/artifact history on each applicable cohort | Only 24 selected cells. Require `validated-scoped-samples`, empty `pending`, all invariants and reviewed actual comparisons. Exit zero without `--execute` can mean `prepared-no-runtime`. Required historical inputs and fresh execution are **UNVERIFIED**; neither result closes full SOURCE numerics. |
+| Complete current metadata SOURCE/numerical acceptance / migration numerics | The current plan above defines the denominator. Existing finite probes can supply only their explicitly matched cells. | **UNVERIFIED acceptance blocker:** no complete current 3,712-obligation execution/criteria/verdict verifier is supplied. Missing native references, callbacks, criteria or runtime execution remain gaps. Implement and review the missing coverage/verifier before claiming an executable full gate; no diagnostic PASS can replace it. |
+| Original22 full-model/resource closure / migration models | Full CPU collection must execute every case in `tests/extra_tests/converter/test_source_original22_state_preparation.py`; the existing full entrypoint is `poetry run python scripts/run_pytest_batches.py -- --durations=50 --durations-min=1`. Retain complete case receipts, JUnit, native/runtime results and resource observations. | Hosted 44-case predecessor results do not qualify the current SHA or close the first-B=5 local 4 GiB censor. **UNVERIFIED resource blocker:** original 22 owners, both caller settings and all inputs stay required; current exact-SHA/resource verifier evidence is missing. Do not schedule a known oversized local trial until a reviewed safe resource solution exists. |
+| Native-binding full-owner/resource closure / migration models | The same full CPU entrypoint must retain all 12 cases in `tests/extra_tests/converter/test_source_model_native_bindings_exports.py`, including ten full-model cases and both negatives. | **LOCAL_UNVERIFIED_RESOURCE_HELD** remains a separate acceptance blocker. Keep isolated original invocations and complete artifact transport/replay. Hosted success is separate from the unresolved local 4 GiB hold and does not provide a missing resource-closure verifier. |
+| Complete web behavior / integration | Current commands are `scripts/run_onnxruntime_web_full.sh -n auto --dist=loadscope -q --ff -x` and `scripts/run_onnxruntime_web_chrome_full.sh -n auto --dist=loadscope -q --ff -x`, after Python 3.12, Node 22, `npm ci`, generation and Chromium setup for Chrome. | Existing commands are recorded, **not approved bounded execution**. Qualify a serial or explicitly bounded worker configuration with complete selection/outcome equivalence and memory measurements. Preserve the current limits until independently reviewed; no new resource acceptance follows from these commands. |
+
+Each missing verifier above is an implementation obligation in its named lane;
+the table is documentation, not a new registry or evidence system. Existing
+receipt/report types should carry the eventual verdicts. Product/migration
+obligations remain intact when the explicitly prohibited compiler experiments
+and their experiment-only tests are removed. Keep all superseded or failing
+observations with their actual source epoch and meaning.
+
+Full acceptance is mandatory before finishing each significant B–F milestone,
+before public SOURCE transition and before declaring this goal complete. Changes
+to framework/ORT locks, original sources/inputs/criteria, state preparation,
+Function ownership, precision rules, graph rewrites, replay or lane selection
+invalidate affected exhaustive evidence. The corresponding full acceptance must
+run at that milestone before it is accepted or the next dependent milestone
+starts. Routine fixes within the unfinished milestone need not rerun an already
+passing unrelated exhaustive packet after every edit. Final acceptance always
+reruns the entire accepted suite on the exact final SHA across all cohorts.
+
+## Collection context, outcomes and evidence
+
+Initial mapping observes the full PR collection. Collecting only baseline modules
+can change import-time registrations, native configuration, fixtures or ordering,
+including through SOURCE code imported from an existing module. Added imports do
+not become baseline tests, but their cost still counts if standard requires them.
+Moving extra execution to another lane does not remove its collection overhead.
+
+Keep full collection authoritative during qualification. Compare full-collection
+baseline execution with the proposed cheaper context on an immutable PR revision
+and both official framework families, then validate every supported cohort's
+manifest/outcomes. Preserve ordered projections, registry/configuration effects,
+original assertions and phase outcomes. Retain
+`test_each_real_batch_preserves_unassigned_module_import_effects` and
+`test_unassigned_collection_drift_stops_before_assigned_execution`; any replacement
+mechanism needs review and meaningful counterexamples. A full collection still
+required by standard is charged to its measured time, even if performed in a
+shared prerequisite. Collection manifests alone cannot qualify a cheaper context.
+
+Derive and freeze the old ordered predecessor packets for the f64-to-f16 tie case
+and BF16 native TopK case. Preserve the ten native-binding model cases in separate
+fresh processes with full collection until equivalence is proven. Check packet
+intersections with both `S(p)` and `A(p)`: these intersections and the exact packets
+are **UNVERIFIED**. Assign each intact packet explicitly. If a standard test needs
+an added case as an execution predecessor, repair/qualify that dependency or
+resolve ownership before activation; silently running extras inside standard or
+omitting predecessors is forbidden. Additional context-sensitive failures join
+this explicit set pending repair. Supplementary solo passes do not replace failed
+original-context results.
+
+The standard candidate begins from main's documented fixed concurrency (two
+xdist workers in the measured main run), not the PR's arbitrary 500-item serial
+packet layout. Reuse existing pytest/xdist or the existing runner as appropriate;
+no scheduler service is needed. Qualify resource use, isolation and collection
+semantics before selecting worker/shard counts. Do not restore `-n auto` or
+increase local resource caps. Extra native/model packets retain serial isolation.
+Only after per-case duration and descendant memory are measured should Original22
+be split into bounded complete-case packets; four cases / 12 predicted minutes
+remain a candidate, not an approved allocation. Never split a case's internal
+inputs, references or comparison phases to fit a budget.
+
+Each run records PR/base SHA, package/setup provenance, manifest/mapping hashes,
+assigned IDs, canonical phase outcomes, separate timings and resource evidence.
+Use the existing receipts/JUnit and ordinary Actions artifacts. Aggregation rejects
+missing jobs/IDs, duplicates, unassigned outcomes, changed contracts, collection
+errors and interrupted phases. Require exact cohort/node/outcome/reason allowances
+for existing skips/xfails; collect-only does not authorize runtime skips. Retain
+collection skips from unselected modules and all failed/superseded observations.
+Allowed skips, expected-rejection tests and diagnostic successes are not numerical
+acceptance. Keep native reference, ONNX schema, runtime and numerical verdicts
+separate, with applicable dtype/shape/tree, NaN-mask, zero-sign, infinity, rounding
+and tolerance checks. Official-native failures remain failed or unverified;
+they cannot authorize compiler substitution or weaker comparisons.
+
+## No-increase standard runtime and separate extra budgets
+
+Standard acceptance is **no increase versus comparable main**, not 35m per job
+or 160m aggregate. Use at least three complete paired main/PR-standard campaigns
+with frozen source SHAs, each revision's approved lock/setup, the same standard
+hosted runner class/recorded CPU features, available concurrency and matched
+cold/warm-cache treatment. Pair runs closely and alternate order. Report cohort
+job times, workflow critical path, aggregate charged job time and all raw pairs.
+A framework-version difference remains an explicit confounder; it does not grant
+a runtime allowance or permission to replace PR locks.
+
+Require both the median and worst observed **standard critical path and aggregate
+job time** to be no higher than the corresponding main measurements, with no
+unreviewed tolerance. Report each cohort/support comparison so a slower owner
+cannot be hidden by renamed checks. The initial historical 18m04s slowest job
+and 54m30s aggregate are orientation only, not controlled thresholds or proof of
+makespan. If comparable evidence is unavailable or the no-increase test fails,
+performance acceptance remains UNVERIFIED/FAILED; optimize without removing
+coverage or obtain an explicit reviewed change to the measurement plan.
+
+Charge dependency installation, test generation, collection, mapping validation,
+shared prerequisites, support, aggregation and uploads to the campaign that
+requires them. Shared costs required for standard cannot be reassigned to extras
+to make standard appear faster. Record baseline-bootstrap/cache-miss costs and
+cache-hit steady-state results separately; qualify both applicable operating
+modes. Count all failed attempts and retries additionally. External runner queue
+time is reported separately; internal dependency waits and scheduling waves
+remain part of execution makespan. Report combined standard-plus-extra cost too.
+
+| Scope | Runtime acceptance | Memory target | Uploaded evidence target |
+| --- | --- | --- | --- |
+| Standard main baseline, all four cohorts/support | No increase in comparable main critical path and aggregate time under the paired rule above | <=4 GiB total owned-process RSS per ordinary runner, >=2 GiB host headroom, no OOM/swap growth; fixed worker count must fit this aggregate target | <=100 MiB compressed successful-campaign receipts/logs; seven days. Report complete failure/retry payloads separately without truncation. |
+| Focused extras | Provisional <=35m slowest job and <=160m aggregate, charged separately from standard; freeze actual selection and measure before qualification | One native worker per runner; <=4 GiB owned-process RSS and >=2 GiB headroom | <=100 MiB compressed successful receipts/logs; seven days; complete failure evidence retained |
+| Complete CPU acceptance, `S + A`, all four cohorts | Provisional <=45m slowest job, <=90m execution makespan with eight available slots, <=480m aggregate including prerequisites; these targets are not achieved results | One native worker per extra model runner; model packets <=12 GiB owned-process RSS with >=2 GiB host headroom; no OOM/swap growth | <=3.5 GiB per cohort / <=14 GiB total compressed, with complete required payloads; 14 days, final evidence retained through review |
+| Full web integrations | Main web baseline and added web costs reported separately. Historical 180m Node / 240m Chrome limits do not qualify a replacement's runtime | Current `-n auto` configuration is unqualified under the new resource plan; bounded execution and descendant/headroom measurements need review | Numeric budget UNVERIFIED; retain complete failure/replay evidence and report compressed bytes separately |
+
+Measure owned process trees, cgroup peaks and actual host headroom separately;
+filesystem cache is not model RSS. Missing/incomplete telemetry makes resource
+acceptance UNVERIFIED, never zero usage. The runner's existing parent-PID samples
+do not establish descendant peaks; full hosted qualification remains pending.
+Budget failure does not erase completed semantic results. An OS kill, timeout or
+missing receipt remains incomplete. Existing local one-job/one-worker, one-thread,
+CPUs 4–7, 4 GiB aggregate, 12 GiB startup/8 GiB live available-memory and 4 GiB
+free-disk guards remain unchanged. Hosted success does not close local model holds.
+
+## Implementation and activation order
+
+1. Independent Astra architecture review is complete and recorded above. Keep
+   the old `C - H` acceptance historical. No workflow or check-name change follows
+   from this document or architecture-only acceptance.
+2. Prepare isolated main/PR collection evidence using the commands above; review
+   the smallest collection-only observation/mapping patch if necessary. Resolve
+   every original baseline identity/contract, generated variant, optional case,
+   support owner and cross-version difference. Keep the main-to-PR proof readable
+   and bounded; no generic capability database is needed.
+3. Publish literal standard/extra selectors and implement them incrementally in
+   the existing runner/workflow. Test complete/disjoint ownership, missing and
+   changed IDs/contracts, skip changes, collection failures, interruption and
+   aggregation using small synthetic suites. Run real context comparisons and
+   relevant regression owners under the unchanged machine guards. Keep the
+   published gate authoritative during this qualification.
+4. Complete one exact-revision all-cohort union/equivalence campaign including
+   the original full models, then the paired standard no-increase measurements.
+   Preserve original inputs/criteria and complete payloads; record actual time,
+   descendant memory and uploaded compressed size. Missing B–F verifiers remain
+   separately named acceptance blockers; they do not prevent these CI repairs.
+5. Astra reviews the concrete workflow, total main-to-PR mapping, collection/
+   outcome proofs, exact-SHA wiring, skip allowances and measured results. Only
+   then activate distinct standard and extra checks. Standard green cannot
+   replace a required extra check, and an exhaustive CPU pass cannot close an
+   unimplemented migration verifier. Verify every required check at each pushed
+   SHA; a red pushed gate takes priority over further feature publication.
+6. Retain complete exhaustive validation at significant B–F milestones and when
+   its assumptions change. Final acceptance reruns all accepted standard, extra,
+   integration and migration obligations on the exact final commit across all
+   supported cohorts. No-increase standard and separately reviewed extra budgets,
+   independent numerical review, documentation and normal hooks must all pass.
+
+Only this Markdown plan was edited for the new instruction. No test collection,
+framework execution, dependency installation, workflow or Git change was made.
+The mapping, new selection, context equivalence and performance results remain
+UNVERIFIED. Independent architecture acceptance is recorded above; concrete
+implementation and gate activation still require their own review and evidence.

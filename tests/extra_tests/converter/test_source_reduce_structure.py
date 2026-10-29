@@ -314,7 +314,9 @@ def test_schema_boundaries_are_checked_on_final_graph_imports(
 ) -> None:
     # Operation-specific SOURCE admission is separate (including Max18's
     # current exclusion); this checks rule/schema boundaries without widening it.
-    rule = _native_rule(operation)
+    # This hand-built fixture isolates the reduction signature. Real floating
+    # extrema also require the separately checked zero/NaN correction graph.
+    rule = replace(_native_rule(operation), float_correction=False)
     source = ir.val("source", ir.DataType.FLOAT, [3, 3])
     output = ir.val("result", ir.DataType.FLOAT, [3])
     axes = ir.val("axes", ir.DataType.INT64, [1])
@@ -472,3 +474,74 @@ def test_reduction_observation_preserves_artifact_report_and_warnings(
         if enabled:
             _checked(model)
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("operation", ["min", "max"])
+def test_float_extrema_structure_checks_correction_sources_and_selection(
+    operation: str,
+) -> None:
+    function = jax.lax.reduce_min if operation == "min" else jax.lax.reduce_max
+    model = _export(
+        lambda x, other: (function(x, axes=(1,)), other),
+        ((3, 3), (3, 3)),
+        dtype=np.float64,
+        opset=23,
+    )
+    _checked(model)
+    nodes = {node.op_type: node for node in model.graph}
+    candidate = next(
+        node.outputs[0]
+        for node in model.graph
+        if node.op_type == ("ReduceMin" if operation == "min" else "ReduceMax")
+        and node.inputs[0] is model.graph.inputs[0]
+    )
+    zero_test = next(
+        node.outputs[0]
+        for node in model.graph
+        if node.op_type == "Equal" and node.inputs[0] is candidate
+    )
+    # Reuse one artifact. Every corruption is undone before the next check.
+    for node, index, replacement in (
+        (nodes["IsNaN"], 0, model.graph.inputs[1]),
+        (nodes["Reciprocal"], 0, model.graph.inputs[1]),
+        (nodes["Where"], 0, zero_test),
+        (nodes["Or"], 1, zero_test),
+    ):
+        original = node.inputs[index]
+        try:
+            node.replace_input_with(index, replacement)
+            assert structure.validate_source_structure(model).status == "failed"
+        finally:
+            node.replace_input_with(index, original)
+        assert structure.validate_source_structure(model).status == "validated"
+        _checked(model)
+
+    choices = nodes["Gather"].inputs[0]
+    assert choices is not None
+    original_constant = choices.const_value
+    try:
+        choices.const_value = ir.tensor(np.asarray([0.0, 0.0, np.nan], np.float64))
+        assert structure.validate_source_structure(model).status == "failed"
+    finally:
+        choices.const_value = original_constant
+    assert structure.validate_source_structure(model).status == "validated"
+    _checked(model)
+
+    gather = nodes["GatherElements"]
+    original_axis = gather.attributes["axis"]
+    try:
+        gather.attributes["axis"] = ir.AttrInt64("axis", 1)
+        assert structure.validate_source_structure(model).status == "failed"
+    finally:
+        gather.attributes["axis"] = original_axis
+    assert structure.validate_source_structure(model).status == "validated"
+    _checked(model)
+
+    original_output = model.graph.outputs[0]
+    try:
+        model.graph.outputs[0] = candidate
+        assert structure.validate_source_structure(model).status == "failed"
+    finally:
+        model.graph.outputs[0] = original_output
+    assert structure.validate_source_structure(model).status == "validated"
+    _checked(model)

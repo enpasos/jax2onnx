@@ -1,6 +1,124 @@
-# Precision migration handoff — 2026-10-28
+# Precision migration handoff — 2026-10-29
 
-## Current local checkpoint — 2026-10-28: finite Scan/literal/Identity structure
+## Current priorities and evidence — 2026-10-29
+
+The complete accepted B–F migration remains the contract. Public behavior stays
+LEGACY until independent acceptance of the coordinated SOURCE transition.
+Supported official dependencies and each lock's versions/markers remain intact;
+custom JAX/jaxlib/XLA/LLVM builds, patches, overlays or substitutions require
+separate explicit approval. The five unapproved native-build infrastructure
+files are deleted locally. [Dependency notes](../../docs/about/dependencies.md)
+retain the official-runtime BF16 TopK counterexample and unchanged native/context
+obligations; no custom runtime was installed.
+
+The latest CI instruction preserves **all main standard coverage with no runtime
+increase**; additions belong in separately visible extra lanes. The
+[CI execution plan](ci_execution_plan.md) has independent architecture ACCEPT,
+including this main-baseline amendment. No selection, workflow split or gate
+activation is qualified. Main is frozen at
+`81ad6ca2592635c8d2ced6dbd77292c487f0351b`; isolated official modern setup uses
+main's own lock. Initial Python 3.14 ordinary collections contain 4,573 main
+and 18,452 PR cases, including all main node IDs. This is name-level collection
+accounting, not contract or runtime equivalence; the other cohorts, support
+contexts and optional integrations remain unqualified. Evidence:
+`/tmp/jax2onnx-main314-collection-v1-1ohlgxqm`,
+`/tmp/jax2onnx-pr314-collection-current-v1-0zq4cqvo` and
+`/tmp/jax2onnx-main-pr314-collection-delta-v2.json`. The superseded routine
+`C-H` split and 35-minute standard budget do not govern this work.
+
+Last published head `0a9638da26585bfafc0485ee9766135cd0a991a6` has eight ordinary
+jobs terminal SUCCESS in [CI 40686137924](https://github.com/enpasos/jax2onnx/actions/runs/40686137924).
+The two custom-compiler jobs in [40686127227](https://github.com/enpasos/jax2onnx/actions/runs/40686127227)
+are terminal FAILURE. These outcomes do not qualify the unpublished worktree.
+This checkpoint is prepared for a local commit; its remote publication and
+exact-head CI qualification remain pending. The seventeen preexisting staged
+structural files are preserved in this reviewed checkpoint.
+
+The bounded extrema, cache-ownership and NNX/callback repairs now have independent
+Astra ACCEPT. Cache staging bypasses global abstract-evaluation caching while
+preserving strong ownership on live equations; no unconditional JAX cache clear
+or dependency patch is used. Supported callbacks retain their original code,
+canonical globals/builtins and function boundaries, with fresh cells and
+metadata mappings, alias preservation and delayed checks. Managed converter
+wrappers retain a bounded audited role after patch scope exit. Annotation
+preparation stays passive with detached cold/warm caches; the single exact
+`jax.Array` annotation anchor handles the official minimum-stack pybind name.
+Canonical module globals remain trusted runtime objects, not isolated global
+side effects. Unsupported mutable payloads, metadata and function-valued
+frozensets remain explicit unfinished support, not completed B–F obligations.
+
+The following is bounded evidence on official Python 3.11/JAX 0.10.2/Flax 0.12.8
+and Python 3.14/JAX 0.12.0.1/Flax 0.12.10. Times are pytest/wall seconds where both
+are supplied; memory is sampled owned-process peak. Passing diagnostic or
+rejection tests do not establish numerical equivalence.
+
+| Capability | Current result and practical limit | Evidence |
+| --- | --- | --- |
+| Extrema profiles | **106 PASS on each cohort**, independently accepted. Minimum: 13.94/15.24 s, 806 MiB; modern: 13.19/14.70 s, 749 MiB. Each profile records 890 native-oracle, 445 native-agreement and 1,780 target comparisons. Default CPU numerical equivalence remains **FAILED: 312 array comparisons**. Only the separately configured `session.set_denormal_as_zero=1` target passes the full feeds. | `/tmp/jax2onnx-extrema-profiles-v6-py311-r2z11ijp`; `/tmp/jax2onnx-extrema-profiles-v6-py314-uo95zjgs`. The actual default-strict CLI exits 1: `/tmp/jax2onnx-extrema-default-strict-v6-py311-y8shpvcm`, report `/tmp/jax2onnx-extrema-default-strict-v6-py311.json`. |
+| Original opset21 maximum/reciprocal composition | SOURCE composition remains **unimplemented**: zero target comparisons; 60 native-oracle and 30 native-agreement comparisons do not qualify target behavior. | Retained in the extrema profile/default-strict reports above. |
+| SOURCE cache ownership | Minimum lifecycle owner: **8 PASS**, 4.59 s, 443.41 MiB; existing warm-cache, delayed-call, exact-method and captured-context selection: **41 PASS**, 6.08 s, 544.64 MiB. Modern lifecycle coverage is included in the complete eight-owner result below. | `/tmp/jax2onnx-ownership-v1-py311-giatx8pe`; `/tmp/jax2onnx-ownership-context-v1-py311-oqy2s2ng`. |
+| Callback/NNX compatibility | Final modern eight-owner selection: **232 PASS**, 57.84/59.48 s, 893 MiB. Minimum same eight owners plus the actual full Original015 case: **233 PASS**, 73.61/75.69 s, 1,646 MiB. This includes lifecycle, annotation, static-payload, state/foreign-carrier, MLP and all 44 original-factory preparation cases; it is not full Original22 numerical acceptance. | `/tmp/jax2onnx-callback-final-v4-py314-q0k91rt_`; `/tmp/jax2onnx-callback-final-v4-py311-medlrb8u`. |
+| Unchanged original factories | All **22 factories in both caller-x64 contexts** preserve contracts, preparation and fresh reconstruction. These 44 cases execute no additional model body and establish no export/ORT/numerical result. | Included in both final owner selections above. |
+| Actual full Original015 | Modern **PASS**, 12.11/13.66 s, 582 MiB; minimum **PASS within the 233-case run**. Original B=2/B=5, native/ORT execution, state feedback/reset and artifact audits remain intact. Other full Original22 cases and the separate twelve-case full-model gate remain unqualified. | `/tmp/jax2onnx-original015-full-v1-py314-rk84kd8n`; minimum final owner evidence above. |
+| Preserved structural checkpoint | Fresh independent Astra ACCEPT and **738 PASS on each cohort**. Minimum: 15.96/17.38 s, 523 MiB; modern: 13.39/15.40 s, 464 MiB. This is structural qualification, not a full-model numerical certificate. | `/tmp/jax2onnx-staged-structure-v1-py311-xm9d5y99`; `/tmp/jax2onnx-staged-structure-v2-py314-nqhlbsed`. |
+| Pinned quality hooks | All **seven actual pinned hooks PASS**, 22.09 s, 467 MiB, after targeted typing corrections preserving runtime guards. | `/tmp/jax2onnx-pinned-hooks-current-v4-dvmo3fu9`. |
+| Documentation and complete IR builder scan | Strict docs **PASS**, 4.65 s, 136 MiB, with a fresh external site directory; complete converter/plugin IR builder scan **PASS**, including new files. | `/tmp/jax2onnx-docs-strict-current-v2-1lxvw9co`; `/tmp/jax2onnx-ir-builder-all-current-arwb61_l`. |
+| Additive CI telemetry | Bounded Astra ACCEPT: minimum runner **100 PASS**; modern runner/context **141 PASS, 68 deselected**; minimum transport/control/replay consumers **165 PASS**, 43.38/44.69 s, 266 MiB. No scheduling change or saving is demonstrated. | `/tmp/jax2onnx-ci-duration-consumers-v2-py311-rd1ts012`; detailed runner/context ownership in the CI plan. |
+
+Preserved failed predecessors remain evidence of their own epochs:
+
+- Minimum callback v2 was **220 PASS / 8 FAIL**, 61.85/63.88 s, 1,393 MiB:
+  `/tmp/jax2onnx-callback-lifetime-v2-py311-wpz_5wrj`. The exact `jax.Array`
+  object reports a fully qualified pybind `__name__`, defeating canonical-name
+  lookup. The annotation-only identity anchor repaired this without evaluating
+  annotations, changing sources or broadening typing-form support. The affected
+  selection then passed **84 cases**, 18.14/19.76 s, 1,189 MiB:
+  `/tmp/jax2onnx-callback-array-anchor-v3-py311-dy7qg8se`.
+- Earlier NNX containment was **90 PASS on minimum** but **93 PASS / 1 FAIL on
+  modern**, where original MLP `param_dtype` lacked an adapter:
+  `/tmp/jax2onnx-nnx-containment-v2-py311-z0r7fro6` and
+  `/tmp/jax2onnx-nnx-containment-v2-py314-_2wl9upk`. Its v1 run retained
+  **22 PASS / 1 fixture FAIL**; the first modern lifecycle attempt stopped after
+  one pass at the incomplete mapping adapter. Later bounded passes supersede
+  these failures without relabeling them as successes.
+- The first extrema attempt failed its new nominal-subnormal oracle before
+  export (`/tmp/jax2onnx-extrema-20261029-q5qck_sg`); the next failed real
+  default-CPU ORT/native equivalence
+  (`/tmp/jax2onnx-extrema-v2-py311-wfnql72x`). Actual eager/fresh-JIT references
+  and full feeds are retained. The structural predecessor was **96 PASS / 1
+  fixture FAIL**; v3's misspelled selector exited 4 with no tests. The corrected
+  core owners passed 102 cases on each cohort, without operation-wide subnormal
+  acceptance. Current default-target failures remain explicit above.
+- Pinned hook v2 had six successful hooks and **19 mypy errors**; the subsequent
+  type-only corrections retained hostile-dict and metadata checks. Only the
+  actual final seven-hook success above qualifies this checkpoint.
+
+Next gates remain executable obligations, not inferred coverage:
+
+1. Qualify main/PR collections and the reviewed one-to-one baseline-contract
+   mapping on all supported cohorts; then demonstrate unchanged complete
+   standard coverage and no comparable runtime increase. Activate separately
+   identified extras only after their literal ownership and acceptance triggers
+   are reviewed. The 50 optional IDs, duplicate-removal outcome and actual
+   savings remain unverified; no CI performance budget is demonstrated.
+2. Complete the remaining original full-model and separate twelve-case gates
+   with unchanged sources, full inputs, numerical criteria, state/reset
+   sequences and artifact audits. Finish the original maximum/reciprocal SOURCE
+   composition and retain the failed default extrema target unless new evidence
+   or an explicit execution-target decision resolves it.
+3. Complete unfinished B–F operators, state/metadata, scoped/symbolic/control
+   behavior, supplied/third-party sources, inventory/replay and durable artifact
+   contracts. Bounded containment or explicit rejection does not discharge
+   missing implementation. Complete remaining supported-cohort and integration
+   checks, strict docs and required full accepted suites on the exact final
+   commit before coordinated public transition and completion.
+
+All following snapshots are historical. External
+`/tmp/jax2onnx-goal-validation` receipts are unavailable in this environment and
+do not establish current qualification. Failed and interrupted predecessors
+remain historical outcomes, not successes at a later epoch.
+
+## Historical local checkpoint — 2026-10-28: finite Scan/literal/Identity structure
 
 Private SOURCE now binds supported Scan bodies, witnessed Constant-to-initializer
 lifts, Identity CSE/dead-Identity edges and exact literal-If selections. Ordered
@@ -45,7 +163,8 @@ repair, distinct from this unpublished eighteen-file SOURCE packet. At
 The PR merge `1ebe7ce0` against base `81ad6ca2` is distinct from the PR head; the `17e` publication gate is satisfied, and each successor head needs its own eight checks.
 The corrected-compiler pilots for [710](https://github.com/enpasos/jax2onnx/actions/runs/40643345683)
 and [17e](https://github.com/enpasos/jax2onnx/actions/runs/40656753772), recipe `13be4ef47e6c1619`,
-each have two LIVE jobs at **10:42:05 UTC**. No accepted wheel, installation or
+each had two live jobs at **10:42:05 UTC** in that historical observation. They
+are not current live-process evidence. No accepted wheel, installation or
 native numerical fix is claimed; original native99/full-context385 and CI gates remain.
 
 Public defaults remain **LEGACY**. Whole-Loop elision, native conditional-skip

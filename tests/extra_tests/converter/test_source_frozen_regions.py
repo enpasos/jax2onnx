@@ -899,9 +899,17 @@ def test_unhandled_real_native_child_regions_never_report_outer_prefix_as_total(
         assert frozen.gaps == ()
         assert tuple(role for role, _ in frozen.equations[0].children) == ("scan-body",)
     else:
-        assert declaration.expected_equations is frozen.expected_equations is None
-        assert "expected-region-total-unknown" in declaration.gaps
-        assert "expected-region-total-unknown" in frozen.gaps
+        expected = len(outer) + sum(
+            len(getattr(child, "jaxpr", child).eqns) for child in children
+        )
+        assert (
+            declaration.expected_equations == frozen.expected_equations == expected == 2
+        )
+        assert "expected-region-total-unknown" not in declaration.gaps
+        assert frozen.gaps == ()
+        assert tuple(role for role, _ in frozen.equations[0].children) == (
+            "inline-body",
+        )
     assert len(frozen.inputs) == len(native.jaxpr.invars)
     assert len(frozen.outputs) == len(native.jaxpr.outvars)
     _assert_only_immutable_contracts(declaration)
@@ -954,5 +962,225 @@ def test_real_equation_metadata_container_corruption_is_bounded_and_passive(
     assert declaration.expected_equations is frozen.expected_equations is None
     assert "expected-region-total-unknown" in frozen.gaps
     assert attempts == []
+    _assert_only_immutable_contracts(declaration)
+    _assert_only_immutable_contracts(frozen)
+
+
+def test_actual_selected_prng_descriptor_keeps_full_count_without_inline_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from jax2onnx import user_interface as ui
+    from jax2onnx._compat import jax as native
+    from jax2onnx.converter import source_structure as structure
+    from jax2onnx.converter.precision_policy import PrecisionPolicy
+
+    calls: list[str] = []
+
+    def original(left: Any, words: Any) -> Any:
+        calls.append("source")
+        return jax.random.uniform(
+            jax.random.wrap_key_data(words, impl="threefry2x32"),
+            left.shape,
+            dtype=np.float32,
+        )
+
+    specs = [_spec(), _spec((2,), np.uint32)]
+    traced = _closed(original, *specs)
+    outer = traced.jaxpr
+    assert len(outer.eqns) == 2
+    descriptor = outer.eqns[0].params["impl"]
+    assert native.is_selected_threefry_impl(descriptor)
+    assert outer.eqns[1].primitive is native.native_jit_primitive()
+    child = outer.eqns[1].params["jaxpr"].jaxpr
+    assert len(child.eqns) == 13
+    assert not any(
+        type(value) in (Jaxpr, ClosedJaxpr)
+        for equation in child.eqns
+        for value in equation.params.values()
+    )
+    expected = len(outer.eqns) + len(child.eqns)
+    observed_calls = tuple(calls)
+    with monkeypatch.context() as passive:
+        passive.setattr(
+            jax,
+            "make_jaxpr",
+            lambda *args, **kwargs: pytest.fail("descriptor counting retraced source"),
+        )
+        passive.setattr(
+            jax,
+            "eval_shape",
+            lambda *args, **kwargs: pytest.fail("descriptor counting evaluated source"),
+        )
+        declaration = regions.declare_body(traced)
+        frozen = regions.freeze_closed_body(traced)
+    assert tuple(calls) == observed_calls
+    assert declaration.expected_equations == frozen.expected_equations == expected
+    assert "expected-region-total-unknown" not in declaration.gaps
+    assert "expected-region-total-unknown" not in frozen.gaps
+    assert frozen.gaps
+    assert tuple(role for role, _ in declaration.equations[1].children) == (
+        "inline-body",
+    )
+    _assert_only_immutable_contracts(declaration)
+    _assert_only_immutable_contracts(frozen)
+
+    # This separate normal export checks the report boundary; the passive
+    # observations above neither execute nor retrace the supplied program.
+    with jax.enable_x64(True):
+        model = ui._to_onnx(
+            original,
+            specs,
+            precision_policy=PrecisionPolicy.SOURCE,
+            return_mode="ir",
+        )
+    assert isinstance(model, ir.Model)
+    proof = structure.validate_source_structure(model)
+    assert proof.status == "unverified", proof
+    assert proof.expected_equations == expected
+    assert proof.checked_equations < expected
+    ledger = model.meta[structure._LEDGER]
+    assert not ledger.inline_calls
+    assert not any(
+        scope.region is not None and scope.region.key.role == "inline-body"
+        for scope in ledger.scopes
+    )
+
+
+@pytest.mark.parametrize("nesting", ("direct", "nested"))
+def test_selected_native_descriptor_is_only_an_opaque_counting_leaf(
+    nesting: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jax2onnx._compat import jax as native
+
+    traced = _closed(jax.lax.neg, _spec())
+    descriptor = native._NATIVE_THREEFRY_IMPL
+    assert native.is_selected_threefry_impl(descriptor)
+    metadata = (
+        descriptor
+        if nesting == "direct"
+        else {"ordered": [None, (descriptor, {"same": descriptor})]}
+    )
+    monkeypatch.setitem(
+        traced.jaxpr.eqns[0].params, "unreviewed_descriptor_metadata", metadata
+    )
+    assert regions._unhandled_native_body(traced.jaxpr.eqns[0].params) is False
+    declaration = regions.declare_body(traced)
+    frozen = regions.freeze_closed_body(traced)
+    assert declaration.expected_equations == frozen.expected_equations == 1
+    # Counting an opaque singleton cannot authorize this altered Neg schema.
+    assert frozen.gaps and frozen.equations[0].semantics is None
+    _assert_only_immutable_contracts(declaration)
+    _assert_only_immutable_contracts(frozen)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "equal-native-copy",
+        "hostile-tuple",
+        "hostile-dict",
+        "cycle",
+        "budget",
+        "depth",
+        "sibling-jaxpr",
+        "sibling-closed-jaxpr",
+    ),
+)
+def test_native_descriptor_does_not_hide_foreign_or_unbounded_body_metadata(
+    fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jax2onnx._compat import jax as native
+
+    traced = _closed(jax.lax.neg, _spec())
+    descriptor = native._NATIVE_THREEFRY_IMPL
+    attempts: list[str] = []
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        attempts.append("hook")
+        raise AssertionError("foreign descriptor metadata was evaluated")
+
+    class ForeignTuple(tuple):
+        __iter__ = forbidden
+        __len__ = forbidden
+        __getitem__ = forbidden
+        __eq__ = forbidden
+        __repr__ = forbidden
+        __call__ = forbidden
+
+    class ForeignDictionary(dict):
+        __iter__ = forbidden
+        __len__ = forbidden
+        items = forbidden
+        values = forbidden
+        get = forbidden
+        __eq__ = forbidden
+        __repr__ = forbidden
+
+    metadata: Any
+    if fault == "equal-native-copy":
+        metadata = type(descriptor)(*descriptor)
+        assert type(metadata) is type(descriptor)
+        assert metadata is not descriptor and metadata == descriptor
+        assert not native.is_selected_threefry_impl(metadata)
+    elif fault == "hostile-tuple":
+        metadata = ForeignTuple((descriptor, forbidden))
+    elif fault == "hostile-dict":
+        metadata = ForeignDictionary()
+        dict.__setitem__(metadata, "descriptor", descriptor)
+        dict.__setitem__(metadata, "thunk", forbidden)
+    elif fault == "cycle":
+        metadata = [descriptor]
+        metadata.append(metadata)
+    elif fault == "budget":
+        metadata = [descriptor] * 4096
+    elif fault == "depth":
+        metadata = descriptor
+        for _ in range(65):
+            metadata = [metadata]
+    elif fault == "sibling-jaxpr":
+        metadata = [descriptor, traced.jaxpr]
+    else:
+        metadata = [descriptor, traced]
+    monkeypatch.setitem(
+        traced.jaxpr.eqns[0].params, "unreviewed_descriptor_metadata", metadata
+    )
+    assert regions._unhandled_native_body(traced.jaxpr.eqns[0].params) is True
+    declaration = regions.declare_body(traced)
+    frozen = regions.freeze_closed_body(traced)
+    assert declaration.expected_equations is frozen.expected_equations is None
+    assert "expected-region-total-unknown" in declaration.gaps
+    assert "expected-region-total-unknown" in frozen.gaps
+    assert attempts == []
+    _assert_only_immutable_contracts(declaration)
+    _assert_only_immutable_contracts(frozen)
+
+
+def test_selected_descriptor_never_evaluates_a_lazy_native_jit_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from jax2onnx._compat import jax as native
+
+    compiled = jax.jit(jax.lax.neg)
+    traced = _closed(lambda value: compiled(value), _spec())
+    equation = traced.jaxpr.eqns[0]
+    assert equation.primitive is native.native_jit_primitive()
+    calls: list[None] = []
+
+    def forbidden() -> Any:
+        calls.append(None)
+        raise AssertionError("a lazy native body was evaluated")
+
+    params = {
+        **equation.params,
+        "call_jaxpr_thunk": forbidden,
+        "descriptor": native._NATIVE_THREEFRY_IMPL,
+    }
+    changed = traced.jaxpr.replace(eqns=[equation.replace(params=params)])
+    closed = ClosedJaxpr(changed, tuple(traced.consts))
+    declaration = regions.declare_body(closed)
+    frozen = regions.freeze_closed_body(closed)
+    assert declaration.expected_equations is frozen.expected_equations is None
+    assert "expected-region-total-unknown" in frozen.gaps
+    assert calls == []
     _assert_only_immutable_contracts(declaration)
     _assert_only_immutable_contracts(frozen)

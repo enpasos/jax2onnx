@@ -571,6 +571,7 @@ def _worker(request_path: Path) -> int:
         "collection_errors": [],
         "collection_skips": [],
         "phases": {},
+        "phase_durations": {},
         "exitstatus": None,
         "startup_context": startup_context,
         "supplemental": control is not None,
@@ -588,11 +589,12 @@ def _worker(request_path: Path) -> int:
         receipt["completed"] = _completed(receipt["phases"])
         _write(folder / "receipt.json", receipt)
 
-    def append_event(event: dict[str, Any]) -> None:
+    def append_event(event: dict[str, Any], *extra_events: dict[str, Any]) -> None:
         # Append each observation before the next test phase. Avoid repeatedly
         # rewriting all prior phases while retaining partial interrupted runs.
         with (folder / "events.jsonl").open("a") as output:
-            output.write(json.dumps(event, ensure_ascii=False) + "\n")
+            for value in (event, *extra_events):
+                output.write(json.dumps(value, ensure_ascii=False) + "\n")
 
     def describe(item: Any) -> dict[str, Any]:
         module = item.getparent(pytest.Module)
@@ -901,7 +903,15 @@ def _worker(request_path: Path) -> int:
             if report.failed or report.skipped:
                 entry["longrepr"] = str(report.longrepr)
             receipt["phases"].setdefault(report.nodeid, []).append(entry)
-            append_event({"kind": "phase", "nodeid": report.nodeid, **entry})
+            timing = {"when": report.when, "seconds": report.duration}
+            receipt["phase_durations"].setdefault(report.nodeid, []).append(timing)
+            # Timings vary between runs; keep canonical outcome comparisons
+            # unchanged for cast observer controls and replay consumers. Leave
+            # the semantic phase last for existing post-report checkpoints.
+            append_event(
+                {"kind": "phase-duration", "nodeid": report.nodeid, **timing},
+                {"kind": "phase", "nodeid": report.nodeid, **entry},
+            )
             if (
                 request["kind"] == "batch"
                 and control is None

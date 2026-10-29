@@ -18,6 +18,7 @@ from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
+from jax2onnx.plugins.jax.lax._reduce_extrema import lower_source_float_extrema
 
 _REDUCESUM_INT64_WORK_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
     {
@@ -221,6 +222,8 @@ def lower_reduction(
     if _source_empty_reduction(ctx, eqn, operation=op_type):
         return
     if _source_int16_extrema(ctx, eqn, op_type=op_type):
+        return
+    if lower_source_float_extrema(ctx, eqn, op_type=op_type):
         return
     operand_var = eqn.invars[0]
     out_var = eqn.outvars[0]

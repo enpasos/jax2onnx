@@ -20,7 +20,7 @@ import types
 import builtins
 import dataclasses as _native_dataclasses
 from enum import Enum
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 import numpy as np
@@ -1953,6 +1953,19 @@ def fresh_var_like(var: Any) -> Any:
     return Var(var.aval, **metadata)
 
 
+_NATIVE_JIT_PRIMITIVE: object = _native_pjit.jit_p
+
+
+def native_jit_primitive() -> Primitive:
+    """Return the captured native JIT identity without name-based authority."""
+    if (
+        type(_NATIVE_JIT_PRIMITIVE) is Primitive
+        and vars(_native_pjit).get("jit_p") is _NATIVE_JIT_PRIMITIVE
+    ):
+        return _NATIVE_JIT_PRIMITIVE
+    raise TypeError("native JIT primitive binding needs an exact adapter")
+
+
 def is_unspecified_jit_sharding(value: object) -> bool:
     """Recognize JAX's actual native plain-JIT sharding sentinel."""
     from jax._src.sharding_impls import UNSPECIFIED
@@ -2328,6 +2341,34 @@ def detach_function_key_output_aliases(
                 copied[identity] = value.copy()
             result[target] = copied[identity]
     return result
+
+
+def register_source_function_staging_rule(
+    primitive: Primitive,
+    abstract_eval: Callable[..., Sequence[_native_core.AbstractValue]],
+) -> None:
+    """Keep SOURCE call ownership on live equations, outside JAX's aval cache.
+
+    Both supported JAX cohorts provide this primitive-specific staging hook.
+    SOURCE has already traced the body and recorded its result avals; consulting
+    the global abstract-evaluation cache would retain its exact callable and
+    captured weights as cache-key parameters after an export has completed.
+    """
+    from jax._src.interpreters import partial_eval
+
+    def stage(trace: Any, source_info: Any, *tracers: Any, **params: Any) -> Any:
+        # Bypassing the native cache must not relax JAX's parameter contract.
+        partial_eval._verify_params_are_hashable(primitive, params)
+        return trace.emit_eqn(
+            tracers,
+            abstract_eval(**params),
+            primitive,
+            params,
+            _native_core.no_effects,
+            source_info=source_info,
+        )
+
+    partial_eval.custom_staging_rules[primitive] = stage
 
 
 def register_function_key_reuse_rule(primitive: Primitive, parameter: str) -> None:

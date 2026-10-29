@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import gc
 import importlib
 import sys
-from types import FunctionType
+from types import CodeType, FunctionType
 from typing import Any, cast
 import weakref
 
@@ -39,6 +39,12 @@ def _same(actual: tuple[object, ...], expected: tuple[object, ...]) -> bool:
 
 def _is_dict(value: object) -> bool:
     return issubclass(type(value), dict)
+
+
+def _is_exact_dict(value: object) -> bool:
+    # A dict annotation also permits subclasses in static typing. Runtime
+    # isolation deliberately requires the exact native storage type.
+    return type(value) is dict
 
 
 def _uses_legacy_annotations() -> bool:
@@ -336,3 +342,176 @@ class AnnotationState:
             prepared_state.allow_absent = True
         self.peers.append(weakref.ref(prepared_state))
         return prepared_state
+
+
+@dataclass(slots=True)
+class _IsolatedAnnotations:
+    """One prepared function's annotation cache, never shared with its source."""
+
+    function: FunctionType
+    annotate: FunctionType | None
+    initial: dict[str, Any] | None
+    cached: dict[str, Any] | None
+    entries: tuple[tuple[str, object], ...]
+    validate: Callable[[dict[str, Any]], None]
+    forward: object = None
+    active: bool = False
+    origin: tuple[object, ...] = ()
+
+    def assert_current(self) -> None:
+        if (
+            len(self.origin) != 4
+            or self.function is not self.origin[0]
+            or self.annotate is not self.origin[1]
+            or self.initial is not self.origin[2]
+            or self.validate is not self.origin[3]
+            or type(self.active) is not bool
+            or (self.cached is not None and not _is_exact_dict(self.cached))
+            or type(self.entries) is not tuple
+            or any(
+                type(entry) is not tuple or len(entry) != 2 or type(entry[0]) is not str
+                for entry in self.entries
+            )
+            or type(self.forward) is not FunctionType
+            or self.forward.__defaults__ is not None
+            or self.forward.__kwdefaults__ is not None
+            or not _is_exact_dict(self.forward.__dict__)
+            or self.forward.__dict__
+        ):
+            raise AnnotationStateError("isolated annotation ownership schema changed")
+        if getattr(self.function, "__annotate__", None) is not self.forward:
+            raise AnnotationStateError("isolated annotation callback changed")
+        actual = _cached_annotations(self.function)
+        if actual is not _ABSENT and actual is not self.cached:
+            raise AnnotationStateError("isolated annotation cache changed")
+        if self.cached is not None and (
+            len(self.cached) != len(self.entries)
+            or any(
+                key is not old_key or value is not old_value
+                for (key, value), (old_key, old_value) in zip(
+                    dict.items(self.cached), self.entries, strict=True
+                )
+            )
+        ):
+            raise AnnotationStateError("isolated annotation cache bindings changed")
+
+
+def _isolated_forwarder(state: _IsolatedAnnotations) -> FunctionType:
+    def forward(format: int) -> dict[str, Any]:
+        state.assert_current()
+        if state.active:
+            raise AnnotationStateError("reentrant isolated annotation materialization")
+        state.active = True
+        try:
+            if format == 1 and state.cached is not None:
+                return state.cached
+            if state.annotate is None:
+                known = dict(state.entries)
+                if format == 1:
+                    state.validate(known)
+                    state.cached = known
+                    state.entries = _entries(known)
+                    return known
+                if format == 3:
+                    return known
+                if format == 4:
+                    annotationlib = importlib.import_module("annotationlib")
+                    return cast(
+                        dict[str, Any], annotationlib.annotations_to_string(known)
+                    )
+                raise ValueError(f"Invalid format: {format!r}")
+            if format == 2:
+                raise NotImplementedError(format)
+            if format == 1:
+                result = state.annotate(format)
+                state.assert_current()
+                if type(result) is not dict:
+                    raise AnnotationStateError("isolated annotator needs an exact dict")
+                state.validate(result)
+                state.cached = result
+                state.entries = _entries(result)
+                return result
+            annotationlib = importlib.import_module("annotationlib")
+            result = annotationlib.call_annotate_function(
+                state.annotate, format, owner=state.function
+            )
+            state.assert_current()
+            return cast(dict[str, Any], result)
+        finally:
+            state.active = False
+
+    if type(forward) is not FunctionType:
+        raise AnnotationStateError("isolated forwarder needs a native function")
+    return forward
+
+
+_ISOLATED_FORWARD_CODE: CodeType = next(
+    value
+    for value in _isolated_forwarder.__code__.co_consts
+    if type(value) is CodeType and value.co_name == "forward"
+)
+
+
+def isolated_annotation_parts(
+    function: FunctionType,
+) -> tuple[FunctionType | None, dict[str, Any] | None]:
+    """Read an inert snapshot, including our isolated cache's logical baseline.
+
+    Lazy materialization by a clone may warm its private cache. It must neither
+    warm the source nor change the clone's original structural declaration.
+    No getter or annotation callback is evaluated here.
+    """
+    annotate: object = getattr(function, "__annotate__", None)
+    if (
+        type(annotate) is FunctionType
+        and annotate.__code__ is _ISOLATED_FORWARD_CODE
+        and annotate.__globals__ is globals()
+        and annotate.__closure__ is not None
+        and len(annotate.__closure__) == 1
+    ):
+        try:
+            state = annotate.__closure__[0].cell_contents
+        except ValueError as exc:
+            raise AnnotationStateError("isolated annotation ownership changed") from exc
+        if (
+            type(state) is not _IsolatedAnnotations
+            or state.function is not function
+            or state.forward is not annotate
+        ):
+            raise AnnotationStateError("isolated annotation ownership changed")
+        state.assert_current()
+        return state.annotate, state.initial
+    if annotate is not None and type(annotate) is not FunctionType:
+        raise AnnotationStateError("non-function isolated annotator needs an adapter")
+    cached = _cached_annotations(function)
+    if cached is not _ABSENT and type(cached) is not dict:
+        raise AnnotationStateError("isolated annotations need an exact dict")
+    return (
+        annotate,
+        None if cached is _ABSENT else cast(dict[str, Any], cached),
+    )
+
+
+def install_isolated_annotations(
+    function: FunctionType,
+    *,
+    annotate: FunctionType | None,
+    cached: dict[str, Any] | None,
+    validate: Callable[[dict[str, Any]], None],
+) -> None:
+    """Install already detached annotation objects without running a thunk."""
+    if _uses_legacy_annotations():
+        function.__annotations__ = {} if cached is None else cached
+        return
+    state = _IsolatedAnnotations(
+        function,
+        annotate,
+        cached,
+        cached,
+        () if cached is None else _entries(cached),
+        validate,
+    )
+    state.origin = (function, annotate, cached, validate)
+    forward = _isolated_forwarder(state)
+    state.forward = forward
+    setattr(function, "__annotate__", forward)

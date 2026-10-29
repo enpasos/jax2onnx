@@ -126,10 +126,18 @@ class _StatelessOwner(nnx.Module):
 
 
 class _UpdatePair(nnx.Module):
-    def __init__(self) -> None:
+    def __init__(self, *, mutable_metadata: bool = False) -> None:
         shared_leaf = jnp.asarray(1, np.float32)
         raw = {"nested": [shared_leaf, (shared_leaf, jnp.asarray(2, np.float32))]}
-        self.first = nnx.Variable(raw, witness_metadata={"tags": [object(), object()]})
+        # Rollback still checks every original container/alias/metadata identity.
+        # Mutable metadata needs a separate isolation adapter; retain its exact
+        # predecessor witness for the explicit pre-invocation rejection below.
+        witness = (
+            {"tags": [object(), object()]}
+            if mutable_metadata
+            else (("tags", ("first", "second")),)
+        )
+        self.first = nnx.Variable(raw, witness_metadata=witness)
         self.second = nnx.Variable(jnp.asarray(3, np.float32))
         self.alias = self.first
 
@@ -821,7 +829,7 @@ def test_nnx_state_update_failure_rolls_back_values_variable_identities_and_alia
         second_raw = owner.second.get_raw_value()
         metadata = tuple(variable.get_metadata() for variable in variables)
         witness_metadata = metadata[0]["witness_metadata"]
-        metadata_tags = witness_metadata["tags"]
+        metadata_tags = witness_metadata[0][1]
         metadata_items = tuple(metadata_tags)
 
         def original_identities() -> None:
@@ -840,7 +848,7 @@ def test_nnx_state_update_failure_rolls_back_values_variable_identities_and_alia
                 assert current.keys() == original.keys()
                 assert all(current[name] is value for name, value in original.items())
             assert owner.first.get_metadata()["witness_metadata"] is witness_metadata
-            assert witness_metadata["tags"] is metadata_tags
+            assert witness_metadata[0][1] is metadata_tags
             assert len(metadata_tags) == len(metadata_items)
             assert all(
                 a is b for a, b in zip(metadata_tags, metadata_items, strict=True)
@@ -1477,7 +1485,7 @@ def _graph_api_records(explicit_graph: bool) -> tuple[Any, Any]:
 def test_nnx_graph_protocol_preserves_exact_native_call_shapes(
     explicit_graph: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    owner = object()
+    owner = _StatelessOwner()
     partition = (object(), object())
     visited = (((), owner),)
     calls = []
@@ -1709,7 +1717,7 @@ def test_nnx_native_graph_preserves_actual_owner_cycle_and_variable_aliases() ->
         metadata = variable.get_metadata()
         witness, tags = (
             metadata["witness_metadata"],
-            metadata["witness_metadata"]["tags"],
+            metadata["witness_metadata"][0][1],
         )
         items = tuple(tags)
         explicit_graph = nnx_state._nnx_graph_protocol()
@@ -1735,9 +1743,56 @@ def test_nnx_native_graph_preserves_actual_owner_cycle_and_variable_aliases() ->
         actual_metadata = variable.get_metadata()
         assert actual_metadata.keys() == metadata.keys()
         assert all(actual_metadata[name] is value for name, value in metadata.items())
-        assert (
-            actual_metadata["witness_metadata"] is witness and witness["tags"] is tags
-        )
+        assert actual_metadata["witness_metadata"] is witness and witness[0][1] is tags
         assert all(
             actual is original for actual, original in zip(tags, items, strict=True)
         )
+
+
+def test_nnx_mutable_metadata_predecessor_rejects_before_body_and_preserves_owner() -> (
+    None
+):
+    """Contain the original witness; mutable metadata remains unsupported."""
+    owner = _UpdatePair(mutable_metadata=True)
+    canonical = array_snapshot(owner)
+    variables = (owner.first, owner.second, owner.alias)
+    raw = owner.first.get_raw_value()
+    nested, pair = raw["nested"], raw["nested"][1]
+    leaves = tuple(pair)
+    second_raw = owner.second.get_raw_value()
+    metadata = tuple(variable.get_metadata() for variable in variables)
+    witness = metadata[0]["witness_metadata"]
+    tags = witness["tags"]
+    items = tuple(tags)
+    calls = []
+
+    def mutate(receiver: Any, x: Any) -> Any:
+        calls.append(receiver)
+        receiver.first.get_metadata()["witness_metadata"]["tags"].append(object())
+        receiver.first[...] = x
+        return x
+
+    with pytest.raises(
+        SourcePrecisionError,
+        match="mutable static payload support remains unfinished: Variable metadata",
+    ) as failure:
+        prepared = prepare_nnx_function_state(owner, mutate, 919)
+        assert prepared is not None
+        descriptor, initial = prepared
+        descriptor.invoke((jnp.asarray(7, np.float32),), {}, initial)
+    assert failure.value.category == "lowering-defect"
+    assert calls == []
+    assert owner.first is variables[0] and owner.second is variables[1]
+    assert owner.alias is variables[2] is owner.first
+    assert owner.first.get_raw_value() is raw and raw["nested"] is nested
+    assert nested[1] is pair and nested[0] is pair[0] is leaves[0]
+    assert pair[1] is leaves[1] and owner.second.get_raw_value() is second_raw
+    for variable, original in zip(variables, metadata, strict=True):
+        current = variable.get_metadata()
+        assert current.keys() == original.keys()
+        assert all(current[name] is value for name, value in original.items())
+    assert owner.first.get_metadata()["witness_metadata"] is witness
+    assert witness["tags"] is tags and len(tags) == len(items)
+    assert all(actual is original for actual, original in zip(tags, items, strict=True))
+    assert array_snapshot(owner) == canonical
+    _no_tracers(owner)

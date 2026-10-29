@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
@@ -150,7 +151,33 @@ class JitPlugin(PrimitiveLeafPlugin):
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.require_value_for_var(outer_var))
 
-        lower_jaxpr_eqns(ctx, inner_jaxpr, source="jit")
+        source_structure = getattr(ctx, "_source_structure", None)
+        # The original binder above already materialized caller literals once.
+        # Literal lookup itself intentionally returns None; fresh formals retain
+        # the actual values, in every original operand position.
+        inline_operands: tuple[Any, ...] = (
+            tuple(ctx.lookup_value_for_var(var) for var in inner_jaxpr.invars)
+            if source_structure is not None
+            else ()
+        )
+        with (
+            source_structure.region("inline-body", inline_operands)
+            if source_structure is not None
+            else nullcontext(None)
+        ) as inline_region:
+            lower_jaxpr_eqns(ctx, inner_jaxpr, source="jit")
 
         for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
             ctx.bind_value_for_var(outer_var, ctx.require_value_for_var(inner_var))
+
+        if source_structure is not None and inline_region is not None:
+            from jax2onnx.plugins.jax.core._source_inline_structure import (
+                record_inline_attachment,
+            )
+
+            source_structure._observe(
+                "inline-attachment",
+                lambda: record_inline_attachment(
+                    ctx, eqn, inline_region, inner_jaxpr, inline_operands
+                ),
+            )

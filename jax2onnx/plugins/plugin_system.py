@@ -16,6 +16,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from itertools import count
 from pathlib import Path
+from types import FunctionType
 from typing import (
     Any,
     Callable,
@@ -77,6 +78,7 @@ from jax2onnx._compat.jax import (
     function_key_reuse_signature,
     is_selected_prng_key_dtype,
     register_function_key_reuse_rule,
+    register_source_function_staging_rule,
 )
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.precision_policy import (
@@ -721,6 +723,9 @@ class FunctionPlugin(PrimitivePlugin):
         self._source_primitive.multiple_results = True
         self._source_primitive.def_abstract_eval(self._source_abstract_eval)
         self._source_primitive.def_impl(self._source_primitive_impl)
+        register_source_function_staging_rule(
+            self._source_primitive, self._source_abstract_eval
+        )
         batching.primitive_batchers[self._source_primitive] = self._source_batching_rule
         self._orig_fn: Callable[..., Any] | None = None  # set by patch wrapper
         self._unbound_orig_fn: Callable[..., Any] | None = None
@@ -1063,7 +1068,13 @@ class FunctionPlugin(PrimitivePlugin):
             # Registered class targets already supply a receiver. Signature
             # inspection would unnecessarily materialize lazy annotations.
             params = (
-                [] if is_class else list(inspect.signature(original_call).parameters)
+                []
+                if is_class
+                else (
+                    _source_parameter_names(original_call)
+                    if active_precision_policy() is PrecisionPolicy.SOURCE
+                    else list(inspect.signature(original_call).parameters)
+                )
             )
             self._unbound_orig_fn = original_call
 
@@ -1892,6 +1903,108 @@ def onnx_function(
     if inspect.isclass(target) or callable(target):
         return _decorate(target)
     raise TypeError("@onnx_function expects a class or callable target")
+
+
+def _source_parameter_names(function: Callable[..., Any]) -> list[str]:
+    """Read only native function headers; lazy annotations stay untouched."""
+    visited: set[int] = set()
+    while type(function) is FunctionType:
+        if (
+            id(function) in visited
+            or type(function.__dict__) is not dict
+            or "__signature__" in function.__dict__
+        ):
+            break
+        visited.add(id(function))
+        if "__wrapped__" not in function.__dict__:
+            code = function.__code__
+            positional = code.co_argcount
+            keyword_only = code.co_kwonlyargcount
+            extra = positional + keyword_only
+            names = list(code.co_varnames[:positional])
+            if code.co_flags & inspect.CO_VARARGS:
+                names.append(code.co_varnames[extra])
+                extra += 1
+            names.extend(code.co_varnames[positional : positional + keyword_only])
+            if code.co_flags & inspect.CO_VARKEYWORDS:
+                names.append(code.co_varnames[extra])
+            return names
+        wrapped = function.__dict__["__wrapped__"]
+        if type(wrapped) is not FunctionType:
+            break
+        function = wrapped
+    raise SourcePrecisionError(
+        "SOURCE Function needs an ordinary function header without custom signature metadata",
+        phase="profile-validation",
+        category="lowering-defect",
+        location="Function callback header",
+        requirement="passive ordinary Python function metadata",
+        action="use a supported native function header",
+    )
+
+
+def _source_callback_wrapper_bindings(
+    function: FunctionType,
+    *,
+    retained: tuple[object, ...] | None = None,
+) -> tuple[tuple[str, Any], ...] | None:
+    """Recognize our installed free-function wrapper and its isolated copies.
+
+    Initial provenance requires the exact active patch record. A descriptor
+    may retain that verified role for its later checks and isolated copies;
+    arbitrary wrapped functions acquire no role from a ``__wrapped__`` marker.
+    """
+    if type(function) is not FunctionType or type(function.__dict__) is not dict:
+        return None
+    names = function.__code__.co_freevars
+    if names != ("is_class", "original_call", "params", "primitive", "self"):
+        return None
+    closure = function.__closure__
+    if closure is None:
+        return None
+    try:
+        values = tuple(cell.cell_contents for cell in closure)
+    except ValueError:
+        return None
+    is_class, original, params, primitive, plugin = values
+    if (
+        is_class is not False
+        or type(original) is not FunctionType
+        or type(params) is not list
+        or any(type(name) is not str for name in params)
+        or type(plugin) is not FunctionPlugin
+        or primitive is not plugin.primitive
+        or ONNX_FUNCTION_PLUGIN_REGISTRY.get(plugin._qualified_target) is not plugin
+        or function.__dict__.get("__wrapped__") is not original
+    ):
+        return None
+    original_function = cast(FunctionType, original)
+    if retained is not None:
+        actual = (
+            function.__code__,
+            function.__globals__,
+            original_function.__code__,
+            primitive,
+            plugin,
+        )
+        if len(retained) == len(actual) and all(
+            item is expected for item, expected in zip(actual, retained, strict=True)
+        ):
+            return tuple(zip(names, values, strict=True))
+        return None
+    for state in _PATCH_STATE.values():
+        patched = state.get("patched")
+        source = state.get("orig")
+        if (
+            state.get("owner") is plugin
+            and state.get("policy") is PrecisionPolicy.SOURCE
+            and type(patched) is FunctionType
+            and type(source) is FunctionType
+            and function is patched
+            and original is source
+        ):
+            return tuple(zip(names, values, strict=True))
+    return None
 
 
 def _call_prepared_nnx_method(

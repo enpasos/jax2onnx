@@ -147,6 +147,11 @@ def freeze_source_structure_rule(
     body = original_function_body(eqn)
     if body is not None:
         return FunctionRule(body)
+    from jax2onnx.plugins.jax.core._source_inline_structure import freeze_inline_rule
+
+    inline = freeze_inline_rule(eqn, inputs, outputs)
+    if inline is not None:
+        return inline
     from jax2onnx.plugins._source_control_flow_structure import freeze_control_flow_rule
 
     control = freeze_control_flow_rule(eqn, inputs, outputs)
@@ -163,7 +168,11 @@ def freeze_source_structure_rule(
         )
 
         return freeze_dot_structure_rule(eqn, inputs, outputs)
-    if primitive is jax.lax.reduce_sum_p or primitive is jax.lax.reduce_max_p:
+    if (
+        primitive is jax.lax.reduce_sum_p
+        or primitive is jax.lax.reduce_max_p
+        or primitive is jax.lax.reduce_min_p
+    ):
         from jax2onnx.plugins.jax.lax._source_reduce_structure import (
             freeze_reduction_structure_rule,
         )
@@ -344,7 +353,12 @@ def freeze_source_semantic_key(
     from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule
     from jax2onnx.plugins.jax.lax._source_loop_structure import ScanRule, WhileRule
 
+    from jax2onnx.plugins.jax.core._source_inline_structure import InlineRule
+
     rule = freeze_source_structure_rule(eqn, inputs, outputs)
+    if type(rule) is InlineRule:
+        # The original frozen child remains the sole body-content authority.
+        return ("inline-jit", rule.inline, rule.keep_unused)
     if type(rule) is BooleanIndexRule:
         return ("boolean-index",)
     if type(rule) is IfRule:
@@ -374,7 +388,9 @@ def freeze_source_semantic_key(
     if type(rule) is _DotRule and eqn.primitive is jax.lax.dot_general_p:
         return ("dot_general", rule.axes, rule.precision, rule.preferred)
     if type(rule) is _ReductionRule and (
-        eqn.primitive is jax.lax.reduce_sum_p or eqn.primitive is jax.lax.reduce_max_p
+        eqn.primitive is jax.lax.reduce_sum_p
+        or eqn.primitive is jax.lax.reduce_max_p
+        or eqn.primitive is jax.lax.reduce_min_p
     ):
         return ("reduction", rule.operation, rule.axes)
     if type(rule) is _ShapeRule and (

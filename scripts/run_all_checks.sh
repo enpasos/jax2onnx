@@ -149,18 +149,8 @@ echo "[${step}] Generating tests..."
 poetry run python scripts/generate_tests.py
 step=$((step + 1))
 
-if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
-  echo "[${step}] Running MaxText SotA tests..."
-  poetry run pytest -q tests/examples/test_maxtext.py "${PYTEST_DURATION_ARGS[@]}"
-  step=$((step + 1))
-fi
-
-if [[ "${RUN_MAXDIFFUSION_ACTIVE}" == "1" ]]; then
-  echo "[${step}] Running MaxDiffusion SotA tests..."
-  poetry run pytest -q tests/examples/test_maxdiffusion.py "${PYTEST_DURATION_ARGS[@]}"
-  step=$((step + 1))
-fi
-
+# Optional model preparation above makes these tests part of the full collection.
+# Execute them there once, with the same inputs and complete batch accounting.
 echo "[${step}] Running pytest..."
 if [[ -n "${ONNXRUNTIME_WEB_RUNNER}" ]]; then
   echo "Full pytest will run with onnxruntime-web runner: ${ONNXRUNTIME_WEB_RUNNER}"

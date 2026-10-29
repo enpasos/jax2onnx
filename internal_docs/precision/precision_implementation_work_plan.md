@@ -7,6 +7,17 @@ Only demonstrated ONNX representation and actual target limits restrict support.
 
 ## Current implementation and next gates
 
+**2026-10-29 precedence:** the revised user objective retains this complete B–F
+functional contract but supersedes historical custom-compiler and per-push
+exhaustive-testing instructions. Use official dependencies; separate explicit
+approval is required for custom JAX/jaxlib/XLA/LLVM builds, patches or overlays.
+Correct extrema NaN/zero semantics, completed-export cache ownership and NNX
+mutable-static isolation before expanding functionality. Reduce CI overhead
+under the independently reviewed [execution plan](ci_execution_plan.md); that
+plan is currently proposed, not an active replacement for published checks.
+The [handoff](implementation_handoff.md) owns current observations. The snapshots
+below retain their original epochs and do not qualify today's worktree.
+
 The [binding CI priority and ongoing gate](precision_ci_gate.md) requires fixing
 PR #277 now and checking every pushed revision before publishing further
 features. It supplements this complete plan; the full B–F acceptance scope remains.

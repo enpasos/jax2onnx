@@ -31,85 +31,33 @@ Node.js and Chromium WASM validation flows. The supported Python runtime
 minimum remains ONNX Runtime 1.24.1; exports do not select operators based on
 the runtime installed on the export machine.
 
-## Native CPU BF16 conversion in the JAX 0.10.2 cohort
+## Observed native JAX CPU BF16 TopK failure
 
-CI549 and CI551 captured an original JAX CPU BF16 TopK failure before ONNX
-conversion. On the affected hosted CPU, the first B2 native call ordered the
-distinct positive BF16 subnormal words `0001` and `007f` as indices `[0, 1]`
-instead of `[1, 0]`; the returned selected-input words themselves were retained.
-Passing local runs do not erase that hosted counterexample.
+CI549 and CI551 captured a failure in the official JAX/jaxlib 0.10.2 CPU
+reference before ONNX conversion. On the affected hosted CPU, the first B2
+native call selected the distinct positive BF16 subnormal words `0001` and
+`007f` as indices `[0, 1]` instead of `[1, 0]`; selected-input words were
+retained. Passing local runs do not erase this hardware-dependent
+counterexample. The exact compiler instruction responsible is unestablished.
 
-The pinned XLA nested CPU emitter selects a different F32/BF16 conversion route
-from its ordinary emitter when certain native target features are available.
-The branch-owned patch makes the nested factory use the existing integer
-round-to-nearest-even and exact BF16 widening implementation consistently with
-the ordinary emitter. It changes neither CPU features nor the TopK algorithm,
-source program, runtime flags or numerical comparisons. This is a compiler
-repair candidate until an actual corrected build passes the affected workload;
-the particular instruction executed in the failed call has not been established.
+The original reproduction remains in
+[`test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-inline]`](https://github.com/enpasos/jax2onnx/blob/0a9638da26585bfafc0485ee9766135cd0a991a6/tests/extra_tests/converter/test_source_native_top_k.py#L1855-L1940),
+using the declared [`_bf16_word_input(False)` payload](https://github.com/enpasos/jax2onnx/blob/0a9638da26585bfafc0485ee9766135cd0a991a6/tests/extra_tests/converter/test_source_native_top_k.py#L1654-L1677).
+It preserves exact BF16 storage, checks indices, dtype and shape, and compares
+original words for B2/B5 fresh, warmed and eager calls. The native
+[capture diagnostic](https://github.com/enpasos/jax2onnx/blob/0a9638da26585bfafc0485ee9766135cd0a991a6/scripts/_source_bf16_topk_capture.py)
+and unchanged 99-case owner remain available; the focused reproduction does
+not replace that owner or the original context acceptance obligations.
 
-The inputs are recorded in `build_support/jaxlib/cpu-bf16-build-recipe.json`:
-JAX `990e6a0b84138346e6a38785412f36356e0e5dc3`, XLA
-`5a9e73cbd92530cac2ac36f4736a774b2412afe2`, its existing LLVM source revision,
-the exact compiler patch, Bazel 7.7.0, hermetic toolchain and Python requirement
-locks. The build uses the upstream `--local_xla_path` and `--python_version`
-interfaces. Its wheel has the visible local version
-`0.10.2+jax2onnx.bf16.<recipe-digest-prefix>`; official 0.10.2 bytes are never
-renamed or silently treated as corrected.
-
-The separate **Corrected CPU jaxlib build pilot** workflow runs on pushes to
-`precision-migration` that change its six build-support, controller, workflow,
-test or dependency-documentation paths. Optional user-initiated manual dispatch
-also remains available. It builds Linux x86_64 cp311 and cp312 candidates and
-does not replace ordinary CI. Push trials use the exact completed-wheel cache;
-manual dispatch can explicitly request a cache miss. It
-first measures actual capacity and stops unavailable unless at least 12 GiB
-memory and 64 GiB disk are free. The owned build is limited to 12 GiB aggregate
-RSS, up to three concurrent Bazel jobs, a 1 GiB JVM and 300 minutes, with live
-floors of 2 GiB available memory and 4 GiB disk. Bazel runs in batch mode with a
-fresh owned output root; the public Bazel cache is read-only, without remote execution.
-Linux subreaper adoption and PID/starttime-bound pidfds keep accounting and
-cleanup complete when compiler descendants create their own sessions.
-The earlier [one-job cp311 and cp312 trials](https://github.com/enpasos/jax2onnx/actions/runs/40643345683)
-reached the 300-minute limit during the wheel build; neither reached compiler
-tests or produced an accepted corrected wheel. Three jobs are a bounded
-scheduling trial, with completion and memory use still unproved under the
-unchanged limits. No native numerical repair is qualified. Resource or log-limit
-exhaustion retains a failed trial, not a repaired-wheel fallback.
-
-Completed wheels and manifests use an exact recipe/platform/ABI cache key with
-no prefix restore. The standalone controller checks source archives, patch
-pre/postimages, tool versions, resolved dependency archives, compiler regression
-and manylinux tests, then every wheel RECORD hash, version, ABI and native
-member identity. A cache hit repeats wheel-byte verification. Neither these
-checks nor a caller-supplied manifest grant private SOURCE numerical authority;
-bit-for-bit build reproducibility also requires a separate matching build.
-An accepted cache manifest is committed only after final source/environment and
-owned-process cleanup fences; it binds the durable final-success evidence.
-Failed trials keep unverified wheel bytes and logs without an accepted marker.
-
-Installation is a later, explicit native-overlay step after independent review
-of the actual wheel hashes and renewed private build-authority records. In an
-owned environment, before any JAX import, the eventual command is:
-
-```bash
-sha256sum --check /absolute/path/to/independently-reviewed-wheel.sha256
-poetry run python -m pip install --no-deps --force-reinstall /absolute/path/to/reviewed-corrected-jaxlib.whl
-```
-
-The paths above are placeholders for a retained, independently accepted wheel,
-not currently published package coordinates. Preserve the original environment
-and its binary receipts before creating that overlay. Keep the base Poetry/uv
-locks and Python markers unchanged in this stage. Python 3.13/3.14 retain their
-original modern artifacts; the separate uv resolution is not rewritten.
-An expiring Actions cache or artifact URL is not a permanent package dependency.
-
-Qualification still requires the unchanged original 99-case native owner and
-385-case context request, complete B2/B5 fresh/warmed/eager inputs, exact words
-and indices, stable ties, signed zero and the original NaN policies. The affected
-hosted target and all four supported full CI cohorts, plus existing support
-checks, must pass on their reviewed binaries. The new focused compiler tests
-add obligations; they do not weaken or replace these gates.
+This is a native-reference failure, distinct from converter defects, ONNX
+representation restrictions and ONNX Runtime behavior. Affected acceptance
+remains failed or unverified until demonstrated on the supported official
+runtime and target. Do not weaken comparisons or change the reference runtime
+to obtain acceptance. Earlier custom compiler build attempts produced no
+numerically accepted repair; their unapproved patch and build infrastructure
+have been removed. Supported official dependencies and lock markers remain the
+reference; custom builds, patches and binary overlays require separate,
+explicit approval.
 
 ## ONNX Runtime kernel gaps
 
@@ -142,6 +90,45 @@ apply. SOURCE exact GELU traces the original JAX computation through Erfc;
 its owning typed implementation avoids reliance on a float64 `Erf` kernel at
 the admitted opsets. Those finite implementations do not qualify arbitrary
 models or override an unsupported dtype, opset, provider or numerical contract.
+
+SOURCE floating `reduce_min` and `reduce_max` now retain a native typed
+`ReduceMin`/`ReduceMax` candidate and independently reduce NaN and zero-sign
+predicates. Typed `Gather`/`GatherElements` selection restores NaN propagation
+and the required zero word without using floating `Where`. Integer extrema,
+empty identities, no-axis reductions and public LEGACY behavior retain their
+existing paths. Focused FP32/FP64 NaN/zero-sign regressions pass on official
+JAX/jaxlib 0.10.2 and 0.12.0.1, and CPU ORT 1.31.0 with optimization disabled and enabled,
+including reciprocal infinity signs. This is a bounded correction, not full
+numerical acceptance of those operations.
+BF16 artifact/schema coverage alone makes no CPU numerical acceptance claim.
+For subnormal inputs, the reference remains the actual official native eager
+and fresh JIT outcomes: JAX documents backend-dependent
+[flush-to-zero behavior](https://docs.jax.dev/en/latest/accuracy.html).
+Both native roles must agree, and the target must match each role with strict
+shape, dtype, NaN-mask and zero-sign checks. Nominal mathematical subnormal-word
+observations are separate diagnostics, not authority to rewrite native values
+or evidence that gradual underflow was preserved.
+
+The retained full-feed default-target comparison records numerical **FAILED**
+on both tested framework variants: CPU ORT 1.31.0 preserves subnormal words where
+the official eager and fresh-JIT references return signed zero. Successful
+diagnostic tests are not numerical acceptance. The exporter does not
+unconditionally flush inputs or replace the native reference to hide this
+difference. ORT's documented
+[`session.set_denormal_as_zero` setting](https://github.com/microsoft/onnxruntime/blob/v1.24.1/include/onnxruntime/core/session/onnxruntime_session_options_config_keys.h#L28-L35)
+is a separate execution-target setting. With it explicitly enabled, the finite
+FP16/FP32/FP64 extrema test matrix passes strict numerical comparisons on both
+framework variants, retaining the full feeds, shapes, dtypes, native roles,
+zero signs and both ORT optimization modes. This qualifies those cases and
+settings only. Compare different settings in fresh processes because the first
+session can affect the main/OpenMP thread's floating-point mode; every native
+reference is materialized before its worker creates any ORT session.
+
+The existing private FP64 opset21 profile admits `reduce_max` but rejects
+`integer_pow(-1)`, including a `jnp.reciprocal` consumer. The original composed
+test remains an explicit unimplemented SOURCE obligation with target numerics
+UNVERIFIED; a separate max-only21 graph is checked without claiming that the
+composition or a general ONNX limitation has been established.
 
 To check a kernel, create a session for a one-node model with that operator and
 dtype. For providers other than CPU, set the session option

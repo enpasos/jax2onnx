@@ -2,14 +2,15 @@
 
 """Finite SOURCE reduction operation and geometry contracts.
 
-These contracts check final wiring and representation. Accumulation order, NaN
-propagation and numerical tolerances retain their independent obligations.
+These contracts check final wiring and representation, including the floating
+extrema correction. Actual NaN/zero-sign execution and accumulation accuracy
+retain their independent numerical obligations.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Final
+from dataclasses import dataclass, replace
+from typing import Any, Callable, Final
 
 import jax
 import numpy as np
@@ -33,6 +34,7 @@ from jax2onnx.plugins.jax.lax._opset_utils import _REDUCTION_AXES_INPUT_SINCE
 _OPERATIONS: Final = {
     jax.lax.reduce_sum_p: "ReduceSum",
     jax.lax.reduce_max_p: "ReduceMax",
+    jax.lax.reduce_min_p: "ReduceMin",
 }
 _FLOATS: Final = frozenset({ir.DataType.FLOAT, ir.DataType.DOUBLE})
 _KNOWN_CONTRADICTIONS: Final = frozenset(
@@ -47,6 +49,20 @@ _KNOWN_CONTRADICTIONS: Final = frozenset(
         "Mul",
         "Div",
         "Neg",
+        "Squeeze",
+        "Unsqueeze",
+        "Concat",
+        "Gather",
+        "GatherElements",
+        "Cast",
+        "Equal",
+        "Less",
+        "And",
+        "Or",
+        "Not",
+        "Where",
+        "Reciprocal",
+        "IsNaN",
     }
 )
 
@@ -59,6 +75,7 @@ class _ReductionRule:
     axes: tuple[int, ...]
     axes_input_since: int
     axes_literal: LiteralOperand
+    float_correction: bool = False
 
     def check(
         self,
@@ -95,6 +112,11 @@ class _ReductionRule:
                 ):
                     raise StructureUnavailable("reduce-input-form-unavailable")
                 raise StructureMismatch("reduce-source-input-edge-differs")
+
+        if self.float_correction and self.axes:
+            return _check_float_extrema(
+                self, graph, inputs, result, match_literal, source
+            )
 
         producer = result.producer()
         if not self.axes:
@@ -154,6 +176,213 @@ class _ReductionRule:
                 raise StructureMismatch("reduce-axes-differ")
         source(producer.inputs[0])
         return (producer,)
+
+
+def _check_float_extrema(
+    rule: _ReductionRule,
+    graph: ir.Graph,
+    inputs: tuple[RuleOperand, ...],
+    result: ir.Value,
+    match_literal: LiteralMatcher,
+    source: Callable[[ir.Value | None], None],
+) -> tuple[ir.Node, ...]:
+    """Inspect the exact typed correction from independently frozen semantics.
+
+    No emitted receipt or cached constant annotation supplies this contract.
+    Both predicate reductions must use the original input and original axes;
+    the final table selection must preserve the candidate or exact zero/NaN.
+    """
+    available, checked = set(graph), set[ir.Node]()
+    shape, source_shape, dtype = rule.output.shape, rule.source.shape, rule.output.dtype
+    selected_shape, choices_shape = (1, *shape), (2, *shape)
+
+    def node(
+        value: ir.Value | None,
+        operation: str,
+        arity: int,
+        expected_shape: tuple[int | str, ...],
+        expected_dtype: ir.DataType = dtype,
+        attributes: tuple[tuple[str, int | tuple[int, ...]], ...] = (),
+    ) -> ir.Node:
+        if value is None:
+            raise StructureMismatch("reduce-correction-input-missing")
+        if value.shape is None or value.dtype is None:
+            raise StructureUnavailable("reduce-correction-type-unavailable")
+        if not replace(rule.output, shape=expected_shape, dtype=expected_dtype).matches(
+            value
+        ):
+            raise StructureMismatch("reduce-correction-type-or-shape-differs")
+        producer = value.producer()
+        if (
+            producer is None
+            or producer.graph is not graph
+            or value.graph is not graph
+            or producer not in available
+            or value.index() != 0
+            or len(producer.outputs) != 1
+            or producer.outputs[0] is not value
+        ):
+            raise StructureUnavailable("reduce-correction-producer-unavailable")
+        if producer.domain or producer.overload:
+            raise StructureUnavailable("reduce-correction-domain-unavailable")
+        if producer.op_type != operation:
+            if producer.op_type in _KNOWN_CONTRADICTIONS:
+                raise StructureMismatch("reduce-correction-operator-differs")
+            raise StructureUnavailable("reduce-correction-form-unavailable")
+        if len(producer.inputs) != arity:
+            raise StructureMismatch("reduce-correction-arity-differs")
+        if set(producer.attributes) != {name for name, _ in attributes}:
+            raise StructureMismatch("reduce-correction-attributes-differ")
+        for name, expected in attributes:
+            attribute = producer.attributes[name]
+            if isinstance(expected, tuple):
+                matches = (
+                    attribute.type is ir.AttributeType.INTS
+                    and tuple(attribute.as_ints()) == expected
+                )
+            else:
+                matches = (
+                    attribute.type is ir.AttributeType.INT
+                    and attribute.as_int() == expected
+                )
+            if not matches:
+                raise StructureMismatch("reduce-correction-attribute-differs")
+        checked.add(producer)
+        return producer
+
+    def literal(value: ir.Value | None, array: np.ndarray[Any, Any]) -> None:
+        dimensions = tuple(array.shape)
+        tensor = TensorContract(
+            array.dtype.name,
+            dimensions,
+            False,
+            ir.DataType.from_numpy(array.dtype),
+            dimensions,
+            "identity",
+            None,
+            None,
+            None,
+        )
+        match_literal(value, LiteralOperand(tensor, ConstantContract.from_array(array)))
+
+    def axis(value: ir.Value | None) -> None:
+        literal(value, np.asarray([0], dtype=np.int64))
+
+    def zero(value: ir.Value | None) -> None:
+        literal(value, np.asarray(0, dtype=rule.source.logical_dtype))
+
+    def cast_input(
+        value: ir.Value | None,
+        expected_dtype: ir.DataType,
+        expected_shape: tuple[int | str, ...],
+    ) -> ir.Value | None:
+        return node(
+            value,
+            "Cast",
+            1,
+            expected_shape,
+            expected_dtype,
+            (("to", int(expected_dtype)),),
+        ).inputs[0]
+
+    def predicate_input(value: ir.Value | None) -> ir.Value | None:
+        reduced_value = cast_input(value, ir.DataType.BOOL, shape)
+        opset = graph.opset_imports.get("")
+        if not isinstance(opset, int) or isinstance(opset, bool) or opset < 1:
+            raise StructureUnavailable("reduce-opset-unavailable")
+        input_axes = opset >= _REDUCTION_AXES_INPUT_SINCE["ReduceMax"]
+        attributes: tuple[tuple[str, int | tuple[int, ...]], ...] = (("keepdims", 0),)
+        if not input_axes:
+            attributes += (("axes", rule.axes),)
+        reduced = node(
+            reduced_value,
+            "ReduceMax",
+            2 if input_axes else 1,
+            shape,
+            ir.DataType.INT32,
+            attributes,
+        )
+        if input_axes:
+            match_literal(reduced.inputs[1], rule.axes_literal)
+        return cast_input(reduced.inputs[0], ir.DataType.INT32, source_shape)
+
+    squeezed = node(result, "Squeeze", 2, shape)
+    axis(squeezed.inputs[1])
+    gathered = node(
+        squeezed.inputs[0],
+        "GatherElements",
+        2,
+        selected_shape,
+        attributes=(("axis", 0),),
+    )
+    choices = node(
+        gathered.inputs[0],
+        "Concat",
+        2,
+        choices_shape,
+        attributes=(("axis", 0),),
+    )
+    base_choice = node(choices.inputs[0], "Unsqueeze", 2, selected_shape)
+    axis(base_choice.inputs[1])
+    candidate = base_choice.inputs[0]
+    if candidate is None:
+        raise StructureMismatch("reduce-correction-candidate-missing")
+    checked.update(
+        replace(rule, float_correction=False).check(
+            graph, inputs, (candidate,), match_literal
+        )
+    )
+    correction_choice = node(choices.inputs[1], "Unsqueeze", 2, selected_shape)
+    axis(correction_choice.inputs[1])
+    correction = node(
+        correction_choice.inputs[0],
+        "Gather",
+        2,
+        shape,
+        attributes=(("axis", 0),),
+    )
+    literal(
+        correction.inputs[0],
+        np.asarray([0.0, -0.0, np.nan], dtype=rule.source.logical_dtype),
+    )
+    correction_index = node(correction.inputs[1], "Where", 3, shape, ir.DataType.INT64)
+    any_nan = correction_index.inputs[0]
+    isnan = node(predicate_input(any_nan), "IsNaN", 1, source_shape, ir.DataType.BOOL)
+    source(isnan.inputs[0])
+    literal(correction_index.inputs[1], np.asarray(2, dtype=np.int64))
+    negative = cast_input(correction_index.inputs[2], ir.DataType.INT64, shape)
+    if rule.operation == "ReduceMax":
+        negative = node(negative, "Not", 1, shape, ir.DataType.BOOL).inputs[0]
+    zero_tie = node(predicate_input(negative), "And", 2, source_shape, ir.DataType.BOOL)
+    input_zero = node(zero_tie.inputs[0], "Equal", 2, source_shape, ir.DataType.BOOL)
+    source(input_zero.inputs[0])
+    zero(input_zero.inputs[1])
+    sign = zero_tie.inputs[1]
+    if rule.operation == "ReduceMax":
+        sign = node(sign, "Not", 1, source_shape, ir.DataType.BOOL).inputs[0]
+    less = node(sign, "Less", 2, source_shape, ir.DataType.BOOL)
+    reciprocal = node(less.inputs[0], "Reciprocal", 1, source_shape)
+    source(reciprocal.inputs[0])
+    zero(less.inputs[1])
+
+    indices = node(
+        gathered.inputs[1], "Unsqueeze", 2, selected_shape, ir.DataType.INT64
+    )
+    axis(indices.inputs[1])
+    replace_zero_nan = node(
+        cast_input(indices.inputs[0], ir.DataType.INT64, shape),
+        "Or",
+        2,
+        shape,
+        ir.DataType.BOOL,
+    )
+    if replace_zero_nan.inputs[1] is not any_nan:
+        raise StructureMismatch("reduce-correction-nan-predicate-edge-differs")
+    base_zero = node(replace_zero_nan.inputs[0], "Equal", 2, shape, ir.DataType.BOOL)
+    if base_zero.inputs[0] is not candidate:
+        raise StructureMismatch("reduce-correction-candidate-edge-differs")
+    zero(base_zero.inputs[1])
+    return tuple(item for item in graph if item in checked)
 
 
 def freeze_reduction_structure_rule(
@@ -241,4 +470,5 @@ def freeze_reduction_structure_rule(
         axes,
         _REDUCTION_AXES_INPUT_SINCE[operation],
         LiteralOperand(literal_type, ConstantContract.from_array(vector)),
+        float_correction=operation in {"ReduceMin", "ReduceMax"} and bool(axes),
     )

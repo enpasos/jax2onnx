@@ -9,7 +9,13 @@ from typing import Any
 
 import numpy as np
 
-from jax2onnx._compat.jax import ClosedJaxpr, Jaxpr, Literal
+from jax2onnx._compat.jax import (
+    ClosedJaxpr,
+    Jaxpr,
+    Literal,
+    is_selected_threefry_impl,
+    native_jit_primitive,
+)
 from .source_representation import representation_for_aval
 from .source_structure import (
     ConstantContract,
@@ -103,6 +109,9 @@ def _unhandled_native_body(params: object) -> bool:
             return True
         if type(value) is Jaxpr or type(value) is ClosedJaxpr:
             return True
+        if is_selected_threefry_impl(value):
+            # A fixed native descriptor supplies no body or semantic authority.
+            continue
         if type(value) is dict:
             if len(value) * 2 > remaining - len(pending):
                 return True
@@ -133,6 +142,7 @@ def declare_body(jaxpr: Any) -> FrozenBody:
     """
     import jax
     from jax2onnx.plugins._source_function_structure import declared_function_body
+    from jax2onnx.plugins.jax.core._source_inline_structure import native_inline_body
 
     active: set[int] = set()
 
@@ -167,6 +177,11 @@ def declare_body(jaxpr: Any) -> FrozenBody:
                             children.append((role, walk(equation.params[key])))
                     elif equation.primitive is jax.lax.scan_p:
                         children.append(("scan-body", walk(equation.params["jaxpr"])))
+                    elif equation.primitive is native_jit_primitive():
+                        inline = native_inline_body(equation)
+                        if inline is None:
+                            raise StructureUnavailable("inline-declaration-unavailable")
+                        children.append(("inline-body", walk(inline)))
                     elif _unhandled_native_body(equation.params):
                         gaps.add("expected-region-total-unknown")
                 except Exception:
@@ -192,6 +207,7 @@ def freeze_body(
     import jax
     from jax2onnx.plugins._source_structure import freeze_source_semantic_key
     from jax2onnx.plugins._source_function_structure import original_function_body
+    from jax2onnx.plugins.jax.core._source_inline_structure import native_inline_body
 
     gaps: set[str] = set()
     shapes = _ShapeFreezer()
@@ -291,6 +307,12 @@ def freeze_body(
             elif equation.primitive is jax.lax.scan_p:
                 if "jaxpr" in equation.params:
                     children.append(("scan-body", closed(equation.params["jaxpr"])))
+            elif equation.primitive is native_jit_primitive():
+                inline = native_inline_body(equation)
+                if inline is None:
+                    gaps.add("expected-region-total-unknown")
+                else:
+                    children.append(("inline-body", closed(inline)))
             elif _unhandled_native_body(equation.params):
                 gaps.add("expected-region-total-unknown")
         semantics = None
@@ -321,6 +343,10 @@ def freeze_body(
             semantics is None or semantics[0] != "scan"
         ):
             gaps.add("scan-attachment-contract-unavailable")
+        if equation.primitive is native_jit_primitive() and (
+            semantics is None or semantics[0] != "inline-jit"
+        ):
+            gaps.add("inline-attachment-contract-unavailable")
         for _, child in children:
             gaps.update(child.gaps)
         equations.append(FrozenEquation(operands, results, semantics, tuple(children)))

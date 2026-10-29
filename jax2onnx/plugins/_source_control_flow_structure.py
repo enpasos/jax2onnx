@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
+from weakref import WeakKeyDictionary
 
 import jax
 import numpy as np
@@ -89,6 +91,14 @@ class LiteralIfBody:
 
 
 @dataclass(frozen=True)
+class LiteralIfTree:
+    """Complete ordered original scopes and inline calls in one staging owner."""
+
+    scopes: tuple[LiteralIfBody, ...]
+    inline_calls: tuple[tuple[EquationHandle, Any], ...]
+
+
+@dataclass(frozen=True)
 class LiteralIfDischarge:
     """Disjoint original obligations; unreachable bodies claim no physical IR."""
 
@@ -116,6 +126,20 @@ class LiteralIfAttachment:
     returned: tuple[Any, ...]
     results: tuple[Any, ...]
     discharge: LiteralIfDischarge
+    trees: tuple[LiteralIfTree, ...] = ()
+
+
+_LITERAL_IF_EVIDENCE: WeakKeyDictionary[
+    Any, dict[EquationHandle, LiteralIfAttachment]
+] = WeakKeyDictionary()
+
+
+def authentic_literal_if_attachment(ledger: Any, attachment: Any) -> bool:
+    """Only the original producer's exact immutable receipt has authority."""
+    return (
+        type(attachment) is LiteralIfAttachment
+        and _LITERAL_IF_EVIDENCE.get(ledger, {}).get(attachment.handle) is attachment
+    )
 
 
 def literal_if_body(scope: Any) -> LiteralIfBody:
@@ -133,6 +157,253 @@ def literal_if_body(scope: Any) -> LiteralIfBody:
         scope.result_values,
         scope.region,
     )
+
+
+def _literal_leaf_semantics(rule: Any, semantics: tuple[object, ...] | None) -> bool:
+    from jax2onnx.plugins._source_structure import _DirectRule, _PRIMITIVES
+    from jax2onnx.plugins.jax.lax._source_dot_structure import _DotRule
+    from jax2onnx.plugins.jax.lax._source_reduce_structure import _ReductionRule
+    from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule
+
+    if rule is None:
+        # Preserve the existing pure source conversion key for unreachable
+        # bodies. This adds no selected graph rule or native kernel authority.
+        return semantics == (
+            "native-f64-f16-convert",
+            (("new_dtype", "float16"), ("sharding", None), ("weak_type", False)),
+        )
+    if type(rule) is BooleanIndexRule:
+        return semantics == ("boolean-index",)
+    if type(rule) is _DirectRule:
+        # Compare an already frozen plugin key. Native selection remains the
+        # original freezer's exact primitive identity, never a name lookup here.
+        return (
+            type(semantics) is tuple
+            and len(semantics) == 5
+            and semantics[0] == "direct"
+            and semantics[1] in _PRIMITIVES
+            and semantics[2:] == (rule.op_type, rule.attributes, rule.identity_alias)
+        )
+    if type(rule) is _DotRule:
+        return semantics == ("dot_general", rule.axes, rule.precision, rule.preferred)
+    if type(rule) is _ReductionRule:
+        return semantics == ("reduction", rule.operation, rule.axes)
+    if type(rule) is _ShapeRule:
+        return semantics == (
+            "shape",
+            rule.operation,
+            rule.permutation,
+            rule.broadcast_dimensions,
+        )
+    return False
+
+
+def _literal_scope_bindings(ledger: Any, scope: Any) -> None:
+    """Check original frozen SSA and exact staged receipts, without final IR."""
+    from jax2onnx.converter._source_regions import FrozenBody
+    from jax2onnx.converter.source_structure import CapturePort, RegionReceipt, _Receipt
+
+    body = scope.body
+    if (
+        type(body) is not FrozenBody
+        or body.gaps
+        or body.expected_equations is None
+        or len(scope.equations) != len(body.equations)
+        or tuple(use.tensor for use in scope.inputs) != body.inputs
+        or tuple(use.tensor for use in scope.outputs)
+        != tuple(use.tensor for use in body.outputs)
+        or len(scope.input_values) != len(scope.inputs)
+        or len(scope.closed_constant_values) != len(body.constants)
+        or set(scope.receipts) != set(range(len(scope.equations)))
+        or scope.result_values is None
+        or len(scope.result_values) != len(body.outputs)
+        or scope.pending
+        or scope.cast_plan is not None
+        or scope.cast_selection is not None
+        or type(scope.region) is not RegionReceipt
+        or scope.region.expected != body
+        or len(scope.region.captures) != len(scope.inputs)
+    ):
+        raise StructureUnavailable("literal-if-childless-contract-unavailable")
+    variables = scope.variables
+    known_ids = {use.variable_id for use in scope.inputs}
+    for use, witness in zip(scope.inputs, scope.input_values, strict=True):
+        if variables.get(use.variable_id) != witness:
+            raise StructureMismatch("literal-if-original-formal-binding-differs")
+    for witness, (tensor, storage) in zip(
+        scope.closed_constant_values, body.constants, strict=True
+    ):
+        if (
+            tensor is None
+            or storage is None
+            or ledger.constants.get(witness) != storage
+        ):
+            raise StructureMismatch("literal-if-original-constant-binding-differs")
+    for port, use, witness in zip(
+        scope.region.captures, scope.inputs, scope.input_values, strict=True
+    ):
+        if (
+            type(port) is not CapturePort
+            or port.local != witness
+            or port.tensor != use.tensor
+        ):
+            raise StructureMismatch("literal-if-original-capture-binding-differs")
+
+    def frozen_binding(use: Any) -> Any:
+        if (
+            type(use.index) is not int
+            or use.index < 0
+            or type(use.port) is not int
+            or use.port < 0
+            or type(use.tensor) is not TensorContract
+        ):
+            raise StructureMismatch("literal-if-original-use-coordinate-differs")
+        if use.kind == "literal":
+            if use.index != 0 or use.port != 0:
+                raise StructureMismatch("literal-if-original-use-coordinate-differs")
+            if use.tensor is None or use.literal is None:
+                raise StructureUnavailable("literal-if-original-literal-unavailable")
+            return LiteralOperand(use.tensor, use.literal)
+        if use.kind == "input":
+            if use.port != 0 or use.index >= len(scope.input_values):
+                raise StructureMismatch("literal-if-original-use-coordinate-differs")
+            return scope.input_values[use.index]
+        if use.kind == "constant":
+            if use.port != 0 or use.index >= len(scope.closed_constant_values):
+                raise StructureMismatch("literal-if-original-use-coordinate-differs")
+            return scope.closed_constant_values[use.index]
+        if use.kind == "equation":
+            if use.index >= len(scope.equations) or use.port >= len(
+                scope.receipts[use.index].outputs
+            ):
+                raise StructureMismatch("literal-if-original-use-coordinate-differs")
+            return scope.receipts[use.index].outputs[use.port]
+        raise StructureUnavailable("literal-if-original-use-unavailable")
+
+    for index, (equation, frozen) in enumerate(
+        zip(scope.equations, body.equations, strict=True)
+    ):
+        receipt = scope.receipts[index]
+        if (
+            type(receipt) is not _Receipt
+            or tuple(use.tensor for use in equation.inputs)
+            != tuple(use.tensor for use in frozen.inputs)
+            or tuple(use.tensor for use in equation.outputs) != frozen.outputs
+            or len(receipt.outputs) != len(frozen.outputs)
+            or receipt.inputs != tuple(frozen_binding(use) for use in frozen.inputs)
+        ):
+            raise StructureMismatch("literal-if-original-equation-ports-differ")
+        for use, frozen_use, binding in zip(
+            equation.inputs, frozen.inputs, receipt.inputs, strict=True
+        ):
+            if use.literal != frozen_use.literal or (
+                use.literal is None and variables.get(use.variable_id) != binding
+            ):
+                raise StructureMismatch("literal-if-original-use-binding-differs")
+            if frozen_use.kind == "equation" and frozen_use.index >= index:
+                raise StructureMismatch("literal-if-original-producer-order-differs")
+        for use, witness in zip(equation.outputs, receipt.outputs, strict=True):
+            if (
+                variables.get(use.variable_id) != witness
+                or use.variable_id in known_ids
+            ):
+                raise StructureMismatch("literal-if-original-result-binding-differs")
+            known_ids.add(use.variable_id)
+    if Counter(
+        value for key, value in variables.items() if key not in known_ids
+    ) != Counter(scope.closed_constant_values):
+        raise StructureMismatch("literal-if-original-constvar-coverage-differs")
+    if scope.result_values != tuple(frozen_binding(use) for use in body.outputs):
+        raise StructureMismatch("literal-if-original-return-binding-differs")
+    for use, binding in zip(scope.outputs, scope.result_values, strict=True):
+        if (
+            use.literal is not None
+            and binding != LiteralOperand(use.tensor, use.literal)
+        ) or (use.literal is None and variables.get(use.variable_id) != binding):
+            raise StructureMismatch("literal-if-original-return-use-differs")
+    witnesses = (
+        *scope.input_values,
+        *scope.closed_constant_values,
+        *variables.values(),
+        *(
+            witness
+            for receipt in scope.receipts.values()
+            for witness in receipt.outputs
+        ),
+    )
+    if any(
+        type(witness) is not _ValueWitness or witness.owner is not scope.owner
+        for witness in witnesses
+    ):
+        raise StructureMismatch("literal-if-original-witness-owner-differs")
+
+
+def literal_if_tree(ledger: Any, root: Any) -> LiteralIfTree:
+    """Enumerate precisely the pure, same-owner, native inline invocation tree."""
+    from jax2onnx.plugins.jax.core._source_inline_structure import (
+        InlineRule,
+        authentic_inline_attachment,
+        inline_region,
+    )
+
+    scopes = {scope.invocation: scope for scope in ledger.scopes}
+    if len(scopes) != len(ledger.scopes):
+        raise StructureUnavailable("literal-if-original-invocation-duplicated")
+    ordered = []
+    calls = []
+    seen: set[object] = set()
+
+    def visit(scope: Any) -> int:
+        if scope.invocation in seen or scope.owner is not root.owner:
+            raise StructureUnavailable("literal-if-original-inline-tree-unavailable")
+        seen.add(scope.invocation)
+        _literal_scope_bindings(ledger, scope)
+        ordered.append(literal_if_body(scope))
+        total = len(scope.equations)
+        for index, (equation, frozen) in enumerate(
+            zip(scope.equations, scope.body.equations, strict=True)
+        ):
+            handle = EquationHandle(scope.invocation, index)
+            if type(equation.rule) is InlineRule:
+                if handle not in ledger.inline_calls:
+                    raise StructureUnavailable(
+                        "literal-if-original-inline-call-unavailable"
+                    )
+                attachment = ledger.inline_calls[handle]
+                if not authentic_inline_attachment(ledger, handle, attachment):
+                    raise StructureUnavailable(
+                        "literal-if-original-inline-receipt-unavailable"
+                    )
+                child = inline_region(ledger, scopes, handle, attachment)
+                for use, witness in zip(
+                    equation.inputs, attachment.inputs, strict=True
+                ):
+                    if (
+                        use.literal is not None
+                        and ledger.constants.get(witness) != use.literal
+                    ):
+                        raise StructureMismatch(
+                            "literal-if-original-inline-literal-differs"
+                        )
+                calls.append((handle, attachment))
+                total += visit(child)
+            elif frozen.children or not _literal_leaf_semantics(
+                equation.rule, frozen.semantics
+            ):
+                # Preserve the established explicit unfinished-Function reason.
+                raise StructureUnavailable("literal-if-childless-contract-unavailable")
+        if total != scope.body.expected_equations:
+            raise StructureMismatch("literal-if-original-inline-count-differs")
+        return total
+
+    visit(root)
+    wanted = {RegionKey(handle, "inline-body") for handle, _ in calls}
+    observed = {key for key in ledger.regions if key.parent.invocation in seen}
+    if observed != wanted or {
+        handle for handle in ledger.inline_calls if handle.invocation in seen
+    } != {handle for handle, _ in calls}:
+        raise StructureUnavailable("literal-if-original-inline-coverage-incomplete")
+    return LiteralIfTree(tuple(ordered), tuple(calls))
 
 
 @dataclass(frozen=True)
@@ -293,24 +564,20 @@ def record_literal_if_attachment(
     if type(rule) is not LiteralIfRule:
         raise StructureUnavailable("literal-if-rule-unavailable")
     bodies = []
+    trees = []
     for role in ("false", "true"):
         invocation = ledger.regions.get(RegionKey(handle, role))
         matches = [scope for scope in ledger.scopes if scope.invocation is invocation]
         if len(matches) != 1:
             raise StructureUnavailable("literal-if-original-body-unavailable")
         scope = matches[0]
-        if (
-            scope.body is None
-            or scope.body.gaps
-            or any(item.children for item in scope.body.equations)
-            or any(item.semantics is None for item in scope.body.equations)
-            or set(scope.receipts) != set(range(len(scope.equations)))
-            or scope.result_values is None
-            or scope.pending
-            or scope.region is None
-        ):
-            raise StructureUnavailable("literal-if-childless-contract-unavailable")
-        bodies.append(literal_if_body(scope))
+        tree = literal_if_tree(ledger, scope)
+        trees.append(tree)
+        bodies.append(tree.scopes[0])
+    if bodies[0].owner is bodies[1].owner or {
+        scope.invocation for scope in trees[0].scopes
+    } & {scope.invocation for scope in trees[1].scopes}:
+        raise StructureUnavailable("literal-if-original-branches-overlap")
     selected, inactive = bodies[rule.index], bodies[1 - rule.index]
     if graph.meta.get(_OWNER) is not selected.owner:
         raise StructureMismatch("literal-if-selected-owner-differs")
@@ -341,7 +608,7 @@ def record_literal_if_attachment(
     ):
         raise StructureMismatch("literal-if-selected-result-map-differs")
     results = tuple(_witness(ctx.lookup_value_for_var(var)) for var in equation.outvars)
-    ledger.literal_if_calls[handle] = LiteralIfAttachment(
+    attachment = LiteralIfAttachment(
         handle,
         ctx.builder.graph.meta[_OWNER],
         rule,
@@ -358,7 +625,10 @@ def record_literal_if_attachment(
             "true" if rule.index == 0 else "false",
             inactive.invocation,
             inactive.body,
-            len(selected.equations),
-            1 + len(inactive.equations),
+            selected.body.expected_equations,
+            1 + inactive.body.expected_equations,
         ),
+        tuple(trees),
     )
+    _LITERAL_IF_EVIDENCE.setdefault(ledger, {})[handle] = attachment
+    ledger.literal_if_calls[handle] = attachment

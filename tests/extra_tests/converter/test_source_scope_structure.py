@@ -316,9 +316,13 @@ def test_unhandled_native_body_never_claims_an_exact_outer_prefix_total(
         )
         assert "expected-region-total-unknown" not in result.reasons
     else:
-        assert result.status == "unverified"
-        assert result.expected_equations is None
-        assert "expected-region-total-unknown" in result.reasons
+        assert result.status == "validated", result
+        assert (
+            result.expected_equations
+            == result.checked_equations
+            == (3 if nested else 2)
+        )
+        assert "expected-region-total-unknown" not in result.reasons
     assert "scope-capture:source-region-declaration-differs" not in result.reasons
 
 

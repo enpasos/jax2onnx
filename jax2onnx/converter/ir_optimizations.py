@@ -2681,11 +2681,21 @@ def _run_name_fix_pass(model: ir.Model) -> None:
         reference.name = definition.name
 
 
-def _run_common_subexpression_elimination_pass(model: ir.Model) -> None:
+def _run_common_subexpression_elimination_pass(
+    model: ir.Model, *, precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY
+) -> None:
     from ._source_identity_cse import observe_identity_cse
+    from ._source_leaf_cse import observe_leaf_cse
+    from ._source_cse_output_aliases import capture
 
-    with observe_identity_cse(model):
-        common_passes.CommonSubexpressionEliminationPass()(model)
+    transaction = capture(model, precision_policy)
+    with observe_leaf_cse(model) as leaf_observation:
+        with observe_identity_cse(model) as identity_observation:
+            common_passes.CommonSubexpressionEliminationPass()(model)
+            transaction.prepare()
+            identity_observation.record(transaction)
+            leaf_observation.record(transaction)
+            transaction.finish()
 
 
 def _run_lift_constants_to_initializers_pass(model: ir.Model) -> None:
@@ -2832,10 +2842,19 @@ _OPTIMIZER_PASSES: tuple[_OptimizerPass, ...] = (
 )
 
 
-def _run_top_level_optimizer_pass(opt_pass: _OptimizerPass, model: ir.Model) -> None:
+def _run_top_level_optimizer_pass(
+    opt_pass: _OptimizerPass,
+    model: ir.Model,
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+) -> None:
     if DEBUG:
         _dbg("running pass", opt_pass.name, "on top graph")
-    if opt_pass.model_runner is not None:
+    if opt_pass.model_runner is _run_common_subexpression_elimination_pass:
+        _run_common_subexpression_elimination_pass(
+            model, precision_policy=precision_policy
+        )
+    elif opt_pass.model_runner is not None:
         opt_pass.model_runner(model)
     if opt_pass.graph_runner is not None:
         opt_pass.graph_runner(model.graph)
@@ -2986,7 +3005,9 @@ def optimize_graph(
         if precision_policy in opt_pass.precision_policies
     )
     for opt_pass in passes:
-        _run_top_level_optimizer_pass(opt_pass, ir_model)
+        _run_top_level_optimizer_pass(
+            opt_pass, ir_model, precision_policy=precision_policy
+        )
 
     # The passes are destructive; might as well raise exceptions if they occur.
 

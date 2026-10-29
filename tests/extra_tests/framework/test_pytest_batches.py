@@ -8,10 +8,12 @@ import csv
 import hashlib
 from importlib.util import module_from_spec, spec_from_file_location
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
 from typing import Any
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -106,6 +108,42 @@ pytest.skip('original collection skip', allow_module_level=True)
             assert receipt["assigned_ids"] == receipt["selected_ids"]
             assert receipt["full_collection_checked"] is True
             assert (directory / "events.jsonl").is_file()
+            durations = receipt["phase_durations"]
+            assert set(durations) == set(receipt["phases"])
+            events = [
+                json.loads(line)
+                for line in (directory / "events.jsonl").read_text().splitlines()
+            ]
+            assert [event for event in events if event["kind"] == "phase-duration"] == [
+                {"kind": "phase-duration", "nodeid": nodeid, **timing}
+                for nodeid, timings in durations.items()
+                for timing in timings
+            ]
+            testcase_times = {
+                case.attrib["name"]: float(case.attrib["time"])
+                for case in ET.parse(directory / "junit.xml").iter("testcase")
+            }
+            for nodeid, timings in durations.items():
+                assert [timing["when"] for timing in timings] == [
+                    phase["when"] for phase in receipt["phases"][nodeid]
+                ]
+                assert all(
+                    type(timing["seconds"]) is float
+                    and math.isfinite(timing["seconds"])
+                    and timing["seconds"] >= 0
+                    for timing in timings
+                )
+                assert all(
+                    "seconds" not in phase for phase in receipt["phases"][nodeid]
+                )
+                # JUnit rounds each testcase's total setup/call/teardown time.
+                assert (
+                    abs(
+                        sum(timing["seconds"] for timing in timings)
+                        - testcase_times[nodeid.partition("::")[2]]
+                    )
+                    <= 0.0011
+                )
             reports.extend(
                 report for phases in receipt["phases"].values() for report in phases
             )

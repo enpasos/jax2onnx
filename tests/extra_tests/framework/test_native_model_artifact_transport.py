@@ -1018,9 +1018,19 @@ def test_unavailable_optional_transport_preserves_real_original_calls_and_inheri
         json.loads(line)
         for line in (root / "batch-0001/events.jsonl").read_text().splitlines()
     ]
-    assert events == [
+    assert [event for event in events if event["kind"] == "phase"] == [
         dict(kind="phase", nodeid=nodeid, **phase)
         for phase in receipt["phases"][nodeid]
+    ]
+    assert events == [
+        event
+        for timing, phase in zip(
+            receipt["phase_durations"][nodeid], receipt["phases"][nodeid], strict=True
+        )
+        for event in (
+            dict(kind="phase-duration", nodeid=nodeid, **timing),
+            dict(kind="phase", nodeid=nodeid, **phase),
+        )
     ]
     cases = ET.parse(root / "batch-0001/junit.xml").findall(".//testcase")
     assert len(cases) == 1
@@ -1218,8 +1228,18 @@ def test_closed_or_finish_resource_failure_keeps_raw_children_and_stops_orchestr
         json.loads(line)
         for line in (root / "batch-0001/events.jsonl").read_text().splitlines()
     ]
-    assert events == [
+    assert [event for event in events if event["kind"] == "phase"] == [
         dict(kind="phase", nodeid=nodeid, **p) for p in receipt["phases"][nodeid]
+    ]
+    assert events == [
+        event
+        for timing, phase in zip(
+            receipt["phase_durations"][nodeid], receipt["phases"][nodeid], strict=True
+        )
+        for event in (
+            dict(kind="phase-duration", nodeid=nodeid, **timing),
+            dict(kind="phase", nodeid=nodeid, **phase),
+        )
     ]
     case = ET.parse(root / "batch-0001/junit.xml").findall(".//testcase")
     assert len(case) == 1 and bool(case[0].findall("failure")) is (not original_pass)
