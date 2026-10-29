@@ -208,6 +208,110 @@ exception before proposing a workflow diff. Final executable selection requires
 literal resolved node IDs/contracts and the reviewed mapping artifact, not the
 symbols `M`, `S`, `A`, file globs or placeholders in this document.
 
+### Initial source-contract reconciliation — 2026-10-29
+
+The initial modern source mapping received independent Astra Ultra review. All
+3,124 generated main identities have same-ID counterparts with the original
+criteria. The generator's ordinary path only adds a dictionary copy before
+metadata enrichment. These eleven generated counterparts require explicit
+annotations rather than an assertion of byte-identical source inputs:
+
+- Deferred construction, preserving model arguments, seeds, full inputs and
+  criteria: `tests/primitives/test_eqx.py::Test_conv::test_eqx_conv2d_nchw`,
+  `Test_conv::test_eqx_conv2d_batched_nchw`,
+  `Test_gru_cell::test_eqx_gru_cell_basic`,
+  `Test_lstm_cell::test_eqx_lstm_cell_basic`,
+  `Test_spectral_norm::test_eqx_spectral_norm_linear_inference`,
+  `Test_weight_norm::test_eqx_weight_norm_linear_dynamic`,
+  `Test_weight_norm::test_eqx_weight_norm_linear`, and
+  `Test_weight_norm::test_eqx_weight_norm_conv2d` in that same file.
+- Previously accepted deterministic Gaussian-fixture stabilization: full
+  `tests/examples/test_gpt.py::Test_GPT_Attention::test_gpt_attention` and
+  `tests/primitives/test_nnx.py::Test_dot_product_attention::test_dpa_with_causal_mask`
+  with its `_f64` counterpart. Local seed-zero successive Gaussian draws replace
+  global unseeded draws; shapes, dtypes, masks, callables and criteria remain.
+  Input bytes deliberately change and are not described as identical.
+
+Seven pre-existing handwritten bodies change. Both optimizer-failure tests in
+`test_io_names.py` retain assertions while their stub accepts `precision_policy`.
+Both requested-instance tests in `test_internal_improvements.py` retain original
+instances/inputs/criteria and use actual lifetime registration keys. The minimum
+dependency extraction test retains the extraction contract against current
+declared floors and explicitly covers `jaxlib`. The Issue52 helper's native-schema
+adaptation preserves its recorded payloads, inputs and criteria.
+
+The other two bodies and one shared fixture required repairs before selection:
+
+- The original Dropout baseline identity again owns the complete opset-21
+  `(3,30) → Gemm → BatchNormalization → Dropout → Gelu → Gemm → (3,10)`
+  corridor. Legal weights, BN parameters and a Constant tensor attribute repair
+  the old invalid fixture. Removal of `Not`, exactly one Dropout, connectivity,
+  ratio retention and deterministic-input pruning remain asserted. An omitted
+  training-mode input is the reviewed semantic counterpart of explicit false.
+  The smaller direct-Dropout example has a separate added identity.
+- The baseline tile AD test keeps native forwarding or the official older-stack
+  decomposition counterpart. Four hostile-binding scenarios now have a separate
+  added identity, retaining restoration and rejection checks.
+- The primitive-recording runtime-session prohibition applies only to added
+  SOURCE tests, preserving the original baseline test's setup.
+
+These repairs have independent bounded Astra ACCEPT and pass all **90 cases in
+the three complete owners on each official framework family**. They change no
+production code. Collection evidence and its exact source epoch are recorded in
+the handoff; matching IDs alone still do not prove numerical, context or runtime
+equivalence. Remaining cohorts, optional integrations, support-command ownership,
+selector qualification and comparable performance remain open.
+
+### Local preparation and unused selector qualification
+
+The ordinary main inventories now exist on their own official locked setups:
+Python 3.11 has 4,571 IDs; Python 3.12 with both pinned optional checkouts has
+4,621, including all 45 MaxText and five MaxDiffusion IDs; Python 3.13 and 3.14
+each have 4,573. The modern lists retain the two native `one_minus_square`
+variants. Preserve actual final-session order: the existing JSON report's
+collector-tree order is earlier than pytest's ordering hooks. The initial
+Python 3.11 and 3.14 PR projections preserve every baseline ID and its relative
+final-session order. This remains collection evidence, not execution acceptance.
+
+Local Poetry 2.1.3 initially re-resolved the Python 3.12 setup to different
+locked variants. That setup is **UNQUALIFIED**. The subsequent installation used
+`POETRY_INSTALLER_RE_RESOLVE=false`, verified the target virtualenv before any
+installation, and checked the actual marker-selected JAX/jaxlib 0.10.2, Flax
+0.12.8, NumPy 2.4.6 and SciPy 1.17.1 versions plus `pip check`. This follows
+[Poetry's documented marker-based installation](https://python-poetry.org/docs/configuration/#installerre-resolve).
+Neither lock nor reference-runtime source was changed. Retain both setup
+receipts; the initial install's exit zero is not cohort qualification.
+
+The existing `scripts/run_pytest_batches.py` now contains an **unused**, explicit
+pytest plugin candidate for standard/extra projection. Canonical script mode,
+batch requests, observers and artifact transport remain unchanged. Activation
+requires all three `--ci-lane`, `--ci-main-baseline` and `--ci-lane-report`
+options; loading the plugin alone leaves ordinary pytest behavior intact.
+Literal, separately qualified cohort/context manifests bind ordered baseline
+IDs, actual source/fixture/helper/configuration files, environment and declared
+package versions. Collection retains all modules; filtering occurs after
+ordinary ordering and before xdist publishes worker IDs. Report directories are
+fresh and external; worker inventories are separate from native phase outcomes.
+
+Independent Astra review accepted this unused stage after two repairs: final
+context auditing catches lazy imports, and the controller validates every final
+worker receipt and propagates terminal failures, including after passing native
+reports. **46 synthetic cases pass on each official framework family**, including
+the bounded opt-in xdist witness and these regressions. Initial 39-pass/one-skip
+and 40-pass runs did not exercise the subsequently identified defects and do not
+replace the repaired qualification. Evidence is recorded in the handoff.
+Durable CI manifests, support selectors, execution/context equivalence, CI
+activation and runtime parity remain **UNVERIFIED**.
+Subsequent temporary-manifest checks now establish complete/disjoint standard
+and extra **collection** on every cohort, retaining exact ordered main IDs:
+3.11 `18,498 = 4,571 + 13,927`; pinned-optional 3.12
+`18,552 = 4,621 + 13,931`; 3.13 `18,503 = 4,573 + 13,930`; 3.14
+`18,500 = 4,573 + 13,927`. Extra identities differ legitimately by native
+typing/AxisData/context schema; preserve each literal cohort list. Receipts are
+**COLLECTED**, with zero executed phases. This closes this finite collection
+partition check, not durable-manifest acceptance, runtime/context equivalence,
+support-job mapping, performance qualification or gate activation.
+
 ## Separate lanes after qualification
 
 | Lane | Exact ownership to implement | Trigger and acceptance meaning |
@@ -381,6 +485,15 @@ missing receipt remains incomplete. Existing local one-job/one-worker, one-threa
 CPUs 4–7, 4 GiB aggregate, 12 GiB startup/8 GiB live available-memory and 4 GiB
 free-disk guards remain unchanged. Hosted success does not close local model holds.
 
+Independent Astra review permits one finite harness exception for selector
+qualification: one outer pytest job may run the opt-in stdlib/pytest/xdist-only
+synthetic with a child controller and two workers (at least four Python test
+processes including the outer harness). It executes zero JAX/native-framework
+workers. Monitor the complete process tree under the same aggregate memory,
+headroom, CPU, thread and disk guards. This does not relax the one-native-worker
+rule, qualify real-suite xdist resource use or change any CI gate. The test is
+assigned to its explicit qualification lane, without a user-approval flow.
+
 ## Implementation and activation order
 
 1. Independent Astra architecture review is complete and recorded above. Keep
@@ -414,8 +527,8 @@ free-disk guards remain unchanged. Hosted success does not close local model hol
    supported cohorts. No-increase standard and separately reviewed extra budgets,
    independent numerical review, documentation and normal hooks must all pass.
 
-Only this Markdown plan was edited for the new instruction. No test collection,
-framework execution, dependency installation, workflow or Git change was made.
-The mapping, new selection, context equivalence and performance results remain
-UNVERIFIED. Independent architecture acceptance is recorded above; concrete
-implementation and gate activation still require their own review and evidence.
+The original architecture review changed only this plan. Subsequent preparation,
+source repairs and unused selector qualification are recorded above and in the
+handoff. No standard/extra workflow gate is activated. Complete mapping,
+execution/context equivalence and performance acceptance remain UNVERIFIED;
+bounded source/selector acceptance does not discharge those gates.

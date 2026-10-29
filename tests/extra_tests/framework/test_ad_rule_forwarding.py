@@ -277,32 +277,6 @@ def test_moveaxis_uses_forwarded_original_ad_rules() -> None:
 def test_tile_uses_forwarded_original_ad_rules() -> None:
     import_all_plugins()
     primitive = native_tile_primitive()
-    public, defining = vars(jax_compat._native_lax), vars(jax_compat._native_lax_impl)
-    missing = object()
-    before = public.get("tile_p", missing), defining.get("tile_p", missing)
-    for fault in ("public-only", "defining-only", "wrong-type", "name-matching"):
-        foreign = Primitive("tile") if fault == "name-matching" else object()
-        with pytest.MonkeyPatch.context() as patch:
-            if fault == "public-only":
-                patch.setitem(public, "tile_p", foreign)
-                patch.delitem(defining, "tile_p", raising=False)
-            elif fault == "defining-only":
-                patch.delitem(public, "tile_p", raising=False)
-                patch.setitem(defining, "tile_p", foreign)
-            else:
-                patch.setitem(public, "tile_p", foreign)
-                patch.setitem(defining, "tile_p", foreign)
-            with pytest.raises(TypeError, match="native tile primitive bindings"):
-                native_tile_primitive()
-            assert (public.get("tile_p", missing) is foreign) == (
-                fault != "defining-only"
-            )
-            assert (defining.get("tile_p", missing) is foreign) == (
-                fault != "public-only"
-            )
-        assert public.get("tile_p", missing) is before[0]
-        assert defining.get("tile_p", missing) is before[1]
-        assert native_tile_primitive() is primitive
     if primitive is None:
         # The original older native callable has no tile primitive to forward.
         # Its actual decomposition is the differentiation reference instead.
@@ -345,3 +319,34 @@ def test_tile_uses_forwarded_original_ad_rules() -> None:
             ad.primitive_transposes[JnpTilePlugin._PRIM]
             is ad.primitive_transposes[lax.tile_p]
         )
+
+
+def test_native_tile_binding_faults_reject_and_restore_originals() -> None:
+    import_all_plugins()
+    primitive = native_tile_primitive()
+    public, defining = vars(jax_compat._native_lax), vars(jax_compat._native_lax_impl)
+    missing = object()
+    before = public.get("tile_p", missing), defining.get("tile_p", missing)
+    for fault in ("public-only", "defining-only", "wrong-type", "name-matching"):
+        foreign = Primitive("tile") if fault == "name-matching" else object()
+        with pytest.MonkeyPatch.context() as patch:
+            if fault == "public-only":
+                patch.setitem(public, "tile_p", foreign)
+                patch.delitem(defining, "tile_p", raising=False)
+            elif fault == "defining-only":
+                patch.delitem(public, "tile_p", raising=False)
+                patch.setitem(defining, "tile_p", foreign)
+            else:
+                patch.setitem(public, "tile_p", foreign)
+                patch.setitem(defining, "tile_p", foreign)
+            with pytest.raises(TypeError, match="native tile primitive bindings"):
+                native_tile_primitive()
+            assert (public.get("tile_p", missing) is foreign) == (
+                fault != "defining-only"
+            )
+            assert (defining.get("tile_p", missing) is foreign) == (
+                fault != "public-only"
+            )
+        assert public.get("tile_p", missing) is before[0]
+        assert defining.get("tile_p", missing) is before[1]
+        assert native_tile_primitive() is primitive

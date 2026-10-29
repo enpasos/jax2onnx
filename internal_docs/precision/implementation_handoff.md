@@ -106,10 +106,12 @@ increase**; additions belong in separately visible extra lanes. The
 including this main-baseline amendment. No selection, workflow split or gate
 activation is qualified. Main is frozen at
 `81ad6ca2592635c8d2ced6dbd77292c487f0351b`; isolated official modern setup uses
-main's own lock. Initial Python 3.14 ordinary collections contain 4,573 main
-and 18,452 PR cases, including all main node IDs. This is name-level collection
-accounting, not contract or runtime equivalence; the other cohorts, support
-contexts and optional integrations remain unqualified. Evidence:
+main's own lock. Main inventories now cover all four Python cohorts: 4,571 IDs
+on 3.11, 4,621 on 3.12 including all 50 optional-model IDs, and 4,573 each on
+3.13/3.14. Initial Python 3.14 ordinary collections contain 4,573 main and
+18,452 PR cases, including all main node IDs. This is name-level collection
+accounting, not contract or runtime equivalence; remaining PR cohorts and
+support/execution contexts remain unqualified. Initial modern evidence:
 `/tmp/jax2onnx-main314-collection-v1-1ohlgxqm`,
 `/tmp/jax2onnx-pr314-collection-current-v1-0zq4cqvo` and
 `/tmp/jax2onnx-main-pr314-collection-delta-v2.json`. The superseded routine
@@ -183,6 +185,96 @@ Preserved failed predecessors remain evidence of their own epochs:
   actual final seven-hook success above qualifies this checkpoint.
 
 Next gates remain executable obligations, not inferred coverage:
+
+CI follow-through after local checkpoint `afa6d16e`: independent source mapping
+review identified and accepted explicit generated/handwritten counterparts in
+the [CI plan](ci_execution_plan.md#initial-source-contract-reconciliation-2026-10-29).
+The three repaired baseline owners pass **90 cases on each official family**:
+`/tmp/jax2onnx-main-baseline-repairs-v1-py311-cstch7ix` (3.42/4.62 s, 475 MiB)
+and `/tmp/jax2onnx-main-baseline-repairs-v1-py314-asmii7z9` (3.09/4.60 s,
+441 MiB). They preserve the full original Dropout corridor and separate new
+checks/fixtures from baseline execution; no production code changes.
+Own-lock Python 3.11 main collection contains **4,571 cases**
+(`/tmp/jax2onnx-own-lock-collection-hrz2l6ov`). The repaired PR's **18,452 cases**
+(`/tmp/jax2onnx-own-lock-collection-125pegqx`) contain all baseline IDs in exactly
+the same relative final-session order. Python 3.14's baseline has the two
+additional native `one_minus_square` variants. Ordered accounting uses actual
+pytest final-session output, since the JSON report's collector-tree order
+precedes pytest ordering hooks. This is collection/source qualification only;
+no standard/extra CI gate is activated.
+
+Additional main evidence: complete pinned-optional 3.12 collection
+`/tmp/jax2onnx-own-lock-collection-a3442583` (4,621 IDs; 45 MaxText and five
+MaxDiffusion), and ordinary 3.13
+`/tmp/jax2onnx-own-lock-collection-dvu0o7fv` (4,573 IDs). The 3.13/3.14 ordered
+main lists match. The first local 3.12 setup selected incorrect lock variants
+under Poetry 2.1.3 and is **UNQUALIFIED**, despite exit zero:
+`/tmp/jax2onnx-main312-official-optional-install-v1-j7iha4qy`.
+Marker-respecting repair, exact versions and `pip check` pass in
+`/tmp/jax2onnx-main312-official-marker-repair-v2-0gqlsyh0`.
+
+The unused selector has independent bounded Astra ACCEPT after final lazy-import
+auditing and terminal-worker failure propagation were repaired. Its complete
+opt-in synthetic owner passes **46 cases on each cohort family**, including the
+guarded two-control-worker xdist witness: minimum
+`/tmp/jax2onnx-ci-selector-terminal-v3-py311-0q0t4tgh` (17.36/18.24 s,
+178 MiB), modern `/tmp/jax2onnx-ci-selector-terminal-v3-py314-iwifz6d0`
+(22.92/23.83 s, 204 MiB). These are selector/accounting checks, not migration
+numerics or real-suite performance acceptance. Earlier 39 PASS / one assigned
+xdist skip and 40 PASS runs predate the two review fixes and remain separate
+epochs. Later default-path and real-collection evidence follows; durable CI
+manifests and execution qualification remain pending.
+
+Subsequent default-path verification passes **265 cases** across the existing
+runner/transport/control/replay owners on minimum (80.24/81.27 s, 273 MiB;
+`/tmp/jax2onnx-ci-runner-consumers-selector-v4-py311-8kz4t2w3`) and **100 existing
+runner cases** on modern (45.76/46.50 s, 170 MiB;
+`/tmp/jax2onnx-ci-runner-selector-v4-py314-9u3lnqrt`). All seven actual pinned
+hooks pass at the selector epoch (22.13 s, 468 MiB;
+`/tmp/jax2onnx-ci-selector-pinned-hooks-v5-ichilgeh`).
+
+Real temporary-manifest collection qualification now passes standard/extra
+projection on all four cohorts. Minimum: **18,498 = 4,571 + 13,927**, retaining the
+complete ordered main baseline; evidence
+`/tmp/jax2onnx-real-lane-11-pfmbm8zm` (39.34 s, 686 MiB, guarded wrapper
+`/tmp/jax2onnx-real-lane-qualification-v2-py311-0f8mm58j`). Modern:
+**18,500 = 4,573 + 13,927**, evidence
+`/tmp/jax2onnx-real-lane-14-77m_49kt` (33.07 s, 643 MiB;
+`/tmp/jax2onnx-real-lane-qualification-v2-py314-_m10ei0o`). Python 3.13:
+**18,503 = 4,573 + 13,930**, `/tmp/jax2onnx-real-lane-13-787dh7fl`
+(46.02 s, 620 MiB; `/tmp/jax2onnx-real-lane-qualification-v2-py313-okgn950o`).
+Pinned-optional 3.12: **18,552 = 4,621 + 13,931**,
+`/tmp/jax2onnx-real-lane-12-jffedjy2` (410.61 s, 1,212 MiB;
+`/tmp/jax2onnx-real-lane-qualification-v2-py312-0grmcd63`). Each cohort's two
+independent lane inventories are equal, complete and disjoint, with **COLLECTED** status and zero
+executed phases. This does not qualify actual baseline execution or performance.
+The first outside-pytest manifest attempt failed its environment gate, correctly
+retained in `/tmp/jax2onnx-real-lane-qualification-v1-py311-d_vcte9x`; its builder
+omitted the administrative `PYTEST_VERSION` set by pytest. The corrected builder
+binds that actual installed version without relaxing the selector's checks.
+Keep the differing extra identities: native typing-envelope, AxisData field and
+native-context cases vary across Python/framework cohorts. Their actual lists
+remain in each receipt; no missing variant was normalized into another cohort.
+
+An attempted ordinary push of local correctness checkpoint `afa6d16e` failed
+before authentication (`could not read Username for https://github.com`). No
+credential helper or SSH agent identity is available; the user was asked to
+provide local Git authentication without sending secrets. Published head remains
+`0a9638d`; no new remote CI evidence or native-build removal is claimed yet.
+The existing Windows credential manager also needs authentication. Its first
+owned attempt was terminated while waiting; a bounded retry with noninteractive
+flags explicitly forwarded across WSL failed without prompting. Read-only PR
+inspection subsequently confirms the same remote head. No alternate commit or
+ref was manufactured through the API; local reviewed history is preserved.
+The user requested local Git authentication setup. The repo-local helper was
+configured without changing global Git configuration; a stalled owned Windows
+device-login attempt was terminated. A checksum-verified official GitHub CLI is
+installed in the user's local bin, and its standard browser/device login awaits
+the user's GitHub authorization. No token or login code is retained in repository
+documentation; remote publication still needs an authenticated push.
+
+Strict docs for this CI checkpoint pass with a fresh external site directory:
+`/tmp/jax2onnx-ci-selector-docs-strict-v5-b5inotoq` (4.71 s, 137 MiB).
 
 1. Qualify main/PR collections and the reviewed one-to-one baseline-contract
    mapping on all supported cohorts; then demonstrate unchanged complete

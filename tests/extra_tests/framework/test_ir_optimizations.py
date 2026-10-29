@@ -148,6 +148,150 @@ def V_ir(name, dtype=ir.DataType.FLOAT, shape=()):
 
 
 def build_graph_with_not_tm():
+    x = ir.val("x", ir.DataType.FLOAT, (3, 30))
+    ratio = ir.val("ratio", ir.DataType.FLOAT, ())
+    det = ir.val("deterministic", ir.DataType.BOOL, ())
+    y = ir.val("y", ir.DataType.FLOAT, (3, 10))
+    after_gemm = ir.val("after_gemm", ir.DataType.FLOAT, (3, 20))
+    after_bn = ir.val("after_bn", ir.DataType.FLOAT, (3, 20))
+    const_true = V_ir("const_true", ir.DataType.BOOL, ())
+    not_out = ir.val("not_out", ir.DataType.BOOL, ())
+    drop_out = ir.val("drop_out", ir.DataType.FLOAT, (3, 20))
+    gelu_out = ir.val("gelu_out", ir.DataType.FLOAT, (3, 20))
+
+    def initializer(name, shape, fill):
+        return ir.val(
+            name,
+            ir.DataType.FLOAT,
+            shape,
+            const_value=ir.tensor(np.full(shape, fill, dtype=np.float32)),
+        )
+
+    gemm1_weight = initializer("gemm1_weight", (30, 20), 1)
+    gemm1_bias = initializer("gemm1_bias", (20,), 0)
+    bn_scale = initializer("bn_scale", (20,), 1)
+    bn_bias = initializer("bn_bias", (20,), 0)
+    bn_mean = initializer("bn_mean", (20,), 0)
+    bn_variance = initializer("bn_variance", (20,), 1)
+    gemm2_weight = initializer("gemm2_weight", (20, 10), 1)
+    gemm2_bias = initializer("gemm2_bias", (10,), 0)
+    constant = ir.tensor(np.asarray(True, dtype=np.bool_))
+    const_true.const_value = constant
+    graph = ir.Graph(
+        name="g",
+        inputs=[x, det, ratio],
+        outputs=[y],
+        initializers=[
+            gemm1_weight,
+            gemm1_bias,
+            bn_scale,
+            bn_bias,
+            bn_mean,
+            bn_variance,
+            gemm2_weight,
+            gemm2_bias,
+        ],
+        nodes=[
+            ir.Node(
+                "",
+                "Constant",
+                [],
+                outputs=[const_true],
+                name="Const_true",
+                attributes=[ir.AttrTensor("value", constant)],
+            ),
+            ir.Node(
+                "",
+                "Gemm",
+                [x, gemm1_weight, gemm1_bias],
+                outputs=[after_gemm],
+                name="Gemm_1",
+            ),
+            ir.Node(
+                "",
+                "BatchNormalization",
+                [after_gemm, bn_scale, bn_bias, bn_mean, bn_variance],
+                outputs=[after_bn],
+                name="BN_1",
+            ),
+            ir.Node("", "Not", [const_true], outputs=[not_out], name="Not_1"),
+            ir.Node(
+                "",
+                "Dropout",
+                [after_bn, ratio, not_out],
+                outputs=[drop_out],
+                name="Drop_1",
+            ),
+            ir.Node("", "Gelu", [drop_out], outputs=[gelu_out], name="Gelu_1"),
+            ir.Node(
+                "",
+                "Gemm",
+                [gelu_out, gemm2_weight, gemm2_bias],
+                outputs=[y],
+                name="Gemm_2",
+            ),
+        ],
+    )
+    model = ir.Model(graph, ir_version=10)
+    model.opset_imports[""] = 21
+    return model
+
+
+def _assert_full_dropout_corridor(model):
+    corridor = [node for node in model.graph if node.op_type not in {"Constant", "Not"}]
+    assert [node.op_type for node in corridor] == [
+        "Gemm",
+        "BatchNormalization",
+        "Dropout",
+        "Gelu",
+        "Gemm",
+    ]
+    assert corridor[0].inputs[0] is model.graph.inputs[0]
+    assert tuple(model.graph.inputs[0].shape) == (3, 30)
+    for previous, following in zip(corridor, corridor[1:]):
+        assert following.inputs[0] is previous.outputs[0]
+        assert tuple(previous.outputs[0].shape) == (3, 20)
+    assert corridor[-1].outputs[0] is model.graph.outputs[0]
+    assert tuple(model.graph.outputs[0].shape) == (3, 10)
+    assert len(corridor[0].inputs) == len(corridor[-1].inputs) == 3
+    assert len(corridor[1].inputs) == 5
+
+
+def test_dropout_training_mode_inlined_constant_false_and_not_removed():
+    model = build_graph_with_not_tm()
+    _assert_full_dropout_corridor(model)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    model = optimize_graph(model)
+    proto = ir.to_proto(model)
+    onnx.checker.check_model(proto, full_check=True)
+    _assert_full_dropout_corridor(model)
+    nodes = list(model.graph)
+    assert not any(node.op_type == "Not" for node in nodes)
+    dropouts = [node for node in nodes if node.op_type == "Dropout"]
+    assert len(dropouts) == 1
+    dropout = dropouts[0]
+    assert dropout.inputs[1] is next(
+        value for value in model.graph.inputs if value.name == "ratio"
+    )
+    assert len(dropout.inputs) == 2 or dropout.inputs[2] is None
+    assert [node.op_type for node in proto.graph.node] == [
+        "Gemm",
+        "BatchNormalization",
+        "Dropout",
+        "Gelu",
+        "Gemm",
+    ]
+    for previous, following in zip(proto.graph.node, proto.graph.node[1:]):
+        assert following.input[0] == previous.output[0]
+    assert proto.graph.node[0].input[0] == "x"
+    assert proto.graph.node[-1].output[0] == "y"
+    proto_dropout = next(node for node in proto.graph.node if node.op_type == "Dropout")
+    assert proto_dropout.input[1] == "ratio"
+    assert len(proto_dropout.input) == 2 or proto_dropout.input[2] == ""
+    assert {value.name for value in model.graph.inputs} == {"x", "ratio"}
+
+
+def _build_direct_dropout_graph_with_not_tm():
     x = ir.val("x", ir.DataType.FLOAT, (3, 20))
     ratio = ir.val("ratio", ir.DataType.FLOAT, ())
     det = ir.val("deterministic", ir.DataType.BOOL, ())
@@ -175,8 +319,8 @@ def build_graph_with_not_tm():
     return ir.Model(graph, ir_version=10)
 
 
-def test_dropout_training_mode_inlined_constant_false_and_not_removed():
-    model = build_graph_with_not_tm()
+def test_direct_dropout_training_mode_inlined_constant_false_and_not_removed():
+    model = _build_direct_dropout_graph_with_not_tm()
     onnx.checker.check_model(ir.to_proto(model), full_check=True)
     model = optimize_graph(model)
     onnx.checker.check_model(ir.to_proto(model), full_check=True)

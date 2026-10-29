@@ -1479,6 +1479,640 @@ def _main() -> int:
     return 1
 
 
+# This opt-in pytest plugin is independent of the canonical batch executor above.
+# It records selection and native pytest outcomes, never numerical acceptance.
+def _ci_lane_environment(environment: Any = None) -> dict[str, str | None]:
+    source = os.environ if environment is None else environment
+    volatile = {
+        "PYTEST_CURRENT_TEST",
+        "PYTEST_XDIST_WORKER",
+        "PYTEST_XDIST_WORKER_COUNT",
+        "PYTEST_XDIST_TESTRUNUID",
+    }
+    return {
+        name: source.get(name)
+        for name in _worker_environment_names(source)
+        if name not in volatile
+    }
+
+
+def _ci_lane_manifest(path: Path) -> tuple[dict[str, Any], bytes]:
+    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate baseline manifest key")
+            result[key] = value
+        return result
+
+    raw = _context_read(path, 16 * 1024 * 1024)
+    manifest = json.loads(raw, object_pairs_hook=object_pairs)
+    required = {
+        "schema",
+        "baseline_commit",
+        "python_minor",
+        "nodeids",
+        "source_files",
+        "environment",
+    }
+    if (
+        type(manifest) is not dict
+        or not required <= manifest.keys()
+        or manifest.keys() - required - {"packages"}
+        or manifest["schema"] != "jax2onnx-ci-baseline-v1"
+    ):
+        raise ValueError("unsupported baseline manifest schema")
+
+    def digest(value: Any, length: int) -> bool:
+        return (
+            type(value) is str
+            and len(value) == length
+            and all(character in "0123456789abcdef" for character in value)
+        )
+
+    if not digest(manifest["baseline_commit"], 40):
+        raise ValueError("baseline_commit must be a bare forty-character SHA")
+    minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if (
+        minor not in {"3.11", "3.12", "3.13", "3.14"}
+        or manifest["python_minor"] != minor
+    ):
+        raise ValueError("unqualified Python cohort")
+    ids = manifest["nodeids"]
+    if (
+        type(ids) is not list
+        or not ids
+        or any(type(nodeid) is not str or not nodeid for nodeid in ids)
+        or len(set(ids)) != len(ids)
+    ):
+        raise ValueError("baseline nodeids must be nonempty, unique ordered strings")
+    sources = manifest["source_files"]
+    if (
+        type(sources) is not dict
+        or not sources
+        or any(
+            type(name) is not str
+            or not name
+            or Path(name).is_absolute()
+            or ".." in Path(name).parts
+            or Path(name).as_posix() != name
+            or not digest(value, 64)
+            for name, value in sources.items()
+        )
+    ):
+        raise ValueError(
+            "baseline source_files need relative paths and SHA-256 bindings"
+        )
+    if (
+        type(manifest["environment"]) is not dict
+        or manifest["environment"] != _ci_lane_environment()
+    ):
+        raise ValueError("baseline environment differs from the qualified context")
+    packages = manifest.get("packages", {})
+    if type(packages) is not dict or any(
+        type(name) is not str or not name or type(version) is not str or not version
+        for name, version in packages.items()
+    ):
+        raise ValueError("baseline packages need exact distribution versions")
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        actual = {name: version(name) for name in packages}
+    except PackageNotFoundError as exc:
+        raise ValueError("baseline distribution is not installed") from exc
+    if actual != packages:
+        raise ValueError("baseline package versions differ from the qualified cohort")
+    return manifest, raw
+
+
+def _ci_lane_sources(root: Path, sources: dict[str, str]) -> dict[str, Any]:
+    bindings = {}
+    for relative, expected in sources.items():
+        path = (root / relative).resolve(strict=True)
+        if not path.is_relative_to(root) or not path.is_file():
+            raise ValueError(f"baseline source escapes the checkout: {relative}")
+        payload = path.read_bytes()
+        actual = hashlib.sha256(payload).hexdigest()
+        if actual != expected:
+            raise ValueError(f"baseline source binding changed: {relative}")
+        bindings[relative] = {"sha256": actual, "bytes": len(payload)}
+    return bindings
+
+
+def _ci_lane_checkout(root: Path) -> dict[str, Any]:
+    # Observations only: a synthetic source archive can lack Git metadata.
+    result: dict[str, Any] = {"head": None, "dirty": None, "status": "UNAVAILABLE"}
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        status = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if head.returncode == status.returncode == 0:
+            result.update(
+                head=head.stdout.strip(),
+                dirty=bool(status.stdout),
+                source_status=status.stdout.splitlines(),
+                status="OBSERVED",
+            )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return result
+
+
+def pytest_addoption(parser: Any) -> None:
+    group = parser.getgroup("reviewed CI lane selection")
+    group.addoption("--ci-lane", choices=("standard", "extra"), default=None)
+    group.addoption("--ci-main-baseline", default=None)
+    group.addoption("--ci-lane-report", default=None)
+
+
+def pytest_configure(config: Any) -> None:
+    lane = config.getoption("ci_lane")
+    baseline = config.getoption("ci_main_baseline")
+    destination = config.getoption("ci_lane_report")
+    if not any((lane, baseline, destination)):
+        return
+    import inspect
+    import pytest
+
+    if not all((lane, baseline, destination)):
+        raise pytest.UsageError("CI lane selection needs all three explicit options")
+    root = Path(config.rootpath).resolve()
+    folder = Path(destination).resolve()
+    worker = getattr(config, "workerinput", None)
+    try:
+        if folder.is_relative_to(root):
+            raise ValueError(
+                "CI lane report must be fresh and external to the checkout"
+            )
+        if worker is None:
+            folder.mkdir(parents=True, exist_ok=False)
+            (folder / "workers").mkdir()
+        else:
+            authorization = worker.get("ci_lane")
+            if not authorization or authorization["report_root"] != str(folder):
+                raise ValueError("worker has no controller CI lane authorization")
+            identifier = worker["workerid"]
+            if not identifier or any(
+                c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in identifier
+            ):
+                raise ValueError("unsupported worker identity")
+            folder = folder / "workers" / identifier
+            folder.mkdir(exist_ok=False)
+    except (OSError, ValueError) as exc:
+        raise pytest.UsageError(str(exc)) from exc
+    receipt: dict[str, Any] = {
+        "schema": "jax2onnx-ci-lane-v1",
+        "status": "FAIL",
+        "finished": None,
+        "acceptance_scope": "selection-and-native-phase-accounting-only",
+        "lane": lane,
+        "role": "worker" if worker is not None else "serial",
+        "started": _now(),
+        "checkout": _ci_lane_checkout(root),
+        "full_preselection_ids": [],
+        "selected_ids": [],
+        "deselected_ids": [],
+        "collection_skips": [],
+        "collection_errors": [],
+        "errors": [],
+        "phases": {},
+        "phase_durations": {},
+        "completed": [],
+        "workers": {},
+        "crashes": [],
+        "accounting_complete": False,
+        "selector_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
+
+    def checkpoint() -> None:
+        _write(folder / "receipt.json", receipt)
+
+    try:
+        for name in (
+            "file_or_dir",
+            "keyword",
+            "markexpr",
+            "ignore",
+            "ignore_glob",
+            "deselect",
+            "lf",
+            "failedfirst",
+            "newfirst",
+            "noconftest",
+            "confcutdir",
+            "override_ini",
+            "pyargs",
+            "inifilename",
+            "rootdir",
+        ):
+            if getattr(config.option, name, None):
+                raise ValueError(
+                    f"CI lane selection rejects effective prefilter/context option: {name}"
+                )
+        if getattr(
+            config.option, "importmode", "prepend"
+        ) != "prepend" or config.getini("pythonpath"):
+            raise ValueError(
+                "CI lane selection requires the qualified default import context"
+            )
+        manifest, raw = _ci_lane_manifest(Path(baseline))
+        raw_hash = hashlib.sha256(raw).hexdigest()
+        if worker is not None and worker["ci_lane"]["manifest_sha256"] != raw_hash:
+            raise ValueError("worker baseline manifest differs from its controller")
+        receipt.update(
+            manifest_sha256=raw_hash,
+            baseline_commit=manifest["baseline_commit"],
+            python_minor=manifest["python_minor"],
+            packages=manifest.get("packages", {}),
+            environment=_ci_lane_environment(),
+            source_files=_ci_lane_sources(root, manifest["source_files"]),
+        )
+        if worker is None:
+            (folder / "baseline.json").write_bytes(raw)
+    except (OSError, ValueError, LookupError) as exc:
+        receipt["errors"].append(str(exc))
+        checkpoint()
+        raise pytest.UsageError(str(exc)) from exc
+    checkpoint()
+
+    class LaneSelection:
+        projecting = False
+        selected: list[str] | None = None
+        selected_set: set[str] = set()
+        protocol_started = False
+        serial_position = 0
+        distributed = worker is None and getattr(
+            config.option, "numprocesses", None
+        ) not in (None, 0)
+
+        def fail(self, message: str, *, terminal: bool = False) -> None:
+            receipt["errors"].append(message)
+            if not terminal:
+                checkpoint()
+                pytest.exit(message, returncode=4)
+
+        def check_source(self, path: Any, *, terminal: bool = False) -> None:
+            if path is None:
+                return
+            resolved = Path(path).resolve()
+            if resolved.is_relative_to(root) and resolved.suffix == ".py":
+                relative = resolved.relative_to(root).as_posix()
+                if relative not in manifest["source_files"]:
+                    self.fail(
+                        f"unbound collected owner or dependency source: {relative}",
+                        terminal=terminal,
+                    )
+
+        def check_context(self, items: Any = (), *, terminal: bool = False) -> None:
+            try:
+                key = "source_files_after" if terminal else "source_files"
+                receipt[key] = _ci_lane_sources(root, manifest["source_files"])
+            except (OSError, ValueError) as exc:
+                self.fail(str(exc), terminal=terminal)
+            if config.inipath is not None:
+                relative = Path(config.inipath).resolve().relative_to(root).as_posix()
+                if relative not in manifest["source_files"]:
+                    self.fail(
+                        f"unbound pytest configuration: {relative}", terminal=terminal
+                    )
+            for item in items:
+                if not Path(item.path).resolve().is_relative_to(root):
+                    self.fail(
+                        "collected test owner resolves outside the checkout",
+                        terminal=terminal,
+                    )
+                self.check_source(item.path, terminal=terminal)
+            for name, module in list(sys.modules.items()):
+                namespace = vars(module) if module is not None else {}
+                path = namespace.get("__file__")
+                if type(path) is not str:
+                    continue
+                if name == "jax2onnx" or name.startswith(("jax2onnx.", "tests.")):
+                    if not Path(path).resolve().is_relative_to(root):
+                        self.fail(
+                            f"test/converter module resolves outside the checkout: {name}",
+                            terminal=terminal,
+                        )
+                self.check_source(path, terminal=terminal)
+
+        def verify(self, session: Any) -> None:
+            if (
+                self.selected is None
+                or [item.nodeid for item in session.items] != self.selected
+            ):
+                self.fail("CI lane executable selection changed after projection")
+
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+        def pytest_collection_modifyitems(self, session: Any, items: Any) -> Any:
+            before = [item.nodeid for item in items]
+            outcome = yield
+            outcome.get_result()
+            full = [item.nodeid for item in items]
+            receipt["full_preselection_ids"] = full
+            if len(set(full)) != len(full) or Counter(full) != Counter(before):
+                self.fail(
+                    "ordinary collection hooks changed inventory instead of ordering"
+                )
+            if receipt["collection_errors"]:
+                self.fail("CI lane collection contains errors")
+            self.check_context(items)
+            baseline_ids = manifest["nodeids"]
+            baseline_set = set(baseline_ids)
+            projection = [nodeid for nodeid in full if nodeid in baseline_set]
+            if projection != baseline_ids:
+                self.fail("baseline IDs are missing or their relative order changed")
+            selected = [
+                item
+                for item in items
+                if (item.nodeid in baseline_set) == (lane == "standard")
+            ]
+            deselected = [
+                item
+                for item in items
+                if (item.nodeid in baseline_set) != (lane == "standard")
+            ]
+            self.selected = [item.nodeid for item in selected]
+            self.selected_set = set(self.selected)
+            receipt["selected_ids"] = self.selected
+            receipt["deselected_ids"] = [item.nodeid for item in deselected]
+            items[:] = selected
+            self.projecting = True
+            try:
+                config.hook.pytest_deselected(items=deselected)
+            finally:
+                self.projecting = False
+            checkpoint()
+
+        def pytest_deselected(self, items: Any) -> None:
+            if items and not self.projecting:
+                self.fail("foreign deselection prevents full CI lane collection")
+
+        def pytest_collectreport(self, report: Any) -> None:
+            if report.failed or report.skipped:
+                key = "collection_errors" if report.failed else "collection_skips"
+                receipt[key].append(
+                    {"nodeid": report.nodeid, "longrepr": str(report.longrepr)}
+                )
+                checkpoint()
+                self.check_source(root / report.nodeid.split("::", 1)[0])
+
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+        def pytest_collection_finish(self, session: Any) -> Any:
+            self.verify(session)
+            checkpoint()  # xdist publishes only after this outer pre-yield check.
+            yield
+            self.verify(session)
+
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+        def pytest_runtestloop(self, session: Any) -> Any:
+            if not self.distributed:
+                self.verify(session)
+                self.check_context(session.items)
+            yield
+
+        @pytest.hookimpl(tryfirst=True)
+        def pytest_runtest_protocol(self, item: Any) -> None:
+            if not self.protocol_started:
+                self.verify(item.session)
+                self.protocol_started = True
+            if item.nodeid not in self.selected_set:
+                self.fail("unexpected CI lane test execution")
+            if worker is None and not self.distributed:
+                if (
+                    self.selected is None
+                    or self.serial_position >= len(self.selected)
+                    or item.nodeid != self.selected[self.serial_position]
+                ):
+                    self.fail("serial CI lane execution changed selected order")
+                self.serial_position += 1
+
+        @pytest.hookimpl(tryfirst=True)
+        def pytest_fixture_setup(self, fixturedef: Any) -> None:
+            self.check_source(inspect.getsourcefile(fixturedef.func))
+
+        def pytest_runtest_logreport(self, report: Any) -> None:
+            phase = {"when": report.when, "outcome": report.outcome}
+            if hasattr(report, "wasxfail"):
+                phase["wasxfail"] = str(report.wasxfail)
+            if report.failed or report.skipped:
+                phase["longrepr"] = str(report.longrepr)
+            receipt["phases"].setdefault(report.nodeid, []).append(phase)
+            timing = {"when": report.when, "seconds": report.duration}
+            receipt["phase_durations"].setdefault(report.nodeid, []).append(timing)
+            with (folder / "events.jsonl").open("a") as stream:
+                stream.write(
+                    json.dumps({"nodeid": report.nodeid, **phase, **timing}) + "\n"
+                )
+
+        @pytest.hookimpl(optionalhook=True)
+        def pytest_configure_node(self, node: Any) -> None:
+            receipt["role"] = "controller"
+            node.workerinput["ci_lane"] = {
+                "report_root": str(folder),
+                "manifest_sha256": raw_hash,
+            }
+            receipt["workers"][node.gateway.id] = {
+                "receipt": str(folder / "workers" / node.gateway.id / "receipt.json"),
+                "published_ids": None,
+                "terminal_received": False,
+            }
+            checkpoint()
+
+        @pytest.hookimpl(optionalhook=True)
+        def pytest_xdist_node_collection_finished(
+            self, node: Any, ids: list[str]
+        ) -> None:
+            path = folder / "workers" / node.gateway.id / "receipt.json"
+            try:
+                inventory = json.loads(path.read_text())
+                if (
+                    inventory["manifest_sha256"] != raw_hash
+                    or inventory["selected_ids"] != ids
+                    or inventory["collection_errors"]
+                    or inventory["errors"]
+                    or inventory["source_files"] != receipt["source_files"]
+                ):
+                    raise ValueError(
+                        "worker inventory differs from its published selection"
+                    )
+                if self.selected is None:
+                    self.selected = list(ids)
+                    self.selected_set = set(ids)
+                    for key in (
+                        "full_preselection_ids",
+                        "selected_ids",
+                        "deselected_ids",
+                        "collection_skips",
+                    ):
+                        receipt[key] = inventory[key]
+                elif any(
+                    receipt[key] != inventory[key]
+                    for key in (
+                        "full_preselection_ids",
+                        "selected_ids",
+                        "deselected_ids",
+                        "collection_skips",
+                    )
+                ):
+                    raise ValueError("worker CI lane inventories disagree")
+                receipt["workers"][node.gateway.id]["published_ids"] = list(ids)
+                checkpoint()
+            except (OSError, ValueError, KeyError) as exc:
+                self.fail(str(exc))
+
+        @pytest.hookimpl(optionalhook=True)
+        def pytest_testnodedown(self, node: Any, error: Any) -> None:
+            if error is not None:
+                receipt["crashes"].append(
+                    {"worker": node.gateway.id, "error": str(error)}
+                )
+            try:
+                record = receipt["workers"][node.gateway.id]
+                payload = Path(record["receipt"]).read_bytes()
+                terminal = json.loads(payload)
+                if (
+                    type(terminal) is not dict
+                    or type(terminal.get("phases")) is not dict
+                ):
+                    raise ValueError(
+                        "terminal worker receipt needs native phase records"
+                    )
+                record.update(
+                    terminal_received=True,
+                    terminal_sha256=hashlib.sha256(payload).hexdigest(),
+                    terminal_status=terminal.get("status"),
+                    terminal_exitstatus=terminal.get("exitstatus"),
+                    terminal_errors=terminal.get("errors"),
+                )
+                if (
+                    terminal["role"] != "worker"
+                    or terminal["lane"] != lane
+                    or terminal["manifest_sha256"] != raw_hash
+                    or terminal["baseline_commit"] != manifest["baseline_commit"]
+                    or terminal["python_minor"] != manifest["python_minor"]
+                    or terminal["packages"] != manifest.get("packages", {})
+                    or terminal["environment"] != receipt["environment"]
+                    or terminal["selector_sha256"] != receipt["selector_sha256"]
+                    or terminal["source_files"] != receipt["source_files"]
+                    or terminal["source_files_after"] != receipt["source_files"]
+                    or any(
+                        terminal[key] != receipt[key]
+                        for key in (
+                            "full_preselection_ids",
+                            "selected_ids",
+                            "deselected_ids",
+                            "collection_skips",
+                        )
+                    )
+                    or terminal["selected_ids"] != record["published_ids"]
+                    or terminal["status"] != "WORKER_FINISHED"
+                    or not terminal["finished"]
+                    or terminal["exitstatus"] != 0
+                    or terminal["errors"]
+                    or terminal["collection_errors"]
+                    or terminal["crashes"]
+                    or not terminal["observed_phases_complete"]
+                    or terminal["completed"] != _completed(terminal["phases"])
+                    or set(terminal["completed"]) != set(terminal["phases"])
+                    or set(terminal["phases"]) - self.selected_set
+                    or any(
+                        phase["outcome"] not in {"passed", "skipped"}
+                        for phases in terminal["phases"].values()
+                        for phase in phases
+                    )
+                ):
+                    raise ValueError(
+                        "terminal worker receipt failed its binding or accounting checks"
+                    )
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                self.fail(f"worker {node.gateway.id}: {exc}", terminal=True)
+            checkpoint()
+
+        @pytest.hookimpl(trylast=True)
+        def pytest_sessionfinish(self, session: Any, exitstatus: Any) -> None:
+            receipt["native_exitstatus"] = int(exitstatus)
+            receipt["finished"] = _now()
+            receipt["checkout_after"] = _ci_lane_checkout(root)
+            # Test bodies may import contract dependencies lazily. Audit that
+            # enlarged context before success; a failure here is after-body.
+            self.check_context(session.items, terminal=True)
+            receipt["completed"] = _completed(receipt["phases"])
+            observed_complete = set(receipt["completed"]) == set(
+                receipt["phases"]
+            ) and all(
+                phase["outcome"] in {"passed", "skipped"}
+                for phases in receipt["phases"].values()
+                for phase in phases
+            )
+            receipt["observed_phases_complete"] = observed_complete
+            if self.distributed and any(
+                not record["terminal_received"]
+                for record in receipt["workers"].values()
+            ):
+                self.fail(
+                    "configured workers have missing terminal receipts", terminal=True
+                )
+            clean = not (
+                receipt["errors"] or receipt["collection_errors"] or receipt["crashes"]
+            )
+            if worker is not None:
+                # A worker owns only its observed assigned phases, not every ID
+                # in its shared collection. Global completion belongs upstairs.
+                valid = (
+                    observed_complete and set(receipt["phases"]) <= self.selected_set
+                )
+                receipt["status"] = (
+                    "WORKER_FINISHED"
+                    if clean and valid and int(exitstatus) == 0
+                    else "FAIL"
+                )
+            elif config.option.collectonly:
+                receipt["status"] = (
+                    "COLLECTED" if clean and int(exitstatus) == 0 else "FAIL"
+                )
+            else:
+                complete = (
+                    self.selected is not None
+                    and observed_complete
+                    and Counter(receipt["completed"])
+                    == Counter(receipt["selected_ids"])
+                    and set(receipt["phases"]) == set(receipt["selected_ids"])
+                    and (not self.distributed or bool(receipt["workers"]))
+                )
+                receipt["accounting_complete"] = complete
+                receipt["status"] = (
+                    "PASS" if clean and complete and int(exitstatus) == 0 else "FAIL"
+                )
+            if receipt["status"] == "FAIL" and int(session.exitstatus) == 0:
+                session.exitstatus = 1
+            receipt["exitstatus"] = int(session.exitstatus)
+            if worker is not None:
+                # xdist snapshots exitstatus before yielding to ordinary finish
+                # hooks; update that native transport field after our audit.
+                config.workeroutput["exitstatus"] = receipt["exitstatus"]
+            checkpoint()
+
+    config.pluginmanager.register(LaneSelection(), "jax2onnx-ci-lane-selection")
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--worker":
         raise SystemExit(_worker(Path(sys.argv[2])))

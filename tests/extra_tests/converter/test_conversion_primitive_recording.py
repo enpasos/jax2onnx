@@ -123,7 +123,7 @@ def _observe_writes(monkeypatch):
     return observed
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _forbid_runtime_sessions(monkeypatch):
     import onnxruntime
 
@@ -133,6 +133,7 @@ def _forbid_runtime_sessions(monkeypatch):
     monkeypatch.setattr(onnxruntime, "InferenceSession", forbidden)
 
 
+@pytest.mark.usefixtures("_forbid_runtime_sessions")
 @pytest.mark.parametrize("mode", ["ir", "proto"])
 @pytest.mark.parametrize("scope", _SOURCE_MODELS)
 def test_source_recording_preserves_artifacts_and_flushes_nested_scopes_once(
@@ -191,6 +192,7 @@ def test_source_recording_preserves_artifacts_and_flushes_nested_scopes_once(
         assert all(record["outputs_onnx_names"])
 
 
+@pytest.mark.usefixtures("_forbid_runtime_sessions")
 @pytest.mark.parametrize("target", ["missing-parent", "directory"])
 def test_source_log_write_failures_preserve_successful_artifact(
     target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -213,6 +215,7 @@ def test_source_log_write_failures_preserve_successful_artifact(
         assert not path.parent.exists()
 
 
+@pytest.mark.usefixtures("_forbid_runtime_sessions")
 @pytest.mark.parametrize("stage", ["lowering", "finalization"])
 @pytest.mark.parametrize("existing", [False, True])
 def test_failed_log_write_cannot_mask_source_lowering_or_finalization_errors(
