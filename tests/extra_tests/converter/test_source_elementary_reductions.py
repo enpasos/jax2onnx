@@ -878,8 +878,9 @@ def test_round_tie_modes_large_integrals_and_signed_zero(
 
 @pytest.mark.parametrize("exponent", _POWERS)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("opset", [21, 23])
 def test_integer_pow_uses_native_multiplication_association(
-    exponent: int, dtype: Any
+    exponent: int, dtype: Any, opset: int
 ) -> None:
     with jax.enable_x64(dtype is np.float64):
         values = (np.asarray([-2, -1.125, -0.0, 0.0, 0.75, 1.00001, 2], dtype),)
@@ -888,7 +889,7 @@ def test_integer_pow_uses_native_multiplication_association(
             y = jax.lax.integer_pow(x, exponent)
             return y, y.astype(jnp.float32), np.asarray(1, dtype) / y
 
-        proto, references = _export(model, (values,))
+        proto, references = _export(model, (values,), opset=opset)
         assert all(
             node.op_type not in {"Pow", "Reciprocal"} for node in proto.graph.node
         )

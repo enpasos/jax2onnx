@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status: **Main-baseline architecture accepted; implementation, gate activation and measured qualification pending.**
+Status: **Main-baseline architecture accepted. Finite Python 3.11 functional/resource qualification completed at old `9520dfb9`; other cohorts, paired no-increase performance and gate activation remain pending.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -30,11 +30,15 @@ not accept missing migration verifiers or claim performance results.
 The reference main commit, supplied by root's fresh remote/local observation, is
 `81ad6ca2592635c8d2ced6dbd77292c487f0351b`. Freeze this SHA as the initial baseline;
 record and independently reconcile later main changes instead of silently
-rebasing or shrinking the baseline. Current published PR head `4ec9fad4` has
+rebasing or shrinking the baseline. Current published PR head `9a0bc7fb` has
 four successful support jobs and four full Python jobs still in progress in
-[CI 40847090831](https://github.com/enpasos/jax2onnx/actions/runs/40847090831).
-Its independently accepted NNX repair has dual-framework focused evidence and
-all seven normal pinned hooks. Predecessor `afa6d16e` had four successful support
+[CI 40875416260](https://github.com/enpasos/jax2onnx/actions/runs/40875416260)
+at the latest observation. Its independently accepted storage/Linen repair
+passes the four complete related owners on every supported Python cohort,
+all seven normal pinned hooks and strict documentation. Predecessor `4ec9fad4`
+retains four successful support jobs and failed Python 3.11/3.12 full jobs in
+[CI 40847090831](https://github.com/enpasos/jax2onnx/actions/runs/40847090831);
+the other Python outcomes remain separately observed. Predecessor `afa6d16e` had four successful support
 jobs and four failed full Python jobs in
 [CI 40837446240](https://github.com/enpasos/jax2onnx/actions/runs/40837446240):
 all four stopped at the original NNX Transformer static-preparation defect;
@@ -47,6 +51,44 @@ the current PR locks use 0.12.0.1 there. Preserve each revision's own lock
 versions and markers in isolated installations. No custom native builds,
 compiler patches, overlays or substitutions are authorized. The complete B–F
 contract and exact-final-commit acceptance remain unchanged.
+
+## Latest bounded qualification — 2026-10-29
+
+The complete locked Python 3.11 standard campaign at old head `9520dfb9`
+finishes the exact original 4,571-case order: **4,569 PASS and two unchanged
+main skips**. Both skip counterparts reproduce on frozen main with its own
+lock. All fifteen closed workers retain full `C=18,647`, exact assignments,
+source/package bindings and startup, collected and post-pytest context.
+Astra independently accepts this finite functional/resource evidence:
+1,120.59 s, 3,237.78 MiB and at most four owned processes, within the unchanged
+1,200-s/4-GiB guard. Evidence:
+`/tmp/jax2onnx-canonical-standard311-full-v4-iykuhoky` and
+`/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard-full311-v4-20261029-qualification/full-summary.json`.
+The campaign does not qualify a later integrated head, the other cohorts,
+SOURCE numerical behavior, comparable runtime or gate activation.
+
+A separate three-arm tail trial preserves all original identities and
+compares the existing 246/332 packets with their exact 578-case concatenation.
+Child elapsed time is 145.946805 s separately and 125.256561 s combined.
+The combined peak is 3,865.64 MiB, only 230.36 MiB below the cap. Astra accepts
+the literal outcomes, context and evidence comparisons; one fixed-order trial
+does not establish general savings or safe scheduling. **Keep the existing
+split and default planner.** Evidence:
+`/tmp/jax2onnx-standard-tail-boundary-comparison-v2.json`. The initial control13
+caller omitted the explicit suite environment and failed precheck without
+starting a worker; that failed predecessor remains recorded.
+
+Paired main-versus-PR performance remains **UNQUALIFIED**. Present main and PR
+environments/artifacts occupy different filesystems, with different reuse and
+cache histories. A qualifying comparison needs matched filesystem placement,
+fresh artifact policy, each revision's own locks and recorded interpreter/tools,
+CPU/thread and concurrency limits, cache policy and no concurrent native work.
+Use at least three complete paired campaigns with alternating order; include
+setup, generation, collection, aggregation and uploads. Compare both median and
+worst critical-path time plus aggregate work under the no-increase contract.
+Do not present the bounded tail difference, old GitHub observations or unmatched
+local measurements as that proof. The historical milestones below retain their
+own source epochs and are superseded only where this section explicitly says so.
 
 ## Accepted incremental work and measured starting point
 

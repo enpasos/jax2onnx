@@ -109,6 +109,7 @@ def validate_original_elementary_opset(
             ),
             "min": {"float64"},
             "max": real,
+            "integer_pow": real | {"int32", "int64"},
             **dict.fromkeys(
                 ("dot_general", "transpose", "reduce_max", "exp", "stop_gradient"),
                 real,

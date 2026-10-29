@@ -8,9 +8,9 @@ acceptance; the explicit FTZ target must pass the unchanged strict criteria.
 NaN payload equality is deliberately absent. Mathematical subnormal words are
 recorded separately from native acceptance.
 
-The original maximum/reciprocal composition at opset21 remains a separately
-rejected, numerically unverified SOURCE obligation. The distinct max-only21
-worker case does not qualify that composition or establish an ONNX limitation.
+The original five-feed, six-output maximum/reciprocal composition at opset21
+executes alongside the distinct max-only21 case. Its default-target numerical
+status and explicit FTZ-target evidence retain separate acceptance claims.
 
 The unchanged default-target acceptance obligation remains executable with:
 python tests/extra_tests/converter/test_source_reduce_extrema_semantics.py \
@@ -35,7 +35,6 @@ import pytest
 
 from jax2onnx import user_interface as ui
 from jax2onnx.converter.precision_policy import PrecisionPolicy
-from jax2onnx.converter.source_profile import SourcePrecisionError
 
 
 def _subnormal_mask(value: np.ndarray) -> np.ndarray:
@@ -447,14 +446,12 @@ def _scientific_maximum_only_case() -> Any:
     return model, feeds, expected
 
 
-_UNIMPLEMENTED_COMPOSITION = {
+_ORIGINAL_COMPOSITION = {
     "id": "original-maximum-reciprocal-float64-21",
-    "owner": "test_scientific_maximum_original_reciprocal_composition_rejected",
+    "owner": "test_scientific_maximum_original_reciprocal_composition_executes_profiles",
+    "previous_owner": "test_scientific_maximum_original_reciprocal_composition_rejected",
     "feeds": 5,
     "outputs": 6,
-    "numerical_status": "UNVERIFIED",
-    "target_comparisons": 0,
-    "obligation": "unimplemented SOURCE composition; no ONNX-limit claim",
 }
 
 
@@ -466,6 +463,7 @@ _CASES = (
     ("lax-float64-16", "float64", "lax", 16, 12),
     ("lax-float64-26", "float64", "lax", 26, 12),
     ("maximum-only-float64-21", "float64", "maximum-only", 21, 5),
+    ("original-maximum-reciprocal-float64-21", "float64", "maximum-reciprocal", 21, 6),
     ("lax-float16-23", "float16", "lax", 23, 12),
 )
 _ROLES = ("eager", "jit")
@@ -543,7 +541,7 @@ def _run_profile(profile: str, report_path: Path) -> int:
         "agreement_outcomes": [],
         "target_outcomes": [],
         "subnormal_conformance": [],
-        "unimplemented_compositions": [dict(_UNIMPLEMENTED_COMPOSITION)],
+        "composition_obligations": [],
     }
     try:
         prepared_cases = []
@@ -557,6 +555,8 @@ def _run_profile(profile: str, report_path: Path) -> int:
             with jax.enable_x64(dtype == "float64"):
                 if frontend == "maximum-only":
                     model, feeds, expected = _scientific_maximum_only_case()
+                elif frontend == "maximum-reciprocal":
+                    model, feeds, expected = _scientific_maximum_case()
                 else:
                     model, feeds = _model(frontend), _feeds(np.dtype(dtype))
                     expected = [_expected(*feed, frontend) for feed in feeds]
@@ -656,6 +656,33 @@ def _run_profile(profile: str, report_path: Path) -> int:
     report["acceptance_claim"] = (
         gate_pass and profile != "default-diagnostic" and not failed
     )
+    identity = _ORIGINAL_COMPOSITION["id"]
+    native_count, agreement_count, target_count = (
+        sum(row[0] == identity for row in report[key])
+        for key in ("native_outcomes", "agreement_outcomes", "target_outcomes")
+    )
+    composition_failed = any(row[0] == identity for row in failed)
+    composition_complete = (native_count, agreement_count, target_count) == (
+        60,
+        30,
+        120,
+    )
+    report["composition_obligations"].append(
+        {
+            **_ORIGINAL_COMPOSITION,
+            "native_oracle_comparisons": native_count,
+            "native_agreement_comparisons": agreement_count,
+            "target_comparisons": target_count,
+            "numerical_status": (
+                "FAILED"
+                if composition_failed
+                else "PASS" if composition_complete else "UNVERIFIED"
+            ),
+            "acceptance_claim": composition_complete
+            and not composition_failed
+            and report["acceptance_claim"],
+        }
+    )
     report_path.write_text(json.dumps(report, separators=(",", ":")) + "\n")
     return 0 if gate_pass else 1
 
@@ -666,7 +693,6 @@ def _check_profile_report(report: dict[str, Any], profile: str) -> None:
         {"session.set_denormal_as_zero": "1"} if profile == "ftz-strict" else None
     )
     assert report["strict_acceptance"] is (profile != "default-diagnostic")
-    assert report["unimplemented_compositions"] == [_UNIMPLEMENTED_COMPOSITION]
     assert "fatal_error" not in report, report.get("fatal_error")
     identities = [case[0] for case in _CASES]
     assert report["prepared_before_first_session"] == identities
@@ -711,12 +737,11 @@ def _check_profile_report(report: dict[str, Any], profile: str) -> None:
     assert report["acceptance_claim"] is (profile == "ftz-strict")
 
 
-def test_source_extrema_full_matrix_isolated_target_profiles(
-    tmp_path: Path, record_property: Any
-) -> None:
-    """Diagnostic success is separate from FTZ-target numerical acceptance."""
+@pytest.fixture(scope="module")
+def _isolated_target_profiles(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    tmp_path = tmp_path_factory.mktemp("extrema-profiles")
     profiles = ("default-diagnostic", "ftz-strict")
-    reports, processes = [], []
+    observations = []
     for profile in profiles:
         path = tmp_path / f"{profile}.json"
         result = subprocess.run(
@@ -735,13 +760,21 @@ def test_source_extrema_full_matrix_isolated_target_profiles(
             check=False,
         )
         report = json.loads(path.read_text()) if path.is_file() else None
+        observations.append((profile, result, report))
+    return observations
+
+
+def test_source_extrema_full_matrix_isolated_target_profiles(
+    _isolated_target_profiles: Any, record_property: Any
+) -> None:
+    """Diagnostic success is separate from FTZ-target numerical acceptance."""
+    reports = []
+    for profile, result, report in _isolated_target_profiles:
         if report is not None:
             record_property(
                 f"extrema_{profile}", json.dumps(report, separators=(",", ":"))
             )
-        processes.append(result)
         reports.append(report)
-    for profile, result, report in zip(profiles, processes, reports, strict=True):
         assert report is not None, (result.returncode, result.stdout, result.stderr)
         assert result.returncode == 0, (
             report.get("fatal_error"),
@@ -781,77 +814,34 @@ def test_default_extrema_boundary_diagnostic_rejects_other_corruption() -> None:
     assert _known_default_boundary(alternate_nan.view(np.float32), native) is not None
 
 
-def test_scientific_maximum_original_reciprocal_composition_rejected(
-    record_property: Any,
+def test_scientific_maximum_original_reciprocal_composition_executes_profiles(
+    _isolated_target_profiles: Any, record_property: Any
 ) -> None:
-    """Rejection contains an open composition; it proves no numerical acceptance."""
-    evidence = {
-        **_UNIMPLEMENTED_COMPOSITION,
-        "native_oracle_comparisons": 0,
-        "native_agreement_comparisons": 0,
-    }
-    try:
-        with jax.enable_x64(True):
-            model, feeds, expected = _scientific_maximum_case()
-            assert len(feeds) == len(expected) == 5
-            for index, (feed, wanted) in enumerate(zip(feeds, expected, strict=True)):
-                references = []
-                for role, result in (
-                    ("eager", model(*feed)),
-                    ("jit", jax.jit(lambda x, empty: model(x, empty))(*feed)),
-                ):
-                    assert jax.tree.structure(result) == jax.tree.structure(wanted)
-                    arrays = [
-                        np.asarray(value).copy() for value in jax.tree.leaves(result)
-                    ]
-                    nominal = jax.tree.leaves(wanted)
-                    assert len(arrays) == len(nominal) == 6
-                    for actual, reference in zip(arrays, nominal, strict=True):
-                        _assert_output(
-                            actual,
-                            reference,
-                            role=f"unimplemented composition {role} feed={index}",
-                            nominal_oracle=True,
-                        )
-                        evidence["native_oracle_comparisons"] += 1
-                    _record_subnormal_conformance(
-                        record_property, arrays, nominal, role=role, feed=index
-                    )
-                    references.append(arrays)
-                for eager, compiled in zip(*references, strict=True):
-                    _assert_output(
-                        eager,
-                        compiled,
-                        role=f"unimplemented composition native agreement feed={index}",
-                    )
-                    evidence["native_agreement_comparisons"] += 1
-
-            with pytest.raises(SourcePrecisionError) as rejected:
-                ui._to_onnx(
-                    model,
-                    [
-                        jax.ShapeDtypeStruct(value.shape, value.dtype)
-                        for value in feeds[0]
-                    ],
-                    opset=21,
-                    return_mode="proto",
-                    precision_policy=PrecisionPolicy.SOURCE,
-                )
-            error = rejected.value
-            assert error.phase == "profile-validation"
-            assert error.category == "profile-exclusion"
-            assert error.primitive == "integer_pow" and error.opset == 21
-            assert set(error.requested_dtypes) == {"float64"}
-            assert error.detail == (
-                "dtype is outside the original opset18/21 typed expression"
-            )
-            evidence["source_error"] = str(error)
-            assert evidence["native_oracle_comparisons"] == 60
-            assert evidence["native_agreement_comparisons"] == 30
-    finally:
-        record_property(
-            "original_maximum_reciprocal_unimplemented", json.dumps(evidence)
+    """The original composition has actual target evidence under both profiles."""
+    for profile, result, report in _isolated_target_profiles:
+        assert report is not None, (result.returncode, result.stdout, result.stderr)
+        assert result.returncode == 0, (report, result.stdout, result.stderr)
+        _check_profile_report(report, profile)
+        (evidence,) = report["composition_obligations"]
+        record_property(f"original_maximum_reciprocal_{profile}", json.dumps(evidence))
+        assert {
+            key: evidence[key] for key in _ORIGINAL_COMPOSITION
+        } == _ORIGINAL_COMPOSITION
+        assert evidence["native_oracle_comparisons"] == 60
+        assert evidence["native_agreement_comparisons"] == 30
+        assert evidence["target_comparisons"] == 120
+        rows = [row for row in report["target_outcomes"] if row[0] == evidence["id"]]
+        failed = any(row[5] == "FAILED" for row in rows)
+        assert evidence["numerical_status"] == ("FAILED" if failed else "PASS")
+        assert evidence["acceptance_claim"] is (profile == "ftz-strict")
+        original = next(
+            case for case in report["cases"] if case["id"] == evidence["id"]
         )
+        maximum_only = next(
+            case for case in report["cases"] if case["id"] == "maximum-only-float64-21"
+        )
+        assert original["outputs"] == 6
+        assert original["input_sha256"] == maximum_only["input_sha256"]
 
 
 def test_source_bfloat16_extrema_artifact_without_cpu_acceptance_claim() -> None:

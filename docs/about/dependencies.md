@@ -124,11 +124,29 @@ settings only. Compare different settings in fresh processes because the first
 session can affect the main/OpenMP thread's floating-point mode; every native
 reference is materialized before its worker creates any ORT session.
 
-The existing private FP64 opset21 profile admits `reduce_max` but rejects
-`integer_pow(-1)`, including a `jnp.reciprocal` consumer. The original composed
-test remains an explicit unimplemented SOURCE obligation with target numerics
-UNVERIFIED; a separate max-only21 graph is checked without claiming that the
-composition or a general ONNX limitation has been established.
+The private scientific21 profile now admits FP64 `integer_pow`, preserving its
+existing FP32 and INT32/INT64 cases. It uses the existing typed multiplication
+association and `Div(1, x)` for exponent `-1`. The unchanged original
+maximum/reciprocal composition executes all five feeds and six outputs against
+both native roles and both ORT optimization modes: 60 native-oracle,
+30 native-agreement and 120 target comparisons. Its default-target numerical
+status remains **FAILED**; successful export is not numerical acceptance.
+The complete finite profile now records 950/475/1,900 such comparisons. The
+historical zero-target rejection remains predecessor evidence rather than an
+ONNX representation-limit claim.
+
+Additional official-native diagnostics expose source-reference disagreements
+under both supported JAX families. A separately executed constant-only `[1, 2]`
+callable, containing exact `+0, -0` words, yields a minimum of `-0` and reciprocal
+`-infinity` eagerly, but `+0` and `+infinity` with fresh and warmed JIT, for
+both FP32 and FP64. The callable converts an immutable host array internally,
+reduces axis 1, and returns minimum, maximum, their reciprocals and the shared
+input. The native input words agree. Separate `[2, 2]` opposite-order candidates
+also reproduce disagreements; the original `[216, 2]` packed witness is retained.
+A single strict target answer cannot match both infinity signs.
+These cases remain failed reference-agreement
+evidence under the current extrema contract. They authorize no blanket
+denormal correction, reference-role selection or native-runtime modification.
 
 To check a kernel, create a session for a one-node model with that operator and
 dtype. For providers other than CPU, set the session option

@@ -749,10 +749,16 @@ def test_scan21_retains_exact_typed_native_contract(corruption: str) -> None:
     assert typed_trace_manifest(native) == before
 
 
-@pytest.mark.parametrize("kind", ["elementary", "scatter", "remat", "scan"])
+@pytest.mark.parametrize(
+    "kind", ["elementary", "integer-pow", "scatter", "remat", "scan"]
+)
 def test_scientific_fp64_extension_preserves_opset18_exclusions(kind: str) -> None:
     fn, values = {
         "elementary": (jax.lax.neg, (np.asarray(1.00000000001, np.float64),)),
+        "integer-pow": (
+            lambda x: jax.lax.integer_pow(x, -1),
+            (np.asarray(1.00000000001, np.float64),),
+        ),
         "scatter": (_scatter("scatter-add"), _scatter_values()),
         "remat": (_checkpoint, (np.ones(3, np.float64), np.ones(3, np.float64))),
         "scan": (_scan(1), (np.ones((5, 6), np.float64),)),
@@ -762,6 +768,78 @@ def test_scientific_fp64_extension_preserves_opset18_exclusions(kind: str) -> No
         validate_source_jaxpr(_body(native), 18)
     assert caught.value.opset == 18
     assert caught.value.category == "profile-exclusion"
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.int64])
+@pytest.mark.parametrize("exponent", [0, 1, 2, 3, 17])
+def test_scientific_integer_pow21_keeps_existing_integer_contract(
+    dtype: Any, exponent: int
+) -> None:
+    values = (
+        np.asarray([np.iinfo(dtype).min, -7, -1, 0, 1, 7, np.iinfo(dtype).max], dtype),
+    )
+
+    def model(x: Any) -> Any:
+        return jax.lax.integer_pow(x, exponent), x
+
+    proto, _, eager, compiled = _export(model, values)
+    assert all(node.op_type not in {"Pow", "Reciprocal"} for node in proto.graph.node)
+    for optimization in ("disabled", "all"):
+        for reference in (eager, compiled):
+            evidence = validate_source_samples(
+                proto,
+                samples=[SourceSample(values, reference, SampleCriteria("bitwise"))],
+                optimization=optimization,
+            )
+            evidence.require_sample_acceptance()
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        np.float16,
+        jax.numpy.bfloat16,
+        np.int8,
+        np.int16,
+        np.uint8,
+        np.uint16,
+        np.uint32,
+        np.uint64,
+        np.bool_,
+        np.complex64,
+        np.complex128,
+    ],
+)
+def test_scientific_integer_pow21_preserves_other_dtype_exclusions(dtype: Any) -> None:
+    def model(x: Any) -> Any:
+        return jax.lax.integer_pow(x, 2)
+
+    spec = jax.ShapeDtypeStruct((3,), dtype)
+    if dtype is np.bool_:
+        with pytest.raises(TypeError):
+            jax.make_jaxpr(model)(spec)
+        return
+    native = jax.make_jaxpr(model)(spec)
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(_body(native), 21)
+    assert caught.value.opset == 21
+    assert caught.value.category == "profile-exclusion"
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.int64])
+@pytest.mark.parametrize("exponent", [-1, True])
+def test_scientific_integer_pow21_retains_native_exponent_validation(
+    dtype: Any, exponent: Any
+) -> None:
+    native = jax.make_jaxpr(lambda x: jax.lax.integer_pow(x, 2))(
+        jax.ShapeDtypeStruct((3,), dtype)
+    )
+    body, original = _one_equation(native)
+    equation = _equation(original, params={"y": exponent})
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(_corrupted_graph(body, equation), 21)
+    assert caught.value.primitive == "integer_pow"
+    assert caught.value.category == "lowering-defect"
 
 
 @pytest.mark.parametrize("operation", ["min", "max"])

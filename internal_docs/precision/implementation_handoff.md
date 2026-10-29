@@ -1,5 +1,87 @@
 # Precision migration handoff — 2026-10-29
 
+## Latest qualification and open gates — 2026-10-29
+
+The reviewed repair `9a0bc7fb881d07e2cb696af06c50ab5a1c9b9dd4` is published
+on PR #277. [CI 40875416260](https://github.com/enpasos/jax2onnx/actions/runs/40875416260)
+has four successful support jobs; all four full Python jobs are still running
+at the latest observation. Its actual eight-check acceptance remains pending.
+Predecessor `4ec9fad4` retains its four support successes and Python 3.11/3.12
+failures; its other Python outcomes remain separately observed.
+
+The complete locked Python 3.11 standard campaign at **old head `9520dfb9`**
+finishes with **4,569 PASS and two unchanged main skips**, in exactly the
+original 4,571-case order. Both skip counterparts run on frozen main with its
+own lock and reproduce the same reasons. All fifteen closed receipts retain
+full `C=18,647`, source/package authority and E0/J0, E1/J1 and E2/J2.
+Independent Astra review accepts this finite functional/resource milestone:
+1,120.59 s and 3,237.78 MiB under unchanged 1,200-s/4-GiB limits. Evidence:
+`/tmp/jax2onnx-canonical-standard311-full-v4-iykuhoky` and
+`/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard-full311-v4-20261029-qualification/full-summary.json`.
+It establishes neither other-cohort completion nor paired no-increase runtime,
+SOURCE numerical acceptance or qualification of the subsequently rebased head.
+
+One separately reviewed timing trial keeps all original assignments and compares
+the last 246/332 packets with their exact 578-case concatenation. Child elapsed
+time is 145.946805 s separately versus 125.256561 s combined, an observed
+20.690244-s difference. Combined owned peak RSS is 3,865.64 MiB, leaving only
+230.36 MiB below the cap. The existing split and planner stay in place: one
+fixed-order trial supplies no broad savings, safe-headroom or NoIncrease proof.
+Evidence: `/tmp/jax2onnx-standard-tail-boundary-comparison-v2.json`. The initial
+control13 attempt remains a precheck failure with no worker because its caller
+omitted the declared CI environment; corrected arms use the original explicit
+suite profile. Frozen old-head evidence remains immutable through integration.
+
+The scientific21 FP64 `integer_pow` admission repair reuses the existing typed
+Mul/Div algorithm while retaining FP32 and INT32/INT64 support and opset18
+exclusions. The unchanged original maximum/reciprocal computation now has real
+60 native-oracle, 30 native-agreement and 120 target comparisons over all five
+feeds and six outputs. Complete profile totals become 950/475/1,900. The two
+actual default-strict CLIs still exit **1 / FAILED**, including the composition;
+this is implemented export coverage, not numerical acceptance. Focused 70-case
+selections pass on each official family. The integrated complete three owners
+also pass **385 cases on each family**, without filters or skips, at the same
+four source hashes. Python 3.11: 456.23/457.72 s and 1,355.64 MiB; Python 3.14:
+486.86/488.35 s and 784.60 MiB. The unchanged complete Issue52 payload accounts
+for 424.539/460.717 s respectively. These include diagnostic assertions;
+default-target numerical acceptance stays FAILED. Full-owner summaries:
+`/tmp/jax2onnx-integration-backup-20261029-nq3mpc9v/full-owners-py311-summary.json`
+and `full-owners-py314-summary.json`. Isolated source freeze:
+`/tmp/jax2onnx-scientific21-admission-source-v2.json`; reports:
+`/tmp/jax2onnx-scientific21-default-strict-v2-py311.json` and
+`/tmp/jax2onnx-scientific21-default-strict-v2-py314.json`. Historical rejection
+and zero-target evidence below are retained predecessor epochs.
+
+Additional native-only measurements complete 58 packed cases per family and
+find 28/32 eager-versus-JIT disagreements; all fresh/warmed JIT pairs agree.
+The independently checked constant-only `[216,2]` callable has a row where the
+minimum/reciprocal is `-0/-infinity` eagerly but `+0/+infinity` under JIT on
+both official families. This is a coordinate of the complete measured callable,
+not itself an executed two-element minimization. Installed-file RECORD checks verify
+57/58 files, not wheel archives or executed instructions. Evidence:
+`/tmp/jax2onnx-astra-native-reference-conflict-20261029.json` and the referenced
+native reports. These remain failed reference-agreement obligations. The
+extrema dual-reference contract remains in force; any proposed semantic-oracle
+amendment awaits explicit user direction. No blanket FTZ, reference selection,
+custom runtime, public policy change or B–F completion follows.
+
+Separately executed tiny candidates now reproduce the native disagreement:
+four new FP32/FP64 `[1,2]`/`[2,2]` constant-only callables per family retain the
+same five output roles and exact immutable input words. Each `[1,2]` minimum
+and reciprocal is `-0/-infinity` eagerly and `+0/+infinity` with first-call and
+warmed JIT; shared inputs agree and fresh/warmed JIT agree. The original packed
+witness and full acceptance inputs remain unchanged. Evidence:
+`/tmp/jax2onnx-integration-backup-20261029-nq3mpc9v/tiny-native-candidates-v2-summary.json`.
+V2 completes under the unchanged 120-s/4-GiB guard in 0.83/1.03 s and
+239.88/234.88 MiB. Both v1 qualifications remain **exit 2 / ERROR**: their
+whole-environment equality assertion spanned official JAX imports without
+recording the delta. V2 explicitly observes import/device-init changes to
+`TF_CPP_MIN_LOG_LEVEL` and `TPU_SKIP_MDS_QUERY`, retaining the initial stage,
+then verifies exact full environment equality during candidate execution and
+restored full JAX configuration. It neither rewrites nor predeclares fields.
+These are reference-agreement failures, not converter/target acceptance or a
+change to the pending reference-policy decision.
+
 ## CI repair: native storage and Linen diagnostics — 2026-10-29
 
 Published predecessor `4ec9fad4` in [CI 40847090831](https://github.com/enpasos/jax2onnx/actions/runs/40847090831)
@@ -117,7 +199,7 @@ support/execution contexts remain unqualified. Initial modern evidence:
 `/tmp/jax2onnx-main-pr314-collection-delta-v2.json`. The superseded routine
 `C-H` split and 35-minute standard budget do not govern this work.
 
-Current published head `4ec9fad4ff3968a8e51f71ef1887b0db6bad2dd3` has four support
+Historical repair head `4ec9fad4ff3968a8e51f71ef1887b0db6bad2dd3` initially had four support
 jobs terminal SUCCESS and four full Python jobs still IN_PROGRESS in
 [CI 40847090831](https://github.com/enpasos/jax2onnx/actions/runs/40847090831).
 It contains the independently accepted NNX repair documented above. All seven
@@ -176,10 +258,14 @@ and Python 3.14/JAX 0.12.0.1/Flax 0.12.10. Times are pytest/wall seconds where b
 are supplied; memory is sampled owned-process peak. Passing diagnostic or
 rejection tests do not establish numerical equivalence.
 
-| Capability | Current result and practical limit | Evidence |
+The table retains the earlier checkpoint. The latest section above supersedes
+its extrema/composition status; the old default-strict failures and unexecuted
+target obligations remain evidence of that earlier source epoch.
+
+| Capability | Historical checkpoint and practical limit | Evidence |
 | --- | --- | --- |
 | Extrema profiles | **106 PASS on each cohort**, independently accepted. Minimum: 13.94/15.24 s, 806 MiB; modern: 13.19/14.70 s, 749 MiB. Each profile records 890 native-oracle, 445 native-agreement and 1,780 target comparisons. Default CPU numerical equivalence remains **FAILED: 312 array comparisons**. Only the separately configured `session.set_denormal_as_zero=1` target passes the full feeds. | `/tmp/jax2onnx-extrema-profiles-v6-py311-r2z11ijp`; `/tmp/jax2onnx-extrema-profiles-v6-py314-uo95zjgs`. The actual default-strict CLI exits 1: `/tmp/jax2onnx-extrema-default-strict-v6-py311-y8shpvcm`, report `/tmp/jax2onnx-extrema-default-strict-v6-py311.json`. |
-| Original opset21 maximum/reciprocal composition | SOURCE composition remains **unimplemented**: zero target comparisons; 60 native-oracle and 30 native-agreement comparisons do not qualify target behavior. | Retained in the extrema profile/default-strict reports above. |
+| Original opset21 maximum/reciprocal composition | At this earlier checkpoint SOURCE composition was **unimplemented**: zero target comparisons; 60 native-oracle and 30 native-agreement comparisons did not qualify target behavior. The latest admission executes the targets while retaining numerical FAILED. | Retained in the extrema profile/default-strict reports above. |
 | SOURCE cache ownership | Minimum lifecycle owner: **8 PASS**, 4.59 s, 443.41 MiB; existing warm-cache, delayed-call, exact-method and captured-context selection: **41 PASS**, 6.08 s, 544.64 MiB. Modern lifecycle coverage is included in the complete eight-owner result below. | `/tmp/jax2onnx-ownership-v1-py311-giatx8pe`; `/tmp/jax2onnx-ownership-context-v1-py311-oqy2s2ng`. |
 | Callback/NNX compatibility | Final modern eight-owner selection: **232 PASS**, 57.84/59.48 s, 893 MiB. Minimum same eight owners plus the actual full Original015 case: **233 PASS**, 73.61/75.69 s, 1,646 MiB. This includes lifecycle, annotation, static-payload, state/foreign-carrier, MLP and all 44 original-factory preparation cases; it is not full Original22 numerical acceptance. | `/tmp/jax2onnx-callback-final-v4-py314-q0k91rt_`; `/tmp/jax2onnx-callback-final-v4-py311-medlrb8u`. |
 | Unchanged original factories | All **22 factories in both caller-x64 contexts** preserve contracts, preparation and fresh reconstruction. These 44 cases execute no additional model body and establish no export/ORT/numerical result. | Included in both final owner selections above. |
