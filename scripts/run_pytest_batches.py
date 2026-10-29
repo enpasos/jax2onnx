@@ -1518,7 +1518,7 @@ def _ci_lane_manifest(path: Path) -> tuple[dict[str, Any], bytes]:
     if (
         type(manifest) is not dict
         or not required <= manifest.keys()
-        or manifest.keys() - required - {"packages"}
+        or manifest.keys() - required - {"packages", "collection_args"}
         or manifest["schema"] != "jax2onnx-ci-baseline-v1"
     ):
         raise ValueError("unsupported baseline manifest schema")
@@ -1546,6 +1546,17 @@ def _ci_lane_manifest(path: Path) -> tuple[dict[str, Any], bytes]:
         or len(set(ids)) != len(ids)
     ):
         raise ValueError("baseline nodeids must be nonempty, unique ordered strings")
+    collection_args = manifest.get("collection_args", [])
+    if (
+        type(collection_args) is not list
+        or any(
+            type(argument) is not str or not argument for argument in collection_args
+        )
+        or len(set(collection_args)) != len(collection_args)
+    ):
+        raise ValueError(
+            "baseline collection_args need unique ordered literal selectors"
+        )
     sources = manifest["source_files"]
     if (
         type(sources) is not dict
@@ -1649,6 +1660,7 @@ def pytest_configure(config: Any) -> None:
     destination = config.getoption("ci_lane_report")
     if not any((lane, baseline, destination)):
         return
+    from fnmatch import fnmatchcase
     import inspect
     import pytest
 
@@ -1687,6 +1699,8 @@ def pytest_configure(config: Any) -> None:
         "role": "worker" if worker is not None else "serial",
         "started": _now(),
         "checkout": _ci_lane_checkout(root),
+        "collection_args": list(getattr(config.option, "file_or_dir", [])),
+        "qualified_collection_args": None,
         "full_preselection_ids": [],
         "selected_ids": [],
         "deselected_ids": [],
@@ -1707,7 +1721,6 @@ def pytest_configure(config: Any) -> None:
 
     try:
         for name in (
-            "file_or_dir",
             "keyword",
             "markexpr",
             "ignore",
@@ -1734,9 +1747,54 @@ def pytest_configure(config: Any) -> None:
                 "CI lane selection requires the qualified default import context"
             )
         manifest, raw = _ci_lane_manifest(Path(baseline))
+        collection_args = manifest.get("collection_args", [])
+        receipt["qualified_collection_args"] = collection_args
+        if receipt["collection_args"] != collection_args:
+            raise ValueError(
+                "effective collection arguments differ from the qualified context"
+            )
+        if collection_args and Path(config.invocation_params.dir).resolve() != root:
+            raise ValueError(
+                "qualified collection selectors require checkout-root invocation"
+            )
+        for argument in collection_args:
+            relative, *case = argument.split("::")
+            owner = Path(relative)
+            if (
+                not relative
+                or owner.is_absolute()
+                or owner.as_posix() != relative
+                or ".." in owner.parts
+                or relative.startswith("-")
+                or any(character in relative for character in "*?[]\\")
+                or any(character in argument for character in "\x00\n\r")
+                or owner.suffix != ".py"
+                or not any(
+                    fnmatchcase(owner.name, pattern)
+                    for pattern in config.getini("python_files")
+                )
+                or any(not component for component in case)
+            ):
+                raise ValueError(f"unsupported literal collection selector: {argument}")
+            resolved = (root / owner).resolve(strict=True)
+            if (
+                not resolved.is_relative_to(root)
+                or not resolved.is_file()
+                or relative not in manifest["source_files"]
+            ):
+                raise ValueError(
+                    "collection selector needs a contained, source-bound test owner: "
+                    f"{argument}"
+                )
         raw_hash = hashlib.sha256(raw).hexdigest()
-        if worker is not None and worker["ci_lane"]["manifest_sha256"] != raw_hash:
-            raise ValueError("worker baseline manifest differs from its controller")
+        if worker is not None and (
+            worker["ci_lane"]["manifest_sha256"] != raw_hash
+            or any(
+                worker["ci_lane"][key] != receipt[key]
+                for key in ("collection_args", "qualified_collection_args")
+            )
+        ):
+            raise ValueError("worker baseline context differs from its controller")
         receipt.update(
             manifest_sha256=raw_hash,
             baseline_commit=manifest["baseline_commit"],
@@ -1782,6 +1840,16 @@ def pytest_configure(config: Any) -> None:
                     )
 
         def check_context(self, items: Any = (), *, terminal: bool = False) -> None:
+            if collection_args and Path(config.invocation_params.dir).resolve() != root:
+                self.fail(
+                    "qualified collection invocation directory changed",
+                    terminal=terminal,
+                )
+            if getattr(config.option, "file_or_dir", []) != collection_args:
+                self.fail(
+                    "effective collection arguments changed after qualification",
+                    terminal=terminal,
+                )
             try:
                 key = "source_files_after" if terminal else "source_files"
                 receipt[key] = _ci_lane_sources(root, manifest["source_files"])
@@ -1833,6 +1901,10 @@ def pytest_configure(config: Any) -> None:
                 )
             if receipt["collection_errors"]:
                 self.fail("CI lane collection contains errors")
+            if any(
+                argument not in full for argument in collection_args if "::" in argument
+            ):
+                self.fail("qualified case selector is not an exact collected node ID")
             self.check_context(items)
             baseline_ids = manifest["nodeids"]
             baseline_set = set(baseline_ids)
@@ -1928,6 +2000,8 @@ def pytest_configure(config: Any) -> None:
             node.workerinput["ci_lane"] = {
                 "report_root": str(folder),
                 "manifest_sha256": raw_hash,
+                "collection_args": receipt["collection_args"],
+                "qualified_collection_args": receipt["qualified_collection_args"],
             }
             receipt["workers"][node.gateway.id] = {
                 "receipt": str(folder / "workers" / node.gateway.id / "receipt.json"),
@@ -1945,6 +2019,9 @@ def pytest_configure(config: Any) -> None:
                 inventory = json.loads(path.read_text())
                 if (
                     inventory["manifest_sha256"] != raw_hash
+                    or inventory["collection_args"] != receipt["collection_args"]
+                    or inventory["qualified_collection_args"]
+                    != receipt["qualified_collection_args"]
                     or inventory["selected_ids"] != ids
                     or inventory["collection_errors"]
                     or inventory["errors"]
@@ -2007,6 +2084,9 @@ def pytest_configure(config: Any) -> None:
                     or terminal["lane"] != lane
                     or terminal["manifest_sha256"] != raw_hash
                     or terminal["baseline_commit"] != manifest["baseline_commit"]
+                    or terminal["collection_args"] != receipt["collection_args"]
+                    or terminal["qualified_collection_args"]
+                    != receipt["qualified_collection_args"]
                     or terminal["python_minor"] != manifest["python_minor"]
                     or terminal["packages"] != manifest.get("packages", {})
                     or terminal["environment"] != receipt["environment"]

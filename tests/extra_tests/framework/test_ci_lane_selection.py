@@ -28,7 +28,11 @@ def _runner() -> Any:
 
 
 def _suite(
-    tmp_path: Path, files: dict[str, str], baseline: list[str]
+    tmp_path: Path,
+    files: dict[str, str],
+    baseline: list[str],
+    *,
+    collection_args: list[str] | None = None,
 ) -> tuple[Path, Path, dict[str, str]]:
     suite = tmp_path / "suite"
     suite.mkdir()
@@ -58,6 +62,11 @@ def _suite(
                 },
                 "packages": {"pytest": metadata.version("pytest")},
                 "environment": _runner()._ci_lane_environment(environment),
+                **(
+                    {"collection_args": collection_args}
+                    if collection_args is not None
+                    else {}
+                ),
             }
         )
     )
@@ -72,6 +81,7 @@ def _run(
     *,
     lane: str | None = "standard",
     options: tuple[str, ...] = (),
+    invocation_dir: Path | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
     command = [
         sys.executable,
@@ -91,7 +101,7 @@ def _run(
         )
     result = subprocess.run(
         [*command, *options],
-        cwd=suite,
+        cwd=suite if invocation_dir is None else invocation_dir,
         env=environment,
         capture_output=True,
         text=True,
@@ -119,7 +129,10 @@ def test_extra():
 """
 
 
-def test_standard_and_extra_project_same_complete_ordered_collection(tmp_path):
+@pytest.mark.parametrize("collection_args", [None, []], ids=["absent", "empty"])
+def test_standard_and_extra_project_same_complete_ordered_collection(
+    tmp_path, collection_args
+):
     baseline = ["test_a_consumer.py::test_base"]
     suite, manifest, environment = _suite(
         tmp_path,
@@ -135,12 +148,14 @@ def test_extra():
 """,
         },
         baseline,
+        collection_args=collection_args,
     )
     records = []
     for lane in ("standard", "extra"):
         result, receipt = _run(suite, manifest, environment, tmp_path / lane, lane=lane)
         assert result.returncode == 0, result.stdout + result.stderr
         assert receipt is not None and receipt["status"] == "PASS"
+        assert receipt["qualified_collection_args"] == receipt["collection_args"] == []
         assert (
             receipt["manifest_sha256"]
             == hashlib.sha256(manifest.read_bytes()).hexdigest()
@@ -435,13 +450,14 @@ def test_extra():
 """
         },
         baseline,
+        collection_args=["test_cases.py"],
     )
     result, receipt = _run(
         suite,
         manifest,
         environment,
         tmp_path / "report",
-        options=("-p", "xdist.plugin", "-n", "2"),
+        options=("-p", "xdist.plugin", "-n", "2", "test_cases.py"),
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert receipt["status"] == "PASS"
@@ -453,6 +469,13 @@ def test_extra():
         == ["setup", "call", "teardown"]
         for nodeid in baseline
     )
+
+    workers = list((tmp_path / "report" / "workers").glob("*/receipt.json"))
+    assert len(workers) == 2
+    for path in workers:
+        worker = json.loads(path.read_text())
+        assert worker["qualified_collection_args"] == ["test_cases.py"]
+        assert worker["collection_args"] == ["test_cases.py"]
 
 
 @pytest.mark.parametrize("fault", ["package-version", "python-cohort", "environment"])
@@ -667,3 +690,225 @@ def test_opt_in_xdist_ingests_actual_terminal_worker_receipt_after_passed_report
         assert all(phase["outcome"] == "passed" for phase in receipt["phases"][nodeid])
     if fault == "failed":
         assert "terminal worker witness" in json.dumps(receipt)
+
+
+def test_qualified_mixed_file_and_exact_case_context_projects_both_lanes(tmp_path):
+    qualified = ["test_selected.py", "test_cases.py::test_exact[chosen]"]
+    baseline = ["test_selected.py::test_base", qualified[1]]
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_selected.py": """def test_base(): pass
+def test_extra(): pass
+""",
+            "test_cases.py": """import pytest
+@pytest.mark.parametrize('value', [1, 2], ids=['chosen', 'sibling'])
+def test_exact(value):
+    assert value == 1, 'unselected parameter sibling executed'
+def test_unselected_sibling():
+    raise AssertionError('unselected sibling executed')
+""",
+            "test_outside.py": "raise AssertionError('outside context imported')\n",
+        },
+        baseline,
+        collection_args=qualified,
+    )
+    records = []
+    for lane in ("standard", "extra"):
+        result, receipt = _run(
+            suite,
+            manifest,
+            environment,
+            tmp_path / lane,
+            lane=lane,
+            options=tuple(qualified),
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert receipt["status"] == "PASS"
+        assert receipt["qualified_collection_args"] == qualified
+        assert receipt["collection_args"] == qualified
+        records.append(receipt)
+    standard, extra = records
+    assert (
+        standard["full_preselection_ids"]
+        == extra["full_preselection_ids"]
+        == [baseline[0], "test_selected.py::test_extra", baseline[1]]
+    )
+    assert standard["selected_ids"] == baseline
+    assert extra["selected_ids"] == ["test_selected.py::test_extra"]
+    assert standard["deselected_ids"] == extra["selected_ids"]
+    assert extra["deselected_ids"] == baseline
+
+
+@pytest.mark.parametrize("fault", ["missing", "reordered", "injected"])
+def test_collection_arguments_must_equal_qualified_ordered_context(tmp_path, fault):
+    qualified = ["test_cases.py", "test_other.py::test_exact"]
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_cases.py": _BODY,
+            "test_other.py": "def test_exact():\n    pass\n",
+            "test_extra.py": """from pathlib import Path
+Path('unexpected-import').touch()
+def test_extra(): pass
+""",
+        },
+        ["test_cases.py::test_base", qualified[1]],
+        collection_args=qualified,
+    )
+    actual = {
+        "missing": qualified[:1],
+        "reordered": list(reversed(qualified)),
+        "injected": [*qualified, "test_extra.py"],
+    }[fault]
+    result, receipt = _run(
+        suite, manifest, environment, tmp_path / "report", options=tuple(actual)
+    )
+    _assert_failed_before_body(result, receipt, suite)
+    assert not (suite / "unexpected-import").exists()
+    assert receipt["qualified_collection_args"] == qualified
+    assert receipt["collection_args"] == actual
+
+
+def test_qualified_file_selector_rejects_different_invocation_directory(tmp_path):
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {"test_cases.py": _BODY, "nested/test_cases.py": _BODY},
+        ["nested/test_cases.py::test_base"],
+        collection_args=["test_cases.py"],
+    )
+    result, receipt = _run(
+        suite,
+        manifest,
+        environment,
+        tmp_path / "report",
+        options=("test_cases.py",),
+        invocation_dir=suite / "nested",
+    )
+    _assert_failed_before_body(result, receipt, suite)
+    assert not (suite / "nested" / "body-ran").exists()
+
+
+def test_qualified_arguments_rechecked_after_collection_hooks(tmp_path):
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_cases.py": _BODY,
+            "conftest.py": """def pytest_collection_modifyitems(config, items):
+    config.option.file_or_dir = ['test_other.py']
+""",
+        },
+        ["test_cases.py::test_base"],
+        collection_args=["test_cases.py"],
+    )
+    result, receipt = _run(
+        suite, manifest, environment, tmp_path / "report", options=("test_cases.py",)
+    )
+    _assert_failed_before_body(result, receipt, suite)
+    assert "changed after qualification" in json.dumps(receipt["errors"])
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "none",
+        "not-list",
+        "non-string",
+        "wrong-schema",
+        "outside",
+        "absolute",
+        "parent",
+        "glob",
+        "directory",
+        "helper",
+        "unbound",
+        "missing",
+        "option",
+    ],
+)
+def test_invalid_or_unbound_qualified_collection_selector_rejects(tmp_path, fault):
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_cases.py": _BODY,
+            "helper.py": _BODY,
+            "directory/test_inside.py": _BODY,
+        },
+        ["test_cases.py::test_base"],
+    )
+    outside = tmp_path / "test_cases.py"
+    outside.write_text(_BODY)
+    if fault == "outside":
+        (suite / "test_alias.py").symlink_to(outside)
+    invalid = {
+        "none": None,
+        "not-list": "test_cases.py",
+        "non-string": [1],
+        "wrong-schema": ["test_cases.py"],
+        "outside": ["test_alias.py"],
+        "absolute": [str(suite / "test_cases.py")],
+        "parent": ["../test_cases.py"],
+        "glob": ["test_*.py"],
+        "directory": ["directory"],
+        "helper": ["helper.py"],
+        "unbound": ["test_cases.py"],
+        "missing": ["test_missing.py"],
+        "option": ["--maxfail=1"],
+    }[fault]
+    contract = json.loads(manifest.read_text())
+    contract["collection_args"] = invalid
+    if fault == "wrong-schema":
+        contract["schema"] = "unqualified-collection-schema"
+    if fault == "outside":
+        contract["nodeids"] = ["test_alias.py::test_base"]
+        contract["source_files"]["test_alias.py"] = hashlib.sha256(
+            outside.read_bytes()
+        ).hexdigest()
+    if fault == "helper":
+        contract["nodeids"] = ["helper.py::test_base"]
+    if fault == "directory":
+        contract["nodeids"] = ["directory/test_inside.py::test_base"]
+    if fault == "unbound":
+        del contract["source_files"]["test_cases.py"]
+    manifest.write_text(json.dumps(contract))
+    actual = (
+        tuple(invalid)
+        if type(invalid) is list and all(type(item) is str for item in invalid)
+        else ()
+    )
+    result, receipt = _run(
+        suite, manifest, environment, tmp_path / "report", options=actual
+    )
+    _assert_failed_before_body(result, receipt, suite)
+
+
+@pytest.mark.parametrize(
+    ("selector", "concrete"),
+    [
+        ("test_cases.py::test_case", "test_cases.py::test_case[chosen]"),
+        ("test_cases.py::TestGroup", "test_cases.py::TestGroup::test_member"),
+    ],
+)
+def test_qualified_node_selector_must_be_one_concrete_case(
+    tmp_path, selector, concrete
+):
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_cases.py": """from pathlib import Path
+import pytest
+@pytest.mark.parametrize('value', [1, 2], ids=['chosen', 'sibling'])
+def test_case(value):
+    Path('body-ran').touch()
+class TestGroup:
+    def test_member(self):
+        Path('body-ran').touch()
+"""
+        },
+        [concrete],
+        collection_args=[selector],
+    )
+    result, receipt = _run(
+        suite, manifest, environment, tmp_path / "report", options=(selector,)
+    )
+    _assert_failed_before_body(result, receipt, suite)

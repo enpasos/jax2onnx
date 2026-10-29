@@ -89,14 +89,14 @@ source repeats the complete containment owner on each family; v2 remains the
 epoch for the broader table above. Pinned checks, exact-head CI and full
 migration acceptance remain required.
 
-## Prior correctness checkpoint — 2026-10-29
+## Current priorities and evidence — 2026-10-29
 
 The complete accepted B–F migration remains the contract. Public behavior stays
 LEGACY until independent acceptance of the coordinated SOURCE transition.
 Supported official dependencies and each lock's versions/markers remain intact;
 custom JAX/jaxlib/XLA/LLVM builds, patches, overlays or substitutions require
 separate explicit approval. The five unapproved native-build infrastructure
-files are deleted locally. [Dependency notes](../../docs/about/dependencies.md)
+files are removed in published commit `afa6d16e`. [Dependency notes](../../docs/about/dependencies.md)
 retain the official-runtime BF16 TopK counterexample and unchanged native/context
 obligations; no custom runtime was installed.
 
@@ -117,13 +117,46 @@ support/execution contexts remain unqualified. Initial modern evidence:
 `/tmp/jax2onnx-main-pr314-collection-delta-v2.json`. The superseded routine
 `C-H` split and 35-minute standard budget do not govern this work.
 
-Earlier published head `0a9638da26585bfafc0485ee9766135cd0a991a6` has eight ordinary
+Current published head `4ec9fad4ff3968a8e51f71ef1887b0db6bad2dd3` has four support
+jobs terminal SUCCESS and four full Python jobs still IN_PROGRESS in
+[CI 40847090831](https://github.com/enpasos/jax2onnx/actions/runs/40847090831).
+It contains the independently accepted NNX repair documented above. All seven
+normal commit hooks pass (24.50 s, 451 MiB), as does the strict committed-tree
+documentation build (5.18 s, 139 MiB). Evidence:
+`/tmp/jax2onnx-nnx-repair-normal-commit-v3-x6rrgww_` and
+`/tmp/jax2onnx-nnx-repair-docs-strict-v3-07dwhk2d`. This is not terminal CI
+acceptance or completed B–F migration.
+
+Predecessor `afa6d16efc6ff01119deb65746b05de80298d842` has four support
+jobs terminal SUCCESS and all four Python full-test jobs terminal FAILURE in
+[CI 40837446240](https://github.com/enpasos/jax2onnx/actions/runs/40837446240).
+Each full job stops at batch 33 after 112 passing cases in that batch, at the
+same full original NNX Transformer preparation case (`order0`): the new static
+payload preflight rejects a configuration needing an explicit adapter. The
+remaining assigned cases and batches 34–54 are unexecuted. The earlier selector
+checkpoint `17585d7a` did not repair this production defect. The unchanged original case
+also fails locally on Python 3.11 in 3.31/4.59 s, 435 MiB:
+`/tmp/jax2onnx-nnx-transformer-static-config-predecessor-v1-py311-og84glqw`.
+This is a preparation compatibility defect, not evidence of a native compiler
+failure. The accepted private adapter is delivered in `4ec9fad4`; the exact-head
+CI campaign above remains required.
+
+Historical head `0a9638da26585bfafc0485ee9766135cd0a991a6` has eight ordinary
 jobs terminal SUCCESS in [CI 40686137924](https://github.com/enpasos/jax2onnx/actions/runs/40686137924).
 The two custom-compiler jobs in [40686127227](https://github.com/enpasos/jax2onnx/actions/runs/40686127227)
-are terminal FAILURE. These outcomes do not qualify the unpublished worktree.
-This checkpoint is prepared for a local commit; its remote publication and
-exact-head CI qualification remain pending. The seventeen preexisting staged
-structural files are preserved in this reviewed checkpoint.
+are terminal FAILURE. These outcomes do not qualify the current worktree.
+The reviewed correctness/structural checkpoint is committed as `afa6d16e` and
+the unused selector/baseline-test checkpoint originally as `17585d7a`; each
+original normal commit passed all seven pinned hooks. The unpublished selector
+commit was replayed onto repair `4ec9fad4` as `0b3a7aca`, preserving its Python
+changes. The seven pending file contents were backed up and restored; the three
+NNX source files now match the committed repair, leaving four selector/docs
+files pending. A single documentation conflict retained the prior work and the
+new repair section. The backup and recovery stash remain available in
+`/tmp/jax2onnx-pre-repair-rebase-v1-c33v3j9t`. No published history was rewritten.
+The selector checkpoint and its pending amendment are unpublished. The seventeen
+preexisting staged structural files were preserved in `afa6d16e`. Exact-head
+CI repair and qualification remain pending.
 
 The bounded extrema, cache-ownership and NNX/callback repairs now have independent
 Astra ACCEPT. Cache staging bypasses global abstract-evaluation caching while
@@ -256,25 +289,117 @@ Keep the differing extra identities: native typing-envelope, AxisData field and
 native-context cases vary across Python/framework cohorts. Their actual lists
 remain in each receipt; no missing variant was normalized into another cohort.
 
-An attempted ordinary push of local correctness checkpoint `afa6d16e` failed
-before authentication (`could not read Username for https://github.com`). No
-credential helper or SSH agent identity is available; the user was asked to
-provide local Git authentication without sending secrets. Published head remains
-`0a9638d`; no new remote CI evidence or native-build removal is claimed yet.
-The existing Windows credential manager also needs authentication. Its first
-owned attempt was terminated while waiting; a bounded retry with noninteractive
-flags explicitly forwarded across WSL failed without prompting. Read-only PR
-inspection subsequently confirms the same remote head. No alternate commit or
-ref was manufactured through the API; local reviewed history is preserved.
-The user requested local Git authentication setup. The repo-local helper was
-configured without changing global Git configuration; a stalled owned Windows
-device-login attempt was terminated. A checksum-verified official GitHub CLI is
-installed in the user's local bin, and its standard browser/device login awaits
-the user's GitHub authorization. No token or login code is retained in repository
-documentation; remote publication still needs an authenticated push.
+Fresh post-repair Python 3.11 collection at the replayed local selector epoch
+now partitions **18,551 = 4,571 standard + 13,980 extra IDs**, retaining the full
+literal baseline and equal, complementary ordered inventories:
+`/tmp/jax2onnx-real-lane-11-mjm6ixjf` and
+`/tmp/jax2onnx-real-lane-qualification-post-repair-v3-py311-ak3t0ryj`
+(40.01 s, 690 MiB). Both receipts are **COLLECTED**, with no executed phases.
+This updates collection evidence, not ordered execution or runtime acceptance.
+
+Earlier ordinary-push and noninteractive credential attempts failed; stalled
+owned login processes were terminated and two GitHub CLI device codes expired.
+Those failures remain historical outcomes. The repo-local Windows Git Credential
+Manager now lists the account, and a noninteractive `git push --dry-run` from
+`afa6d16e` to local `17585d7a` exits **0**. Evidence:
+`/tmp/jax2onnx-git-auth-dry-run-20261029.json`. This verifies Git authentication,
+not publication; it changes no remote ref. No fresh device code or additional
+login is needed. Global Git configuration is unchanged; no token is retained in
+repository documentation. The earlier read-only GitHub observation confirmed
+published `afa6d16e` and its failed CI before repair `4ec9fad4` was pushed.
+No alternate commits/refs were manufactured.
 
 Strict docs for this CI checkpoint pass with a fresh external site directory:
 `/tmp/jax2onnx-ci-selector-docs-strict-v5-b5inotoq` (4.71 s, 137 MiB).
+
+After local commit `17585d7a`, the first serial execution of the complete 4,571-ID
+standard selection was **RESOURCE-INTERRUPTED**, not accepted:
+`/tmp/jax2onnx-standard-execution-v4-py311-7g9lo_a3` (140.49 s, sampled peak
+4,136 MiB; the unchanged 4-GiB owned-process guard terminated its tree). Durable
+events record **153 complete PASS cases, zero failed/skipped phases**, then only
+setup for original NNX S14 dynamic. The remainder was not executed. Exact IDs
+and the pending case are retained in
+`/tmp/jax2onnx-standard-resource-stop-summary-v4.json`. Its earlier wrapper trial
+exited 4 before execution because a JUnit-only `-o` option was correctly rejected;
+removing that temporary wrapper option did not relax the selector.
+
+Astra approved one bounded fresh diagnostic using the existing canonical worker,
+the same full 18,498-ID collection, original S14 model/inputs/criteria and a
+tighter 180-second guard. The first fresh run passes (22.31 s, 1,167 MiB;
+`/tmp/jax2onnx-standard-s14-fresh-v1-py311-cbmiu7jv`). A second run with every
+declared startup environment entry copied exactly also passes (23.33 s,
+1,201 MiB; `/tmp/jax2onnx-standard-s14-exact-v2-py311-fawjj7y7`). Both receipts
+pass existing `_validate`; the exact repeat records no startup environment
+differences. Its receipt is
+`/tmp/jax2onnx-standard-s14-exact-v2-l0ezrdrz/receipt.json`. Fresh success does
+not replace the interrupted 154-case prefix or qualify the complete schedule.
+Accumulated process memory is implicated; native allocator/executable retention,
+transient copies and bounded LEGACY receiver retention are not yet apportioned.
+No global JAX cache clearing, model reduction or resource-cap increase was used.
+
+Subsequent independently approved complete-owner probes retain original order,
+full collection and identical startup environment. Eqx DINO's **15 cases PASS**
+(69.65 s pytest / 73.23 s wall, peak 2,919 MiB), including both original B14
+variants: `/tmp/jax2onnx-standard-eqx-dino-owner-v3-py311-ssi6r7qa`, canonical
+receipt `/tmp/jax2onnx-standard-eqx-dino-owner-v3-222mqfcv/receipt.json`.
+NNX DINO's **15 cases PASS** (63.42/67.07 s, peak 2,835 MiB), retaining all eight
+Ti14/S14/B14/S16 ViT variants and seven component cases:
+`/tmp/jax2onnx-standard-nnx-dino-owner-v4-py311-3xrg8vrl`, receipt
+`/tmp/jax2onnx-standard-nnx-dino-owner-v4-qm4hmesy/receipt.json`.
+Both pass existing canonical `_validate`. These measured full-owner envelopes
+support further packet qualification; they do not redeem the interrupted long
+process, qualify a merged packet or establish no-increase standard runtime.
+LEGACY retains one bound receiver per decorated class, while native allocator,
+executable caches and transient copies remain unseparated contributors. Restoring
+that receiver before lowering would be unsafe; no such repair was made.
+
+The approved remaining eight-owner packet now passes all **136 original cases**
+in original projected order, with the same startup environment and fresh full
+3.11 collection (**18,551 IDs**): 52.64 s call time, 67.29/71.02 s pytest/wall,
+2,744 MiB. Evidence: `/tmp/jax2onnx-standard-nondino136-owner-v5-py311-ue26bf66`;
+request, receipt and successful existing `_validate`/startup comparison:
+`/tmp/jax2onnx-standard-nondino136-owner-v5-l7ykxre7/validation.json`.
+The two DINO owners and this packet retain all first 166 baseline obligations
+across separate code/collection epochs; their observed wall times total
+211.32 s. The 136-case diagnostic crosses the isolated DINO owners and cannot
+be used as one packet in an ordered three-packet campaign. A future standard
+plan must flush the pending prefix before each isolated owner and preserve
+the exact flattened baseline order. No completed ordered standard campaign or
+paired no-increase proof is established.
+
+The independent support mapping in the CI plan now identifies minimum-install
+475 baseline candidates plus 140 additions in old filenames; normalization 102,
+web smoke 50 and pinned optional models 50 have unchanged source counterparts.
+These are not actual support-context runtime results. The unused support-context
+selector amendment now has independent Astra ACCEPT and **68 synthetic PASS on
+each official family**, including all five explicitly enabled xdist cases;
+details and the preserved failed directory-resolution predecessor are in the
+CI plan. The actual current-minimum Python 3.11 install and `pip check` pass in
+an isolated environment, with all fifteen direct floors recorded in
+`/tmp/jax2onnx-minimum311-official-floor-install-v2-ntbv_trq/versions.json`.
+The separate Python **3.12** official locked-foundation installation, actual
+lower-bound installer and `pip check` also pass (585.76 s, 119 MiB), with the
+same fifteen direct floors recorded in
+`/tmp/jax2onnx-minimum312-official-foundation-and-floors-v1-qinflfms/versions.json`.
+These are isolated setup results, not minimum-job test acceptance or a paired
+runtime comparison. The current-minimum **3.12** context now collects exactly
+**615 = 475 candidate main obligations + 140 extras**, preserving all seventeen
+original ordered selectors, CPU/x64 settings, exact package/source context,
+complete complementary inventories and zero executed phases. Evidence:
+`/tmp/jax2onnx-minimum312-support-v1-wge0dtqn`; guard
+`/tmp/jax2onnx-minimum312-support-collection-v1-z9998syl`
+(94.83 s, 490 MiB). Candidates derive from main's ordinary own-lock inventory;
+this is not historical minimum-context equivalence or performance acceptance.
+Execution of the **475 candidates passes with all 1,425 phases passed** against
+that unchanged frozen manifest (98.56/106.43 s, 2,809 MiB):
+`/tmp/jax2onnx-minimum312-support-standard-execution-v1-z32erjil` and
+`/tmp/jax2onnx-minimum312-support-v1-wge0dtqn/execution-standard/receipt.json`.
+The **140 extras also pass in a separate run**, with all 420 phases passed
+(36.39/43.04 s, 552 MiB):
+`/tmp/jax2onnx-minimum312-support-extra-execution-v1-exezp9dw` and
+`/tmp/jax2onnx-minimum312-support-v1-wge0dtqn/execution-extra/receipt.json`.
+Standard performance, broader context equivalence and gate activation remain
+unqualified.
 
 1. Qualify main/PR collections and the reviewed one-to-one baseline-contract
    mapping on all supported cohorts; then demonstrate unchanged complete

@@ -30,9 +30,17 @@ not accept missing migration verifiers or claim performance results.
 The reference main commit, supplied by root's fresh remote/local observation, is
 `81ad6ca2592635c8d2ced6dbd77292c487f0351b`. Freeze this SHA as the initial baseline;
 record and independently reconcile later main changes instead of silently
-rebasing or shrinking the baseline. The last reported published PR head is
-`0a9638d`, whose eight ordinary checks passed. That result does not qualify the
-current worktree, the new selection or any performance budget.
+rebasing or shrinking the baseline. Current published PR head `4ec9fad4` has
+four successful support jobs and four full Python jobs still in progress in
+[CI 40847090831](https://github.com/enpasos/jax2onnx/actions/runs/40847090831).
+Its independently accepted NNX repair has dual-framework focused evidence and
+all seven normal pinned hooks. Predecessor `afa6d16e` had four successful support
+jobs and four failed full Python jobs in
+[CI 40837446240](https://github.com/enpasos/jax2onnx/actions/runs/40837446240):
+all four stopped at the original NNX Transformer static-preparation defect;
+later assigned cases were unexecuted. Historical head `0a9638d` had eight
+successful ordinary checks. These results do not qualify the current worktree,
+the new selection or any performance budget.
 
 Use supported official packages. Main's modern cohort used JAX/JAXLIB 0.11.2;
 the current PR locks use 0.12.0.1 there. Preserve each revision's own lock
@@ -311,6 +319,173 @@ typing/AxisData/context schema; preserve each literal cohort list. Receipts are
 **COLLECTED**, with zero executed phases. This closes this finite collection
 partition check, not durable-manifest acceptance, runtime/context equivalence,
 support-job mapping, performance qualification or gate activation.
+
+## Support-owner source mapping — 2026-10-29
+
+Read-only comparison of main `81ad6ca` with PR `17585d7a` accepts the source
+counterparts below. This is **not support-context collection or execution
+acceptance**. Main's three ordinary support jobs run on every existing CI trigger:
+pushes to `main`, `v*` tags, pull requests targeting `main`, and manual dispatch.
+All use `ubuntu-latest`; retain their separate job contexts and outcomes.
+
+| Support owner | Original setup and settings to retain | Mapping and outstanding qualification |
+| --- | --- | --- |
+| Minimum dependencies, 35-minute timeout | Main used Python 3.12, `poetry install --no-interaction`, `scripts/install_minimum_dependencies.py`, `pip check`, version reporting and test generation; pytest uses `JAX_PLATFORMS=cpu`, `JAX_ENABLE_X64=True` | The installer is unchanged and still installs every declared direct runtime lower bound. Current published PR uses Python 3.11 and JAX/JAXLIB 0.10.2 / Flax 0.12.8. Preserve the logical minimum-installation coverage at these current floors. Finite current-floor 3.12 collection and separate standard/extra execution pass below; historical minimum-context equivalence, full support qualification and runtime parity remain **UNQUALIFIED**. |
+| Normalization accuracy, two separate 30-minute jobs | Python 3.12 and 3.13, each revision's own official lock, version/CPU/provider profile, `JAX_PLATFORMS=cpu`; `test_layer_norm_precision.py` followed by `test_cos_precision.py` | Both test files are byte-identical, with 91 and 11 ordinary-collection candidate IDs and no additions. Preserve every parametrization, including the full `[257, 384]` seed-0 input, epsilon `1e-5`, opset 23, all four implementations, three modes, both ORT optimization settings and original float64-reference/JAX error bounds. Python 3.13's JAX 0.11.2 to 0.12.0.1 change remains explicit. Separate support-context qualification is pending. |
+| onnxruntime-web smoke, 20-minute timeout | Python 3.12, Node 22, `poetry install --no-interaction`, `npm ci`, generation, then `scripts/run_onnxruntime_web_smoke.sh` | Script, package files, handwritten owners and generated case contracts are unchanged. The script sets `JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1`, defaults `JAX2ONNX_ONNXRUNTIME_WEB_RUNNER=node`, and does **not** set `JAX2ONNX_EXPORT_MODE=web`. Fifty ordinary-collection candidate IDs retain the original sources and criteria; actual Node/WASM support collection and execution remain **UNQUALIFIED**. |
+
+The minimum-job context ownership is explicit: retain Python **3.12** as the
+standard main counterpart, installing the PR's current declared minima. Keep
+the existing Python **3.11** minimum check as additional coverage with separate
+cost and outcomes until an independently accepted equivalence permits
+consolidation. Neither an ordinary locked run nor identical selected IDs proves
+that equivalence; no historical framework downgrade is part of this mapping.
+
+Finite current-minimum Python **3.12** qualification now passes the actual
+declared-floor installation and `pip check`, then preserves all seventeen
+original selectors under `JAX_PLATFORMS=cpu` and `JAX_ENABLE_X64=True`.
+Two phase-free collections partition **615 = 475 candidate main obligations +
+140 extras**, with identical complete inventories, exact order and no collection
+skips: `/tmp/jax2onnx-minimum312-support-v1-wge0dtqn`
+(94.83 s, 490 MiB for generation and both collections). Against the unchanged
+frozen source/package/environment manifest, the standard candidates pass
+**475 cases / 1,425 phases** (98.56/106.43 s, 2,809 MiB), and a separate extra
+run passes **140 cases / 420 phases** (36.39/43.04 s, 552 MiB).
+Guarded execution evidence:
+`/tmp/jax2onnx-minimum312-support-standard-execution-v1-z32erjil` and
+`/tmp/jax2onnx-minimum312-support-extra-execution-v1-exezp9dw`.
+Candidate identities derive from main's ordinary own-lock collection; the
+corresponding source review is separate from historical minimum-context
+equivalence. These results qualify this finite current-minimum selection and
+execution, not paired runtime parity, historical framework equivalence, the
+complete standard campaign or any gate activation.
+
+A bounded selector schema amendment has **independent source-review ACCEPT**:
+optional `collection_args` records
+the exact original ordered literal pytest positional selectors. Absent or `[]`
+retains the existing full-repository restriction. Require exact equality with
+effective `config.option.file_or_dir`; never infer, expand or add selectors.
+Use checkout-relative file selectors and literal qualified cases, with no glob,
+directory, option token or path escape. All other prefilter/context prohibitions
+and membership/order/source checks remain. Record the arguments in each receipt
+and retain the controller/worker manifest binding.
+
+The unused amendment passes **68 synthetic cases on each official Python
+3.11/3.14 family**, including the five explicitly enabled bounded xdist cases:
+`/tmp/jax2onnx-ci-qualified-context-v9-py311-fvr2oeg7`
+(20.36/20.84 s, 185 MiB) and
+`/tmp/jax2onnx-ci-qualified-context-v9-py314-1uiakm31`
+(31.06/31.85 s, 201 MiB). Independent review identified and root reproduced a
+directory-resolution gap: a nested invocation could validate a root-relative
+file but execute a different file. The preserved predecessor is
+`/tmp/jax2onnx-ci-invocation-context-predecessor-v1-s626xizl` (one failed
+regression, incorrectly successful inner execution). The final amendment
+requires checkout-root invocation for nonempty selectors, rechecks that context
+and selector equality after collection, and has direct regressions for both.
+Absent/empty selectors retain their original behavior. These synthetic results
+do not qualify actual support commands, runtime savings or any gate activation.
+
+For these support contexts, the full inventory is the complete collection of
+that original command, before standard/extra projection. Thus new cases inside
+an originally selected file become support extras, while cases outside an
+original exact-case selector do not silently enter that command. Collecting the
+whole repository instead would change the original imports and collection
+context. Qualify exact-file and exact-case positives, default strictness and
+reordered/missing/injected-argument negatives before use. This reuses the existing
+executor and adds no workflow activation; the remaining support contexts,
+historical equivalence and runtime comparison remain pending.
+
+The minimum command's original owners, in command order, are listed below.
+Counts are observations from the actual main Python 3.12 ordinary collection,
+not assertions about the unexecuted historical main minimum-installation
+context. The eventual support manifest must contain the expanded literal IDs,
+not these file selectors.
+
+| Original selector | Candidate baseline IDs | Added current cases excluded from this standard owner |
+| --- | ---: | ---: |
+| `tests/extra_tests/framework/test_jax_compat.py` | 11 | 132 |
+| `tests/extra_tests/framework/test_minimum_dependency_installer.py` | 3 | 0 |
+| `tests/extra_tests/framework/test_onnx_ir_surface.py` | 9 | 0 |
+| `tests/extra_tests/converter/test_onnx_function_if_captures.py` | 6 | 0 |
+| `tests/extra_tests/converter/test_onnx_function_transformed_captures.py` | 14 | 0 |
+| `tests/extra_tests/converter/test_onnx_function_static_captures.py` | 17 | 0 |
+| `tests/extra_tests/converter/test_onnx_function_loop_call_params.py` | 9 | 0 |
+| `tests/extra_tests/converter/test_typed_builder.py` | 12 | 0 |
+| `tests/extra_tests/converter/test_context_typing_compat.py` | 3 | 0 |
+| `tests/extra_tests/converter/test_native_context_typing.py` | 1 | 0 |
+| `tests/extra_tests/converter/test_native_function_scope.py` | 3 | 8 |
+| `tests/extra_tests/loop/test_fori_loop_captures.py` | 7 | 0 |
+| `tests/primitives/test_linen.py` | 224 | 0 |
+| `tests/extra_tests/test_bfloat16_capability_matrix.py` | 23 | 0 |
+| `tests/extra_tests/test_cos_precision.py` | 11 | 0 |
+| `tests/extra_tests/test_float16_cpu_inference.py` | 18 | 0 |
+| `tests/extra_tests/test_log1p_expm1_precision.py` | 104 | 0 |
+
+The two expanded files must retain only these original qualified test IDs in
+the minimum standard owner; all their other current cases belong to extras:
+
+```text
+tests/extra_tests/framework/test_jax_compat.py::test_jax_compat_exports_core_types
+tests/extra_tests/framework/test_jax_compat.py::test_jax_compat_literal_falls_back_to_jax_src_core
+tests/extra_tests/framework/test_jax_compat.py::test_jax_compat_exposes_not_mapped_alias
+tests/extra_tests/framework/test_jax_compat.py::test_jax_compat_exposes_shape_equality_helper
+tests/extra_tests/framework/test_jax_compat.py::test_jax_compat_concrete_or_error_returns_static_value
+tests/extra_tests/framework/test_jax_compat.py::test_fresh_var_like_uses_current_jax_constructor
+tests/extra_tests/framework/test_jax_compat.py::test_fresh_var_like_preserves_legacy_quantization_metadata
+tests/extra_tests/framework/test_jax_compat.py::test_scan_arity_without_xs
+tests/extra_tests/framework/test_jax_compat.py::test_scan_arity_with_consts_carry_and_xs
+tests/extra_tests/framework/test_jax_compat.py::test_scan_arity_falls_back_to_legacy_params
+tests/extra_tests/framework/test_jax_compat.py::test_scan_arity_rejects_inconsistent_arity
+tests/extra_tests/converter/test_native_function_scope.py::test_function_finalization_owns_its_body_and_preserves_metadata
+tests/extra_tests/converter/test_native_function_scope.py::test_function_scope_finalizes_once_and_registry_retains_the_native_definition
+tests/extra_tests/converter/test_native_function_scope.py::test_repeated_calls_publish_the_same_native_definition_stored_in_the_registry
+```
+
+Web smoke's original command order is `test_quickstart.py` (four candidates),
+`test_return_modes.py` (17), generated `tests/examples/test_lax.py` (eight),
+`tests/examples/test_jnp.py` (20), then the single exact ID
+`tests/primitives/test_nn.py::Test_gelu::test_jaxnn_gelu`. The first two files are
+under `tests/extra_tests/`. There are no added current cases in these selectors;
+do not silently include the separate `test_jaxnn_gelu_f64` case.
+
+Candidate literal lists are reproducible from
+`/tmp/jax2onnx-own-lock-collection-a3442583/nodeids.json`: concatenate each
+original selector's matching IDs in command order, retaining their within-owner
+order. SHA-256 of `json.dumps(ids, separators=(",", ":")).encode()` is
+`a5b8da3d2f91ee87d9ec185f5bdeb60ca707ff20ca8f250b8e2bc726b9c9ed77` for
+the 475 minimum candidates,
+`886a55c8afbc94ede8b9dd8150486d1cc3cf7e9bd5e4792040dc1e43c180157e` for
+the 102 normalization candidates, and
+`bab141cec69c0f8cc95b9db1821837b78cd8838c89de0515a683063bed1ecf6f` for
+the 50 smoke candidates. These external collection snapshots are derivation
+receipts, not durable or executable support manifests. Actual support collection
+must reconcile version-dependent items, skips and ordering in its own setup.
+
+The unchanged `nightly-qs.yml` remains separate: schedule `0 2 * * *` or manual
+dispatch, concurrency `nightly-qs-${{ github.ref }}` with cancellation disabled,
+and a 26-hour recent-commit check bypassed by manual dispatch. Both full-web jobs
+use Python 3.12, Node 22, `npm ci`, generation and `pytest-xdist`; Chrome also
+installs Playwright Chromium. Node has a 180-minute timeout and Chrome 240.
+Their scripts set `JAX2ONNX_EXPORT_MODE=web` and web validation, with distinct
+`node`/`chrome` runners. Original arguments are `-n auto --dist=loadscope -q --ff -x`.
+These are recorded baseline settings, not approved local execution commands.
+Full-web collection/worker equivalence is **UNQUALIFIED**; keep its complete main
+counterparts and added SOURCE cases in separate ownership. The optional Python
+3.12 CPU inventory is not a substitute for either full-web context.
+
+The 45 MaxText and five MaxDiffusion CPU cases have independently accepted
+same-ID source counterparts. Their complete plugin packages and shared
+construction/RNG/registration/execution helpers are unchanged; full inputs,
+seeds, variants and criteria remain. In particular MaxText's original
+`skip_numeric_validation=True` remains a limitation, not numerical acceptance.
+Both contexts use `MODELS=all`, clean tracked external sources, and unchanged
+pins `17d805e3488104b5de96bd19be09491ff73c57c1` /
+`b4f95730bf4f00c4fd9e3dd2fdda1b50484afda2`. The literal 50-ID snapshot
+`/tmp/jax2onnx-main312-optional-baseline-ids-v3.json` has file SHA-256
+`217fb9736a7117424aa27f4138ce4f52603878a39fd9179dcc586cc2bf62e92a`;
+all 50 appear in PR312 standard collection and none in extras. This accepts
+source and selection equivalence only; duplicate-removal execution and measured
+savings remain unqualified. No workflow changed during this review.
 
 ## Separate lanes after qualification
 
