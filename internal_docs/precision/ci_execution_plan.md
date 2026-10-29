@@ -322,6 +322,59 @@ support-job mapping, performance qualification or gate activation.
 
 ## Support-owner source mapping — 2026-10-29
 
+The canonical-runner integration has independent Astra **architecture and
+bounded static-context source ACCEPT**. Real-main context/runtime qualification
+remains pending. It keeps the existing
+two-key collection and five-key batch request schemas, carrying lane, manifest
+path and expected raw SHA through private worker options. Collection retains
+complete `C`; the coordinator partitions once, plans only the chosen ordered
+lane and requires the flattened/completed assignments to match it exactly.
+Workers use the existing assignment projection, shared qualification and
+terminal source/context audits. The independent direct projector is not loaded
+in canonical workers. Transport still receives full `C`; unassigned native
+model obligations remain explicitly unverified.
+
+Canonical qualification binds the actual child environment after transport
+setup, including its run-owned native-artifact directory. Whole DINO owners
+require prefix flushes to preserve baseline order; the noncontiguous 136-case
+diagnostic is not an ordered campaign. Defaults, original fail-fast options,
+observer controls and replay acceptance remain unchanged. No workflow, durable
+manifest or gate activation is included in this stage.
+
+The first implementation passes 198 existing/new runner and selector cases on
+each family, but independent review found a collection-purity gap. A hook could
+clear `collectonly` and execute cases during the collection child. Both new
+counterexamples fail against that implementation because the inner processes
+incorrectly return success:
+`/tmp/jax2onnx-ci-collection-mode-predecessor-v1-py311-fzdman78`.
+The amended source rejects collection execution before any test protocol and
+independently rejects recorded collection phases, completions and timings at
+worker, closed-receipt and coordinator boundaries. Direct collection mode is
+also bound against late changes. Independent Astra review accepts v2, and
+**203 tests pass on each family**; the two override witnesses and three
+semantic-corruption cases are included. V2 evidence is
+`/tmp/jax2onnx-ci-canonical-lanes-integration-v2-py311-b8dfuvy8` and
+`/tmp/jax2onnx-ci-canonical-lanes-integration-v2-py314-tuwdqeh4`.
+Existing artifact transport, observer-off control and frozen replay consumers
+also pass **165 tests on each family** at v2. Evidence:
+`/tmp/jax2onnx-ci-canonical-lanes-consumers-v2-py311-t_4ynj6b` and
+`/tmp/jax2onnx-ci-canonical-lanes-consumers-v2-py314-dcoxcslu`.
+Real ordered execution, resource qualification and paired performance remain
+pending; the v1 passes do not qualify those gates.
+
+Before the first full campaign, independent review rejects the temporary
+helper's proposed startup defaults as standard-context evidence. Original 3.11
+startup has `JAX_PLATFORMS` and `JAX_ENABLE_X64` unset; ordinary collection later
+sets them to `cpu` and `True`. Predeclaring those values before JAX import can
+change collection-time computation. The existing 136-case receipt records both
+stages, including JAX initially unloaded. The complete observed transition also
+includes `TF_CPP_MIN_LOG_LEVEL`; bind every observed field. Do not ignore fields or predeclare
+them to make an audit pass. A reviewed explicit startup/post-collection binding
+is pending; the temporary full-4571 helper has not run. Preserve unset optional
+integration refs as unset, and distinguish current-CI `PYTEST_ADDOPTS` from saved
+profiles that did not declare it. Direct pytest configuration does not prove
+pre-import process startup; missing startup history remains unverified.
+
 Read-only comparison of main `81ad6ca` with PR `17585d7a` accepts the source
 counterparts below. This is **not support-context collection or execution
 acceptance**. Main's three ordinary support jobs run on every existing CI trigger:

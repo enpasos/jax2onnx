@@ -912,3 +912,139 @@ class TestGroup:
         suite, manifest, environment, tmp_path / "report", options=(selector,)
     )
     _assert_failed_before_body(result, receipt, suite)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "receipt",
+        "request",
+        "source-proof",
+        "lane",
+        "collection-phase",
+        "collection-completed",
+        "collection-timing",
+    ],
+)
+def test_canonical_closed_lane_receipt_binds_terminal_authority_and_raw_files(
+    tmp_path, fault
+):
+    module = _runner()
+    suite, manifest, environment = _suite(
+        tmp_path, {"test_cases.py": _BODY}, ["test_cases.py::test_base"]
+    )
+    context = module._CiLaneContext(manifest, suite, environment=environment)
+    folder = tmp_path / "closed-worker"
+    folder.mkdir()
+    request = {
+        "kind": "collection",
+        "pytest_args": [
+            "--_j2o-ci-lane=standard",
+            "--_j2o-ci-main-baseline=" + str(manifest),
+            "--_j2o-ci-main-sha256=" + context.sha256,
+            "--collect-only",
+        ],
+    }
+    receipt = {
+        "kind": "collection",
+        "pytest_args": request["pytest_args"],
+        "exitstatus": 0,
+        "finished": "closed",
+        "phases": {},
+        "completed": [],
+        "phase_durations": {},
+        "ci_lane": {
+            "lane": "standard",
+            "manifest_path": str(context.path),
+            "manifest_sha256": context.sha256,
+            "environment": context.manifest["environment"],
+            "source_files": context.sources,
+            "source_files_after": context.sources,
+            "errors": [],
+        },
+    }
+    module._write(folder / "request.json", request)
+    module._write(folder / "receipt.json", receipt)
+    terminal = {
+        "receipt_sha256": hashlib.sha256(
+            (folder / "receipt.json").read_bytes()
+        ).hexdigest(),
+        "request_sha256": hashlib.sha256(
+            (folder / "request.json").read_bytes()
+        ).hexdigest(),
+        "manifest_sha256": context.sha256,
+        "exitstatus": 0,
+    }
+    module._write(folder / "lane-terminal.json", terminal)
+    assert module._ci_lane_closed(folder, request, context) == receipt
+    if fault in {"receipt", "request"}:
+        path = folder / (fault + ".json")
+        path.write_bytes(path.read_bytes() + b" ")
+    else:
+        if fault == "source-proof":
+            receipt["ci_lane"]["source_files_after"] = {}
+        elif fault == "collection-phase":
+            receipt["phases"] = {
+                "test_cases.py::test_base": [{"when": "setup", "outcome": "passed"}]
+            }
+        elif fault == "collection-completed":
+            receipt["completed"] = ["test_cases.py::test_base"]
+        elif fault == "collection-timing":
+            receipt["phase_durations"] = {
+                "test_cases.py::test_base": [{"when": "setup", "seconds": 0.0}]
+            }
+        else:
+            receipt["ci_lane"]["lane"] = "extra"
+        module._write(folder / "receipt.json", receipt)
+        terminal["receipt_sha256"] = hashlib.sha256(
+            (folder / "receipt.json").read_bytes()
+        ).hexdigest()
+        module._write(folder / "lane-terminal.json", terminal)
+    with pytest.raises(ValueError, match="canonical lane"):
+        module._ci_lane_closed(folder, request, context)
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "missing", "invalid-sha"])
+def test_private_canonical_lane_authority_rejects_ambiguous_or_unbound_options(fault):
+    module = _runner()
+    options = [
+        "--_j2o-ci-lane=standard",
+        "--_j2o-ci-main-baseline=/tmp/frozen-manifest.json",
+        "--_j2o-ci-main-sha256=" + "a" * 64,
+    ]
+    assert module._ci_lane_worker_authority(options)["--_j2o-ci-lane"] == "standard"
+    if fault == "duplicate":
+        options.append(options[0])
+    elif fault == "missing":
+        options.pop()
+    else:
+        options[-1] = "--_j2o-ci-main-sha256=not-a-sha"
+    with pytest.raises(ValueError, match="CI|SHA"):
+        module._ci_lane_worker_authority(options)
+
+
+def test_requested_direct_collection_rejects_execution_mode_override(tmp_path):
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_cases.py": _BODY + "def test_extra():\n    pass\n",
+            "conftest.py": """from pathlib import Path
+import pytest
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtestloop(session):
+    Path('override-attempted').touch()
+    session.config.option.collectonly = False
+""",
+        },
+        ["test_cases.py::test_base"],
+    )
+    result, receipt = _run(
+        suite, manifest, environment, tmp_path / "report", options=("--collect-only",)
+    )
+    assert (suite / "override-attempted").exists()
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert receipt["status"] == "FAIL"
+    assert receipt["phases"] == receipt["phase_durations"] == {}
+    assert receipt["completed"] == []
+    assert not (suite / "body-ran").exists()

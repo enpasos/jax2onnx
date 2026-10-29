@@ -401,6 +401,52 @@ The **140 extras also pass in a separate run**, with all 420 phases passed
 Standard performance, broader context equivalence and gate activation remain
 unqualified.
 
+The canonical lane-integration stage is in progress under the independently
+accepted architecture in the CI plan. Its first source version passes **198
+runner/selector tests on each family**, including the enabled synthetic xdist
+cases: minimum 50.43/50.87 s, 306 MiB
+(`/tmp/jax2onnx-ci-canonical-lanes-integration-v1-py311-z_nbmyew`); modern
+94.92/95.86 s, 344 MiB
+(`/tmp/jax2onnx-ci-canonical-lanes-integration-v1-py314-7va8d2n_`). These results
+predate the collection-purity amendment: the canonical and direct-plugin
+override witnesses both **FAIL** against v1 because the inner processes wrongly
+accept execution during a requested collection. Preserve
+`/tmp/jax2onnx-ci-collection-mode-predecessor-v1-py311-fzdman78` and its source
+manifest. The amended implementation blocks collection execution before any
+test protocol and independently requires empty phases, completions and timings
+at terminal, closed-receipt and coordinator checks. The original two witnesses
+now pass within **203 minimum-family tests** (50.40/50.71 s, 307 MiB):
+`/tmp/jax2onnx-ci-canonical-lanes-integration-v2-py311-b8dfuvy8`.
+Modern v2 also passes **203 tests** (96.24/97.18 s, 344 MiB):
+`/tmp/jax2onnx-ci-canonical-lanes-integration-v2-py314-tuwdqeh4`.
+Independent Astra source review accepts the amended bytes recorded in
+`/tmp/jax2onnx-ci-canonical-lanes-source-v2.json`. The existing artifact transport,
+observer-off control and frozen replay owners pass **165 cases on each family**:
+minimum 29.56/30.38 s, 278 MiB
+(`/tmp/jax2onnx-ci-canonical-lanes-consumers-v2-py311-t_4ynj6b`); modern
+48.94/49.92 s, 304 MiB
+(`/tmp/jax2onnx-ci-canonical-lanes-consumers-v2-py314-dcoxcslu`). Real ordered
+campaign/resource qualification remains pending; v1's passing results are not
+relabeled as v2 evidence.
+
+The temporary full-4571 canonical helper is **not executed**. Review identified
+that its proposed startup X64/platform defaults differ from the original
+startup and can affect values before collection completes. The observed
+startup-to-collection environment change must receive explicit staged binding;
+it must not be hidden by a startup rewrite or an ignored field. This remains
+an open real-context qualification gate.
+
+Future canonical resource measurements use
+`/tmp/jax2onnx-process-tree-guard-v2.py`, tracking owned PID/start-time descendants
+across new process groups and sessions. CPU/thread, 4-GiB aggregate RSS and
+available-memory/disk budgets are unchanged. Detached stdlib-child probes
+confirm combined accounting and timeout cleanup:
+`/tmp/jax2onnx-tree-guard-detached-normal-v2-op9pu_x4` and
+`/tmp/jax2onnx-tree-guard-detached-timeout-v2-8o2qdhef`.
+The older guard sampled the original process group; its direct model/support
+probes retain their reported scope, but historical nested-controller RSS is not
+proof of aggregate descendant residency.
+
 1. Qualify main/PR collections and the reviewed one-to-one baseline-contract
    mapping on all supported cohorts; then demonstrate unchanged complete
    standard coverage and no comparable runtime increase. Activate separately

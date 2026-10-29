@@ -444,9 +444,15 @@ def _resources(pid: int | None) -> dict[str, Any]:
     }
 
 
-def _plan(items: list[dict[str, Any]], limit: int) -> list[list[str]]:
+def _plan(
+    items: list[dict[str, Any]],
+    limit: int,
+    *,
+    isolated_owners: frozenset[str] = frozenset(),
+) -> list[list[str]]:
     """Keep consecutive modules/classes together when they fit the bound."""
     groups: list[tuple[list[str], bool]] = []
+    isolated_seen: set[str] = set()
     index = 0
     while index < len(items):
         end = index + 1
@@ -456,6 +462,13 @@ def _plan(items: list[dict[str, Any]], limit: int) -> list[list[str]]:
         segment = items[index:end]
         if Path(module).name == _ISOLATED_OWNER:
             groups.extend(([item["nodeid"]], True) for item in segment)
+        elif module in isolated_owners:
+            if module in isolated_seen:
+                raise ValueError("isolated whole owner is not contiguous")
+            if len(segment) > limit:
+                raise ValueError("isolated whole owner exceeds the batch bound")
+            isolated_seen.add(module)
+            groups.append(([item["nodeid"] for item in segment], True))
         elif len(segment) <= limit:
             groups.append(([item["nodeid"] for item in segment], False))
         else:
@@ -551,8 +564,24 @@ def _worker(request_path: Path) -> int:
             result[key] = value
         return result
 
-    request = json.loads(request_path.read_text(), object_pairs_hook=unique)
+    request_payload = request_path.read_bytes()
+    request = json.loads(request_payload, object_pairs_hook=unique)
     control = _diagnostic_control(request)
+    expected_keys = (
+        {"kind", "pytest_args"}
+        if request.get("kind") == "collection"
+        else set(_REQUEST_FIELDS)
+    )
+    if control is not None:
+        expected_keys.add("diagnostic_control")
+    if (
+        request.get("kind") not in {"collection", "batch"}
+        or set(request) != expected_keys
+        or type(request.get("pytest_args")) is not list
+        or any(type(argument) is not str for argument in request["pytest_args"])
+    ):
+        raise ValueError("invalid canonical worker request schema")
+    authority = _ci_lane_worker_authority(request["pytest_args"])
     # Import pytest only inside disposable collection/execution children.
     import pytest
 
@@ -612,6 +641,124 @@ def _worker(request_path: Path) -> int:
         postmortem_module: Any = None
         cast_observer: Any = None
         bf16_capture: Any = None
+        lane_context: Any = None
+        config: Any = None
+        session: Any = None
+        full_items: Any = ()
+        ordered_collection: list[str] | None = None
+        selected: list[str] | None = None
+        serial_position = 0
+        projecting = False
+
+        def lane_error(self, message: str, *, terminal: bool = False) -> None:
+            receipt.setdefault("ci_lane", {"errors": []})["errors"].append(message)
+            if not terminal:
+                checkpoint()
+                pytest.exit(message, returncode=4)
+
+        def audit_lane(self, *, terminal: bool = False) -> None:
+            if self.lane_context is None:
+                return
+            try:
+                if self.config.option.collectonly is not (
+                    request["kind"] == "collection"
+                ):
+                    raise ValueError(
+                        "canonical lane collection mode changed after qualification"
+                    )
+                if request["kind"] == "collection" and not _ci_lane_phase_free(receipt):
+                    raise ValueError(
+                        "canonical lane collection recorded test execution"
+                    )
+                if {
+                    name: self.config.getoption(name) for name in _CI_PRIVATE_OPTIONS
+                } != authority:
+                    raise ValueError(
+                        "canonical CI lane authority changed after qualification"
+                    )
+                if any(
+                    self.config.getoption(name, default=None)
+                    for name in ("ci_lane", "ci_main_baseline", "ci_lane_report")
+                ):
+                    raise ValueError(
+                        "independent CI projector conflicts with canonical authority"
+                    )
+                bindings = self.lane_context.check(self.config, self.full_items)
+                receipt["ci_lane"][
+                    "source_files_after" if terminal else "source_files"
+                ] = bindings
+            except (OSError, ValueError, LookupError) as exc:
+                self.lane_error(str(exc), terminal=terminal)
+
+        def verify_lane(self, session: Any, *, terminal: bool = False) -> None:
+            if authority is not None and (
+                self.selected is None
+                or [item.nodeid for item in session.items] != self.selected
+            ):
+                self.lane_error(
+                    "canonical lane executable selection changed", terminal=terminal
+                )
+
+        def pytest_addoption(self, parser: Any) -> None:
+            for option in _CI_PRIVATE_OPTIONS:
+                parser.addoption(option, action=_CiAuthority, default=None)
+
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+        def pytest_collection_modifyitems(self, items: Any) -> Any:
+            before = [item.nodeid for item in items]
+            yield
+            if authority is not None:
+                after = [item.nodeid for item in items]
+                if len(set(after)) != len(after) or Counter(after) != Counter(before):
+                    self.lane_error(
+                        "ordinary collection hooks changed inventory instead of ordering"
+                    )
+                self.ordered_collection = after
+
+        def pytest_deselected(self, items: Any) -> None:
+            if authority is not None and items and not self.projecting:
+                self.lane_error(
+                    "foreign deselection prevents full canonical lane collection"
+                )
+
+        def pytest_fixture_setup(self, fixturedef: Any) -> None:
+            if self.lane_context is not None:
+                import inspect
+
+                try:
+                    self.lane_context.check_source(
+                        inspect.getsourcefile(fixturedef.func)
+                    )
+                except (OSError, ValueError) as exc:
+                    self.lane_error(str(exc))
+
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+        def pytest_runtestloop(self, session: Any) -> Any:
+            if authority is not None:
+                self.verify_lane(session)
+                self.audit_lane()
+            yield
+            if authority is not None:
+                self.verify_lane(session)
+
+        @pytest.hookimpl(tryfirst=True)
+        def pytest_runtest_protocol(self, item: Any) -> None:
+            if authority is not None:
+                if request["kind"] == "collection":
+                    self.lane_error(
+                        "canonical lane collection cannot execute a test protocol"
+                    )
+                if self.serial_position == 0:
+                    self.verify_lane(item.session)
+                if (
+                    self.selected is None
+                    or self.serial_position >= len(self.selected)
+                    or item.nodeid != self.selected[self.serial_position]
+                ):
+                    self.lane_error(
+                        "canonical lane execution differs from its assignment"
+                    )
+                self.serial_position += 1
 
         def release_bf16_capture(self) -> None:
             capture, self.bf16_capture = self.bf16_capture, None
@@ -636,8 +783,45 @@ def _worker(request_path: Path) -> int:
                     }
 
         def pytest_configure(self, config: Any) -> None:
+            self.config = config
             if getattr(config.option, "numprocesses", None) not in (None, 0):
                 raise pytest.UsageError("pytest batches require serial child processes")
+            effective = {name: config.getoption(name) for name in _CI_PRIVATE_OPTIONS}
+            if (
+                any(value is not None for value in effective.values())
+                and effective != authority
+            ):
+                raise pytest.UsageError(
+                    "unbound or conflicting canonical CI lane authority"
+                )
+            if authority is not None:
+                receipt["ci_lane"] = {
+                    "lane": authority[_CI_PRIVATE_OPTIONS[0]],
+                    "manifest_path": authority[_CI_PRIVATE_OPTIONS[1]],
+                    "manifest_sha256": authority[_CI_PRIVATE_OPTIONS[2]],
+                    "errors": [],
+                }
+                try:
+                    if any(
+                        config.getoption(name, default=None)
+                        for name in ("ci_lane", "ci_main_baseline", "ci_lane_report")
+                    ):
+                        raise ValueError(
+                            "independent CI projector conflicts with canonical authority"
+                        )
+                    self.lane_context = _CiLaneContext(
+                        Path(authority[_CI_PRIVATE_OPTIONS[1]]),
+                        Path.cwd().resolve(),
+                        expected_sha256=authority[_CI_PRIVATE_OPTIONS[2]],
+                    )
+                    receipt["ci_lane"].update(
+                        environment=self.lane_context.manifest["environment"],
+                        source_files=self.lane_context.sources,
+                    )
+                    self.audit_lane()
+                except (OSError, ValueError, LookupError) as exc:
+                    self.lane_error(str(exc), terminal=True)
+                    raise pytest.UsageError(str(exc)) from exc
 
         def pytest_collectreport(self, report: Any) -> None:
             if report.failed or report.skipped:
@@ -647,6 +831,13 @@ def _worker(request_path: Path) -> int:
                 )
                 append_event({"kind": key, "report": receipt[key][-1]})
                 checkpoint()
+                if self.lane_context is not None:
+                    try:
+                        self.lane_context.check_source(
+                            self.lane_context.root / report.nodeid.split("::", 1)[0]
+                        )
+                    except (OSError, ValueError) as exc:
+                        self.lane_error(str(exc))
 
         @pytest.hookimpl(hookwrapper=True, tryfirst=True)
         def pytest_collection_finish(self, session: Any) -> Any:
@@ -654,11 +845,39 @@ def _worker(request_path: Path) -> int:
             # batch imports the same full suite before execution is selected.
             yield
             full_items = list(session.items)
+            self.session = session
+            self.full_items = full_items
             receipt["collection_context"] = _worker_context()
             full_ids = [item.nodeid for item in full_items]
             receipt["full_items"] = [describe(item) for item in full_items]
             receipt["full_preselection_ids"] = full_ids
             checkpoint()
+            if authority is not None:
+                if full_ids != self.ordered_collection:
+                    self.lane_error("canonical full collection changed after ordering")
+                if receipt["collection_errors"]:
+                    self.lane_error("canonical lane collection contains errors")
+                self.audit_lane()
+                try:
+                    standard, extra = _ci_lane_partition(
+                        full_ids, self.lane_context.manifest
+                    )
+                    lane_ids = (
+                        standard
+                        if authority[_CI_PRIVATE_OPTIONS[0]] == "standard"
+                        else extra
+                    )
+                    assigned_set = set(request.get("assigned", []))
+                    if request["kind"] == "batch" and (
+                        len(assigned_set) != len(request["assigned"])
+                        or [nodeid for nodeid in lane_ids if nodeid in assigned_set]
+                        != request["assigned"]
+                    ):
+                        raise ValueError(
+                            "batch assignment is outside its qualified lane/order"
+                        )
+                except ValueError as exc:
+                    self.lane_error(str(exc))
             if len(set(full_ids)) != len(full_ids):
                 pytest.exit("duplicate collected node IDs", returncode=4)
             if request["kind"] == "batch":
@@ -675,7 +894,12 @@ def _worker(request_path: Path) -> int:
                 ]
                 session.items[:] = selected
                 session.testscollected = len(selected)
-                session.config.hook.pytest_deselected(items=deselected)
+                self.projecting = True
+                try:
+                    session.config.hook.pytest_deselected(items=deselected)
+                finally:
+                    self.projecting = False
+            self.selected = [item.nodeid for item in session.items]
             receipt["full_collection_checked"] = True
             receipt["items"] = [describe(item) for item in session.items]
             receipt["selected_ids"] = [item.nodeid for item in session.items]
@@ -992,6 +1216,16 @@ def _worker(request_path: Path) -> int:
                     self.release_capture()
 
         def pytest_sessionfinish(self, session: Any, exitstatus: int) -> None:
+            if authority is not None:
+                self.session = session
+                receipt.setdefault("ci_lane", {"errors": []})["native_exitstatus"] = (
+                    int(exitstatus)
+                )
+                self.audit_lane(terminal=True)
+                self.verify_lane(session, terminal=True)
+                if receipt.get("ci_lane", {}).get("errors") and session.exitstatus == 0:
+                    session.exitstatus = 1
+                exitstatus = session.exitstatus
             receipt["exitstatus"] = int(exitstatus)
             receipt["finished"] = _now()
             checkpoint()
@@ -1019,9 +1253,28 @@ def _worker(request_path: Path) -> int:
     finally:
         plugin.release_bf16_capture()
         plugin.release_capture()
+    if authority is not None:
+        # pytest_unconfigure and observer cleanup have now also returned.
+        plugin.audit_lane(terminal=True)
+        if plugin.session is not None:
+            plugin.verify_lane(plugin.session, terminal=True)
+        if receipt.get("ci_lane", {}).get("errors") and result == 0:
+            result = 1
     receipt["exitstatus"] = result
     receipt["finished"] = _now()
     checkpoint()
+    if authority is not None:
+        _write(
+            folder / "lane-terminal.json",
+            {
+                "receipt_sha256": hashlib.sha256(
+                    (folder / "receipt.json").read_bytes()
+                ).hexdigest(),
+                "request_sha256": hashlib.sha256(request_payload).hexdigest(),
+                "manifest_sha256": authority[_CI_PRIVATE_OPTIONS[2]],
+                "exitstatus": result,
+            },
+        )
     return result
 
 
@@ -1189,6 +1442,8 @@ def _main() -> int:
     parser.add_argument("--batch-size", type=int, default=_MAX_BATCH_SIZE)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--test-path", action="append", default=[])
+    parser.add_argument("--ci-lane", choices=("standard", "extra"), action=_CiAuthority)
+    parser.add_argument("--ci-main-baseline", type=Path, action=_CiAuthority)
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if not 1 <= args.batch_size <= _MAX_BATCH_SIZE:
@@ -1196,6 +1451,22 @@ def _main() -> int:
     options = args.pytest_args
     if options[:1] == ["--"]:
         options = options[1:]
+    if bool(args.ci_lane) != bool(args.ci_main_baseline):
+        parser.error(
+            "canonical CI selection requires both --ci-lane and --ci-main-baseline"
+        )
+    if any(
+        argument == name or argument.startswith(name + "=")
+        for argument in [*options, *args.test_path]
+        for name in _CI_PRIVATE_OPTIONS
+    ):
+        parser.error("private CI lane authority cannot be supplied by callers")
+    if args.ci_lane and any(
+        argument == name or argument.startswith(name + "=")
+        for argument in options
+        for name in ("--ci-lane", "--ci-main-baseline", "--ci-lane-report")
+    ):
+        parser.error("independent CI projector conflicts with canonical lane selection")
     if args.output_dir is not None:
         root = args.output_dir.resolve()
         root.mkdir(parents=True, exist_ok=False)
@@ -1232,6 +1503,9 @@ def _main() -> int:
     transport = None
     helper = None
     setup_failure = None
+    lane_context = None
+    lane_environment = None
+    lane_closed: list[tuple[Path, dict[str, Any], dict[str, str]]] = []
     run["native_model_artifact_transport"] = "native-model-artifact-transport.json"
 
     def write_setup_failure() -> None:
@@ -1377,20 +1651,66 @@ def _main() -> int:
                         if original_exception is None and result == 0:
                             raise
 
+        worker_options = list(options)
+        if args.ci_lane:
+            lane_environment = (
+                transport.environment if transport is not None else dict(os.environ)
+            )
+            lane_context = _CiLaneContext(
+                args.ci_main_baseline,
+                Path.cwd().resolve(),
+                environment=lane_environment,
+            )
+            worker_options.extend(
+                f"{name}={value}"
+                for name, value in zip(
+                    _CI_PRIVATE_OPTIONS,
+                    (args.ci_lane, str(lane_context.path), lane_context.sha256),
+                    strict=True,
+                )
+            )
+            (root / "ci-main-baseline.json").write_bytes(lane_context.path.read_bytes())
+            run["ci_lane"] = {
+                "lane": args.ci_lane,
+                "manifest_path": str(lane_context.path),
+                "manifest_sha256": lane_context.sha256,
+                "environment": lane_context.manifest["environment"],
+                "source_files": lane_context.sources,
+                "acceptance_scope": "chosen-lane-native-pytest-outcomes-only",
+                "outside_lane_source_native_acceptance": "UNVERIFIED",
+                "closed_workers": {},
+            }
+            _write(root / "run.json", run)
+
+        def closed_lane_worker(folder: Path, request: dict[str, Any]) -> dict[str, Any]:
+            if lane_context is None:
+                return json.loads((folder / "receipt.json").read_text())
+            lane_context.recheck(environment=lane_environment)
+            receipt = _ci_lane_closed(folder, request, lane_context)
+            hashes = {
+                name: hashlib.sha256((folder / name).read_bytes()).hexdigest()
+                for name in ("request.json", "receipt.json", "lane-terminal.json")
+            }
+            lane_closed.append((folder, request, hashes))
+            run["ci_lane"]["closed_workers"][folder.name] = hashes
+            return receipt
+
         collection = root / "collection"
         request = {
             "kind": "collection",
-            "pytest_args": [*options, *args.test_path, "--collect-only"],
+            "pytest_args": [*worker_options, *args.test_path, "--collect-only"],
         }
         if canonical_child(collection, request) != 0:
             raise ValueError(
                 "full-suite collection process did not finish successfully"
             )
-        baseline = json.loads((collection / "receipt.json").read_text())
+        baseline = closed_lane_worker(collection, request)
         items = baseline["items"]
         nodeids = [item["nodeid"] for item in items]
         if baseline["collection_errors"] or baseline["exitstatus"] != 0:
             raise ValueError("full-suite collection contains errors")
+        if lane_context is not None and not _ci_lane_phase_free(baseline):
+            raise ValueError("canonical lane collection recorded test execution")
         if (
             not baseline["full_collection_checked"]
             or baseline["full_preselection_ids"] != nodeids
@@ -1399,7 +1719,23 @@ def _main() -> int:
             raise ValueError("full-suite collection receipt is incomplete")
         if not nodeids or len(set(nodeids)) != len(nodeids):
             raise ValueError("full-suite collection is empty or has duplicate node IDs")
-        batches = _plan(items, args.batch_size)
+        lane_ids = nodeids
+        if lane_context is not None:
+            standard, extra = _ci_lane_partition(nodeids, lane_context.manifest)
+            lane_ids = standard if args.ci_lane == "standard" else extra
+            chosen = set(lane_ids)
+            items = [item for item in items if item["nodeid"] in chosen]
+            run["lane_nodeids"] = lane_ids
+            run["ci_lane"].update(standard_ids=standard, extra_ids=extra)
+        batches = _plan(
+            items,
+            args.batch_size,
+            isolated_owners=(
+                _CI_STANDARD_OWNERS if args.ci_lane == "standard" else frozenset()
+            ),
+        )
+        if [nodeid for batch in batches for nodeid in batch] != lane_ids:
+            raise ValueError("batch plan differs from the ordered chosen lane")
         run["nodeids"] = nodeids
         run["batches"] = batches
         _write(root / "run.json", run)
@@ -1424,12 +1760,14 @@ def _main() -> int:
                 "assigned": assigned,
                 "full_preselection_ids": nodeids,
                 "collection_skips": baseline["collection_skips"],
-                "pytest_args": [*options, *args.test_path],
+                "pytest_args": [*worker_options, *args.test_path],
             }
             if canonical_child(folder, request) != 0:
                 raise ValueError(f"{folder.name} process did not finish successfully")
-            receipt = json.loads((folder / "receipt.json").read_text())
+            receipt = closed_lane_worker(folder, request)
             _validate(receipt, assigned, nodeids, baseline["collection_skips"])
+            if lane_context is not None and receipt["completed"] != assigned:
+                raise ValueError("completed batch order differs from its assignment")
             junit = ET.parse(folder / "junit.xml")
             if len(junit.findall(".//testcase")) != len(assigned) + len(
                 baseline["collection_skips"]
@@ -1437,8 +1775,12 @@ def _main() -> int:
                 raise ValueError(f"{folder.name} JUnit does not account for every item")
             run["completed"].extend(receipt["completed"])
             _write(root / "run.json", run)
-        if Counter(run["completed"]) != Counter(nodeids):
-            raise ValueError("completed batch union differs from the full collection")
+        if Counter(run["completed"]) != Counter(lane_ids) or (
+            lane_context is not None and run["completed"] != lane_ids
+        ):
+            raise ValueError(
+                "completed batch union/order differs from its assigned scope"
+            )
         run["status"] = "PASS"
     except BaseException as exc:
         run["status"] = "FAIL"
@@ -1463,6 +1805,21 @@ def _main() -> int:
                 run.setdefault(
                     "failure", {"type": type(error).__name__, "message": str(error)}
                 )
+    if lane_context is not None:
+        try:
+            lane_context.recheck(environment=lane_environment)
+            for folder, request, hashes in lane_closed:
+                if any(
+                    hashlib.sha256((folder / name).read_bytes()).hexdigest() != expected
+                    for name, expected in hashes.items()
+                ):
+                    raise ValueError(
+                        "closed canonical lane evidence changed after validation"
+                    )
+                _ci_lane_closed(folder, request, lane_context)
+        except (OSError, ValueError, LookupError) as error:
+            run["status"] = "FAIL"
+            run["failure"] = {"type": type(error).__name__, "message": str(error)}
     if setup_failure is not None:
         setup_failure["original_run_status"] = run["status"]
         setup_failure["full_collection_ids"] = run.get("nodeids")
@@ -1471,16 +1828,19 @@ def _main() -> int:
     run["finished"] = _now()
     _write(root / "run.json", run)
     if run["status"] == "PASS":
+        scope = (
+            "collected items" if lane_context is None else f"{args.ci_lane} lane items"
+        )
         print(
-            f"[pytest-batches] PASS: all {len(run['completed'])} collected items completed once",
+            f"[pytest-batches] PASS: all {len(run['completed'])} {scope} completed once",
             flush=True,
         )
         return 0
     return 1
 
 
-# This opt-in pytest plugin is independent of the canonical batch executor above.
-# It records selection and native pytest outcomes, never numerical acceptance.
+# Shared lane qualification and the optional direct pytest projector. Canonical
+# workers reuse these audits while Report owns their sole assignment projection.
 def _ci_lane_environment(environment: Any = None) -> dict[str, str | None]:
     source = os.environ if environment is None else environment
     volatile = {
@@ -1496,7 +1856,9 @@ def _ci_lane_environment(environment: Any = None) -> dict[str, str | None]:
     }
 
 
-def _ci_lane_manifest(path: Path) -> tuple[dict[str, Any], bytes]:
+def _ci_lane_manifest(
+    path: Path, *, environment: Any = None
+) -> tuple[dict[str, Any], bytes]:
     def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result = {}
         for key, value in pairs:
@@ -1574,10 +1936,9 @@ def _ci_lane_manifest(path: Path) -> tuple[dict[str, Any], bytes]:
         raise ValueError(
             "baseline source_files need relative paths and SHA-256 bindings"
         )
-    if (
-        type(manifest["environment"]) is not dict
-        or manifest["environment"] != _ci_lane_environment()
-    ):
+    if type(manifest["environment"]) is not dict or manifest[
+        "environment"
+    ] != _ci_lane_environment(environment):
         raise ValueError("baseline environment differs from the qualified context")
     packages = manifest.get("packages", {})
     if type(packages) is not dict or any(
@@ -1647,6 +2008,263 @@ def _ci_lane_checkout(root: Path) -> dict[str, Any]:
     return result
 
 
+class _CiAuthority(argparse.Action):
+    def __call__(
+        self, parser: Any, namespace: Any, values: Any, option_string: Any = None
+    ) -> None:
+        if getattr(namespace, self.dest, None) is not None:
+            raise argparse.ArgumentError(self, "duplicate CI lane authority")
+        setattr(namespace, self.dest, values)
+
+
+_CI_PRIVATE_OPTIONS: tuple[str, ...] = (
+    "--_j2o-ci-lane",
+    "--_j2o-ci-main-baseline",
+    "--_j2o-ci-main-sha256",
+)
+_CI_STANDARD_OWNERS: frozenset[str] = frozenset(
+    (
+        "tests/examples/test_eqx_dino.py",
+        "tests/examples/test_nnx_dino.py",
+    )
+)
+
+
+def _ci_lane_qualify(
+    config: Any, root: Path, manifest: dict[str, Any], *, recheck: bool = False
+) -> None:
+    from fnmatch import fnmatchcase
+
+    if Path(config.rootpath).resolve() != root:
+        raise ValueError("CI lane checkout root differs from its qualified context")
+    for name in (
+        "keyword",
+        "markexpr",
+        "ignore",
+        "ignore_glob",
+        "deselect",
+        "lf",
+        "failedfirst",
+        "newfirst",
+        "noconftest",
+        "confcutdir",
+        "override_ini",
+        "pyargs",
+        "inifilename",
+        "rootdir",
+    ):
+        if getattr(config.option, name, None):
+            raise ValueError(
+                f"CI lane selection rejects effective prefilter/context option: {name}"
+            )
+    if getattr(config.option, "importmode", "prepend") != "prepend" or config.getini(
+        "pythonpath"
+    ):
+        raise ValueError(
+            "CI lane selection requires the qualified default import context"
+        )
+    collection_args = manifest.get("collection_args", [])
+    if list(getattr(config.option, "file_or_dir", [])) != collection_args:
+        raise ValueError(
+            "effective collection arguments changed after qualification"
+            if recheck
+            else "effective collection arguments differ from the qualified context"
+        )
+    if collection_args and Path(config.invocation_params.dir).resolve() != root:
+        raise ValueError(
+            "qualified collection invocation directory changed"
+            if recheck
+            else "qualified collection selectors require checkout-root invocation"
+        )
+    for argument in collection_args:
+        relative, *case = argument.split("::")
+        owner = Path(relative)
+        if (
+            not relative
+            or owner.is_absolute()
+            or owner.as_posix() != relative
+            or ".." in owner.parts
+            or relative.startswith("-")
+            or any(character in relative for character in "*?[]\\")
+            or any(character in argument for character in "\x00\n\r")
+            or owner.suffix != ".py"
+            or not any(
+                fnmatchcase(owner.name, pattern)
+                for pattern in config.getini("python_files")
+            )
+            or any(not component for component in case)
+        ):
+            raise ValueError(f"unsupported literal collection selector: {argument}")
+        resolved = (root / owner).resolve(strict=True)
+        if (
+            not resolved.is_relative_to(root)
+            or not resolved.is_file()
+            or relative not in manifest["source_files"]
+        ):
+            raise ValueError(
+                "collection selector needs a contained, source-bound test owner: "
+                f"{argument}"
+            )
+
+
+def _ci_lane_partition(
+    full: list[str], manifest: dict[str, Any]
+) -> tuple[list[str], list[str]]:
+    if len(set(full)) != len(full):
+        raise ValueError("duplicate collected node IDs")
+    if any(
+        argument not in full
+        for argument in manifest.get("collection_args", [])
+        if "::" in argument
+    ):
+        raise ValueError("qualified case selector is not an exact collected node ID")
+    baseline = manifest["nodeids"]
+    known = set(baseline)
+    standard = [nodeid for nodeid in full if nodeid in known]
+    if standard != baseline:
+        raise ValueError("baseline IDs are missing or their relative order changed")
+    return standard, [nodeid for nodeid in full if nodeid not in known]
+
+
+class _CiLaneContext:
+    """The shared manifest/source boundary; pytest projection stays with callers."""
+
+    def __init__(
+        self,
+        path: Path,
+        root: Path,
+        *,
+        environment: Any = None,
+        expected_sha256: str | None = None,
+    ) -> None:
+        self.path = path.resolve(strict=True)
+        self.root = root
+        self.manifest, raw = _ci_lane_manifest(self.path, environment=environment)
+        self.sha256 = hashlib.sha256(raw).hexdigest()
+        if expected_sha256 is not None and self.sha256 != expected_sha256:
+            raise ValueError("baseline manifest SHA changed")
+        self.sources = _ci_lane_sources(root, self.manifest["source_files"])
+
+    def check_source(self, path: Any) -> None:
+        if path is None:
+            return
+        resolved = Path(path).resolve()
+        if resolved.is_relative_to(self.root) and resolved.suffix == ".py":
+            relative = resolved.relative_to(self.root).as_posix()
+            if relative not in self.manifest["source_files"]:
+                raise ValueError(
+                    f"unbound collected owner or dependency source: {relative}"
+                )
+
+    def recheck(self, *, environment: Any = None) -> dict[str, Any]:
+        _, raw = _ci_lane_manifest(self.path, environment=environment)
+        if hashlib.sha256(raw).hexdigest() != self.sha256:
+            raise ValueError("baseline manifest SHA changed")
+        return _ci_lane_sources(self.root, self.manifest["source_files"])
+
+    def check(self, config: Any, items: Any = ()) -> dict[str, Any]:
+        _ci_lane_qualify(config, self.root, self.manifest, recheck=True)
+        bindings = self.recheck()
+        if config.inipath is not None:
+            relative = Path(config.inipath).resolve().relative_to(self.root).as_posix()
+            if relative not in self.manifest["source_files"]:
+                raise ValueError(f"unbound pytest configuration: {relative}")
+        for item in items:
+            if not Path(item.path).resolve().is_relative_to(self.root):
+                raise ValueError("collected test owner resolves outside the checkout")
+            self.check_source(item.path)
+        for name, module in list(sys.modules.items()):
+            namespace = vars(module) if module is not None else {}
+            path = namespace.get("__file__")
+            if type(path) is not str:
+                continue
+            if name == "jax2onnx" or name.startswith(("jax2onnx.", "tests.")):
+                if not Path(path).resolve().is_relative_to(self.root):
+                    raise ValueError(
+                        f"test/converter module resolves outside the checkout: {name}"
+                    )
+            self.check_source(path)
+        return bindings
+
+
+def _ci_lane_worker_authority(options: list[str]) -> dict[str, str] | None:
+    authority = {}
+    for argument in options:
+        for name in _CI_PRIVATE_OPTIONS:
+            if argument == name or argument.startswith(name + "="):
+                if (
+                    name in authority
+                    or not argument.startswith(name + "=")
+                    or not argument[len(name) + 1 :]
+                ):
+                    raise ValueError("duplicate or malformed private CI lane authority")
+                authority[name] = argument[len(name) + 1 :]
+    if not authority:
+        return None
+    if set(authority) != set(_CI_PRIVATE_OPTIONS) or authority[
+        _CI_PRIVATE_OPTIONS[0]
+    ] not in {"standard", "extra"}:
+        raise ValueError("incomplete private CI lane authority")
+    digest = authority[_CI_PRIVATE_OPTIONS[2]]
+    if len(digest) != 64 or any(
+        character not in "0123456789abcdef" for character in digest
+    ):
+        raise ValueError("invalid private CI manifest SHA")
+    return authority
+
+
+def _ci_lane_phase_free(receipt: dict[str, Any]) -> bool:
+    return (
+        receipt.get("phases") == {}
+        and receipt.get("completed") == []
+        and receipt.get("phase_durations") == {}
+    )
+
+
+def _ci_lane_closed(
+    folder: Path, request: dict[str, Any], context: _CiLaneContext
+) -> dict[str, Any]:
+    payload = (folder / "receipt.json").read_bytes()
+    terminal = json.loads((folder / "lane-terminal.json").read_text())
+    request_payload = (
+        json.dumps(request, indent=2, ensure_ascii=False) + "\n"
+    ).encode()
+    if (
+        terminal
+        != {
+            "receipt_sha256": hashlib.sha256(payload).hexdigest(),
+            "request_sha256": hashlib.sha256(request_payload).hexdigest(),
+            "manifest_sha256": context.sha256,
+            "exitstatus": 0,
+        }
+        or (folder / "request.json").read_bytes() != request_payload
+    ):
+        raise ValueError("closed canonical lane receipt/request binding differs")
+    receipt = json.loads(payload)
+    if request["kind"] == "collection" and not _ci_lane_phase_free(receipt):
+        raise ValueError("canonical lane collection recorded test execution")
+    lane = receipt.get("ci_lane", {})
+    authority = _ci_lane_worker_authority(request["pytest_args"])
+    if (
+        authority is None
+        or authority[_CI_PRIVATE_OPTIONS[1]] != str(context.path)
+        or authority[_CI_PRIVATE_OPTIONS[2]] != context.sha256
+        or lane.get("lane") != authority[_CI_PRIVATE_OPTIONS[0]]
+        or receipt.get("kind") != request["kind"]
+        or receipt.get("pytest_args") != request["pytest_args"]
+        or receipt.get("exitstatus") != 0
+        or not receipt.get("finished")
+        or lane.get("errors") != []
+        or lane.get("manifest_sha256") != context.sha256
+        or lane.get("manifest_path") != str(context.path)
+        or lane.get("environment") != context.manifest["environment"]
+        or lane.get("source_files") != context.sources
+        or lane.get("source_files_after") != context.sources
+    ):
+        raise ValueError("canonical lane terminal audit is incomplete")
+    return receipt
+
+
 def pytest_addoption(parser: Any) -> None:
     group = parser.getgroup("reviewed CI lane selection")
     group.addoption("--ci-lane", choices=("standard", "extra"), default=None)
@@ -1658,15 +2276,23 @@ def pytest_configure(config: Any) -> None:
     lane = config.getoption("ci_lane")
     baseline = config.getoption("ci_main_baseline")
     destination = config.getoption("ci_lane_report")
+    if hasattr(config.option, "_j2o_ci_lane"):
+        if any((lane, baseline, destination)):
+            import pytest
+
+            raise pytest.UsageError(
+                "independent CI projector conflicts with canonical authority"
+            )
+        return
     if not any((lane, baseline, destination)):
         return
-    from fnmatch import fnmatchcase
     import inspect
     import pytest
 
     if not all((lane, baseline, destination)):
         raise pytest.UsageError("CI lane selection needs all three explicit options")
     root = Path(config.rootpath).resolve()
+    requested_collectonly = bool(config.option.collectonly)
     folder = Path(destination).resolve()
     worker = getattr(config, "workerinput", None)
     try:
@@ -1697,6 +2323,7 @@ def pytest_configure(config: Any) -> None:
         "acceptance_scope": "selection-and-native-phase-accounting-only",
         "lane": lane,
         "role": "worker" if worker is not None else "serial",
+        "requested_collectonly": requested_collectonly,
         "started": _now(),
         "checkout": _ci_lane_checkout(root),
         "collection_args": list(getattr(config.option, "file_or_dir", [])),
@@ -1720,72 +2347,10 @@ def pytest_configure(config: Any) -> None:
         _write(folder / "receipt.json", receipt)
 
     try:
-        for name in (
-            "keyword",
-            "markexpr",
-            "ignore",
-            "ignore_glob",
-            "deselect",
-            "lf",
-            "failedfirst",
-            "newfirst",
-            "noconftest",
-            "confcutdir",
-            "override_ini",
-            "pyargs",
-            "inifilename",
-            "rootdir",
-        ):
-            if getattr(config.option, name, None):
-                raise ValueError(
-                    f"CI lane selection rejects effective prefilter/context option: {name}"
-                )
-        if getattr(
-            config.option, "importmode", "prepend"
-        ) != "prepend" or config.getini("pythonpath"):
-            raise ValueError(
-                "CI lane selection requires the qualified default import context"
-            )
         manifest, raw = _ci_lane_manifest(Path(baseline))
         collection_args = manifest.get("collection_args", [])
         receipt["qualified_collection_args"] = collection_args
-        if receipt["collection_args"] != collection_args:
-            raise ValueError(
-                "effective collection arguments differ from the qualified context"
-            )
-        if collection_args and Path(config.invocation_params.dir).resolve() != root:
-            raise ValueError(
-                "qualified collection selectors require checkout-root invocation"
-            )
-        for argument in collection_args:
-            relative, *case = argument.split("::")
-            owner = Path(relative)
-            if (
-                not relative
-                or owner.is_absolute()
-                or owner.as_posix() != relative
-                or ".." in owner.parts
-                or relative.startswith("-")
-                or any(character in relative for character in "*?[]\\")
-                or any(character in argument for character in "\x00\n\r")
-                or owner.suffix != ".py"
-                or not any(
-                    fnmatchcase(owner.name, pattern)
-                    for pattern in config.getini("python_files")
-                )
-                or any(not component for component in case)
-            ):
-                raise ValueError(f"unsupported literal collection selector: {argument}")
-            resolved = (root / owner).resolve(strict=True)
-            if (
-                not resolved.is_relative_to(root)
-                or not resolved.is_file()
-                or relative not in manifest["source_files"]
-            ):
-                raise ValueError(
-                    "collection selector needs a contained, source-bound test owner: "
-                    f"{argument}"
-                )
+        _ci_lane_qualify(config, root, manifest)
         raw_hash = hashlib.sha256(raw).hexdigest()
         if worker is not None and (
             worker["ci_lane"]["manifest_sha256"] != raw_hash
@@ -1810,6 +2375,7 @@ def pytest_configure(config: Any) -> None:
         checkpoint()
         raise pytest.UsageError(str(exc)) from exc
     checkpoint()
+    context = _CiLaneContext(Path(baseline), root, expected_sha256=raw_hash)
 
     class LaneSelection:
         projecting = False
@@ -1828,58 +2394,34 @@ def pytest_configure(config: Any) -> None:
                 pytest.exit(message, returncode=4)
 
         def check_source(self, path: Any, *, terminal: bool = False) -> None:
-            if path is None:
-                return
-            resolved = Path(path).resolve()
-            if resolved.is_relative_to(root) and resolved.suffix == ".py":
-                relative = resolved.relative_to(root).as_posix()
-                if relative not in manifest["source_files"]:
-                    self.fail(
-                        f"unbound collected owner or dependency source: {relative}",
-                        terminal=terminal,
-                    )
-
-        def check_context(self, items: Any = (), *, terminal: bool = False) -> None:
-            if collection_args and Path(config.invocation_params.dir).resolve() != root:
-                self.fail(
-                    "qualified collection invocation directory changed",
-                    terminal=terminal,
-                )
-            if getattr(config.option, "file_or_dir", []) != collection_args:
-                self.fail(
-                    "effective collection arguments changed after qualification",
-                    terminal=terminal,
-                )
             try:
-                key = "source_files_after" if terminal else "source_files"
-                receipt[key] = _ci_lane_sources(root, manifest["source_files"])
+                context.check_source(path)
             except (OSError, ValueError) as exc:
                 self.fail(str(exc), terminal=terminal)
-            if config.inipath is not None:
-                relative = Path(config.inipath).resolve().relative_to(root).as_posix()
-                if relative not in manifest["source_files"]:
-                    self.fail(
-                        f"unbound pytest configuration: {relative}", terminal=terminal
+
+        def check_context(self, items: Any = (), *, terminal: bool = False) -> None:
+            try:
+                if config.option.collectonly is not requested_collectonly:
+                    raise ValueError(
+                        "CI lane collection mode changed after qualification"
                     )
-            for item in items:
-                if not Path(item.path).resolve().is_relative_to(root):
-                    self.fail(
-                        "collected test owner resolves outside the checkout",
-                        terminal=terminal,
+                if requested_collectonly and not _ci_lane_phase_free(receipt):
+                    raise ValueError("requested CI collection recorded test execution")
+                if any(
+                    config.getoption(name) != expected
+                    for name, expected in (
+                        ("ci_lane", lane),
+                        ("ci_main_baseline", baseline),
+                        ("ci_lane_report", destination),
                     )
-                self.check_source(item.path, terminal=terminal)
-            for name, module in list(sys.modules.items()):
-                namespace = vars(module) if module is not None else {}
-                path = namespace.get("__file__")
-                if type(path) is not str:
-                    continue
-                if name == "jax2onnx" or name.startswith(("jax2onnx.", "tests.")):
-                    if not Path(path).resolve().is_relative_to(root):
-                        self.fail(
-                            f"test/converter module resolves outside the checkout: {name}",
-                            terminal=terminal,
-                        )
-                self.check_source(path, terminal=terminal)
+                ):
+                    raise ValueError(
+                        "explicit CI lane authority changed after qualification"
+                    )
+                key = "source_files_after" if terminal else "source_files"
+                receipt[key] = context.check(config, items)
+            except (OSError, ValueError) as exc:
+                self.fail(str(exc), terminal=terminal)
 
         def verify(self, session: Any) -> None:
             if (
@@ -1901,16 +2443,12 @@ def pytest_configure(config: Any) -> None:
                 )
             if receipt["collection_errors"]:
                 self.fail("CI lane collection contains errors")
-            if any(
-                argument not in full for argument in collection_args if "::" in argument
-            ):
-                self.fail("qualified case selector is not an exact collected node ID")
             self.check_context(items)
-            baseline_ids = manifest["nodeids"]
+            try:
+                baseline_ids, _ = _ci_lane_partition(full, manifest)
+            except ValueError as exc:
+                self.fail(str(exc))
             baseline_set = set(baseline_ids)
-            projection = [nodeid for nodeid in full if nodeid in baseline_set]
-            if projection != baseline_ids:
-                self.fail("baseline IDs are missing or their relative order changed")
             selected = [
                 item
                 for item in items
@@ -1962,6 +2500,8 @@ def pytest_configure(config: Any) -> None:
 
         @pytest.hookimpl(tryfirst=True)
         def pytest_runtest_protocol(self, item: Any) -> None:
+            if requested_collectonly:
+                self.fail("requested CI collection cannot execute a test protocol")
             if not self.protocol_started:
                 self.verify(item.session)
                 self.protocol_started = True
@@ -2019,6 +2559,7 @@ def pytest_configure(config: Any) -> None:
                 inventory = json.loads(path.read_text())
                 if (
                     inventory["manifest_sha256"] != raw_hash
+                    or inventory["requested_collectonly"] is not requested_collectonly
                     or inventory["collection_args"] != receipt["collection_args"]
                     or inventory["qualified_collection_args"]
                     != receipt["qualified_collection_args"]
@@ -2081,6 +2622,8 @@ def pytest_configure(config: Any) -> None:
                 )
                 if (
                     terminal["role"] != "worker"
+                    or terminal["requested_collectonly"] is not requested_collectonly
+                    or (requested_collectonly and not _ci_lane_phase_free(terminal))
                     or terminal["lane"] != lane
                     or terminal["manifest_sha256"] != raw_hash
                     or terminal["baseline_commit"] != manifest["baseline_commit"]
@@ -2164,7 +2707,7 @@ def pytest_configure(config: Any) -> None:
                     if clean and valid and int(exitstatus) == 0
                     else "FAIL"
                 )
-            elif config.option.collectonly:
+            elif requested_collectonly:
                 receipt["status"] = (
                     "COLLECTED" if clean and int(exitstatus) == 0 else "FAIL"
                 )

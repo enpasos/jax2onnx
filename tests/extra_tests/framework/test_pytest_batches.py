@@ -6,9 +6,11 @@ import base64
 import builtins
 import csv
 import hashlib
+from importlib import metadata
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -32,27 +34,45 @@ def _runner() -> Any:
 def _run_suite(
     tmp_path: Path, files: dict[str, str], *, batch_size: int = 2
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any], Path]:
+    suite = _write_suite(tmp_path, files)
+    return _run_prepared_suite(tmp_path, suite, batch_size=batch_size)
+
+
+def _write_suite(tmp_path: Path, files: dict[str, str]) -> Path:
     suite = tmp_path / "suite"
     suite.mkdir()
     for name, content in files.items():
         destination = suite / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(content)
+    return suite
+
+
+def _run_prepared_suite(
+    tmp_path: Path,
+    suite: Path,
+    *,
+    batch_size: int = 2,
+    runner_args: tuple[str, ...] = (),
+    test_paths: tuple[str, ...] | None = None,
+    environment: dict[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Any], Path]:
     receipts = tmp_path / "receipts"
+    command = [
+        sys.executable,
+        str(_RUNNER),
+        "--output-dir",
+        str(receipts),
+        "--batch-size",
+        str(batch_size),
+    ]
+    for path in (str(suite),) if test_paths is None else test_paths:
+        command.extend(("--test-path", path))
+    command.extend((*runner_args, "--", "-q"))
     result = subprocess.run(
-        [
-            sys.executable,
-            str(_RUNNER),
-            "--output-dir",
-            str(receipts),
-            "--batch-size",
-            str(batch_size),
-            "--test-path",
-            str(suite),
-            "--",
-            "-q",
-        ],
+        command,
         cwd=suite,
+        env=environment,
         capture_output=True,
         text=True,
         timeout=120,
@@ -60,6 +80,64 @@ def _run_suite(
     )
     run = json.loads((receipts / "run.json").read_text())
     return result, run, receipts
+
+
+def _prepare_lane_suite(
+    tmp_path: Path,
+    files: dict[str, str],
+    baseline: list[str],
+    *,
+    collection_args: tuple[str, ...] = (),
+) -> tuple[Path, Path, dict[str, str]]:
+    suite = _write_suite(tmp_path, {"pytest.ini": "[pytest]\ntestpaths = .\n", **files})
+    environment = os.environ.copy()
+    environment.update(PYTEST_ADDOPTS="", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+    environment.pop("JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR", None)
+    child_environment = {
+        **environment,
+        "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": str(
+            tmp_path / "receipts" / "native-model-artifacts"
+        ),
+    }
+    manifest = {
+        "schema": "jax2onnx-ci-baseline-v1",
+        "baseline_commit": "1" * 40,
+        "python_minor": f"{sys.version_info.major}.{sys.version_info.minor}",
+        "nodeids": baseline,
+        "collection_args": list(collection_args),
+        "source_files": {
+            path.relative_to(suite)
+            .as_posix(): hashlib.sha256(path.read_bytes())
+            .hexdigest()
+            for path in suite.rglob("*")
+            if path.is_file()
+        },
+        "packages": {"pytest": metadata.version("pytest")},
+        "environment": _runner()._ci_lane_environment(child_environment),
+    }
+    path = tmp_path / "baseline.json"
+    path.write_text(json.dumps(manifest, indent=2) + "\n")
+    return suite, path, environment
+
+
+def _run_lane_suite(
+    tmp_path: Path,
+    suite: Path,
+    manifest: Path,
+    environment: dict[str, str],
+    *,
+    lane: str = "standard",
+    batch_size: int = 2,
+    collection_args: tuple[str, ...] = (),
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Any], Path]:
+    return _run_prepared_suite(
+        tmp_path,
+        suite,
+        batch_size=batch_size,
+        runner_args=("--ci-lane", lane, "--ci-main-baseline", str(manifest)),
+        test_paths=collection_args,
+        environment=environment,
+    )
 
 
 def test_real_batches_preserve_parameter_ids_skip_xfail_and_collection_skip(
@@ -177,6 +255,485 @@ def test_registration():
     first = json.loads((folder / "batch-0001" / "receipt.json").read_text())
     assert len(first["full_preselection_ids"]) == 2
     assert first["selected_ids"] == [run["nodeids"][0]]
+
+
+@pytest.mark.parametrize("lane", ["standard", "extra"])
+def test_canonical_lane_batches_keep_full_collection_and_one_request_protocol(
+    lane: str, tmp_path: Path
+) -> None:
+    baseline = [
+        "test_a_consumer.py::test_baseline",
+        "test_a_consumer.py::test_skip",
+        "test_a_consumer.py::test_xfail",
+    ]
+    extra = [
+        "test_a_consumer.py::test_extra",
+        "test_z_registration.py::test_registration",
+    ]
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_a_consumer.py": """import builtins
+from pathlib import Path
+import pytest
+def test_baseline():
+    assert builtins._ci_batch_registered == 'registered'
+    Path('ran-baseline').write_text('yes')
+@pytest.mark.skip(reason='original skip')
+def test_skip():
+    pass
+@pytest.mark.xfail(strict=True, reason='original xfail')
+def test_xfail():
+    assert False
+def test_extra():
+    assert builtins._ci_batch_registered == 'registered'
+    Path('ran-extra').write_text('yes')
+""",
+            "test_z_registration.py": """import builtins
+builtins._ci_batch_registered = 'registered'
+def test_registration():
+    pass
+""",
+            "test_collection_skip.py": """import pytest
+pytest.skip('original collection skip', allow_module_level=True)
+""",
+        },
+        baseline,
+    )
+    evidence_key = "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"
+    original_environment = os.environ.get(evidence_key)
+    result, run, folder = _run_lane_suite(
+        tmp_path, suite, manifest, environment, lane=lane, batch_size=1
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    selected = baseline if lane == "standard" else extra
+    full = baseline + extra
+    digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    assert run["status"] == "PASS" and run["nodeids"] == full
+    assert run["lane_nodeids"] == run["completed"] == selected
+    assert run["batches"] == [[nodeid] for nodeid in selected]
+    assert run["ci_lane"]["lane"] == lane
+    assert run["ci_lane"]["manifest_sha256"] == digest
+    assert len(run["processes"]) == 1 + len(selected)
+    assert os.environ.get(evidence_key) == original_environment
+    expected_environment = json.loads(manifest.read_text())["environment"]
+    transport = json.loads(
+        (folder / "native-model-artifact-transport.json").read_text()
+    )
+    assert transport["environment_mode"] == "RUN_OWNED"
+    for process in run["processes"]:
+        directory = folder / process["folder"]
+        request_raw = (directory / "request.json").read_bytes()
+        receipt_raw = (directory / "receipt.json").read_bytes()
+        request, receipt = json.loads(request_raw), json.loads(receipt_raw)
+        terminal = json.loads((directory / "lane-terminal.json").read_text())
+        assert terminal["request_sha256"] == hashlib.sha256(request_raw).hexdigest()
+        assert terminal["receipt_sha256"] == hashlib.sha256(receipt_raw).hexdigest()
+        assert terminal["manifest_sha256"] == digest
+        assert terminal["exitstatus"] == receipt["exitstatus"] == 0
+        assert receipt["full_preselection_ids"] == full
+        assert [item["nodeid"] for item in receipt["full_items"]] == full
+        assert receipt["ci_lane"]["lane"] == lane
+        assert receipt["ci_lane"]["manifest_sha256"] == digest
+        assert receipt["ci_lane"]["errors"] == []
+        assert receipt["ci_lane"]["environment"] == expected_environment
+        assert receipt["startup_context"]["environment"][evidence_key] == str(
+            folder / "native-model-artifacts"
+        )
+        assert len(receipt["collection_skips"]) == 1
+        assert "--_j2o-ci-lane=" + lane in request["pytest_args"]
+        assert "--_j2o-ci-main-baseline=" + str(manifest) in request["pytest_args"]
+        assert "--_j2o-ci-main-sha256=" + digest in request["pytest_args"]
+        assert not any(
+            argument.startswith("--ci-lane-report")
+            for argument in request["pytest_args"]
+        )
+        assert "-p" not in request["pytest_args"]
+        if process["kind"] == "collection":
+            assert set(request) == {"kind", "pytest_args"}
+            assert receipt["phases"] == {}
+        else:
+            assert set(request) == {
+                "kind",
+                "assigned",
+                "full_preselection_ids",
+                "collection_skips",
+                "pytest_args",
+            }
+            assert request["full_preselection_ids"] == full
+            assert (
+                request["assigned"]
+                == receipt["assigned_ids"]
+                == receipt["selected_ids"]
+            )
+            assert set(receipt["phases"]) == set(request["assigned"])
+            assert len(ET.parse(directory / "junit.xml").findall(".//testcase")) == 2
+    assert (suite / "ran-baseline").exists() is (lane == "standard")
+    assert (suite / "ran-extra").exists() is (lane == "extra")
+
+
+def test_canonical_empty_extra_lane_retains_collection_without_execution(
+    tmp_path: Path,
+) -> None:
+    baseline = ["test_cases.py::test_baseline"]
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_cases.py": "from pathlib import Path\ndef test_baseline():\n    Path('unexpected-body').touch()\n"
+        },
+        baseline,
+    )
+    result, run, folder = _run_lane_suite(
+        tmp_path, suite, manifest, environment, lane="extra"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert run["status"] == "PASS" and run["nodeids"] == baseline
+    assert run["lane_nodeids"] == run["completed"] == run["batches"] == []
+    assert len(run["processes"]) == 1
+    receipt = json.loads((folder / "collection/receipt.json").read_text())
+    assert receipt["full_preselection_ids"] == baseline and receipt["phases"] == {}
+    assert not (suite / "unexpected-body").exists()
+
+
+def test_canonical_lane_rejects_collection_mode_change_before_any_test_phase(
+    tmp_path: Path,
+) -> None:
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_cases.py": """from pathlib import Path
+def test_baseline():
+    Path('baseline-body').touch()
+def test_extra():
+    Path('extra-body').touch()
+""",
+            "conftest.py": """import pytest
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtestloop(session):
+    session.config.option.collectonly = False
+""",
+        },
+        ["test_cases.py::test_baseline"],
+    )
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and len(run["processes"]) == 1
+    assert not (suite / "baseline-body").exists()
+    assert not (suite / "extra-body").exists()
+    receipt = json.loads((folder / "collection/receipt.json").read_text())
+    assert receipt["phases"] == receipt["phase_durations"] == {}
+    assert receipt["completed"] == [] and receipt["ci_lane"]["errors"]
+
+
+def test_canonical_lane_preserves_seventeen_qualified_file_and_exact_case_selectors(
+    tmp_path: Path,
+) -> None:
+    files = {
+        f"test_owner_{index:02d}.py": "def test_baseline():\n    pass\n"
+        for index in range(16)
+    }
+    files[
+        "test_owner_00.py"
+    ] += "def test_extra():\n    raise AssertionError('extra executed')\n"
+    files[
+        "test_exact.py"
+    ] = """import pytest
+@pytest.mark.parametrize('value', [1, 2], ids=['chosen', 'sibling'])
+def test_parameter(value):
+    assert value == 1
+def test_unselected_sibling():
+    raise AssertionError('sibling executed')
+"""
+    files["test_outside.py"] = "raise AssertionError('outside module imported')\n"
+    selectors = tuple(f"test_owner_{index:02d}.py" for index in range(16)) + (
+        "test_exact.py::test_parameter[chosen]",
+    )
+    baseline = [f"test_owner_{index:02d}.py::test_baseline" for index in range(16)] + [
+        selectors[-1]
+    ]
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path, files, baseline, collection_args=selectors
+    )
+    result, run, folder = _run_lane_suite(
+        tmp_path, suite, manifest, environment, collection_args=selectors, batch_size=50
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        run["status"] == "PASS" and run["lane_nodeids"] == run["completed"] == baseline
+    )
+    assert len(run["nodeids"]) == 18 and len(run["processes"]) == 2
+    assert "test_owner_00.py::test_extra" in run["nodeids"]
+    for process in run["processes"]:
+        receipt = json.loads((folder / process["folder"] / "receipt.json").read_text())
+        assert receipt["full_preselection_ids"] == run["nodeids"]
+        assert receipt["ci_lane"]["errors"] == []
+        request = json.loads((folder / process["folder"] / "request.json").read_text())
+        actual_paths = [
+            argument
+            for argument in request["pytest_args"]
+            if argument.startswith("test_")
+        ]
+        assert actual_paths == list(selectors)
+
+
+@pytest.mark.parametrize("fault", ["missing", "reordered", "injected"])
+def test_canonical_lane_rejects_changed_qualified_selectors_before_imports(
+    fault: str, tmp_path: Path
+) -> None:
+    selectors = ("test_a.py", "test_b.py::test_second")
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_a.py": "from pathlib import Path\ndef test_first():\n    Path('unexpected-body').touch()\n",
+            "test_b.py": "from pathlib import Path\ndef test_second():\n    Path('unexpected-body').touch()\n",
+            "test_injected.py": "from pathlib import Path\nPath('unexpected-import').touch()\ndef test_injected():\n    Path('unexpected-body').touch()\n",
+        },
+        ["test_a.py::test_first", "test_b.py::test_second"],
+        collection_args=selectors,
+    )
+    actual = {
+        "missing": selectors[:1],
+        "reordered": tuple(reversed(selectors)),
+        "injected": (*selectors, "test_injected.py"),
+    }[fault]
+    result, run, _ = _run_lane_suite(
+        tmp_path, suite, manifest, environment, collection_args=actual
+    )
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and len(run["processes"]) <= 1
+    assert not (suite / "unexpected-body").exists()
+    assert not (suite / "unexpected-import").exists()
+
+
+def test_canonical_lane_rejects_foreign_deselection_of_only_extra_items(
+    tmp_path: Path,
+) -> None:
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_cases.py": "from pathlib import Path\ndef test_baseline():\n    Path('unexpected-body').touch()\ndef test_extra():\n    Path('unexpected-body').touch()\n",
+            "conftest.py": """def pytest_collection_modifyitems(config, items):
+    removed=[item for item in items if item.nodeid.endswith('::test_extra')]
+    items[:]=[item for item in items if item not in removed]
+    config.hook.pytest_deselected(items=removed)
+""",
+        },
+        ["test_cases.py::test_baseline"],
+    )
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and not (suite / "unexpected-body").exists()
+    assert len(run["processes"]) == 1
+    receipt = json.loads((folder / "collection/receipt.json").read_text())
+    assert receipt["phases"] == {} and receipt["ci_lane"]["errors"]
+
+
+def test_canonical_lane_preserves_original_addopts_and_first_failfast_outcome(
+    tmp_path: Path,
+) -> None:
+    baseline = ["test_cases.py::test_first_failure", "test_cases.py::test_later"]
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_cases.py": """from pathlib import Path
+def test_first_failure():
+    path=Path('first-calls')
+    path.write_text(path.read_text()+'x' if path.exists() else 'x')
+    assert False, 'original first failure'
+def test_later():
+    Path('unexpected-later-body').touch()
+"""
+        },
+        baseline,
+    )
+    original_options = "-v --tb=short -x"
+    environment["PYTEST_ADDOPTS"] = original_options
+    payload = json.loads(manifest.read_text())
+    payload["environment"] = _runner()._ci_lane_environment(
+        {
+            **environment,
+            "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": str(
+                tmp_path / "receipts/native-model-artifacts"
+            ),
+        }
+    )
+    manifest.write_text(json.dumps(payload, indent=2) + "\n")
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["pytest_addopts"] == original_options and run["completed"] == []
+    assert [process["kind"] for process in run["processes"]] == ["collection", "batch"]
+    assert (suite / "first-calls").read_text() == "x"
+    assert not (suite / "unexpected-later-body").exists()
+    receipt = json.loads((folder / "batch-0001/receipt.json").read_text())
+    assert (
+        receipt["startup_context"]["environment"]["PYTEST_ADDOPTS"] == original_options
+    )
+    assert set(receipt["phases"]) == {baseline[0]}
+    assert any(
+        phase["when"] == "call" and phase["outcome"] == "failed"
+        for phase in receipt["phases"][baseline[0]]
+    )
+    assert "original first failure" in (folder / "batch-0001/output.log").read_text()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "environment",
+        "missing",
+        "order",
+        "source",
+        "package",
+        "manifest-after-collection",
+    ],
+)
+def test_canonical_lane_rejects_unqualified_manifest_before_test_bodies(
+    fault: str, tmp_path: Path
+) -> None:
+    baseline = ["test_cases.py::test_first", "test_cases.py::test_second"]
+    files = {
+        "test_cases.py": "from pathlib import Path\ndef test_first():\n    Path('unexpected-body').touch()\ndef test_second():\n    Path('unexpected-body').touch()\n"
+    }
+    if fault == "manifest-after-collection":
+        files["conftest.py"] = (
+            "from pathlib import Path\n"
+            "def pytest_sessionfinish(session, exitstatus):\n"
+            "    if session.config.option.collectonly:\n"
+            f"        path=Path({str(tmp_path / 'baseline.json')!r})\n"
+            "        path.write_bytes(path.read_bytes()+b' ')\n"
+        )
+    suite, manifest, environment = _prepare_lane_suite(tmp_path, files, baseline)
+    payload = json.loads(manifest.read_text())
+    if fault == "environment":
+        payload["environment"] = _runner()._ci_lane_environment(environment)
+    elif fault == "missing":
+        payload["nodeids"].append("test_cases.py::test_missing")
+    elif fault == "order":
+        payload["nodeids"].reverse()
+    elif fault == "package":
+        payload["packages"]["pytest"] = "0.0.0"
+    manifest.write_text(json.dumps(payload, indent=2) + "\n")
+    if fault == "source":
+        with (suite / "test_cases.py").open("a") as output:
+            output.write("# source drift after qualification\n")
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and not (suite / "unexpected-body").exists()
+    assert len(run["processes"]) <= 1
+    receipt_path = folder / "collection/receipt.json"
+    if receipt_path.exists():
+        assert json.loads(receipt_path.read_text())["phases"] == {}
+
+
+def test_canonical_standard_batch_rechecks_unassigned_extra_inventory_before_body(
+    tmp_path: Path,
+) -> None:
+    baseline = ["test_a_baseline.py::test_baseline"]
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_a_baseline.py": "from pathlib import Path\ndef test_baseline():\n    Path('unexpected-body').touch()\n",
+            "test_z_extra.py": "def test_extra():\n    pass\n",
+            "conftest.py": """import sys
+def pytest_collection_modifyitems(items):
+    if any('/batch-' in argument for argument in sys.argv):
+        items[-1]._nodeid += '-unassigned-extra-drift'
+""",
+        },
+        baseline,
+    )
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and len(run["processes"]) == 2
+    assert not (suite / "unexpected-body").exists()
+    receipt = json.loads((folder / "batch-0001/receipt.json").read_text())
+    assert receipt["full_preselection_ids"][-1].endswith("-unassigned-extra-drift")
+    assert receipt["phases"] == {} and receipt["full_collection_checked"] is False
+
+
+@pytest.mark.parametrize(
+    "fault", ["lazy-unbound-import", "late-unconfigure-source-drift"]
+)
+def test_canonical_lane_terminal_audit_fails_after_passed_native_reports(
+    fault: str, tmp_path: Path
+) -> None:
+    files = {
+        "test_cases.py": "from pathlib import Path\ndef test_baseline():\n    Path('body-ran').touch()\n",
+        "helper.py": "VALUE = 1\n",
+    }
+    if fault == "lazy-unbound-import":
+        files["test_cases.py"] += "    import helper\n    assert helper.VALUE == 1\n"
+    else:
+        files[
+            "conftest.py"
+        ] = """from pathlib import Path
+def pytest_unconfigure(config):
+    if not config.option.collectonly:
+        path=Path(__file__).with_name('helper.py')
+        path.write_text(path.read_text()+'# late source drift')
+"""
+    baseline = ["test_cases.py::test_baseline"]
+    suite, manifest, environment = _prepare_lane_suite(tmp_path, files, baseline)
+    if fault == "lazy-unbound-import":
+        payload = json.loads(manifest.read_text())
+        del payload["source_files"]["helper.py"]
+        manifest.write_text(json.dumps(payload, indent=2) + "\n")
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert len(run["processes"]) == 2 and run["completed"] == []
+    assert (suite / "body-ran").exists()
+    receipt = json.loads((folder / "batch-0001/receipt.json").read_text())
+    assert receipt["completed"] == baseline and receipt["ci_lane"]["errors"]
+    assert [phase["when"] for phase in receipt["phases"][baseline[0]]] == [
+        "setup",
+        "call",
+        "teardown",
+    ]
+    assert all(phase["outcome"] == "passed" for phase in receipt["phases"][baseline[0]])
+
+
+def test_canonical_worker_rejects_assignment_outside_its_qualified_lane(
+    tmp_path: Path,
+) -> None:
+    full = ["test_cases.py::test_baseline", "test_cases.py::test_extra"]
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_cases.py": "from pathlib import Path\ndef test_baseline():\n    Path('unexpected-body').touch()\ndef test_extra():\n    Path('unexpected-body').touch()\n"
+        },
+        full[:1],
+    )
+    folder = tmp_path / "worker"
+    folder.mkdir()
+    digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    request = {
+        "kind": "batch",
+        "assigned": full[1:],
+        "full_preselection_ids": full,
+        "collection_skips": [],
+        "pytest_args": [
+            "-q",
+            "--_j2o-ci-lane=standard",
+            "--_j2o-ci-main-baseline=" + str(manifest),
+            "--_j2o-ci-main-sha256=" + digest,
+        ],
+    }
+    (folder / "request.json").write_text(json.dumps(request) + "\n")
+    environment["JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"] = str(
+        tmp_path / "receipts/native-model-artifacts"
+    )
+    result = subprocess.run(
+        [sys.executable, str(_RUNNER), "--worker", str(folder / "request.json")],
+        cwd=suite,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode != 0 and not (suite / "unexpected-body").exists()
+    receipt = json.loads((folder / "receipt.json").read_text())
+    assert receipt["phases"] == {} and receipt["ci_lane"]["errors"]
 
 
 @pytest.mark.parametrize("stage", ("call", "setup", "teardown"))
@@ -368,6 +925,64 @@ def test_batch_plan_keeps_scopes_and_isolates_each_native_model_owner_item() -> 
     ]
     assert all(1 <= len(batch) <= 4 for batch in batches)
     assert [len(batch) for batch in batches] == [2, 4, 2, 1, 1, 1, 2]
+
+
+def test_lane_batch_plan_keeps_reviewed_dino_owners_whole_without_regrouping() -> None:
+    module = _runner()
+    isolated = frozenset(
+        {"tests/examples/test_eqx_dino.py", "tests/examples/test_nnx_dino.py"}
+    )
+    items = []
+    for owner, count in (
+        ("test_before.py", 1),
+        ("tests/examples/test_eqx_dino.py", 2),
+        ("test_between.py", 1),
+        ("tests/examples/test_nnx_dino.py", 3),
+        ("test_source_model_native_bindings_exports.py", 2),
+        ("test_after.py", 1),
+    ):
+        items.extend(
+            {"nodeid": f"{owner}::test_{index}", "module": owner, "class": None}
+            for index in range(count)
+        )
+    default = module._plan(items, 5)
+    batches = module._plan(items, 5, isolated_owners=isolated)
+    ordered = [item["nodeid"] for item in items]
+    assert [nodeid for batch in batches for nodeid in batch] == ordered
+    assert [nodeid for batch in default for nodeid in batch] == ordered
+    assert [len(batch) for batch in batches] == [1, 2, 1, 3, 1, 1, 1]
+    assert [len(batch) for batch in default] == [4, 3, 1, 1, 1]
+    for owner in isolated:
+        expected = [item["nodeid"] for item in items if item["module"] == owner]
+        assert expected in batches
+    native = [
+        item["nodeid"]
+        for item in items
+        if item["module"] == "test_source_model_native_bindings_exports.py"
+    ]
+    assert all([nodeid] in batches and [nodeid] in default for nodeid in native)
+
+
+@pytest.mark.parametrize("fault", ["oversized", "noncontiguous"])
+def test_lane_batch_plan_rejects_unpreservable_whole_owner(fault: str) -> None:
+    module = _runner()
+    owner = "tests/examples/test_eqx_dino.py"
+    items = [
+        {"nodeid": f"{owner}::test_{index}", "module": owner, "class": None}
+        for index in range(3)
+    ]
+    limit = 2 if fault == "oversized" else 5
+    if fault == "noncontiguous":
+        items.insert(
+            1,
+            {
+                "nodeid": "test_between.py::test_case",
+                "module": "test_between.py",
+                "class": None,
+            },
+        )
+    with pytest.raises(ValueError):
+        module._plan(items, limit, isolated_owners=frozenset({owner}))
 
 
 @pytest.mark.parametrize("fault", ("duplicate-phase", "missing-phase", "receipt-drift"))
@@ -566,6 +1181,75 @@ def test_real_observer_off_control_never_imports_observer_or_validates_canonical
     for name in ("target_context_before", "target_context_after"):
         assert receipt[name]["sys_profile_is_none"] is True
         assert receipt[name]["threading_profile_is_none"] is True
+    with pytest.raises(ValueError, match="supplemental"):
+        module._validate(
+            receipt,
+            original["assigned"],
+            original["full_preselection_ids"],
+            original["collection_skips"],
+        )
+
+
+def test_lane_enabled_observer_off_control_cannot_validate_canonical_completion(
+    tmp_path: Path,
+) -> None:
+    module = _runner()
+    owner = module._CAST_OBSERVER_NODE.split("::", 1)[0]
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            owner: """import pytest
+from pathlib import Path
+@pytest.mark.parametrize('source', ['float64'])
+@pytest.mark.parametrize('target', ['float16'])
+@pytest.mark.parametrize('group', ['ties'])
+def test_floating_conversion_rounding_and_strict_special_value_gates(source, target, group):
+    path=Path('controlled-calls')
+    path.write_text(path.read_text()+'x' if path.exists() else 'x')
+"""
+        },
+        [module._CAST_OBSERVER_NODE],
+    )
+    digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    original = {
+        "kind": "batch",
+        "assigned": [module._CAST_OBSERVER_NODE],
+        "full_preselection_ids": [module._CAST_OBSERVER_NODE],
+        "collection_skips": [],
+        "pytest_args": [
+            "-q",
+            "--_j2o-ci-lane=standard",
+            "--_j2o-ci-main-baseline=" + str(manifest),
+            "--_j2o-ci-main-sha256=" + digest,
+        ],
+    }
+    request = _observer_off_request(module, original)
+    folder = tmp_path / "control"
+    folder.mkdir()
+    (folder / "request.json").write_text(
+        json.dumps(request, indent=2, ensure_ascii=False) + "\n"
+    )
+    environment["JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"] = str(
+        tmp_path / "receipts/native-model-artifacts"
+    )
+    result = subprocess.run(
+        [sys.executable, str(_RUNNER), "--worker", str(folder / "request.json")],
+        cwd=suite,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    receipt = json.loads((folder / "receipt.json").read_text())
+    assert (suite / "controlled-calls").read_text() == "x"
+    assert receipt["supplemental"] is True and receipt["cast_observer_enabled"] is False
+    assert receipt["native_source_recomputed"] is True
+    assert (
+        receipt["ci_lane"]["lane"] == "standard" and receipt["ci_lane"]["errors"] == []
+    )
+    assert receipt["completed"] == [module._CAST_OBSERVER_NODE]
     with pytest.raises(ValueError, match="supplemental"):
         module._validate(
             receipt,
