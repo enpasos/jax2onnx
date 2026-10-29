@@ -602,7 +602,7 @@ def _worker(request_path: Path) -> int:
             environment=startup_context["environment"],
             expected_sha256=authority[_CI_PRIVATE_OPTIONS[2]],
         )
-        lane_context.check_snapshot(startup_context, collected=False)
+        lane_context.check_snapshot(startup_context, stage="startup")
     # Import pytest only inside disposable collection/execution children.
     import pytest
 
@@ -677,7 +677,13 @@ def _worker(request_path: Path) -> int:
                 checkpoint()
                 pytest.exit(message, returncode=4)
 
-        def audit_lane(self, *, terminal: bool = False, protocol: bool = False) -> None:
+        def audit_lane(
+            self,
+            *,
+            terminal: bool = False,
+            protocol: bool = False,
+            post_pytest: bool = False,
+        ) -> None:
             if self.lane_context is None:
                 return
             try:
@@ -708,9 +714,13 @@ def _worker(request_path: Path) -> int:
                     self.lane_context.check_collected()
                     return
                 if terminal and self.lane_context.transition is not None:
-                    receipt["final_context"] = _worker_context()
-                    self.lane_context.check_collected(receipt["final_context"])
-                bindings = self.lane_context.check(self.config, self.full_items)
+                    if post_pytest:
+                        self.lane_context.check_post_pytest(receipt["final_context"])
+                    else:
+                        self.lane_context.check_collected()
+                bindings = self.lane_context.check(
+                    self.config, self.full_items, post_pytest=post_pytest
+                )
                 receipt["ci_lane"][
                     "source_files_after" if terminal else "source_files"
                 ] = bindings
@@ -1264,6 +1274,18 @@ def _worker(request_path: Path) -> int:
             receipt["finished"] = _now()
             checkpoint()
 
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+        def pytest_unconfigure(self, config: Any) -> Any:
+            yield
+            if (
+                authority is not None
+                and self.lane_context is not None
+                and self.lane_context.transition is not None
+            ):
+                # Pytest still owns E1 here. Its outer finally may restore E2
+                # after this hook, so retain any E1 failure for the final result.
+                self.audit_lane(terminal=True)
+
     def interrupted(number: int, frame: Any) -> None:
         receipt["interrupted_signal"] = number
         checkpoint()
@@ -1287,9 +1309,18 @@ def _worker(request_path: Path) -> int:
     finally:
         plugin.release_bf16_capture()
         plugin.release_capture()
+        receipt["final_context"] = _worker_context()
+        checkpoint()
     if authority is not None:
         # pytest_unconfigure and observer cleanup have now also returned.
-        plugin.audit_lane(terminal=True)
+        if plugin.lane_context is not None:
+            try:
+                plugin.lane_context.complete_post_pytest(receipt["final_context"])
+                if plugin.lane_context.transition is not None:
+                    receipt["post_pytest_completed"] = True
+            except (OSError, ValueError, LookupError) as exc:
+                plugin.lane_error(str(exc), terminal=True)
+        plugin.audit_lane(terminal=True, post_pytest=True)
         if plugin.session is not None:
             plugin.verify_lane(plugin.session, terminal=True)
         if receipt.get("ci_lane", {}).get("errors") and result == 0:
@@ -1936,21 +1967,30 @@ def _ci_lane_transition(transition: Any) -> None:
         "startup_jax_config",
         "collected_environment",
         "collected_jax_config",
+        "post_pytest_environment",
+        "post_pytest_jax_config",
     }:
         raise ValueError("unsupported collection_transition schema")
-    for name in ("startup_jax_config", "collected_jax_config"):
-        _ci_lane_jax_config(transition[name])
-    environment = transition["collected_environment"]
-    if (
-        type(environment) is not dict
-        or environment != _ci_lane_environment(environment)
-        or any(
-            value is not None and (type(value) is not str or len(value) > 8192)
-            for value in environment.values()
-        )
-        or len(json.dumps(environment).encode()) > 65536
+    for name in (
+        "startup_jax_config",
+        "collected_jax_config",
+        "post_pytest_jax_config",
     ):
-        raise ValueError("collection_transition needs a complete bounded environment")
+        _ci_lane_jax_config(transition[name])
+    for name in ("collected_environment", "post_pytest_environment"):
+        environment = transition[name]
+        if (
+            type(environment) is not dict
+            or environment != _ci_lane_environment(environment)
+            or any(
+                value is not None and (type(value) is not str or len(value) > 8192)
+                for value in environment.values()
+            )
+            or len(json.dumps(environment).encode()) > 65536
+        ):
+            raise ValueError(
+                "collection_transition needs a complete bounded environment"
+            )
 
 
 def _ci_lane_manifest(
@@ -2247,10 +2287,13 @@ class _CiLaneContext:
         self.sources = _ci_lane_sources(root, self.manifest["source_files"])
         self.transition = self.manifest.get("collection_transition")
         self.collection_completed = False
+        self.post_pytest_completed = False
 
-    def check_snapshot(self, snapshot: Any, *, collected: bool) -> None:
+    def check_snapshot(self, snapshot: Any, *, stage: str) -> None:
         if self.transition is None:
             return
+        if stage not in {"startup", "collected", "post_pytest"}:
+            raise ValueError("unsupported collection-transition stage")
         if (
             type(snapshot) is not dict
             or snapshot.get("status") != "OBSERVED"
@@ -2267,13 +2310,11 @@ class _CiLaneContext:
         } != observed_environment:
             raise ValueError("collection-transition environment snapshot is incomplete")
         environment = (
-            self.transition["collected_environment"]
-            if collected
-            else self.manifest["environment"]
+            self.manifest["environment"]
+            if stage == "startup"
+            else self.transition[stage + "_environment"]
         )
-        jax_config = self.transition[
-            "collected_jax_config" if collected else "startup_jax_config"
-        ]
+        jax_config = self.transition[stage + "_jax_config"]
         if observed_environment != environment:
             raise ValueError("collection-transition environment differs")
         if snapshot["loaded_jax_config"] != jax_config:
@@ -2283,12 +2324,21 @@ class _CiLaneContext:
         if self.transition is not None:
             if self.collection_completed:
                 raise ValueError("collection-transition stage was already completed")
-            self.check_snapshot(snapshot, collected=True)
+            self.check_snapshot(snapshot, stage="collected")
             self.collection_completed = True
+
+    def complete_post_pytest(self, snapshot: Any) -> None:
+        if self.transition is not None:
+            if not self.collection_completed or self.post_pytest_completed:
+                raise ValueError(
+                    "collection-transition post-pytest stage cannot advance"
+                )
+            self.check_snapshot(snapshot, stage="post_pytest")
+            self.post_pytest_completed = True
 
     def check_collected(self, snapshot: Any = None) -> None:
         if self.transition is not None:
-            if not self.collection_completed:
+            if not self.collection_completed or self.post_pytest_completed:
                 raise ValueError("collection-transition stage is incomplete")
             self.check_snapshot(
                 (
@@ -2301,8 +2351,16 @@ class _CiLaneContext:
                     if snapshot is None
                     else snapshot
                 ),
-                collected=True,
+                stage="collected",
             )
+
+    def check_post_pytest(self, snapshot: Any) -> None:
+        if self.transition is not None:
+            if not self.post_pytest_completed:
+                raise ValueError(
+                    "collection-transition post-pytest stage is incomplete"
+                )
+            self.check_snapshot(snapshot, stage="post_pytest")
 
     def check_source(self, path: Any) -> None:
         if path is None:
@@ -2321,7 +2379,9 @@ class _CiLaneContext:
             raise ValueError("baseline manifest SHA changed")
         return _ci_lane_sources(self.root, self.manifest["source_files"])
 
-    def check(self, config: Any, items: Any = ()) -> dict[str, Any]:
+    def check(
+        self, config: Any, items: Any = (), *, post_pytest: bool = False
+    ) -> dict[str, Any]:
         _ci_lane_qualify(config, self.root, self.manifest, recheck=True)
         # Ordinary imports may legitimately be partway through E0 -> E1. The
         # startup snapshot proves E0; complete_collection alone advances stage.
@@ -2330,7 +2390,12 @@ class _CiLaneContext:
                 self.manifest["environment"] if self.transition is not None else None
             )
         )
-        if self.collection_completed:
+        if post_pytest and self.transition is not None:
+            if not self.post_pytest_completed:
+                raise ValueError(
+                    "collection-transition post-pytest stage is incomplete"
+                )
+        elif self.collection_completed:
             self.check_collected()
         if config.inipath is not None:
             relative = Path(config.inipath).resolve().relative_to(self.root).as_posix()
@@ -2409,11 +2474,14 @@ def _ci_lane_closed(
         raise ValueError("closed canonical lane receipt/request binding differs")
     receipt = json.loads(payload)
     if context.transition is not None:
-        if receipt.get("collection_transition_completed") is not True:
+        if (
+            receipt.get("collection_transition_completed") is not True
+            or receipt.get("post_pytest_completed") is not True
+        ):
             raise ValueError("closed collection-transition stage is incomplete")
-        context.check_snapshot(receipt.get("startup_context"), collected=False)
-        context.check_snapshot(receipt.get("collection_context"), collected=True)
-        context.check_snapshot(receipt.get("final_context"), collected=True)
+        context.check_snapshot(receipt.get("startup_context"), stage="startup")
+        context.check_snapshot(receipt.get("collection_context"), stage="collected")
+        context.check_snapshot(receipt.get("final_context"), stage="post_pytest")
     if request["kind"] == "collection" and not _ci_lane_phase_free(receipt):
         raise ValueError("canonical lane collection recorded test execution")
     lane = receipt.get("ci_lane", {})

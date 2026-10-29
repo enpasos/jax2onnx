@@ -441,6 +441,49 @@ modern 188.46/189.55 s, 348 MiB. Evidence:
 These results do not qualify the real campaign, context counterpart or runtime
 budget. Helper v1/v2 remain preserved and unexecuted.
 
+The guard repair is locally committed at `6ce69f12`; all seven pinned hooks
+pass (23.88 s, 453 MiB), as does strict documentation (4.77 s, 139 MiB).
+Fresh helper-v3 PREPARE observes **18,630 = 4,571 + 14,059**, with exact ordered
+baseline, complementary extras, zero execution and unchanged package/source
+epochs (25.84 s, 696 MiB). Both JAX snapshots match the controlled main probe;
+the complete environment maps differ only in the explicitly bound run-owned
+artifact directory. Evidence is under
+`/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard-full311-v3-20261029-qualification`.
+The staged QUALIFY attempt **FAILS before the first packet**, because the flat
+source binding omits imported `internal_docs/precision/poc/fixed_source_preparation.py`
+(24.98 s, 737 MiB). Bind that source instead of exempting it. This is the actual
+predecessor cause; do not relabel it as a terminal-context failure.
+
+Independent review also finds that pytest restores its temporary
+`PYTEST_VERSION` after unconfiguration: main's collected E1 contains `9.1.1`,
+but its post-pytest E2 omits the variable. A separate tiny cold-start witness
+actually fails on this distinction, with zero phases and observed
+`unset -> 9.1.1 -> unset` (1.02/1.45 s, 147 MiB):
+`/tmp/jax2onnx-ci-pytest-terminal-lifecycle-predecessor-v1-py311-6p__mt5m`.
+Earlier synthetic staged tests inherited this variable and do not qualify
+natural cleanup. Astra requires a bounded third snapshot: add exact
+`post_pytest_environment` and `post_pytest_jax_config` to the transition, retain
+E1 checks through unconfiguration, and explicitly validate E2 after return and
+observer cleanup. No ignored/restored-field exception or startup predeclaration
+is accepted. Regenerate/review a fresh five-field manifest with all imported
+`internal_docs` Python sources; existing helper-v3 outcomes remain preserved.
+
+Independent Astra review accepts the three-boundary implementation and helper
+v4. The schema has exactly the five stated fields; collected and post-pytest
+completion flags advance only at their explicit lifecycle boundaries. Default
+workers record actual final context without changing numerical outcomes or
+the two/five-key requests. The amended source in
+`/tmp/jax2onnx-ci-staged-context-source-v3.json` passes **429 combined cases on
+each family**: minimum 110.04/110.79 s, 311 MiB; modern 196.63/197.85 s,
+348 MiB. Evidence:
+`/tmp/jax2onnx-ci-pytest-lifecycle-three-stages-v3-py311-tcojb26g` and
+`/tmp/jax2onnx-ci-pytest-lifecycle-three-stages-v3-py314-8r9fbj_w`.
+Coverage includes the truly unset startup variable, masked unconfigure mutation,
+invalid post-pytest metadata, completion flags and semantic receipt corruption.
+The new helper observes full final E2/J2 and hashes imported `internal_docs`
+Python sources. Fresh real PREPARE/QUALIFY and complete standard/performance
+qualification remain pending; prior three-field passes do not establish them.
+
 Read-only comparison of main `81ad6ca` with PR `17585d7a` accepts the source
 counterparts below. This is **not support-context collection or execution
 acceptance**. Main's three ordinary support jobs run on every existing CI trigger:

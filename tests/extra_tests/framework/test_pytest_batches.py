@@ -193,6 +193,10 @@ def _bind_collection_transition(
             collected["environment"]
         ),
         "collected_jax_config": collected["loaded_jax_config"],
+        "post_pytest_environment": _runner()._ci_lane_environment(
+            collected["environment"]
+        ),
+        "post_pytest_jax_config": collected["loaded_jax_config"],
     }
     manifest.write_text(json.dumps(payload, indent=2) + "\n")
     return collected
@@ -513,10 +517,115 @@ def test_extra():
             == collected["loaded_jax_config"]
         )
         assert receipt["collection_transition_completed"] is True
+        assert receipt["post_pytest_completed"] is True
         assert receipt["full_preselection_ids"] == run["nodeids"]
         assert receipt["ci_lane"]["errors"] == []
     assert (suite / "ran-baseline").exists() is (lane == "standard")
     assert (suite / "ran-extra").exists() is (lane == "extra")
+
+
+def test_canonical_staged_context_preserves_natural_pytest_environment_lifecycle(
+    tmp_path: Path,
+) -> None:
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "test_case.py": """import os
+from pathlib import Path
+from importlib.metadata import version
+assert os.environ['PYTEST_VERSION'] == version('pytest')
+def test_baseline():
+    assert os.environ['PYTEST_VERSION'] == version('pytest')
+    Path('body-ran').touch()
+"""
+        },
+        ["test_case.py::test_baseline"],
+    )
+    environment.pop("PYTEST_VERSION", None)
+    child_environment = {
+        **environment,
+        "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": str(
+            tmp_path / "receipts/native-model-artifacts"
+        ),
+    }
+    module = _runner()
+    payload = json.loads(manifest.read_text())
+    payload["environment"] = module._ci_lane_environment(child_environment)
+    payload["collection_transition"] = {
+        "startup_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "collected_environment": module._ci_lane_environment(
+            {**child_environment, "PYTEST_VERSION": metadata.version("pytest")}
+        ),
+        "collected_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "post_pytest_environment": module._ci_lane_environment(child_environment),
+        "post_pytest_jax_config": {"status": "NOT_LOADED", "values": {}},
+    }
+    manifest.write_text(json.dumps(payload, indent=2) + "\n")
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert run["status"] == "PASS"
+    assert run["completed"] == ["test_case.py::test_baseline"]
+    assert (suite / "body-ran").exists()
+    for process in run["processes"]:
+        receipt = json.loads((folder / process["folder"] / "receipt.json").read_text())
+        assert "PYTEST_VERSION" not in receipt["startup_context"]["environment"]
+        assert receipt["collection_context"]["environment"]["PYTEST_VERSION"] == (
+            metadata.version("pytest")
+        )
+        assert "PYTEST_VERSION" not in receipt["final_context"]["environment"]
+        assert receipt["collection_transition_completed"] is True
+        assert receipt["post_pytest_completed"] is True
+
+
+def test_staged_unconfigure_mutation_is_rejected_even_when_pytest_restores_final_env(
+    tmp_path: Path,
+) -> None:
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {
+            "conftest.py": """import os
+def pytest_unconfigure(config):
+    if not config.option.collectonly:
+        os.environ['PYTEST_VERSION'] = 'wrong-before-pytest-cleanup'
+""",
+            "test_case.py": "from pathlib import Path\ndef test_baseline():\n    Path('body-ran').touch()\n",
+        },
+        ["test_case.py::test_baseline"],
+    )
+    environment.pop("PYTEST_VERSION", None)
+    child_environment = {
+        **environment,
+        "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": str(
+            tmp_path / "receipts/native-model-artifacts"
+        ),
+    }
+    module = _runner()
+    payload = json.loads(manifest.read_text())
+    payload["environment"] = module._ci_lane_environment(child_environment)
+    payload["collection_transition"] = {
+        "startup_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "collected_environment": module._ci_lane_environment(
+            {**child_environment, "PYTEST_VERSION": metadata.version("pytest")}
+        ),
+        "collected_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "post_pytest_environment": module._ci_lane_environment(child_environment),
+        "post_pytest_jax_config": {"status": "NOT_LOADED", "values": {}},
+    }
+    manifest.write_text(json.dumps(payload, indent=2) + "\n")
+    result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and len(run["processes"]) == 2
+    assert (suite / "body-ran").exists()
+    receipt = json.loads((folder / "batch-0001/receipt.json").read_text())
+    assert receipt["ci_lane"]["native_exitstatus"] == 0
+    assert receipt["ci_lane"]["errors"]
+    assert receipt["completed"] == ["test_case.py::test_baseline"]
+    assert all(
+        phase["outcome"] == "passed"
+        for phase in receipt["phases"]["test_case.py::test_baseline"]
+    )
+    assert "PYTEST_VERSION" not in receipt["final_context"]["environment"]
+    assert receipt["post_pytest_completed"] is True
 
 
 @pytest.mark.parametrize(
@@ -538,6 +647,12 @@ def test_extra():
         "unknown-environment-field",
         "unknown-snapshot-field",
         "invalid-not-loaded",
+        "post-pytest-environment",
+        "post-pytest-jax",
+        "missing-post-pytest-environment",
+        "missing-post-pytest-jax",
+        "invalid-post-pytest-environment",
+        "unverified-post-pytest-jax",
     ],
 )
 def test_canonical_collection_transition_rejects_unqualified_context_before_phases(
@@ -588,8 +703,20 @@ def test_canonical_collection_transition_rejects_unqualified_context_before_phas
         transition["collected_environment"]["IGNORED"] = "unbound"
     elif fault == "unknown-snapshot-field":
         transition["startup_jax_config"]["ignored"] = None
-    else:
+    elif fault == "invalid-not-loaded":
         transition["startup_jax_config"]["values"]["x64_enabled"] = False
+    elif fault == "post-pytest-environment":
+        transition["post_pytest_environment"]["PYTEST_VERSION"] = "unqualified"
+    elif fault == "post-pytest-jax":
+        transition["post_pytest_jax_config"]["values"]["x64_enabled"] = False
+    elif fault == "missing-post-pytest-environment":
+        del transition["post_pytest_environment"]
+    elif fault == "missing-post-pytest-jax":
+        del transition["post_pytest_jax_config"]
+    elif fault == "invalid-post-pytest-environment":
+        transition["post_pytest_environment"] = []
+    else:
+        transition["post_pytest_jax_config"]["status"] = "UNVERIFIED"
     manifest.write_text(json.dumps(payload, indent=2) + "\n")
     result, run, folder = _run_lane_suite(tmp_path, suite, manifest, environment)
     assert result.returncode != 0 and run["status"] == "FAIL"

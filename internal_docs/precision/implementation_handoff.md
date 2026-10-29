@@ -500,6 +500,48 @@ The corrected helper is
 unchanged and unexecuted. Real counterpart/context, full standard execution and
 performance acceptance remain open.
 
+The default collection repair is locally committed at `6ce69f12`; all seven
+normal pinned hooks pass (23.88 s, 453 MiB) and strict docs pass (4.77 s,
+139 MiB), at `/tmp/jax2onnx-ci-default-collection-purity-normal-commit-v3-e4dpxwdx`
+and `/tmp/jax2onnx-ci-default-collection-purity-docs-strict-v3-2mof6olp`.
+Fresh helper-v3 PREPARE passes with **18,630 = 4,571 + 14,059**, exact ordered
+partition and zero phases (25.84 s, 696 MiB):
+`/tmp/jax2onnx-canonical-standard311-prepare-v3-7cljx4k8`. Evidence is in
+`/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard-full311-v3-20261029-qualification`.
+Controlled main/current startup and collected JAX snapshots match; complete
+environments differ only in the explicitly bound native-artifact path. The
+next staged collection **FAILS** on an omitted imported PoC Python source,
+before any first-packet execution (24.98 s, 737 MiB):
+`/tmp/jax2onnx-canonical-standard311-terminal-predecessor-v3-3_63m_yn`.
+Despite that diagnostic directory's name, its actual cause is the unbound
+`internal_docs/precision/poc/fixed_source_preparation.py`; preserve it honestly.
+
+A separate lifecycle witness **FAILS** because pytest removes its temporary
+version variable after returning: actual E0/E1/E2 are unset/`9.1.1`/unset,
+with zero phases (1.02/1.45 s, 147 MiB). Evidence:
+`/tmp/jax2onnx-ci-pytest-terminal-lifecycle-predecessor-v1-py311-6p__mt5m` and
+`/tmp/jax2onnx-ci-pytest-terminal-lifecycle-predecessor-source-v1.json`.
+Earlier synthetic tests inherited the variable. Astra requires exact full
+post-pytest E2/J2 bindings, E1 checks through unconfiguration, an explicit
+post-return completion flag, and independent three-snapshot closed validation.
+New helper/source epochs are in progress; bind imported `internal_docs` Python
+sources too. No first original packet or complete standard campaign has yet
+qualified under this real context.
+
+The exact five-field three-boundary implementation and helper v4 now have
+independent Astra ACCEPT. Source manifest:
+`/tmp/jax2onnx-ci-staged-context-source-v3.json`. Combined regression owners
+pass **429 cases per family**, with enabled synthetic xdist: minimum
+110.04/110.79 s, 311 MiB
+(`/tmp/jax2onnx-ci-pytest-lifecycle-three-stages-v3-py311-tcojb26g`); modern
+196.63/197.85 s, 348 MiB
+(`/tmp/jax2onnx-ci-pytest-lifecycle-three-stages-v3-py314-8r9fbj_w`).
+They include real unset-version startup and an unconfigure mutation hidden by
+pytest's own cleanup, invalid E2/J2 and flag/hash corruption. New helper:
+`/tmp/jax2onnx-canonical-standard-311-qualification-v4.py`, still unexecuted.
+It binds all imported `internal_docs` Python sources and actual final E2/J2;
+the real profile and full ordered campaign must be regenerated and qualified.
+
 Future canonical resource measurements use
 `/tmp/jax2onnx-process-tree-guard-v2.py`, tracking owned PID/start-time descendants
 across new process groups and sessions. CPU/thread, 4-GiB aggregate RSS and

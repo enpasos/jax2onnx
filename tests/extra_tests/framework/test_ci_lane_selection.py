@@ -1008,7 +1008,17 @@ def test_canonical_closed_lane_receipt_binds_terminal_authority_and_raw_files(
     "snapshot", ["startup_context", "collection_context", "final_context"]
 )
 @pytest.mark.parametrize(
-    "fault", ["environment", "jax-config", "missing", "unverified", "incomplete-stage"]
+    "fault",
+    [
+        "environment",
+        "jax-config",
+        "missing",
+        "unverified",
+        "incomplete-stage",
+        "missing-collection-stage",
+        "missing-post-pytest-stage",
+        "incomplete-post-pytest-stage",
+    ],
 )
 def test_staged_closed_receipt_rejects_semantic_snapshot_forgery_with_valid_hashes(
     tmp_path, snapshot, fault
@@ -1025,6 +1035,8 @@ def test_staged_closed_receipt_rejects_semantic_snapshot_forgery_with_valid_hash
             "TF_CPP_MIN_LOG_LEVEL": "1",
         },
         "collected_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "post_pytest_environment": dict(payload["environment"]),
+        "post_pytest_jax_config": {"status": "NOT_LOADED", "values": {}},
     }
     manifest.write_text(json.dumps(payload) + "\n")
     context = module._CiLaneContext(manifest, suite, environment=environment)
@@ -1048,6 +1060,7 @@ def test_staged_closed_receipt_rejects_semantic_snapshot_forgery_with_valid_hash
         "completed": [],
         "phase_durations": {},
         "collection_transition_completed": True,
+        "post_pytest_completed": True,
         "ci_lane": {
             "lane": "standard",
             "manifest_path": str(context.path),
@@ -1065,7 +1078,13 @@ def test_staged_closed_receipt_rejects_semantic_snapshot_forgery_with_valid_hash
             "environment": dict(
                 payload["environment"]
                 if name == "startup_context"
-                else payload["collection_transition"]["collected_environment"]
+                else payload["collection_transition"][
+                    (
+                        "post_pytest_environment"
+                        if name == "final_context"
+                        else "collected_environment"
+                    )
+                ]
             ),
             "loaded_jax_config": {"status": "NOT_LOADED", "values": {}},
         }
@@ -1107,6 +1126,12 @@ def test_staged_closed_receipt_rejects_semantic_snapshot_forgery_with_valid_hash
         receipt[snapshot]["loaded_jax_config"]["status"] = "UNVERIFIED"
     elif fault == "incomplete-stage":
         receipt["collection_transition_completed"] = False
+    elif fault == "missing-collection-stage":
+        del receipt["collection_transition_completed"]
+    elif fault == "missing-post-pytest-stage":
+        del receipt["post_pytest_completed"]
+    elif fault == "incomplete-post-pytest-stage":
+        receipt["post_pytest_completed"] = False
     else:
         del receipt[snapshot]
     close()
@@ -1143,6 +1168,8 @@ def test_direct_staged_context_rejects_before_owner_import(tmp_path, options):
         "startup_jax_config": {"status": "NOT_LOADED", "values": {}},
         "collected_environment": payload["environment"],
         "collected_jax_config": {"status": "NOT_LOADED", "values": {}},
+        "post_pytest_environment": dict(payload["environment"]),
+        "post_pytest_jax_config": {"status": "NOT_LOADED", "values": {}},
     }
     manifest.write_text(json.dumps(payload) + "\n")
     result, receipt = _run(
