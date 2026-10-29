@@ -417,6 +417,30 @@ differs from historical main's unspecified ADDOPTS; it is context evidence, not
 a historical execution or paired-performance certificate. Fresh current-tree
 context qualification remains required.
 
+The staged implementation is committed locally at `0ccd9041`; all seven normal
+pinned hooks pass (25.92 s, 453 MiB) and strict docs pass (4.79 s, 139 MiB).
+Preflight review of the real-campaign helper found a separate existing default
+collection gap: without lane authority, a hook could disable `collectonly` and
+run a body. The new unchanged default-mode witness actually creates its body
+sentinel and fails against that source. Preserve
+`/tmp/jax2onnx-ci-default-collection-purity-predecessor-v1-py311-mvxpte1f`.
+Astra requires the existing protocol guard for every canonical collection
+request before preparing the real manifest; the two/five-key wires stay intact.
+The unexecuted temporary v2 helper also needs its first packet's literal owner
+corrected to `test_eqx.py`, with Eqx DINO in packet two and NNX DINO in packet
+four. Neither predecessor is relabeled as successful qualification.
+
+Astra accepts the minimal unconditional protocol guard and corrected unexecuted
+helper v3. The amended source is frozen in
+`/tmp/jax2onnx-ci-staged-context-source-v2.json`. All **412 runner, selector,
+artifact, observer-control and replay cases pass together on each family**,
+including enabled synthetic xdist variants: minimum 104.70/105.32 s, 309 MiB;
+modern 188.46/189.55 s, 348 MiB. Evidence:
+`/tmp/jax2onnx-ci-default-collection-purity-qualified-v2-py311-u0og9f1e` and
+`/tmp/jax2onnx-ci-default-collection-purity-qualified-v2-py314-7b1kzce2`.
+These results do not qualify the real campaign, context counterpart or runtime
+budget. Helper v1/v2 remain preserved and unexecuted.
+
 Read-only comparison of main `81ad6ca` with PR `17585d7a` accepts the source
 counterparts below. This is **not support-context collection or execution
 acceptance**. Main's three ordinary support jobs run on every existing CI trigger:

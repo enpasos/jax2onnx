@@ -775,11 +775,9 @@ def _worker(request_path: Path) -> int:
 
         @pytest.hookimpl(tryfirst=True)
         def pytest_runtest_protocol(self, item: Any) -> None:
+            if request["kind"] == "collection":
+                self.lane_error("canonical collection cannot execute a test protocol")
             if authority is not None:
-                if request["kind"] == "collection":
-                    self.lane_error(
-                        "canonical lane collection cannot execute a test protocol"
-                    )
                 if self.lane_context.transition is not None:
                     self.audit_lane(protocol=True)
                 if self.serial_position == 0:

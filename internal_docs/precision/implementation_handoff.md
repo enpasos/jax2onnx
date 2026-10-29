@@ -474,6 +474,32 @@ startup. This controlled CPU/thread/current-CI-ADDOPTS profile does not claim
 historical-main ADDOPTS equivalence, executed model outcomes or runtime parity.
 Fresh current-tree counterpart qualification remains open.
 
+The staged checkpoint is locally committed at `0ccd9041`, with all seven
+normal pinned hooks passing (25.92 s, 453 MiB) and strict docs passing (4.79 s,
+139 MiB). Evidence: `/tmp/jax2onnx-ci-staged-context-normal-commit-v2-kzkqa33q`
+and `/tmp/jax2onnx-ci-staged-context-docs-strict-v2-cdmnvyzi`.
+The subsequent default-collection witness **FAILS** on that source because its
+test body actually runs after a hook clears `collectonly` (0.80/1.03 s,
+164 MiB): `/tmp/jax2onnx-ci-default-collection-purity-predecessor-v1-py311-mvxpte1f`.
+Astra requires the same before-body guard regardless of lane authority. Source
+hashes are retained in
+`/tmp/jax2onnx-ci-default-collection-purity-predecessor-source-v1.json`.
+The temporary v2 campaign helper remains unexecuted; correct its first-packet
+owner and rebind it to the amended source before any actual campaign.
+
+The minimal unconditional guard and corrected helper v3 now have independent
+Astra ACCEPT. Frozen source: `/tmp/jax2onnx-ci-staged-context-source-v2.json`.
+Combined runner/selector/artifact/control/replay qualification passes **412
+cases on each family**, with enabled synthetic xdist: minimum
+104.70/105.32 s, 309 MiB
+(`/tmp/jax2onnx-ci-default-collection-purity-qualified-v2-py311-u0og9f1e`);
+modern 188.46/189.55 s, 348 MiB
+(`/tmp/jax2onnx-ci-default-collection-purity-qualified-v2-py314-7b1kzce2`).
+The corrected helper is
+`/tmp/jax2onnx-canonical-standard-311-qualification-v3.py`; v1/v2 remain
+unchanged and unexecuted. Real counterpart/context, full standard execution and
+performance acceptance remain open.
+
 Future canonical resource measurements use
 `/tmp/jax2onnx-process-tree-guard-v2.py`, tracking owned PID/start-time descendants
 across new process groups and sessions. CPU/thread, 4-GiB aggregate RSS and

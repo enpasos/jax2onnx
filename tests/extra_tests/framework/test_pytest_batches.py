@@ -711,6 +711,28 @@ def pytest_runtestloop(session):
     assert receipt["completed"] == [] and receipt["ci_lane"]["errors"]
 
 
+def test_default_canonical_collection_rejects_execution_override_before_body(
+    tmp_path: Path,
+) -> None:
+    result, run, folder = _run_suite(
+        tmp_path,
+        {
+            "conftest.py": """import pytest
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtestloop(session):
+    session.config.option.collectonly = False
+""",
+            "test_case.py": "from pathlib import Path\ndef test_case():\n    Path('collection-body-ran').touch()\n",
+        },
+    )
+    assert not (tmp_path / "suite/collection-body-ran").exists()
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["completed"] == [] and len(run["processes"]) == 1
+    receipt = json.loads((folder / "collection/receipt.json").read_text())
+    assert receipt["phases"] == receipt["phase_durations"] == {}
+    assert receipt["completed"] == []
+
+
 def test_canonical_lane_preserves_seventeen_qualified_file_and_exact_case_selectors(
     tmp_path: Path,
 ) -> None:
