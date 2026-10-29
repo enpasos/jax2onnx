@@ -1,5 +1,23 @@
 # Precision migration handoff — 2026-10-29
 
+## Active Linux STANDARD timing — 2026-10-29
+
+Each successful Linux STANDARD job must finish within **1,200 seconds
+(20 minutes)** from actual job start through checkout, setup, generation,
+collection, execution, aggregation, upload and final cleanup. Exclude external
+queue time. Timeout, interruption, guard termination or incomplete evidence
+fails qualification. Finite workload timings do not prove this complete job span.
+
+This replaces relative NoIncrease, paired main/PR timing campaigns, median/worst
+comparative gates and the mandatory original two-worker benchmark. Earlier
+comparative statements below are retained historical conclusions under the
+superseded contract. No replacement benchmark is required. Preserve complete
+main `81ad6ca` coverage, including original Python 3.12 optional models, inputs,
+assertions, skips and resource limits. Keep four Python cohorts plus four support
+jobs initially bounded, with complete/disjoint extras and all milestone/final
+obligations. Mapping, context, resources, direct xdist and actual whole-job timing
+remain pending where unqualified; no runner, selector or CI gate is activated.
+
 ## Inventory-header integrity — local correctness checkpoint
 
 Nonempty replay manifests now require an inventory digest matching an
@@ -20,35 +38,40 @@ intact. The respective aggregates are
 `/mnt/d/jax2onnx-manifest-header-v2-dual39-summary-3vfw8of7/aggregate.json` and
 `/mnt/d/jax2onnx-manifest-header-v2-native-callers-dual4-summary-pekxl011/aggregate.json`.
 This finite correctness checkpoint establishes no current-inventory replay,
-ONNX/ORT, numerical migration, performance, NoIncrease or public-transition
+ONNX/ORT, numerical migration, whole-job timing or public-transition
 acceptance. The strict official eager/JIT reference contract remains binding.
 
-## Hosted main feasibility — source proposal only
+## Retired hosted-main comparative diagnostic — historical evidence
 
-The new non-required, path-scoped PR #277 diagnostic proposes one frozen-main
-Python 3.11 run with main's own official lock and original stage order. It
-keeps the existing eight CI jobs, candidate selection and numerical code
-unchanged. Its job filter permits only the ordinary transition away from
-`22a26871`; manual reruns could reuse that eligible event and none is authorized.
-The corrected bounded owner passes 77 cases on each official Python family,
-including real two-worker non-native pytest and stdlib ownership/cleanup
-controls. The first 76-PASS/1-FAIL toy skip-line expectation remains preserved;
-only that test expectation changed. These finite component results establish
-no hosted/main/model or NoIncrease acceptance. The [CI plan](ci_execution_plan.md)
-records the receipts and its exact accounting,
-hosted reserve and artifact boundaries. V2 removes the worker-file protocol, separates tracked admission from generated
-source authority and retains one controller phase stream. Owned-process sampling
-fails closed, with Linux subreaper adoption and SIGTERM cleanup. No source-only
-check or synthetic accounting test establishes an actual hosted outcome.
+The comparative diagnostic workflow, observer, authority and companion component
+owner are removed. The earlier one-eligible-transition/source proposal is
+superseded; it is not an active standard gate or a reason to repeat an original
+two-worker benchmark. Its **77 passing component cases on each official Python
+family**, including non-native two-worker/process controls, remain finite
+historical evidence, alongside the preserved first **76-PASS/1-FAIL** toy
+skip-line predecessor. These controls did not qualify real main execution.
+The [CI plan](ci_execution_plan.md) retains their original receipt locations.
 
-The original local two-worker pilot remains RESOURCE_FAILED/INCOMPLETE:
+Actual hosted [run 40946430156](https://github.com/enpasos/jax2onnx/actions/runs/40946430156),
+driver `e8bed493` and frozen subject `81ad6ca`, remains
+**FAILED_OR_INCOMPLETE**. Setup passed in **32.92 s**; the workload guard stopped
+at **169.80 s / 4,103.03 MiB**, after **817 complete passes and two setup-only
+outcomes**. The complete 4,571-case campaign, worker closures and controller
+completion were not obtained. Preserve the archive and
+`/tmp/jax2onnx-hosted-main-e8bed-failure-20261029-eq16fy64/diagnosis.json`
+(SHA256 `52b5067cb7f7edec1d93fe913810cd7e2cdfac92ee90e5b81e9437b698f23d95`).
+This is neither a direct-xdist qualification nor a successful standard
+20-minute job; there is no retry, larger-cap run or replacement benchmark.
+
+The original local two-worker pilot remains **RESOURCE_FAILED/INCOMPLETE**:
 52.26 s / 4,103.35 MiB, with missing final reports and unqualified test outcomes.
 Its separate prelaunch assertion ERROR executed no native tests. Source/package
-fences, unchanged swap counters and exact owned-link restoration are preserved
+fences, unchanged swap counters and exact owned-link restoration stay preserved
 in `/mnt/d/jax2onnx-main-original-two-worker-pilot-7rm_yxaa/result-summary.json`.
-There is no local retry, changed input/criterion, dependency substitution or cap
-increase. Hosted success would qualify only finite feasibility; NoIncrease,
-other cohorts/support, Full44, full B–F and the strict native contract stay open.
+Retiring this family removes no main test, converter functionality or existing
+runner. Main coverage, other cohorts/support, Full44, full B–F and the strict
+native contract remain binding; whole-job timing and all unqualified
+mapping/context/resource obligations remain open.
 
 ## CSE capture performance checkpoint — 2026-10-29
 
@@ -108,7 +131,7 @@ both finite families and the capture-only repair. Aggregates:
 The repair is committed at `14439a075f18979510ba4a0e6e97fb7342e6c800`, with all
 seven normal pinned hooks and strict documentation passing. The complete
 mapped-main-owner Python 3.11 qualification is independently accepted below.
-Full44, broader cohorts, matched main/runtime comparison, residual membership
+Full44, broader cohorts, whole-job timing, residual membership
 costs and literal exact-head CI remain separate open obligations.
 
 ## Latest qualification and open gates — 2026-10-29
@@ -158,7 +181,7 @@ a trigger. Receipt:
 (SHA256 `140921bdca6e7aa8e4d9faf3990d5edd79da7fce6d98da8555d988a1bd1bc0e5`).
 The **8,569,970-byte** archive retains canonical/qualification receipts, guards
 and metadata; it is not a complete model-artifact archive. This supersedes the
-next-qualification statement for this finite owner campaign only. NoIncrease,
+next-qualification statement for this finite owner campaign only. Whole-job timing,
 all-cohort/support acceptance, Full44, full B–F and exact-head CI remain open.
 
 The complete locked Python 3.11 standard campaign at **old head `9520dfb9`**
@@ -335,11 +358,13 @@ files are removed in published commit `afa6d16e`. [Dependency notes](../../docs/
 retain the official-runtime BF16 TopK counterexample and unchanged native/context
 obligations; no custom runtime was installed.
 
-The latest CI instruction preserves **all main standard coverage with no runtime
-increase**; additions belong in separately visible extra lanes. The
-[CI execution plan](ci_execution_plan.md) has independent architecture ACCEPT,
-including this main-baseline amendment. No selection, workflow split or gate
-activation is qualified. Main is frozen at
+The latest CI instruction preserves **all main standard coverage**, with each
+successful Linux STANDARD job completing within **1,200 seconds from actual job
+start through final cleanup/upload**, excluding queue time. Incomplete or
+interrupted work cannot pass. Additions belong in separately visible,
+complete/disjoint extra lanes. The [CI execution plan](ci_execution_plan.md) has
+independent architecture ACCEPT, including this absolute timing amendment.
+No selection, workflow split, direct-xdist or gate activation is qualified. Main is frozen at
 `81ad6ca2592635c8d2ced6dbd77292c487f0351b`; isolated official modern setup uses
 main's own lock. Main inventories now cover all four Python cohorts: 4,571 IDs
 on 3.11, 4,621 on 3.12 including all 50 optional-model IDs, and 4,573 each on
@@ -802,7 +827,8 @@ outside version control.
 
 1. Qualify main/PR collections and the reviewed one-to-one baseline-contract
    mapping on all supported cohorts; then demonstrate unchanged complete
-   standard coverage and no comparable runtime increase. Activate separately
+   standard coverage and each successful Linux STANDARD job's complete
+   <=1,200-second start-through-cleanup/upload span. Activate separately
    identified extras only after their literal ownership and acceptance triggers
    are reviewed. The 50 optional IDs, duplicate-removal outcome and actual
    savings remain unverified; no CI performance budget is demonstrated.

@@ -6,13 +6,27 @@ losing product or migration obligations. It supplements the
 [complete implementation work plan](precision_implementation_work_plan.md);
 it does not replace or reduce the precision migration objective.
 
-The user's subsequent instruction on **2026-10-29** sets the standard lane's
-scope and cost: preserve the complete `main` baseline without taking longer;
-additional SOURCE/migration checks run separately on top. The earlier proposed
-`C(p) - H(p)` routine selection and its 35-minute budget are superseded for the
-standard lane. The execution plan is being revised around this requirement.
-It is not permission to remove or weaken tests, or to claim baseline equivalence
-or a runtime result before the comparisons have actually run.
+The latest user timing instruction on **2026-10-29** requires **each successful
+Linux STANDARD job to finish within 1,200 seconds (20 minutes)**, measured from
+actual job start through checkout, setup, generation, collection, execution,
+aggregation, upload and final cleanup. External runner queue time is excluded.
+Timeout, interruption, a guard stop or incomplete evidence fails qualification.
+A short pytest/workload duration does not establish the complete job budget.
+
+Preserve the complete frozen `main` baseline, including original Python 3.12
+optional models, inputs, assertions and exact skip allowances. Added checks run
+in separately executable, complete/disjoint extra lanes and retain their
+milestone/final obligations. Keep the initially bounded four-Python-plus-four-
+support layout, existing resource limits and context requirements.
+
+This absolute rule supersedes relative NoIncrease, paired main/PR timing
+campaigns, median/worst comparative gates, mandatory original two-worker
+benchmarking and the older 35-minute standard budget. Retain earlier results as
+historical, superseded evidence. The comparative diagnostic is retired without
+a replacement framework; its hosted failure stays FAILED_OR_INCOMPLETE.
+Mapping, collection context, resource and direct-xdist qualification remain
+pending. This document changes no runner, selector, ordinary workflow or timeout
+gate and grants no activation or standard 20-minute acceptance.
 
 ## Immediate acceptance
 
@@ -41,7 +55,8 @@ resource budgets cannot substitute for a repair.
 
 1. Before pushing a feature change, complete its focused tests, required local
    checks and review. Keep significant changes in meaningful commits with the
-   normal commit hooks run unskipped.
+   normal installed hooks invoked without bypass. Applicable hooks must pass;
+   legitimate no-matching-file SKIPs remain recorded.
 2. After every push, verify the terminal CI outcomes for that exact revision.
    Retain failed, superseded and cancelled predecessor outcomes as they occurred;
    do not report them as green through a later revision's success.

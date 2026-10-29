@@ -1,30 +1,48 @@
 # Precision migration CI execution plan
 
-Status: **Main-baseline architecture accepted. Finite mapped-main-owner Python 3.11 functional/resource qualification accepted at `14439a07`; other cohorts, paired no-increase performance, literal exact-head CI and gate activation remain pending.**
+Status: **Main coverage architecture and the absolute 20-minute Linux STANDARD-job rule are accepted. Finite mapped-main-owner Python 3.11 functional/resource evidence at `14439a07` remains valid within its scope; whole-job timing, other cohorts, exact-head CI and gate activation remain pending. The comparative frozen-main diagnostic is retired.**
 
 ## Binding user clarification — 2026-10-29
 
 > die Standardprüfung sollte den Status Quo wie auf main prüfen, damit wir nichts gegenüber diesem Stand verlieren, aber auch nicht länger laufen. Zusatzprüfungen wären on top und dann auch gern extra.
 
-The standard campaign must preserve main's complete existing coverage and must
-not take longer than a comparable main campaign. Every added SOURCE, migration
-or regression check belongs to a separately identified extra lane. Those checks
-remain required at their assigned trigger; separating them does not delete,
-weaken or waive them. Extra work and its runtime must remain visible.
+The latest user amendment replaces relative runtime comparison with an absolute
+limit: **every successful Linux STANDARD job must finish within 1,200 seconds
+(20 minutes)**. Measure from the actual job start through checkout, setup,
+generation, collection, execution, aggregation, upload and final cleanup;
+external queue time is excluded. Timeout, interruption, a guard stop or incomplete
+evidence fails qualification even if the observed prefix is shorter than 20 minutes.
+
+Preserve main's complete existing coverage. Every added SOURCE, migration or
+regression check belongs to a separately identified extra lane, complete and
+disjoint from standard. Those checks remain required at their assigned trigger;
+separating them does not delete, weaken or waive them. Extra cost remains visible.
+Keep the initially bounded layout of **four Python cohorts plus four support
+jobs**. Sequential canonical packets are work inside those jobs, not permission
+to multiply hosted jobs or apply the limit separately to each packet/process.
+
+This amendment supersedes relative NoIncrease, paired main/PR timing campaigns,
+median/worst comparative gates and the mandatory original two-worker main
+benchmark. No new main benchmark or replacement diagnostic is required.
+Historical comparative measurements and failed attempts remain labeled evidence;
+they are not active acceptance prescriptions. Existing ordinary CI and runners
+remain unchanged until separately reviewed activation.
 
 This clarification supersedes the previously accepted `C(p) - H(p)` routine
 selection and its **35-minute / 160-minute standard runtime budgets**. Neither
 selecting nearly the entire expanded PR suite nor reducing standard coverage to
-two representative Python cohorts satisfies the new instruction. The earlier
-architecture acceptance is historical; it is not acceptance of this amendment.
-No standard/extra workflow gate or required check has been activated.
+two representative Python cohorts satisfies the new instruction. Acceptance of
+the earlier `C(p) - H(p)` and comparative architecture is historical;
+it does not activate the new plan. Independent Astra review accepts the narrow
+absolute-20-minute amendment and diagnostic retirement; execution qualification
+remains separate. No standard/extra workflow gate or required check is activated.
 
 Independent Astra Ultra review on 2026-10-29 by
 `/root/astra_ci_plan_review/main_baseline_architecture_review`: **ACCEPT for
 architecture**, including the subsequent one-to-one/phase-F clarification.
 The reviewed candidate permits incremental implementation. Literal selection,
-main-to-PR contract mapping, collection-context equivalence, measured no-increase
-runtime and all gate-activation evidence remain unqualified. This review does
+main-to-PR contract mapping, collection-context equivalence, measured whole-job
+20-minute runtime and all gate-activation evidence remain unqualified. This review does
 not accept missing migration verifiers or claim performance results.
 
 The reference main commit, supplied by root's fresh remote/local observation, is
@@ -76,71 +94,49 @@ versions and markers in isolated installations. No custom native builds,
 compiler patches, overlays or substitutions are authorized. The complete B–F
 contract and exact-final-commit acceptance remain unchanged.
 
-## Latest bounded qualification — 2026-10-29
+## Historical bounded qualification — 2026-10-29
 
-### Hosted frozen-main diagnostic — source proposal only
+These source-scoped records remain intact. Their earlier relative NoIncrease or
+paired-comparison conclusions describe the superseded timing contract. Workload
+measurements such as 854.56 s and 1,120.59 s do not retroactively prove the new
+checkout-through-cleanup whole-job limit.
 
-The separate `main-baseline-feasibility.yml` proposal adds one **non-required**,
-path-scoped `pull_request:synchronize` diagnostic for same-repository PR #277
-on `precision-migration`. It changes none of the existing eight CI jobs or
-their selection. Its job predicate permits only the eligible ordinary transition
-away from `22a26871f9cc6021790e17676297d4f48d5fcb98` (`github.event.before`).
-This is one eligible transition, not a guarantee of exactly one execution:
-a manual rerun would retain the original event; no manual rerun is authorized.
-No hosted execution is qualified by this source proposal.
+### Retired frozen-main comparative diagnostic
 
-After source review, the bounded component owner passes **77 tests on each
-official Python 3.11/3.14 family**, including an actual two-worker non-native
-pytest fixture with eight phase reports, both native worker closures and JUnit.
-The stdlib controls cover subreaper double-fork/setsid adoption, fast exit,
-SIGTERM cleanup and parent-PID reuse. Actual external local guards finish in
-2.28 s / 213.00 MiB and 2.89 s / 246.95 MiB. Candidate telemetry/CPU inspection
-is stubbed inside integration fixtures; these controls do not qualify hosted
-safety telemetry, main/model execution or NoIncrease. Raw per-family receipts
-are in `/mnt/d/jax2onnx-hosted-observer-v3-corrected-py311-gtpovn31/` and
-`/mnt/d/jax2onnx-hosted-observer-v3-corrected-py314-8tpkc9vb/`.
-The first owner attempt remains **76 PASS / 1 FAIL**: the toy setup-skip authority
-expected line 5 while pytest correctly reports its requesting test at line 6.
-Only that toy expectation was corrected; the production validator and actual
-main authority remain unchanged. Its complete failed receipt and fences remain
-at `/mnt/d/jax2onnx-hosted-observer-v3-focused-py311-a9gfz7di/`.
+The non-required PR #277 `main-baseline-feasibility.yml` diagnostic and its
+observer, authority JSON and component owner are retired. They have no remaining
+code consumers outside that family and none existed in frozen main `81ad6ca`.
+Their removal changes no ordinary CI job, main test, converter or existing runner.
+The earlier one-eligible-transition proposal is historical, not a remaining gate
+or an authorization to rerun the original two-worker benchmark.
 
-Tracked admission precedes original generation; the full 210-file generated
-authority is checked only after that stage. The observer is controller-only;
-there is no worker receipt protocol or scheduler replacement.
+The bounded component owner passed **77 tests on each official Python 3.11/3.14
+family**, including a two-worker non-native pytest fixture and stdlib ownership
+controls. Its guards measured 2.28 s / 213.00 MiB and 2.89 s / 246.95 MiB.
+Candidate telemetry was stubbed inside those fixtures; they did not qualify real
+hosted safety or main/model execution. Preserve those receipts at
+`/mnt/d/jax2onnx-hosted-observer-v3-corrected-py311-gtpovn31/` and
+`/mnt/d/jax2onnx-hosted-observer-v3-corrected-py314-8tpkc9vb/`, together with the
+first **76 PASS / 1 FAIL** toy skip-line predecessor at
+`/mnt/d/jax2onnx-hosted-observer-v3-focused-py311-a9gfz7di/`.
 
-The subject stays at `81ad6ca2592635c8d2ced6dbd77292c487f0351b`, separately
-from the exact PR-head driver. Its own official lock and original install,
-path-marker, pre-commit, generation and pytest order are retained. Only driver
-scripts enter `PYTHONPATH`; candidate `jax2onnx` is never installed or overlaid.
-The original unset `PYTEST_ADDOPTS`, two-worker `-n auto`, `loadscope` and
-duration profile remain explicit. Observation/reporting and no-restart additions
-are recorded. Both workers must publish the frozen ordered 4,571-ID digest
-before scheduling; success requires 13,712 complete phases, the two exact skip
-allowances, no `wasxfail` presence, matching native/transport worker and item
-indices and native closures, with one workload source/package binding and JUnit
-corroborating totals/errors/exact skips. Unseen scheduler assignments
-and loaded worker JAX configuration remain unverified.
+The actual hosted [run 40946430156](https://github.com/enpasos/jax2onnx/actions/runs/40946430156)
+at driver `e8bed493` and frozen subject `81ad6ca` remains
+**FAILED_OR_INCOMPLETE**. Setup passed in **32.92 s**. The workload guard stopped
+at **169.80 s / 4,103.03 MiB**, with **817 complete passes and two setup-only
+outcomes**. All 4,571 collected identities are not completed outcomes; final
+worker closures/controller completion are absent. Preserve the scoped archive
+and `/tmp/jax2onnx-hosted-main-e8bed-failure-20261029-eq16fy64/diagnosis.json`
+(SHA256 `52b5067cb7f7edec1d93fe913810cd7e2cdfac92ee90e5b81e9437b698f23d95`).
+This failure does not qualify the new whole-job 20-minute rule or direct xdist.
+It must not be rerun or given a larger cap merely for comparative timing.
 
-Hosted limits are 4 GiB aggregate RSS, 1,200 s for the original workload,
-6 GiB startup/2 GiB live effective available memory, 4 GiB free disk and exactly four actual allowed CPUs; unexpected allocation fails without an affinity change. Native thread/JAX controls stay unset; the
-separate local CPUs 4–7, thread-one and 12/8-GiB policy is unchanged. Setup is
-bounded to eight minutes and the job to 35. Closure has a measured, retrospective
-300-s qualification check; it is not a separately enforced five-minute deadline. A Linux subreaper discovers/reaps adopted descendants without consuming the
-Popen leader status; live owned telemetry uncertainty or SIGTERM routes through
-identity-checked cleanup. Each queued parent edge carries PID and start time;
-parent replacement cannot authorize children, and guard adoption needs its own
-persistent-identity proof. Owned PID/start-time, host/cgroup/OOM/swap records and complete scoped failures are retained. The
-successful compressed artifact target is at most 100 MiB for seven days;
-excluded model payloads are explicitly **NOT_RETAINED**, with hashes and sizes.
-
-The local original-main pilot remains **RESOURCE_FAILED/INCOMPLETE** at
-52.26 s / 4,103.35 MiB: 4,571 collected IDs are not completed outcomes, and its
-terminal JSON/JUnit are absent. Its earlier prelaunch bookkeeping assertion is
-an independent ERROR with zero native tests. Both are preserved under
-`/mnt/d/jax2onnx-main-original-two-worker-pilot-7rm_yxaa/`. This hosted proposal
-is no retry, larger-cap approval, paired NoIncrease evidence, candidate gate
-activation or release of the canonical collection-transition rejection.
+The earlier local original-main pilot also remains
+**RESOURCE_FAILED/INCOMPLETE**, **52.26 s / 4,103.35 MiB**, with no terminal
+JSON/JUnit. Its separate prelaunch bookkeeping ERROR executed zero native tests.
+Keep `/mnt/d/jax2onnx-main-original-two-worker-pilot-7rm_yxaa/` and all earlier
+source/package/swap/restoration evidence. The retired sources remain in commit
+history and external source freezes; their prior design limits are historical.
 
 Astra independently accepts the finite mapped-main-owner Python 3.11 campaign
 at clean `14439a075f18979510ba4a0e6e97fb7342e6c800`: **4,569 PASS plus two
@@ -152,7 +148,7 @@ reports, with no `wasxfail` fields. The unchanged guard completes in
 (SHA256 `140921bdca6e7aa8e4d9faf3990d5edd79da7fce6d98da8555d988a1bd1bc0e5`).
 Its **8,569,970-byte** archive covers canonical/qualification receipts, guards
 and metadata, not all model artifacts. This closes the next finite owner
-qualification at this checkpoint only; NoIncrease, all cohorts/support,
+qualification at this checkpoint only; whole-job timing, all cohorts/support,
 Full44, full B–F, literal exact-head CI and gate activation remain open.
 
 An independently accepted **temporary candidate**, using existing
@@ -177,8 +173,8 @@ complete ViT cases pass on each official framework family. Independent review
 accepts this finite checkpoint; residual membership costs, Full44 and broader
 performance gates remain open. The current finite mapped-owner campaign above
 supersedes the next-qualification step for Python 3.11 at `14439a07` only. It
-does not replace the matched main/PR performance campaign or authorize gate
-activation or replay feature expansion.
+does not establish the whole-job 20-minute limit or authorize gate activation
+or replay feature expansion. The former matched timing campaign is superseded.
 
 The complete locked Python 3.11 standard campaign at old head `9520dfb9`
 finishes the exact original 4,571-case order: **4,569 PASS and two unchanged
@@ -204,17 +200,14 @@ split and default planner.** Evidence:
 caller omitted the explicit suite environment and failed precheck without
 starting a worker; that failed predecessor remains recorded.
 
-Paired main-versus-PR performance remains **UNQUALIFIED**. Present main and PR
-environments/artifacts occupy different filesystems, with different reuse and
-cache histories. A qualifying comparison needs matched filesystem placement,
-fresh artifact policy, each revision's own locks and recorded interpreter/tools,
-CPU/thread and concurrency limits, cache policy and no concurrent native work.
-Use at least three complete paired campaigns with alternating order; include
-setup, generation, collection, aggregation and uploads. Compare both median and
-worst critical-path time plus aggregate work under the no-increase contract.
-Do not present the bounded tail difference, old GitHub observations or unmatched
-local measurements as that proof. The historical milestones below retain their
-own source epochs and are superseded only where this section explicitly says so.
+The former paired main-versus-PR timing prescription is **SUPERSEDED**.
+It required matched filesystem/cache/setup contexts and at least three
+alternating campaigns with median/worst critical-path and aggregate comparisons.
+Those comparisons were not qualified and are no longer a required gate. Keep
+historical measurements tied to their original epochs; do not schedule paired
+campaigns or an original two-worker benchmark to satisfy the active rule.
+Whole-job 1,200-second qualification remains pending under the preserved coverage
+and resource requirements.
 
 ## Accepted incremental work and measured starting point
 
@@ -229,7 +222,8 @@ checkpoint order are preserved. Supplied completed checks: Python 3.11 runner
 100 PASS; Python 3.11 transport/control/replay 165 PASS; Python 3.14 runner plus
 selected context/cache regressions 141 PASS, 68 deselected. This acceptance
 survives the new lane design. It establishes no scheduling change or runtime
-saving. Ordinary commit hooks remain required and unskipped.
+saving. Ordinary commits must invoke the installed hooks without bypass;
+applicable hooks must pass and legitimate no-matching-file SKIPs are recorded.
 
 The following completed GitHub job measurements are observational. Test counts,
 scheduling and the modern JAX version differ; hardware was not experimentally
@@ -317,7 +311,7 @@ equivalent; platform-independent checks may run once after that review.
 Main's existing all-files lint, policy and typing checks still inspect the
 current PR tree under their original contract. Do not freeze their inspected
 file set to main or exclude newly added production code. Their expanded cost
-counts in standard's comparison. Added pytest identities/scenarios and new
+counts in the complete standard job's 1,200-second accounting. Added pytest identities/scenarios and new
 standalone checks are the extra work; this does not narrow existing whole-tree
 quality checks.
 
@@ -821,7 +815,7 @@ savings remain unqualified. No workflow changed during this review.
 
 | Lane | Exact ownership to implement | Trigger and acceptance meaning |
 | --- | --- | --- |
-| Standard main baseline | `S(p)` on all four locked Python 3.11–3.14 PR cohorts; main's full support coverage, actual minimum-dependency job and original integration ownership | Every PR update and main push under main's existing relevant conditions. Same baseline capabilities, inputs and criteria; comparable standard runtime must not increase. `standard-main` success is only this scope. |
+| Standard main baseline | `S(p)` on all four locked Python 3.11–3.14 PR cohorts; main's full support coverage, actual minimum-dependency job and original integration ownership | Every PR update and main push under main's existing relevant conditions. Same baseline capabilities, inputs and criteria; each successful Linux STANDARD job must finish within 1,200 seconds from job start through final cleanup/upload, excluding queue time. `standard-main` success is only this scope. |
 | Focused extra regressions | Explicit reviewed IDs in `A(p)` for confirmed extrema, completed-export ownership and mutable-static/callback regressions, relevant SOURCE semantics, changed owners and their consumer/integration regressions | Required on every affected PR update on applicable official framework families/settings. Freeze literal selectors before activation. A missing required extra job is not replaced by standard success. |
 | Remaining extra CPU coverage | Every item in `A(p)` not assigned to the focused extra lane, including the complete added SOURCE corpus and full-model cases | Dedicated complete extra acceptance at significant milestones, whenever assumptions change, and on the exact final commit across all supported cohorts. Nightly/manual execution may add evidence. No unmatched addition disappears. |
 | Main full web baseline | The complete mapped main Node/Chrome integration selections and original conditions | Preserve main's nightly/manual ownership, separately from newly added web cases. Qualify worker/isolation configuration and collection mapping before replacing its execution. |
@@ -921,12 +915,14 @@ omitting predecessors is forbidden. Additional context-sensitive failures join
 this explicit set pending repair. Supplementary solo passes do not replace failed
 original-context results.
 
-The standard candidate begins from main's documented fixed concurrency (two
-xdist workers in the measured main run), not the PR's arbitrary 500-item serial
-packet layout. Reuse existing pytest/xdist or the existing runner as appropriate;
-no scheduler service is needed. Qualify resource use, isolation and collection
-semantics before selecting worker/shard counts. Do not restore `-n auto` or
-increase local resource caps. Extra native/model packets retain serial isolation.
+Bounded execution, collection-context equivalence and resources must be
+qualified before standard activation. There is no mandatory original two-worker
+benchmark or inherited concurrency prescription. Reuse existing pytest/xdist or
+the existing runner only after its concrete context, ownership and descendant
+resource behavior are accepted; **direct xdist remains unqualified**. Do not
+restore `-n auto`, multiply hosted jobs or increase local resource caps. Keep the
+four-Python-plus-four-support layout initially bounded, with canonical packets
+sequential inside jobs. Extra native/model packets retain serial isolation.
 Only after per-case duration and descendant memory are measured should Original22
 be split into bounded complete-case packets; four cases / 12 predicted minutes
 remain a candidate, not an approved allocation. Never split a case's internal
@@ -945,38 +941,33 @@ separate, with applicable dtype/shape/tree, NaN-mask, zero-sign, infinity, round
 and tolerance checks. Official-native failures remain failed or unverified;
 they cannot authorize compiler substitution or weaker comparisons.
 
-## No-increase standard runtime and separate extra budgets
+## Absolute standard-job runtime and separate extra budgets
 
-Standard acceptance is **no increase versus comparable main**, not 35m per job
-or 160m aggregate. Use at least three complete paired main/PR-standard campaigns
-with frozen source SHAs, each revision's approved lock/setup, the same standard
-hosted runner class/recorded CPU features, available concurrency and matched
-cold/warm-cache treatment. Pair runs closely and alternate order. Report cohort
-job times, workflow critical path, aggregate charged job time and all raw pairs.
-A framework-version difference remains an explicit confounder; it does not grant
-a runtime allowance or permission to replace PR locks.
+Every **successful Linux STANDARD job must complete in at most 1,200 seconds**
+from its actual job start through the end of final cleanup and upload. Include
+checkout, dependency/setup work, generation, collection, mapping validation,
+execution, shared prerequisites, internal waits, aggregation and artifact upload.
+Exclude only external runner queue time. Use actual job start/end evidence;
+a pytest duration, workload guard or sum of selected child times is insufficient.
 
-Require both the median and worst observed **standard critical path and aggregate
-job time** to be no higher than the corresponding main measurements, with no
-unreviewed tolerance. Report each cohort/support comparison so a slower owner
-cannot be hidden by renamed checks. The initial historical 18m04s slowest job
-and 54m30s aggregate are orientation only, not controlled thresholds or proof of
-makespan. If comparable evidence is unavailable or the no-increase test fails,
-performance acceptance remains UNVERIFIED/FAILED; optimize without removing
-coverage or obtain an explicit reviewed change to the measurement plan.
+Timeout, interruption, guard termination, missing phases/receipts or otherwise
+incomplete evidence cannot pass. A short failed prefix is not a timing success.
+Record each cohort/support job separately so no slower job is hidden by aggregate
+or critical-path summaries. Report aggregate and standard-plus-extra costs for
+visibility without reinstating relative main comparisons.
 
-Charge dependency installation, test generation, collection, mapping validation,
-shared prerequisites, support, aggregation and uploads to the campaign that
-requires them. Shared costs required for standard cannot be reassigned to extras
-to make standard appear faster. Record baseline-bootstrap/cache-miss costs and
-cache-hit steady-state results separately; qualify both applicable operating
-modes. Count all failed attempts and retries additionally. External runner queue
-time is reported separately; internal dependency waits and scheduling waves
-remain part of execution makespan. Report combined standard-plus-extra cost too.
+Relative NoIncrease, paired main/PR timing campaigns, median/worst comparative
+gates and the original two-worker benchmark are superseded. No matched main
+campaign is a prerequisite. Preserve historical main/PR results and failed
+attempts; their old timing conclusions do not qualify this absolute rule.
+Setup/cache provenance and every existing resource/context obligation remain.
+Shared standard costs cannot be reassigned to extras or removed to fit the cap.
+The separate extra targets below remain provisional and cannot extend a
+STANDARD job's 20-minute limit or replace milestone/final acceptance.
 
 | Scope | Runtime acceptance | Memory target | Uploaded evidence target |
 | --- | --- | --- | --- |
-| Standard main baseline, all four cohorts/support | No increase in comparable main critical path and aggregate time under the paired rule above | <=4 GiB total owned-process RSS per ordinary runner, >=2 GiB host headroom, no OOM/swap growth; fixed worker count must fit this aggregate target | <=100 MiB compressed successful-campaign receipts/logs; seven days. Report complete failure/retry payloads separately without truncation. |
+| Standard main baseline, all four cohorts/support | Every successful Linux STANDARD job <=1,200 s from actual job start through checkout/setup/generation/collection/execution/aggregation/upload/final cleanup; queue excluded; timeout/interruption/incomplete fails | <=4 GiB total owned-process RSS per ordinary runner, >=2 GiB host headroom, no OOM/swap growth; fixed worker count must fit this aggregate target | <=100 MiB compressed successful-campaign receipts/logs; seven days. Report complete failure/retry payloads separately without truncation. |
 | Focused extras | Provisional <=35m slowest job and <=160m aggregate, charged separately from standard; freeze actual selection and measure before qualification | One native worker per runner; <=4 GiB owned-process RSS and >=2 GiB headroom | <=100 MiB compressed successful receipts/logs; seven days; complete failure evidence retained |
 | Complete CPU acceptance, `S + A`, all four cohorts | Provisional <=45m slowest job, <=90m execution makespan with eight available slots, <=480m aggregate including prerequisites; these targets are not achieved results | One native worker per extra model runner; model packets <=12 GiB owned-process RSS with >=2 GiB host headroom; no OOM/swap growth | <=3.5 GiB per cohort / <=14 GiB total compressed, with complete required payloads; 14 days, final evidence retained through review |
 | Full web integrations | Main web baseline and added web costs reported separately. Historical 180m Node / 240m Chrome limits do not qualify a replacement's runtime | Current `-n auto` configuration is unqualified under the new resource plan; bounded execution and descendant/headroom measurements need review | Numeric budget UNVERIFIED; retain complete failure/replay evidence and report compressed bytes separately |
@@ -1016,7 +1007,8 @@ assigned to its explicit qualification lane, without a user-approval flow.
    relevant regression owners under the unchanged machine guards. Keep the
    published gate authoritative during this qualification.
 4. Complete one exact-revision all-cohort union/equivalence campaign including
-   the original full models, then the paired standard no-increase measurements.
+   the original full models, and qualify every successful Linux STANDARD job
+   against the complete 1,200-second job span.
    Preserve original inputs/criteria and complete payloads; record actual time,
    descendant memory and uploaded compressed size. Missing B–F verifiers remain
    separately named acceptance blockers; they do not prevent these CI repairs.
@@ -1029,8 +1021,10 @@ assigned to its explicit qualification lane, without a user-approval flow.
 6. Retain complete exhaustive validation at significant B–F milestones and when
    its assumptions change. Final acceptance reruns all accepted standard, extra,
    integration and migration obligations on the exact final commit across all
-   supported cohorts. No-increase standard and separately reviewed extra budgets,
-   independent numerical review, documentation and normal hooks must all pass.
+   supported cohorts. The absolute standard-job limit, separately reviewed extra
+   budgets, independent numerical review and documentation must pass. Invoke
+   normal installed hooks without bypass; applicable hooks must pass and
+   legitimate no-matching-file SKIPs remain recorded.
 
 The original architecture review changed only this plan. Subsequent preparation,
 source repairs and unused selector qualification are recorded above and in the
