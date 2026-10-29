@@ -11,6 +11,7 @@ import numpy as np
 import onnx
 import onnx_ir as ir
 import pytest
+from onnx.reference import ReferenceEvaluator
 from onnx_ir.passes import common as common_passes
 
 from jax2onnx import user_interface as ui
@@ -127,6 +128,214 @@ def _immutable(value: Any) -> None:
     assert not callable(value)
     for field in fields(value):
         _immutable(getattr(value, field.name))
+
+
+@pytest.mark.parametrize("depth", (2, 8, 32))
+def test_capture_binding_scans_are_bounded_without_changing_real_sub_results(
+    depth: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    x, y = (_value(name, ir.DataType.FLOAT, (2,)) for name in ("x", "y"))
+    previous = (x, x)
+    pairs = []
+    nodes = []
+    for ordinal in range(depth):
+        values = tuple(
+            _value(f"{name}_{ordinal}", ir.DataType.FLOAT, (2,))
+            for name in ("first", "second")
+        )
+        nodes.extend(
+            ir.Node("", "Sub", [operand, y], outputs=[result])
+            for operand, result in zip(previous, values, strict=True)
+        )
+        pairs.append(values)
+        previous = values
+    graph = ir.Graph(
+        [x, y],
+        list(previous),
+        nodes=nodes,
+        opset_imports={"": 23},
+        name="leaf_cse_capture_batch_fixture",
+    )
+    graph.meta[structure._OWNER] = object()
+    model = ir.Model(graph, ir_version=10)
+    witnesses = tuple(
+        tuple(structure._witness(value) for value in pair) for pair in pairs
+    )
+    original = ir.to_proto(model.clone())
+    output_names = tuple(value.name for value in graph.outputs)
+    capture = leaf._capture
+    resolve = structure._resolve_direct_bindings
+    active: list[ir.Graph] | None = None
+    observations = []
+
+    def counted_resolve(
+        actual: ir.Graph,
+        wanted: set[Any],
+        optional: frozenset[Any] = frozenset(),
+    ) -> dict[Any, ir.Value]:
+        if active is not None:
+            active.append(actual)
+        return resolve(actual, wanted, optional)
+
+    def observed_capture(actual: ir.Graph) -> Any:
+        nonlocal active
+        calls: list[ir.Graph] = []
+        previous_active, active = active, calls
+        try:
+            return capture(actual)
+        finally:
+            active = previous_active
+            observations.append((actual, calls))
+
+    monkeypatch.setattr(structure, "_resolve_direct_bindings", counted_resolve)
+    monkeypatch.setattr(leaf, "_capture", observed_capture)
+    _run(model)
+    (receipt,) = leaf.receipts(graph)
+    assert len(leaf._congruence(receipt)) == depth
+    _immutable(receipt)
+    found = _resolved(model, tuple(witness for pair in witnesses for witness in pair))
+    assert all(found[first] is found[second] for first, second in witnesses)
+    assert sum(node.op_type == "Sub" for node in graph) == depth
+    assert tuple(value.name for value in graph.outputs) == output_names
+    assert graph.outputs[0] is not graph.outputs[1]
+    assert all(
+        value.dtype is ir.DataType.FLOAT and tuple(value.shape) == (2,)
+        for value in graph.outputs
+    )
+    feeds = {
+        "x": np.asarray([9.0, 16.0], np.float32),
+        "y": np.asarray([0.5, 2.0], np.float32),
+    }
+    expected = ReferenceEvaluator(original).run(None, feeds)
+    actual = ReferenceEvaluator(ir.to_proto(model)).run(None, feeds)
+    assert len(actual) == len(expected) == 2
+    for result, reference in zip(actual, expected, strict=True):
+        assert result.dtype == reference.dtype == np.dtype(np.float32)
+        assert result.shape == reference.shape == (2,)
+        np.testing.assert_array_equal(result.view(np.uint32), reference.view(np.uint32))
+    clone = model.clone()
+    cloned = _resolved(clone, tuple(witness for pair in witnesses for witness in pair))
+    assert all(cloned[first] is cloned[second] for first, second in witnesses)
+    onnx.checker.check_model(ir.to_proto(clone), full_check=True)
+    assert len(observations) == 1
+    observed_graph, scans = observations[0]
+    assert observed_graph is graph and all(actual is graph for actual in scans)
+    assert len(scans) == 2, f"capture performed {len(scans)} full binding scans"
+
+
+@pytest.mark.parametrize("marker", ([], (object(),)), ids=("list", "tuple-member"))
+def test_capture_checks_unrelated_markers_before_no_duplicate_return(
+    marker: Any,
+) -> None:
+    x, y, result, unrelated = (
+        _value(name, ir.DataType.FLOAT, (2,))
+        for name in ("x", "y", "result", "unrelated")
+    )
+    graph = ir.Graph(
+        [x, y],
+        [result, unrelated],
+        nodes=[
+            ir.Node("", "Sub", [x, y], outputs=[result]),
+            ir.Node("", "Neg", [x], outputs=[unrelated]),
+        ],
+        opset_imports={"": 23},
+    )
+    graph.meta[structure._OWNER] = object()
+    unrelated.meta[structure._VALUES] = marker
+    with pytest.raises(
+        structure.StructureUnavailable, match="final-value-marker-unavailable"
+    ):
+        leaf._capture(graph)
+
+
+@pytest.mark.parametrize(
+    "fault", ("duplicate-physical", "duplicate-tuple", "stale-origin", "wrong-port")
+)
+def test_capture_preserves_every_requested_physical_witness_claim(
+    fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model, witnesses = _sub_model()
+    first, second = model.graph.outputs[:2]
+    witness = structure._witness
+    changed = False
+    if fault == "duplicate-physical":
+        second.producer().meta[structure._ORIGIN] = first.producer().meta[
+            structure._ORIGIN
+        ]
+    elif fault == "duplicate-tuple":
+        first.meta[structure._VALUES] = (*first.meta[structure._VALUES], witnesses[0])
+
+    def changed_witness(value: ir.Value) -> Any:
+        nonlocal changed
+        actual = witness(value)
+        if value is first and not changed:
+            changed = True
+            if fault == "stale-origin":
+                first.producer().meta[structure._ORIGIN] = object()
+            elif fault == "wrong-port":
+                actual = replace(actual, port=1)
+                first.meta[structure._VALUES] = (*first.meta[structure._VALUES], actual)
+        return actual
+
+    monkeypatch.setattr(structure, "_witness", changed_witness)
+    with pytest.raises(structure.StructureUnavailable, match="final-value-witness"):
+        leaf._capture(model.graph)
+
+
+def test_capture_resolves_a_fresh_interface_batch_after_leaf_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, witnesses = _sub_model()
+    resolve = structure._resolve_direct_bindings
+    calls = []
+
+    def changed_after_resolution(
+        graph: ir.Graph,
+        wanted: set[Any],
+        optional: frozenset[Any] = frozenset(),
+    ) -> dict[Any, ir.Value]:
+        calls.append(graph)
+        result = resolve(graph, wanted, optional)
+        if len(calls) == 1:
+            value = graph.outputs[0]
+            value.meta[structure._VALUES] = (
+                *value.meta[structure._VALUES],
+                witnesses[0],
+            )
+        return result
+
+    monkeypatch.setattr(structure, "_resolve_direct_bindings", changed_after_resolution)
+    with pytest.raises(
+        structure.StructureUnavailable, match="final-value-witness-unavailable"
+    ):
+        leaf._capture(model.graph)
+    assert calls == [model.graph, model.graph]
+
+
+@pytest.mark.parametrize("mode", ("empty", "nonleaf", "unowned"))
+def test_capture_without_leaf_requests_performs_no_stamping_or_resolution(
+    mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if mode == "unowned":
+        model, _ = _sub_model(owned=False)
+        graph = model.graph
+    else:
+        x, result = (_value(name, ir.DataType.FLOAT, (2,)) for name in ("x", "result"))
+        graph = ir.Graph(
+            [x],
+            [x] if mode == "empty" else [result],
+            nodes=(
+                [] if mode == "empty" else [ir.Node("", "Neg", [x], outputs=[result])]
+            ),
+        )
+        graph.meta[structure._OWNER] = object()
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("capture without leaf requests must not resolve or stamp")
+
+    monkeypatch.setattr(structure, "_witness", forbidden)
+    monkeypatch.setattr(structure, "_resolve_direct_bindings", forbidden)
+    assert leaf._capture(graph) is None
 
 
 @pytest.mark.parametrize(
@@ -603,7 +812,14 @@ def test_transient_snapshots_do_not_retain_native_ir_after_observation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original = leaf._capture
+    batch_type = leaf._CaptureBindings
     snapshots = []
+    batches = []
+
+    def batch() -> Any:
+        result = batch_type()
+        batches.append(weakref.ref(result))
+        return result
 
     def capture(graph: ir.Graph) -> Any:
         result = original(graph)
@@ -612,9 +828,11 @@ def test_transient_snapshots_do_not_retain_native_ir_after_observation(
         return result
 
     monkeypatch.setattr(leaf, "_capture", capture)
+    monkeypatch.setattr(leaf, "_CaptureBindings", batch)
     model, _ = _sub_model()
     _run(model)
     assert snapshots and all(reference() is None for reference in snapshots)
+    assert batches and all(reference() is None for reference in batches)
     for receipt in leaf.receipts(model.graph):
         _immutable(receipt)
 

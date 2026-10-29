@@ -9,9 +9,9 @@ snapshots retain IR objects; registered receipts survive authentic graph clones.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import prod
 from typing import Any, TYPE_CHECKING
 from weakref import WeakSet
@@ -139,6 +139,41 @@ def _current(value: ir.Value) -> Witness:
     return result
 
 
+@dataclass
+class _CaptureBindings:
+    """Resolve capture-local requests without discarding any physical claim."""
+
+    requests: dict[ir.Graph, list[tuple[Witness, ir.Value]]] = field(
+        default_factory=dict
+    )
+
+    def request(self, value: ir.Value) -> Witness:
+        from .source_structure import StructureUnavailable, _witness
+
+        witness = _witness(value)
+        graph = value.graph
+        if graph is None:
+            raise StructureUnavailable("leaf-cse-current-definition-unavailable")
+        self.requests.setdefault(graph, []).append((witness, value))
+        return witness
+
+    def validate(self) -> dict[ir.Value, Witness]:
+        from .source_structure import StructureUnavailable, _resolve_direct_bindings
+
+        witnesses = {}
+        for graph, requests in self.requests.items():
+            resolved = _resolve_direct_bindings(
+                graph, {witness for witness, _ in requests}
+            )
+            for witness, value in requests:
+                if resolved.get(witness) is not value:
+                    raise StructureUnavailable(
+                        "leaf-cse-current-definition-unavailable"
+                    )
+                witnesses[value] = witness
+        return witnesses
+
+
 def _storage(value: ir.Value, tensor: ir.TensorProtocol) -> _Storage:
     from .source_structure import StructureMismatch, StructureUnavailable
 
@@ -212,6 +247,7 @@ def _capture(graph: ir.Graph) -> _Before | None:
         return None
     nodes = tuple(graph)
     rows = []
+    leaf_bindings = _CaptureBindings()
     normalized: dict[ir.Value, ir.Value] = {}
     classes: dict[object, ir.Value] = {}
     for ordinal, node in enumerate(nodes):
@@ -233,18 +269,20 @@ def _capture(graph: ir.Graph) -> _Before | None:
                 inputs,
                 canonical,
                 _Row(
-                    _current(value),
+                    leaf_bindings.request(value),
                     node.op_type,
-                    tuple(_current(value) for value in inputs),
-                    tuple(_current(value) for value in operands),
+                    tuple(leaf_bindings.request(value) for value in inputs),
+                    tuple(leaf_bindings.request(value) for value in operands),
                     input_schemas,
-                    _current(canonical),
+                    leaf_bindings.request(canonical),
                     schema,
                     storage,
                     ordinal,
                 ),
             )
         )
+    # A finite leaf still requires authentication when no duplicate is found.
+    leaf_bindings.validate()
     if not any(row.value is not row.canonical for row in rows):
         return None
     # Keep duplicate classes and their finite leaf prerequisites, rather than
@@ -283,11 +321,16 @@ def _capture(graph: ir.Graph) -> _Before | None:
         if value is not None
     }
     values.update((*graph.inputs, *graph.initializers.values(), *graph.outputs))
-    witnesses = {value: _current(value) for value in values}
+    interface_bindings = _CaptureBindings()
+    for value in values:
+        interface_bindings.request(value)
+    witnesses = interface_bindings.validate()
     touched = {row.node for row in rows}
     touched.update(use.node for row in rows for use in row.value.uses())
     contracts = {
-        node: _interface(node) for node in touched if node.op_type != "Constant"
+        node: _interface(node, validated_witnesses=witnesses)
+        for node in touched
+        if node.op_type != "Constant"
     }
     return _Before(
         graph,
@@ -307,21 +350,26 @@ def _capture(graph: ir.Graph) -> _Before | None:
     )
 
 
-def _interface(node: ir.Node) -> _Interface:
+def _interface(
+    node: ir.Node, *, validated_witnesses: Mapping[ir.Value, Witness] | None = None
+) -> _Interface:
     from .source_structure import StructureUnavailable, _OWNER
 
     graph = node.graph
     if graph is None:
         raise StructureUnavailable("leaf-cse-interface-owner-unavailable")
+    current = (
+        _current if validated_witnesses is None else validated_witnesses.__getitem__
+    )
     return _Interface(
         graph.meta[_OWNER],
         identity._origin(node),
         identity._node_schema(node),
         tuple(
-            None if value is None else (_current(value), identity._schema(value))
+            None if value is None else (current(value), identity._schema(value))
             for value in node.inputs
         ),
-        tuple((_current(value), identity._schema(value)) for value in node.outputs),
+        tuple((current(value), identity._schema(value)) for value in node.outputs),
     )
 
 

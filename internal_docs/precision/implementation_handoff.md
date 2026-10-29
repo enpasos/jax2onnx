@@ -1,13 +1,80 @@
 # Precision migration handoff — 2026-10-29
 
+## CSE capture performance checkpoint — 2026-10-29
+
+The interrupted original Issue52 profile identifies repeated leaf-CSE binding
+resolution during export: 30,734 `_current`/resolver calls and 985.37 s cumulative
+resolver time. The 1,131.83-s profiling run was deliberately interrupted, saved
+partial statistics and completed no test; it remains **INCOMPLETE**, not PASS.
+Evidence: `/mnt/d/jax2onnx-issue52-cprofile-9e37792c-py311-20261029-aonppv0y/profile-summary.json`.
+
+The independently reviewed repair batches exactly the
+existing witness requests within each capture stage and actual lexical owner.
+It validates before the no-duplicate return and uses a fresh second batch before
+interface snapshot publication. The shared resolver, witness stamping, original
+CSE pass, post-pass checks and cache-ownership repair remain unchanged. Local
+maps never enter graph metadata, registered receipts or post-mutation checks.
+This removes repeated full binding scans; remaining membership costs are not
+claimed linear. Source freeze:
+`/tmp/jax2onnx-cse-capture-source-v2-gv0oyj78/freeze.json`.
+
+The pristine predecessor passes graph/bitwise-result/clone/checker assertions
+but fails all three new scan bounds at 42/162/642 scans. The repair uses two in
+those fixtures. Five complete related owners pass **664 cases on each official
+framework family**, without skips/errors. The unchanged full original Issue52
+case passes on both: Python 3.11 **136.941 s case / 139.20 s guard, 865.36 MiB**;
+Python 3.14 **125.338 s / 127.88 s, 759.82 MiB**. Both retain native references,
+corruption controls, targets and numerical criteria. The earlier
+424.539/460.717-s cases ran within three owners, so these differences are
+observational rather than controlled savings or a CI-budget certificate.
+Evidence: `validation-summary.json` and `issue52-unprofiled-py311-result.json`
+beside the source freeze, and
+`/mnt/d/jax2onnx-cse-issue52-unprofiled-py314-lzqac9zn/result-summary.json`.
+Fixture-v1 and focused-v1 test failures remain separate predecessors.
+
+All six affected complete Original22 ViT cases (13/16/17, caller x64 off/on)
+now pass on Python 3.11, individually under the unchanged guard: wall times
+198.73/202.81/247.29/271.73/230.36/229.94 s; sampled owned peaks remain below
+2,549 MiB. Each retains all 82 completed observed phases, B=2/B=5, native and
+prepared roles, state/reset chains, two CPU optimization profiles and 32 target
+runs/comparisons. Original22 receipt fields for full B–F and internal masks stay
+UNVERIFIED. Distribution versions were checked after each case; only the final
+case retains the exact raw postflight mapping, with later preflights supplying
+explicitly limited corroboration for earlier cases. No installed-binary
+integrity claim follows. Per-case results are in the fresh
+`/mnt/d/jax2onnx-cse-vit*-py311-*/result-summary.json` directories.
+
+All six exact counterparts also pass on Python 3.14: guarded wall times
+218.78/221.03/246.69/264.09/218.19/242.77 s, maximum sampled owned RSS
+2,201.10 MiB. The complete modern family retains 984 phase events, 492 closed
+intervals, six exports, twelve sessions, 192 runs/comparisons, all 156 artifact
+manifest entries and raw pre/post package-version maps. All 1,257 tracked files
+match across its cases; the previously disclosed handoff edit between the two
+families is the only source-snapshot difference. Astra independently accepts
+both finite families and the capture-only repair. Aggregates:
+`/mnt/d/jax2onnx-cse-vit-primary311-summary-kzyhpdd_/summary.json` and
+`/mnt/d/jax2onnx-cse-vit-modern314-summary-emb6jz05/summary.json`.
+
+The next accepted qualification is the complete mapped-main-owner standard
+campaign, before replay feature expansion. Its existing temporary helper needs
+the final clean checkpoint binding and all 188 selectors passed explicitly to
+the existing runner; exact original skip/xfail review remains mandatory.
+Normal pinned commit hooks and strict documentation are checkpoint quality
+gates. Full44, broader cohorts, matched main/runtime comparison, residual
+membership costs and exact-head CI remain separate open obligations.
+
 ## Latest qualification and open gates — 2026-10-29
 
-The reviewed repair `9a0bc7fb881d07e2cb696af06c50ab5a1c9b9dd4` is published
-on PR #277. [CI 40875416260](https://github.com/enpasos/jax2onnx/actions/runs/40875416260)
-has four successful support jobs; all four full Python jobs are still running
-at the latest observation. Its actual eight-check acceptance remains pending.
-Predecessor `4ec9fad4` retains its four support successes and Python 3.11/3.12
-failures; its other Python outcomes remain separately observed.
+PR #277 now publishes `9e37792c599a4f70bdbbe06661baf943071a4592`, including
+the reviewed repair `9a0bc7fb881d07e2cb696af06c50ab5a1c9b9dd4`.
+[Exact-head CI 40891049655](https://github.com/enpasos/jax2onnx/actions/runs/40891049655)
+has four successful support jobs and four running full Python jobs at
+**16:05:36 UTC on 2026-10-29**. Its eight-check acceptance remains pending. Predecessor
+[9a CI 40875416260](https://github.com/enpasos/jax2onnx/actions/runs/40875416260)
+retains four support successes and a successful full Python 3.11 job; its other
+three full jobs are still running at that observation. Earlier
+`4ec9fad4` completed with four support successes and four full-test failures,
+all at the NumPy diagnostic mismatch repaired by `9a`. Preserve each outcome.
 
 The complete locked Python 3.11 standard campaign at **old head `9520dfb9`**
 finishes with **4,569 PASS and two unchanged main skips**, in exactly the
@@ -61,8 +128,9 @@ not itself an executed two-element minimization. Installed-file RECORD checks ve
 57/58 files, not wheel archives or executed instructions. Evidence:
 `/tmp/jax2onnx-astra-native-reference-conflict-20261029.json` and the referenced
 native reports. These remain failed reference-agreement obligations. The
-extrema dual-reference contract remains in force; any proposed semantic-oracle
-amendment awaits explicit user direction. No blanket FTZ, reference selection,
+extrema dual-reference contract remains in force. The user explicitly retained
+it on 2026-10-29: affected cases stay FAILED until the official references agree.
+The prepared semantic-oracle proposal is not adopted. No blanket FTZ, reference selection,
 custom runtime, public policy change or B–F completion follows.
 
 Separately executed tiny candidates now reproduce the native disagreement:
@@ -79,8 +147,8 @@ recording the delta. V2 explicitly observes import/device-init changes to
 `TF_CPP_MIN_LOG_LEVEL` and `TPU_SKIP_MDS_QUERY`, retaining the initial stage,
 then verifies exact full environment equality during candidate execution and
 restored full JAX configuration. It neither rewrites nor predeclares fields.
-These are reference-agreement failures, not converter/target acceptance or a
-change to the pending reference-policy decision.
+These are reference-agreement failures, not converter/target acceptance. The
+user's explicit decision retains the strict reference-agreement requirement.
 
 ## CI repair: native storage and Linen diagnostics — 2026-10-29
 

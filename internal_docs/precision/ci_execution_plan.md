@@ -30,15 +30,18 @@ not accept missing migration verifiers or claim performance results.
 The reference main commit, supplied by root's fresh remote/local observation, is
 `81ad6ca2592635c8d2ced6dbd77292c487f0351b`. Freeze this SHA as the initial baseline;
 record and independently reconcile later main changes instead of silently
-rebasing or shrinking the baseline. Current published PR head `9a0bc7fb` has
+rebasing or shrinking the baseline. Current published PR head `9e37792c` has
 four successful support jobs and four full Python jobs still in progress in
-[CI 40875416260](https://github.com/enpasos/jax2onnx/actions/runs/40875416260)
-at the latest observation. Its independently accepted storage/Linen repair
+[CI 40891049655](https://github.com/enpasos/jax2onnx/actions/runs/40891049655)
+at **16:05:36 UTC on 2026-10-29**. Predecessor `9a0bc7fb` retains four successful support
+jobs and a successful full Python 3.11 job, with the other three full jobs running in
+[CI 40875416260](https://github.com/enpasos/jax2onnx/actions/runs/40875416260).
+Its independently accepted storage/Linen repair
 passes the four complete related owners on every supported Python cohort,
 all seven normal pinned hooks and strict documentation. Predecessor `4ec9fad4`
-retains four successful support jobs and failed Python 3.11/3.12 full jobs in
+retains four successful support jobs and all four failed Python full jobs in
 [CI 40847090831](https://github.com/enpasos/jax2onnx/actions/runs/40847090831);
-the other Python outcomes remain separately observed. Predecessor `afa6d16e` had four successful support
+every failure is the NumPy diagnostic mismatch repaired by `9a`. Predecessor `afa6d16e` had four successful support
 jobs and four failed full Python jobs in
 [CI 40837446240](https://github.com/enpasos/jax2onnx/actions/runs/40837446240):
 all four stopped at the original NNX Transformer static-preparation defect;
@@ -53,6 +56,31 @@ compiler patches, overlays or substitutions are authorized. The complete B–F
 contract and exact-final-commit acceptance remain unchanged.
 
 ## Latest bounded qualification — 2026-10-29
+
+An independently accepted **temporary candidate**, using existing
+`collection_args` and canonical lifecycle checks, collects all 188 mapped main
+owner modules. At `9e37792c`, separate phase-free controls observe global
+`C=18,689`, `S=4,571`, `A=14,118` and complete owner `C=4,796`, including all
+225 additions inside those owners. Both collection costs are charged:
+23.267989 s globally and 8.079359 s for owners. Three declared context boundaries
+match the fresh main control except the bound artifact path. A separate staged
+collection plus the original first ten tests passes all 30 native phases.
+Evidence: `/tmp/jax2onnx-owner188-current9e-prepare-review-receipt-v1.json` and
+`/tmp/jax2onnx-owner188-current9e-qualify-review-receipt-v1.json`.
+This is finite collection/execution evidence; dynamic import-order independence,
+the remaining standard cases, other cohorts and comparable runtime are still
+unqualified. The current full-C implementation and CI gates remain in place.
+
+The current CSE capture repair and original Issue52 outcome are recorded in the
+[handoff](implementation_handoff.md).
+Its full binding scans are batched without changing the CSE algorithm or
+post-pass validation. The complete original Issue52 payload and all six affected
+complete ViT cases pass on each official framework family. Independent review
+accepts this finite checkpoint; residual membership costs, Full44 and broader
+performance gates remain open. Next qualify every mapped standard identity on
+the final clean checkpoint with the existing runner, explicit owner selectors
+and exact main skip controls. This precedes replay feature expansion and does
+not replace the matched main/PR performance campaign or authorize gate activation.
 
 The complete locked Python 3.11 standard campaign at old head `9520dfb9`
 finishes the exact original 4,571-case order: **4,569 PASS and two unchanged
