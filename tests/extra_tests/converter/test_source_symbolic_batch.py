@@ -363,9 +363,16 @@ def test_symbolic_serialized_boundary_corruption_fails_before_report(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     serialize = ir.to_proto
+    model_corruptions = 0
+    leaf_delegations = 0
 
-    def corrupt(model: ir.Model) -> Any:
-        proto = serialize(model)
+    def corrupt(value: Any) -> Any:
+        nonlocal model_corruptions, leaf_delegations
+        proto = serialize(value)
+        if not isinstance(value, ir.Model):
+            if isinstance(value, ir.Value):
+                leaf_delegations += 1
+            return proto
         tensor = proto.graph.output[0].type.tensor_type
         if corruption == "rename":
             tensor.shape.dim[0].dim_param = "Other"
@@ -377,11 +384,16 @@ def test_symbolic_serialized_boundary_corruption_fails_before_report(
             tensor.shape.dim[1].dim_value = 4
         else:
             tensor.elem_type = onnx.TensorProto.DOUBLE
+        model_corruptions += 1
         return proto
 
     monkeypatch.setattr(ir, "to_proto", corrupt)
     with pytest.raises(SourcePrecisionError, match="boundary dtype or shape differs"):
         _source()
+    # Default proto export serializes the frozen reference and actual Model.
+    # Apply the same fault to both so the original boundary guard is exercised.
+    assert model_corruptions == 2
+    assert leaf_delegations > 0
 
 
 def test_symbolic_descriptor_strictly_rejects_unknown_ir_dimensions() -> None:
