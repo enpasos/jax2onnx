@@ -207,7 +207,9 @@ def test_fresh_ordinary_source_export_saved_actual_outputs_and_profile_barriers(
         if name in ("exact_original_protected", "exact_prepared_protected"):
             assert contract["opset"] == 23
             assert fields["precision_params"] == {"new_dtype": "dtype('uint32')"}
-            assert fields["requirement"] == "opset 26 for float32-to-uint32 BitCast"
+            assert fields["requirement"] == (
+                "opset 26 or newer for an equal-width distinct-dtype BitCast"
+            )
             assert "select opset=26 if the target supports it" in barrier["message"]
             assert "export never upgrades the opset automatically" in barrier["message"]
         else:
