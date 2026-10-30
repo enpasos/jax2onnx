@@ -18,6 +18,21 @@ output of the unchanged generator, not a subset of its modules.
 | `py313.json` | 4,573 | 26 | 26.2.2 | off |
 | `py314.json` | 4,573 | 26 | 25.1.1 | off |
 
+The support declarations retain their original ordered commands and independent
+installation maps:
+
+| Input | Role | Main identities | Generated files | Bootstrap pip |
+| --- | --- | ---: | ---: | --- |
+| `minimum312.json` | minimum, Python 3.12 | 475 | 26 | 24.3.1 |
+| `normalization312.json` | normalization, Python 3.12 | 102 | 0 | 26.2.2 |
+| `normalization313.json` | normalization, Python 3.13 | 102 | 0 | 26.2.2 |
+
+The normalization declarations share only `normalization-baseline.json`: the
+literal Main IDs for layer-norm then cosine, with an empty generated map. Their
+package and boundary-context records remain separate. Actual absence of both
+generated directories is still required at setup and closure; `{}` alone does
+not prove absence. All three support skip-allowance lists are empty.
+
 The modern profiles share only the hash-bound literal identities/generated map
 in `modern-baseline.json`. Their package, plugin, environment, JAX transition and
 provenance records remain separate. Their observed global PR collections differ;
@@ -135,8 +150,16 @@ order. Other selection overrides remain prohibited. The support campaign uses
 `jax2onnx-ci-support-campaign-v1` with `command_inventory`; the unchanged global
 route retains `global_inventory`. Both supplied-contract and first-collection
 routes keep closed-worker, complete command C, ordered S/disjoint A, native
-phase/skip/`wasxfail`, JUnit and final source/context checks. No real support
-cohort JSON or workflow is activated by this extension.
+phase/skip/`wasxfail`, JUnit and final source/context checks. The real support
+declarations above require a committed data epoch and fresh qualification before
+use. They activate no workflow or canonical/hosted acceptance.
+
+Their provenance distinguishes bounded `10c46eb2` minimum/normalization313
+observations and the `234df50e` normalization312 observation from the new data
+based on `38dfb1ff`. Existing protocol transport substitutes `${CHECKOUT}` and
+declares `${RUN}/native-model-artifacts`; the old raw workers did not activate
+that native-evidence key. This portable transport therefore remains part of the
+future committed-data qualification, rather than a historical admission claim.
 
 The five-file extension passes 447 controls / 1,341 phases on official 3.13;
 the prior 373 controls remain as 362 literal IDs plus 11 explicit global
