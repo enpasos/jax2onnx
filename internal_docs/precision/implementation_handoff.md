@@ -23,15 +23,50 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-Published `234df50e` is **pending** in
+Published `234df50e` has **all eight SUCCESS** in
 [CI 569](https://github.com/enpasos/jax2onnx/actions/runs/41024691391):
-at the read-only observation **09:58:08 UTC on 30 October**, all four support
-jobs succeeded and all four full Python jobs were running.
+the read-only terminal snapshot at **11:43:05 UTC on 30 October** also confirms
+all eight exact-head checkout assertions. Full Python 3.11/3.12/3.13/3.14 jobs
+span **11,024 / 12,556 / 10,263 / 10,169 s**; all eight jobs total
+**44,327 job-seconds**. Python 3.12 finished at **11:39:53 UTC**. These old
+mixed-suite jobs do not meet the 20-minute requirement or establish full B–F
+acceptance (snapshot `fa8a9b33…`).
 Predecessor `10c46eb2` has **all eight SUCCESS** in
 [CI 568](https://github.com/enpasos/jax2onnx/actions/runs/41014331472), terminal
 at **09:24:47 UTC**. Its old mixed-suite full jobs cost **9,343–10,545 s**,
 aggregate **40,907 job-seconds**;
 this is neither 20-minute qualification nor a numerical repair.
+
+Committed support data at `c338c33f` now has independently accepted local
+canonical qualification: normalization312 and normalization313 each pass
+**C=S=102 / 306 native phases**; minimum312 passes **C=615 / S=475 / 1,425
+phases**, with **A=140 UNEXECUTED**. All three have zero skips/`wasxfail`, 18
+actual environment/JAX boundary comparisons and closed source/package/resource
+checks. Astra verified all 384 frozen files (combined
+`canonical-support-c338c33f-closed/summary.json`, SHA `52cea604…`, under the
+existing D evidence root). Native transport is `SUBSET_TRANSPORT_ONLY`; this
+local SHA admission does not establish GitHub event or hosted timing acceptance.
+The earlier normalization312 inspector exit 1 from comparing Linux/D modes is
+retained; the native command was not rerun.
+
+The private portable Node code/test epoch is `38dfb1ff` plus five-file patch
+`010719c8…`, AST-equivalent to reviewed V3 `c32a81d8…`, before these docs/data.
+On ordinary official Python 3.12, 53 focused controls and all 494 owner controls
+pass without top-level skips/xfails; the full outer command costs **1,006.50 s /
+342.02 MiB**. Pinned formatting/static checks, E109/8 metadata, source/Root/Main28
+and process/scratch closures pass (receipt `24a0c16b…`, freeze `f04a9ee3…`,
+`node-admission-controls-38df-v1-udqox36j/`). This is synthetic admission/control
+qualification. The new Node cohort/baseline/reference are source-only candidates
+requiring review, commit and actual canonical C→S50 admission.
+
+The earlier original Node50 observation passes 150 native phases with C=S=50
+and no extras (`9d1ed5d2…`). Its failed D-TMPDIR capture predecessor
+(`33e71b33…`) and four-child stdlib diagnostic (`11e9eaf8…`) remain preserved:
+D text/raw truncation fails with ENOENT, while Linux scratch passes unchanged
+capture. The reviewed reference `47cb4f12…` adds current complete JS/WASM hashes;
+the old npm receipt covered package manifests only. New Node E0/E1/E2 and
+native-evidence transport were not retroactively observed. No portable Node ABI,
+hosted whole-job or full SOURCE claim follows from these epochs.
 
 The private equal-width bitcast packet is qualified at `234df50e` plus the
 five-file source patch `72cf6368…`, before these documentation edits. On each
@@ -70,33 +105,15 @@ It measures sampled controlled-command resources; external Actions intervals
 remain explicitly unobserved. No workflow, whole-job timing, public SOURCE or
 full B–F acceptance follows from these finite results.
 
-The support extension remains private and unactivated. It closes the
-private role/cohort, exact ordered-selector and minimum-installation binding
-logic described in the [support variant](ci_standard/README.md#private-support-variant).
-Its 447 controls / 1,341 phases pass on 3.13; the prior 373 are 362 unchanged
-IDs plus 11 explicit global mappings, with the failed literal-ID bookkeeping
-record preserved. The refined 447-case 3.11 run includes a genuine unsupported
-normalization-role rejection before coordinator C/batch; only the two affected
-positive routes were repeated on 3.13 (pair `2635bb2d…`). These proofs bind their
-isolated `10c46eb2` plus reviewed-patch epochs, before this documentation edit.
-Separate clean-10c minimum312 S475 and normalization313 S102 observations pass
-with actual startup/collection/post-unconfigure contexts and exact Root/Main
-preservation (`9959dfdc…`, `f5565ad5…`); minimum's 140 extras were unexecuted.
-They supply no real support profile, canonical admission, skip allowance,
-hosted timing or full SOURCE/B–F numerical acceptance. Their original legacy
-criteria executed unchanged. No authority JSON or workflow changed.
-
-A separate ordinary locked Python 3.12 prefix now has a completed default-group
-install and pip check: **109 distributions / eight pytest entry points**, with
-all **107 selected dependency wheels** bound to their filenames/hashes. This is
-metadata/provisioning evidence, with no framework imports or numerical claim
-(`full-install-v1`, summary `da9f5361…`, freeze `d935fb49…`). The subsequent
-original normalization312 observation at clean `234df50e` passes **102 cases /
-306 native phases**, zero skips/wasxfail, **C=S=102 / A=0**, without generation
-(`7ebfedd5…` / `aaa187c6…`). Its unchanged legacy criteria, contexts and process
-closures are retained; neither observation activates a support/canonical gate
-or establishes hosted timing or full SOURCE acceptance. Both receipts are under
-`/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/`.
+Earlier [support-variant controls](ci_standard/README.md#private-support-variant)
+remain qualified at their own epochs: 447 controls on each official 3.11/3.13
+family, with genuine unsupported-role rejection and preserved literal-ID
+bookkeeping failure (pair `2635bb2d…`). Earlier raw minimum/normalization freezes
+`9959dfdc…`, `f5565ad5…` and `aaa187c6…` remain distinct from the new c338
+canonical qualification. Ordinary312's default-group install/pip check retains
+109 distributions, eight plugins and 107 authenticated dependency wheels
+(`da9f5361…`, `d935fb49…`). None activates a workflow or supplies full SOURCE
+acceptance.
 
 Earlier published `cd5cb4bebf6de00223bf9454f7fb6f15a317e2cf`, against frozen main
 `81ad6ca`, has **all eight SUCCESS** in

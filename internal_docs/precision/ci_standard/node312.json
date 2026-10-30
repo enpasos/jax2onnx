@@ -1,0 +1,458 @@
+{
+  "schema": "jax2onnx-ci-support-cohort-v1",
+  "support_role": "node-smoke",
+  "python_minor": "3.12",
+  "baseline_commit": "81ad6ca2592635c8d2ced6dbd77292c487f0351b",
+  "collection_args": [
+    "tests/extra_tests/test_quickstart.py",
+    "tests/extra_tests/test_return_modes.py",
+    "tests/examples/test_lax.py",
+    "tests/examples/test_jnp.py",
+    "tests/primitives/test_nn.py::Test_gelu::test_jaxnn_gelu"
+  ],
+  "baseline": {
+    "path": "node-baseline.json",
+    "sha256": "cfc1e98c3e5560d8408002197e499807a894c52be4e7e281548aee9c75001cfa"
+  },
+  "bindings": {
+    "package-lock.json": "5f12c2de570778ef68e42ef6788a1af63539e8a0775292398fefdcac5fbae8a0",
+    "package.json": "26ae1b890aed6ea1c589cefc824641bd91e6694cd382a083e1ec86754deb65e6",
+    "poetry.lock": "49e55d96ce74249499fb796c36cf9e78cefce0a4441eaa5c801c017640b3a8ea",
+    "pyproject.toml": "688f6dcadae9f3cfaecd4eaf6f576a4f5758c0168b4d610a1376dde60b23f7ea",
+    "scripts/onnxruntime_web_validation_utils.mjs": "ceabbba153b90ea49eb7620552ce58481ef897947e3c1e783c48db73883c7503",
+    "scripts/run_onnxruntime_web_smoke.sh": "47fa432c91890482010af8bdf53216c85c3421fe4cbf7e9f3ad05967f7e191b2",
+    "scripts/validate_onnxruntime_web.mjs": "5cf45b2e5c4d65b3ba6bdae1ef0a96cb86ad0ba83ace918bc1505b9ee1a62692"
+  },
+  "packages": {
+    "absl-py": "2.5.1",
+    "aiofiles": "25.1.0",
+    "ast-serialize": "0.13.1",
+    "babel": "2.18.0",
+    "backrefs": "8.1",
+    "black": "26.10.1",
+    "certifi": "2026.10.19",
+    "cfgv": "3.5.0",
+    "charset-normalizer": "3.5.2",
+    "chex": "0.1.92",
+    "click": "8.5.0",
+    "colorama": "0.4.6",
+    "coverage": "7.16.2",
+    "dataclasses-json": "0.6.7",
+    "distlib": "0.4.4",
+    "dm-pix": "0.4.5",
+    "einops": "0.8.2",
+    "equinox": "0.13.8",
+    "etils": "1.14.0",
+    "execnet": "2.1.2",
+    "filelock": "4.2.4",
+    "flatbuffers": "25.12.19",
+    "flax": "0.12.8",
+    "fsspec": "2026.6.0",
+    "ghp-import": "2.1.0",
+    "griffelib": "2.4.0",
+    "hf-xet": "1.7.0",
+    "huggingface-hub": "0.36.2",
+    "humanize": "4.16.0",
+    "identify": "2.6.20",
+    "idna": "3.20",
+    "iniconfig": "2.3.1",
+    "jax": "0.10.2",
+    "jax2onnx": "0.17.1",
+    "jaxlib": "0.10.2",
+    "jaxtyping": "0.3.11",
+    "jinja2": "3.1.6",
+    "librt": "0.16.0",
+    "markdown": "3.11.2",
+    "markdown-it-py": "4.2.0",
+    "markupsafe": "3.0.4",
+    "marshmallow": "3.26.2",
+    "mdurl": "0.1.2",
+    "mergedeep": "1.3.4",
+    "mkdocs": "1.6.1",
+    "mkdocs-autorefs": "1.4.4",
+    "mkdocs-get-deps": "0.2.2",
+    "mkdocs-material": "9.7.7",
+    "mkdocs-material-extensions": "1.3.1",
+    "mkdocstrings": "1.0.7",
+    "mkdocstrings-python": "2.0.9",
+    "ml-dtypes": "0.6.0",
+    "mpmath": "1.3.0",
+    "msgpack": "1.2.3",
+    "mypy": "2.3.1",
+    "mypy-extensions": "1.1.0",
+    "netron": "9.3.2",
+    "nodeenv": "1.11.0",
+    "numpy": "2.4.6",
+    "onnx": "1.23.2",
+    "onnx-ir": "1.1.0",
+    "onnxruntime": "1.31.0",
+    "opt-einsum": "3.4.0",
+    "optax": "0.2.8",
+    "orbax-checkpoint": "0.11.36",
+    "orbax-export": "0.0.8",
+    "packaging": "26.3",
+    "paginate": "0.5.7",
+    "pathspec": "1.1.1",
+    "pip": "26.2.2",
+    "platformdirs": "4.13.5",
+    "pluggy": "1.7.0",
+    "pre-commit": "4.7.0",
+    "protobuf": "7.36.2",
+    "psutil": "7.2.2",
+    "pygments": "2.21.0",
+    "pymdown-extensions": "12.3",
+    "pytest": "9.1.1",
+    "pytest-cov": "7.1.0",
+    "pytest-json-report": "1.5.0",
+    "pytest-metadata": "3.1.1",
+    "pytest-order": "1.5.0",
+    "pytest-xdist": "3.8.0",
+    "python-dateutil": "3.0.0",
+    "python-discovery": "1.6.4",
+    "pytokens": "0.4.1",
+    "pyyaml": "6.0.3",
+    "pyyaml-env-tag": "1.1",
+    "requests": "2.34.2",
+    "rich": "15.0.0",
+    "ruff": "0.16.10",
+    "scipy": "1.17.1",
+    "simplejson": "4.2.0",
+    "six": "1.17.0",
+    "sympy": "1.14.0",
+    "tensorstore": "0.1.85",
+    "toolz": "1.2.0",
+    "tqdm": "4.70.1",
+    "treescope": "0.1.10",
+    "types-pyyaml": "6.0.12.20260906",
+    "typing-extensions": "4.16.0",
+    "typing-inspect": "0.9.0",
+    "tzdata": "2026.5",
+    "urllib3": "2.8.0",
+    "uvloop": "0.23.0",
+    "virtualenv": "21.14.12",
+    "wadler-lindig": "0.1.7",
+    "watchdog": "6.0.0",
+    "zipp": "4.1.2"
+  },
+  "bootstrap": {
+    "pip": "26.2.2"
+  },
+  "plugins": [
+    {
+      "name": "jaxtyping",
+      "value": "jaxtyping._pytest_plugin",
+      "distribution": "jaxtyping",
+      "version": "0.3.11"
+    },
+    {
+      "name": "metadata",
+      "value": "pytest_metadata.plugin",
+      "distribution": "pytest-metadata",
+      "version": "3.1.1"
+    },
+    {
+      "name": "platformdirs",
+      "value": "platformdirs.pytest_plugin",
+      "distribution": "platformdirs",
+      "version": "4.13.5"
+    },
+    {
+      "name": "pytest_cov",
+      "value": "pytest_cov.plugin",
+      "distribution": "pytest-cov",
+      "version": "7.1.0"
+    },
+    {
+      "name": "pytest_jsonreport",
+      "value": "pytest_jsonreport.plugin",
+      "distribution": "pytest-json-report",
+      "version": "1.5.0"
+    },
+    {
+      "name": "pytest_order",
+      "value": "pytest_order.plugin",
+      "distribution": "pytest-order",
+      "version": "1.5.0"
+    },
+    {
+      "name": "xdist",
+      "value": "xdist.plugin",
+      "distribution": "pytest-xdist",
+      "version": "3.8.0"
+    },
+    {
+      "name": "xdist.looponfail",
+      "value": "xdist.looponfail",
+      "distribution": "pytest-xdist",
+      "version": "3.8.0"
+    }
+  ],
+  "environment": {
+    "JAX2ONNX_MAXDIFFUSION_MODELS": null,
+    "JAX2ONNX_MAXDIFFUSION_REF": null,
+    "JAX2ONNX_MAXDIFFUSION_SRC": null,
+    "JAX2ONNX_MAXTEXT_MODELS": null,
+    "JAX2ONNX_MAXTEXT_REF": null,
+    "JAX2ONNX_MAXTEXT_SRC": null,
+    "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": "${RUN}/native-model-artifacts",
+    "JAX2ONNX_ONNXRUNTIME_WEB_RUNNER": "node",
+    "JAX2ONNX_RUN_MAXDIFFUSION": null,
+    "JAX2ONNX_RUN_MAXTEXT": null,
+    "JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB": "1",
+    "JAX_ENABLE_X64": null,
+    "JAX_PLATFORMS": "cpu",
+    "JAX_PLATFORM_NAME": "cpu",
+    "LD_LIBRARY_PATH": null,
+    "LD_PRELOAD": null,
+    "MKL_DYNAMIC": null,
+    "MKL_NUM_THREADS": "1",
+    "NPY_DISABLE_CPU_FEATURES": null,
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "PYTEST_ADDOPTS": null,
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": null,
+    "PYTHONHASHSEED": null,
+    "PYTHONHOME": null,
+    "PYTHONNOUSERSITE": null,
+    "PYTHONPATH": "${CHECKOUT}",
+    "PYTHONPYCACHEPREFIX": null,
+    "PYTHONSAFEPATH": null,
+    "TF_NUM_INTEROP_THREADS": "1",
+    "TF_NUM_INTRAOP_THREADS": "1",
+    "XLA_FLAGS": null
+  },
+  "collection_transition": {
+    "startup_jax_config": {
+      "status": "NOT_LOADED",
+      "values": {}
+    },
+    "collected_environment": {
+      "JAX2ONNX_MAXDIFFUSION_MODELS": null,
+      "JAX2ONNX_MAXDIFFUSION_REF": null,
+      "JAX2ONNX_MAXDIFFUSION_SRC": null,
+      "JAX2ONNX_MAXTEXT_MODELS": null,
+      "JAX2ONNX_MAXTEXT_REF": null,
+      "JAX2ONNX_MAXTEXT_SRC": null,
+      "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": "${RUN}/native-model-artifacts",
+      "JAX2ONNX_ONNXRUNTIME_WEB_RUNNER": "node",
+      "JAX2ONNX_RUN_MAXDIFFUSION": null,
+      "JAX2ONNX_RUN_MAXTEXT": null,
+      "JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB": "1",
+      "JAX_ENABLE_X64": null,
+      "JAX_PLATFORMS": "cpu",
+      "JAX_PLATFORM_NAME": "cpu",
+      "LD_LIBRARY_PATH": null,
+      "LD_PRELOAD": null,
+      "MKL_DYNAMIC": null,
+      "MKL_NUM_THREADS": "1",
+      "NPY_DISABLE_CPU_FEATURES": null,
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_DYNAMIC": null,
+      "OMP_NUM_THREADS": "1",
+      "OMP_THREAD_LIMIT": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "PYTEST_ADDOPTS": null,
+      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": null,
+      "PYTEST_VERSION": "9.1.1",
+      "PYTHONHASHSEED": null,
+      "PYTHONHOME": null,
+      "PYTHONNOUSERSITE": null,
+      "PYTHONPATH": "${CHECKOUT}",
+      "PYTHONPYCACHEPREFIX": null,
+      "PYTHONSAFEPATH": null,
+      "TF_CPP_MIN_LOG_LEVEL": "1",
+      "TF_NUM_INTEROP_THREADS": "1",
+      "TF_NUM_INTRAOP_THREADS": "1",
+      "XLA_FLAGS": null
+    },
+    "collected_jax_config": {
+      "status": "OBSERVED",
+      "values": {
+        "x64_enabled": false,
+        "jax_disable_jit": false,
+        "jax_default_matmul_precision": null,
+        "jax_platforms": "cpu",
+        "jax_numpy_dtype_promotion": {
+          "type": "jax._src.config.NumpyDtypePromotion",
+          "member": "STANDARD",
+          "value": "standard"
+        },
+        "jax_numpy_rank_promotion": "allow"
+      }
+    },
+    "post_pytest_environment": {
+      "JAX2ONNX_MAXDIFFUSION_MODELS": null,
+      "JAX2ONNX_MAXDIFFUSION_REF": null,
+      "JAX2ONNX_MAXDIFFUSION_SRC": null,
+      "JAX2ONNX_MAXTEXT_MODELS": null,
+      "JAX2ONNX_MAXTEXT_REF": null,
+      "JAX2ONNX_MAXTEXT_SRC": null,
+      "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": "${RUN}/native-model-artifacts",
+      "JAX2ONNX_ONNXRUNTIME_WEB_RUNNER": "node",
+      "JAX2ONNX_RUN_MAXDIFFUSION": null,
+      "JAX2ONNX_RUN_MAXTEXT": null,
+      "JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB": "1",
+      "JAX_ENABLE_X64": null,
+      "JAX_PLATFORMS": "cpu",
+      "JAX_PLATFORM_NAME": "cpu",
+      "LD_LIBRARY_PATH": null,
+      "LD_PRELOAD": null,
+      "MKL_DYNAMIC": null,
+      "MKL_NUM_THREADS": "1",
+      "NPY_DISABLE_CPU_FEATURES": null,
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_DYNAMIC": null,
+      "OMP_NUM_THREADS": "1",
+      "OMP_THREAD_LIMIT": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "PYTEST_ADDOPTS": null,
+      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": null,
+      "PYTHONHASHSEED": null,
+      "PYTHONHOME": null,
+      "PYTHONNOUSERSITE": null,
+      "PYTHONPATH": "${CHECKOUT}",
+      "PYTHONPYCACHEPREFIX": null,
+      "PYTHONSAFEPATH": null,
+      "TF_CPP_MIN_LOG_LEVEL": "1",
+      "TF_NUM_INTEROP_THREADS": "1",
+      "TF_NUM_INTRAOP_THREADS": "1",
+      "XLA_FLAGS": null
+    },
+    "post_pytest_jax_config": {
+      "status": "OBSERVED",
+      "values": {
+        "x64_enabled": false,
+        "jax_disable_jit": false,
+        "jax_default_matmul_precision": null,
+        "jax_platforms": "cpu",
+        "jax_numpy_dtype_promotion": {
+          "type": "jax._src.config.NumpyDtypePromotion",
+          "member": "STANDARD",
+          "value": "standard"
+        },
+        "jax_numpy_rank_promotion": "allow"
+      }
+    }
+  },
+  "allowed_skips": [],
+  "provenance": {
+    "data_base_commit": "c338c33f949d9739fa917f65108f7fdbff37d57d",
+    "observed_source_commit": "234df50e86d53f9268f9a50d6fed70979d782e3b",
+    "main_ordered_ids": {
+      "path": "/tmp/jax2onnx-main312-ordered-session-ids-v3.json",
+      "sha256": "c6cd5a0b518fba87bdbeafe5109e81b4ea9a3d99d600c9b56a56b79b5da50405"
+    },
+    "main_selection": "Concatenate literal Main81ad IDs per five original CLI selectors in unchanged order 4/17/8/20/1; within each selector preserve Main order.",
+    "S50_compact_sha256": "bab141cec69c0f8cc95b9db1821837b78cd8838c89de0515a683063bed1ecf6f",
+    "bounded_observation": {
+      "summary": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-smoke-234-v2/summary.json",
+        "sha256": "9d1ed5d2cd813c36fedf7091ac27829b4d062bc68cf00e3d5be12dac27a9b528"
+      },
+      "freeze": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-smoke-234-v2/freeze.json",
+        "sha256": "d2a88c8fc328e88e49713b26a6af93406297624a667d61ba85558a4df950cd1f"
+      },
+      "collection_receipt": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-smoke-234-v2/collection/receipt.json",
+        "sha256": "f07334a327e62e6a6c8dd069c803bc6176a0af6904728ad71b65c311a14695d8"
+      },
+      "runtime_receipt": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-smoke-234-v2/runtime/receipt.json",
+        "sha256": "52e487468b3caf3f697dda518e584a75040a1a78a955d8700f7ee01e05e07409"
+      },
+      "collection_terminal_observation": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-smoke-234-v2/collection/terminal-observation.json",
+        "sha256": "d975943013e8f60b856dc7716ea53ecc7c607e6965b00c3eda1bac78be98d17a"
+      },
+      "runtime_terminal_observation": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-smoke-234-v2/runtime/terminal-observation.json",
+        "sha256": "d039d2fe338a1f17ce861fccccbe29781680ab53d4d2a441cc4f15c438fcd6ec"
+      }
+    },
+    "references": {
+      "authenticated_ordinary_metadata": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/full-install-v1/metadata/observation.json",
+        "sha256": "5fc969fa7f28692d2a021f043b25a08c750ccd0029d12d43636e9029d6844d26"
+      },
+      "original_generated_map": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-smoke-234-v1/generated-files.json",
+        "sha256": "29bbd2ad314da21c3eefd2a9207656c0e3a40b3a42b2ff6ff42027ec7fc7eab5"
+      },
+      "runtime_reference_candidate": {
+        "path": "/tmp/jax2onnx-node-runtime-reference-candidate-20261030-3uu3u0ir/candidate.json",
+        "sha256": "47cb4f12b75d686c233884a75cffa86258dd5990563b8527b7e33da3c5f3fa4e"
+      },
+      "current_extraction": {
+        "path": "/tmp/jax2onnx-node-runtime-reference-candidate-20261030-3uu3u0ir/extraction.json",
+        "sha256": "6f916fed243962d7a0ad6a73c71b093e82b15e8fd4c80f6aa2d37890b26b3f78"
+      }
+    },
+    "runtime_reference_history": "Reference bytes are copied unchanged from independently Astra-reviewed candidate47cb4f12. Official archive independently authenticates binary/npm bytes; complete JS/WASM node_modules hashes were first observed at current extraction2026-10-30T11:06:40Z. Earlier npm-tree.json covered package manifests only. No historical full module integrity or Node ABI claim.",
+    "official_archive": {
+      "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz",
+      "bytes": 31029996,
+      "sha256": "1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce"
+    },
+    "transport": "Only existing path transport changes observed PYTHONPATH to ${CHECKOUT}; JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR=${RUN}/native-model-artifacts is newly declared at all three worker boundaries. Raw workers did not observe this key or the new Node E0/E1/E2 block. New committed-data canonical collection/runtime and Node terminal checks remain required; no retroactive observation claim. Other monitored environment/JAX literals are preserved.",
+    "node_environment": "PATH may move but actual bare node must resolve to the reviewed prefix/bin/node. Node overlays and lowercase aliases are explicitly absent except the three uppercase portable npm cache/config paths; expected config files are empty. This external E0 path configuration was recorded historically, but its new portable path expansion and all3 Node snapshot observations require new qualification.",
+    "setup": "Official Node22.23.4/npm10.9.9; original npm ci with dev dependencies and lifecycles; original generator once with web runtime keys absent. Python collection/runtime use VALIDATE_ONNXRUNTIME_WEB=1/RUNNER=node, ordinary capture and fresh Linux TMPDIR. All26 generated files/80424B including two empty markers are hash-bound. Original generated modes unobserved; archived D copies0777 and newly restored Linux files0644 are distinct facts.",
+    "historical_counts": {
+      "C": 50,
+      "S": 50,
+      "A_unexecuted": 0,
+      "passed_native_phases": 150,
+      "skip_allowances": 0
+    },
+    "preserved_failure": {
+      "D_TMPDIR_capture_exit1": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-smoke-234-v1/summary.json",
+        "sha256": "33e71b33f7725d14930aaf5314206993b3a060d07e0b0e0ceffa4b2f118d7daf"
+      },
+      "stdlib_filesystem_diagnostic": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/node22-tempfile-diagnostic-v1/summary.json",
+        "sha256": "11e9eaf86a3d709cb89c7741ba35d333f15723bd014c8e9fd52c60674d64b8d1"
+      }
+    },
+    "scope": "Source-only candidate Node support data at c338c33f plus independently reviewed code. Commit reviewed reference/cohort/baseline before actual canonical admission. No new rendering, native execution, authority activation, workflow/gate activation, hosted whole-job1200s, public SOURCE or full B-F acceptance. Trusted loader/same invocation boundary; no dynamic-library load attestation or TOCTOU swap/restore proof."
+  },
+  "node_runtime": {
+    "reference": {
+      "path": "node-runtime-reference.json",
+      "sha256": "47cb4f12b75d686c233884a75cffa86258dd5990563b8527b7e33da3c5f3fa4e"
+    },
+    "environment": {
+      "NODE_ENV": null,
+      "NODE_EXTRA_CA_CERTS": null,
+      "NODE_ICU_DATA": null,
+      "NODE_OPTIONS": null,
+      "NODE_PATH": null,
+      "NPM_CONFIG_CACHE": "${NODE_PREFIX_PARENT}/npm-cache",
+      "NPM_CONFIG_GLOBALCONFIG": "${NODE_PREFIX_PARENT}/config/global.npmrc",
+      "NPM_CONFIG_IGNORE_SCRIPTS": null,
+      "NPM_CONFIG_INCLUDE": null,
+      "NPM_CONFIG_NODE_OPTIONS": null,
+      "NPM_CONFIG_OMIT": null,
+      "NPM_CONFIG_PREFIX": null,
+      "NPM_CONFIG_PRODUCTION": null,
+      "NPM_CONFIG_USERCONFIG": "${NODE_PREFIX_PARENT}/config/user.npmrc",
+      "node_env": null,
+      "node_extra_ca_certs": null,
+      "node_icu_data": null,
+      "node_options": null,
+      "node_path": null,
+      "npm_config_cache": null,
+      "npm_config_globalconfig": null,
+      "npm_config_ignore_scripts": null,
+      "npm_config_include": null,
+      "npm_config_node_options": null,
+      "npm_config_omit": null,
+      "npm_config_prefix": null,
+      "npm_config_production": null,
+      "npm_config_userconfig": null
+    }
+  }
+}

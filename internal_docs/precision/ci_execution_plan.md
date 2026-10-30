@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and temporary candidate overlap are accepted architecture. Published `10c46eb2` CI remains pending at the 07:33 UTC snapshot; predecessor `bbe176f6` has all eight old mixed-suite checks passing. The local private support extension and bounded observations are qualified only within their recorded scope. Actual workflow qualification, full B–F and gate activation remain open. The comparative frozen-main diagnostic stays retired.**
+Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and temporary candidate overlap are accepted architecture. Published `234df50e` has all eight old checks passing at the 11:43:05 UTC terminal snapshot; its full jobs take 10,169–12,556 s. Three committed c338 support cohorts have bounded local canonical qualification. Private Node code controls pass; new Node data/admission, actual hosted qualification, full B–F and gate activation remain open. The comparative frozen-main diagnostic stays retired.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -48,39 +48,42 @@ not accept missing migration verifiers or claim performance results.
 
 ## Current private qualification — 2026-10-30
 
-The local [portable STANDARD inputs and private CLI](ci_standard/README.md) now
-bind four reviewed cohorts and provision a campaign from its first closed full
-collection. Complete owners pass **373 cases / 1,119 phases each** on official
-3.11 and 3.14, retaining the focused 47/40-case history (pair freeze `237b62f3…`).
-All four render-only admissions passed at clean local `11d5739f`, preserving
-generated epochs and restoring Root/Main28 between cohorts (packet `4b5560aa…`).
-The resource observer passes 28 cases / 84 phases on each official family,
-including an ordinary CLI (pair `931cafa8…`); sampled command resources and
-unobserved external Actions intervals remain separate. These local results do
-not establish GitHub event provenance, current collection/runtime, hosted
-1,200-second timing or workflow activation.
 The [private support variant](ci_standard/README.md#private-support-variant)
-retains original ordered command selectors and a separate command inventory,
-exact minimum package/installer bindings and all existing native/closure checks.
-It passes 447 controls on 3.13 (362 unchanged prior IDs, 11 explicit global
-mappings, 74 new); the bookkeeping error is retained. The refined complete
-3.11 run passes 447 controls with genuine unsupported-role rejection, then only
-the two positive support controls are repeated on 3.13 (pair `2635bb2d…`).
-Separate clean-`10c46eb2` minimum475 and normalization102 observations retain
-three actual contexts, metadata and Root/Main preservation; minimum A140 is
-unexecuted. These pre-documentation epochs are observations, not real support
-authority, canonical admission, hosted timing or full SOURCE/B–F numerical
-acceptance; the original legacy criteria executed unchanged.
+retains exact original selectors, installation maps and first-collection
+provisioning. At committed `c338c33f`, normalization312 and normalization313 each
+pass **C=S=102 / 306 phases**; minimum312 passes **C=615 / S=475 / 1,425 phases**
+with **A=140 UNEXECUTED**. All three have zero skips/raw `wasxfail`, 18 actual
+environment/JAX comparisons and complete local closures. Astra verified all 384
+frozen files (combined summary `52cea604…`). Native artifact transport remains
+`SUBSET_TRANSPORT_ONLY`. The retained Linux/D-mode inspector failure did not
+repeat native execution. This local SHA qualification supplies no GitHub event,
+hosted job budget or full SOURCE/B–F acceptance.
 
-Published `10c46eb2` is pending in
-[CI 41014331472](https://github.com/enpasos/jax2onnx/actions/runs/41014331472):
-at **07:33 UTC on 30 October**, four support jobs succeeded and four full jobs
-were running, with all eight checkout assertions successful. Predecessor
-`bbe176f6` has **all eight SUCCESS**
-in [CI 40989814728](https://github.com/enpasos/jax2onnx/actions/runs/40989814728)
-as of **05:21:03 UTC on 30 October**. Old full jobs span **10,349–11,626 s**,
-support **39–96 s**, aggregate **43,715 job-seconds**; this does not qualify the
-20-minute target or constitute a numerical repair.
+The [private Node binding](ci_standard/README.md#private-portable-node-binding)
+has reviewed source and ordinary312 synthetic controls: 53 focused and 494 full
+owner controls pass, no top-level skip/xfail, **1,006.50 s / 342.02 MiB** outer
+cost. This binds `38dfb1ff` plus five-file patch `010719c8…`, before new docs/data
+(receipt `24a0c16b…`, freeze `f04a9ee3…`). The Node cohort/baseline and unchanged
+reviewed reference `47cb4f12…` are source-only candidates. Commit reviewed data
+before new canonical C→S50/three-Node-context admission; do not refresh expected
+runtime hashes from the host. Earlier raw Node50/150 phases are a distinct
+legacy observation, with failed capture/diagnostic evidence preserved. No
+workflow or gate is activated.
+
+Earlier portable controls/render-only/resource qualification remains in its
+recorded epochs (`237b62f3…`, `4b5560aa…`, `931cafa8…`); the 447-case support
+controls retain genuine unsupported-role rejection and their failed bookkeeping
+record (`2635bb2d…`). The [handoff](implementation_handoff.md#current-checkpoint-2026-10-30)
+retains the earlier raw observations and unresolved numerical failures.
+
+Published `234df50e` has **all eight SUCCESS**, including all exact-head checkout
+steps, in [CI 569](https://github.com/enpasos/jax2onnx/actions/runs/41024691391)
+at **11:43:05 UTC on 30 October**. Full 3.11/3.12/3.13/3.14 spans are
+**11,024 / 12,556 / 10,263 / 10,169 s**, aggregate **44,327 job-seconds** for all
+eight. Predecessor `10c46eb2` also has all eight success in
+[CI 568](https://github.com/enpasos/jax2onnx/actions/runs/41014331472), terminal
+09:24:47 UTC. These old mixed-suite successes do not meet the 20-minute target
+or constitute a numerical repair.
 
 Frozen main remains `81ad6ca`. Earlier published `cd5cb4be` has **all eight SUCCESS** in
 [CI 40964061166](https://github.com/enpasos/jax2onnx/actions/runs/40964061166),

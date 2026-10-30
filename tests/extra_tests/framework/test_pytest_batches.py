@@ -12,12 +12,15 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
 import xml.etree.ElementTree as ET
 
 import pytest
+
+from tests.extra_tests.framework.test_ci_lane_selection import _node_lane
 
 
 _RUNNER = Path(__file__).resolve().parents[3] / "scripts" / "run_pytest_batches.py"
@@ -29,6 +32,227 @@ def _runner() -> Any:
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_node_protocol_checks_resolution_without_rehashing_runtime_trees(
+    tmp_path, monkeypatch
+):
+    module, root, manifest, environment, _, _ = _node_lane(tmp_path, monkeypatch)
+    lane = module._CiLaneContext(manifest, root, environment=environment)
+    snapshot = {
+        "status": "OBSERVED",
+        "errors": [],
+        "environment": lane.manifest["environment"],
+        "loaded_jax_config": {"status": "NOT_LOADED", "values": {}},
+    }
+    lane.observe_node(snapshot)
+    lane.complete_collection(snapshot)
+    original = module._ci_node_file
+    calls = []
+
+    def hashed(path, expected_bytes=None):
+        calls.append(path)
+        return original(path, expected_bytes)
+
+    monkeypatch.setattr(module, "_ci_node_file", hashed)
+    for _ in range(5):
+        lane.check_collected()
+    assert calls == []
+    lane.recheck(environment=environment)
+    assert calls
+    environment["NODE_OPTIONS"] = "--require=foreign.js"
+    with pytest.raises(ValueError, match="overlay"):
+        lane.check_collected()
+
+
+def test_raw_python_worker_keeps_shape_and_ignores_node_only_overlays(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("NODE_OPTIONS", "--unsupported-node-only-switch")
+    monkeypatch.setenv("NODE_PATH", "/unrelated-to-python")
+    result, run, receipts = _run_suite(
+        tmp_path, {"test_one.py": "def test_one(): pass\n"}
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert run["status"] == "PASS"
+    for path in receipts.rglob("receipt.json"):
+        receipt = json.loads(path.read_text())
+        for name in ("startup_context", "collection_context", "final_context"):
+            assert "node_runtime" not in receipt[name]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [None, "different-reference", "removed-node-fields"],
+    ids=lambda fault: (
+        f"node-{fault or 'matching'}"
+        if sys.version_info[:2] == (3, 12)
+        else f"unsupported-node-cohort-{fault or 'matching'}"
+    ),
+)
+def test_canonical_node_provision_binds_role_reference_and_three_observations(
+    tmp_path, monkeypatch, fault
+):
+    module = _runner()
+    _, root, manifest, environment, authority, _ = _node_lane(tmp_path, monkeypatch)
+    supported = sys.version_info[:2] == (3, 12)
+    payload = json.loads(manifest.read_text())
+    native = str(tmp_path / "receipts/native-model-artifacts")
+    environment.pop("JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR", None)
+    payload["environment"] = module._ci_lane_environment(
+        {**environment, "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": native}
+    )
+    jax = {"status": "NOT_LOADED", "values": {}}
+    payload["collection_transition"] = {
+        "startup_jax_config": jax,
+        "collected_environment": dict(payload["environment"]),
+        "collected_jax_config": jax,
+        "post_pytest_environment": dict(payload["environment"]),
+        "post_pytest_jax_config": jax,
+    }
+    payload["packages"] = {
+        re.sub(
+            r"[-_.]+", "-", distribution.metadata["Name"]
+        ).lower(): distribution.version
+        for distribution in metadata.distributions()
+    }
+    plugins = [
+        {
+            "name": entry.name,
+            "value": entry.value,
+            "distribution": re.sub(
+                r"[-_.]+", "-", distribution.metadata["Name"]
+            ).lower(),
+            "version": distribution.version,
+        }
+        for distribution in metadata.distributions()
+        for entry in distribution.entry_points
+        if entry.group == "pytest11"
+    ]
+    for name in ("poetry.lock", "pyproject.toml"):
+        (root / name).write_bytes((_RUNNER.parents[1] / name).read_bytes())
+        payload["source_files"][name] = hashlib.sha256(
+            (root / name).read_bytes()
+        ).hexdigest()
+    transition = json.loads(json.dumps(payload["collection_transition"]))
+    worker_environment = dict(payload["environment"])
+    for mapping in (
+        worker_environment,
+        transition["collected_environment"],
+        transition["post_pytest_environment"],
+    ):
+        mapping["JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"] = (
+            "${RUN}/native-model-artifacts"
+        )
+    minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    data = {
+        "schema": "jax2onnx-ci-support-cohort-v1",
+        "support_role": "node-smoke",
+        "python_minor": minor,
+        "baseline_commit": payload["baseline_commit"],
+        "baseline": {"nodeids": payload["nodeids"], "generated": {}},
+        "bindings": {
+            name: payload["source_files"][name]
+            for name in {"poetry.lock", "pyproject.toml", *module._CI_NODE_SOURCE_FILES}
+        },
+        "packages": payload["packages"],
+        "bootstrap": {"pip": payload["packages"]["pip"]},
+        "plugins": sorted(
+            plugins, key=lambda value: (value["name"], value["distribution"])
+        ),
+        "environment": worker_environment,
+        "collection_transition": transition,
+        "allowed_skips": [],
+        "provenance": {},
+        "collection_args": payload["collection_args"],
+        "node_runtime": {
+            name: value for name, value in authority.items() if name != "prefix"
+        },
+    }
+    cohort = root / "cohort.json"
+    cohort.write_text(json.dumps(data) + "\n")
+    payload["source_files"][cohort.name] = hashlib.sha256(
+        cohort.read_bytes()
+    ).hexdigest()
+    if supported and fault == "different-reference":
+        alternate = root / "alternate-node-reference.json"
+        alternate.write_bytes((root / authority["reference"]["path"]).read_bytes())
+        digest = hashlib.sha256(alternate.read_bytes()).hexdigest()
+        payload["source_files"][alternate.name] = digest
+        payload["node_runtime"]["reference"] = {
+            "path": alternate.name,
+            "sha256": digest,
+        }
+    elif not supported or fault == "removed-node-fields":
+        # A baseline with both fields removed is structurally a Python baseline;
+        # the independently source-bound Node cohort must reject that substitution.
+        del payload["support_role"]
+        del payload["node_runtime"]
+        payload["python_minor"] = minor
+    manifest.write_text(json.dumps(payload) + "\n")
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(module.os, "environ", environment)
+    original = module._child
+    children = []
+    success = supported and fault is None
+
+    def child(folder, request, *arguments, **keywords):
+        children.append(request["kind"])
+        if not success:
+            raise AssertionError("rejected Node provision launched a canonical child")
+        return original(folder, request, *arguments, **keywords)
+
+    monkeypatch.setattr(module, "_child", child)
+    receipts = tmp_path / "receipts"
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            str(_RUNNER),
+            "--output-dir",
+            str(receipts),
+            "--ci-lane",
+            "standard",
+            "--ci-main-baseline",
+            str(manifest),
+            "--_ci-provision-campaign",
+            str(cohort),
+            "--test-path",
+            "test_cases.py",
+            "--",
+            "-q",
+        ],
+    )
+    result = module._main()
+    run = json.loads((receipts / "run.json").read_text())
+    if not success:
+        assert result == 1 and run["status"] == "FAIL"
+        assert children == [] and run["processes"] == []
+        assert not (root / "body-ran").exists()
+        expected = (
+            "unsupported support role/cohort or ordered selectors"
+            if not supported
+            else (
+                "provisioned cohort differs from rendered main authority"
+                if fault == "different-reference"
+                else "Node support needs an explicit portable node-prefix"
+            )
+        )
+        assert run["failure"]["message"] == expected
+        return
+    assert result == 0 and run["status"] == "PASS"
+    assert children == ["collection", "batch"]
+    assert (
+        json.loads((receipts / "ci-provisioned-campaign.json").read_text())["schema"]
+        == "jax2onnx-ci-support-campaign-v1"
+    )
+    records = list(receipts.rglob("lane-terminal.json"))
+    assert len(records) == 2
+    for terminal in records:
+        receipt = json.loads((terminal.parent / "receipt.json").read_text())
+        for name in ("startup_context", "collection_context", "final_context"):
+            assert receipt[name]["node_runtime"]["status"] == "OBSERVED"
+            assert receipt[name]["node_runtime"]["node_version"] == "v22.23.4"
 
 
 def _run_suite(

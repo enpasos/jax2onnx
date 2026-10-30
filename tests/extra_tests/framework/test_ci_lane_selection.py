@@ -9,6 +9,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -27,6 +28,299 @@ def _runner() -> Any:
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _node_files(root: Path, prefix: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Literal synthetic authority; the fake executable is never invoked."""
+    binary = b"reviewed synthetic Node v22.23.4\n"
+    npm = {
+        "package.json": b'{"version":"10.9.9"}\n',
+        "bin/npm-cli.js": b"// reviewed npm CLI\n",
+        "bin/npx-cli.js": b"// reviewed npx CLI\n",
+    }
+    modules = {
+        ".package-lock.json": b'{"lockfileVersion":3}\n',
+        "onnxruntime-web/package.json": b'{"version":"1.30.0"}\n',
+        "onnxruntime-web/validator.js": b"// reviewed JavaScript\n",
+        "onnxruntime-web/runtime.wasm": b"\x00asm-reviewed-runtime",
+    }
+
+    def binding(raw):
+        return {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+    for directory, files in (
+        (prefix, {"bin/node": binary}),
+        (prefix / "lib/node_modules/npm", npm),
+        (root / "node_modules", modules),
+    ):
+        for relative, raw in files.items():
+            destination = directory / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755)
+            with os.fdopen(fd, "wb") as output:
+                output.write(raw)
+    for name in ("npm", "npx"):
+        (prefix / "bin" / name).symlink_to(f"../lib/node_modules/npm/bin/{name}-cli.js")
+    (root / "node_modules/.bin").mkdir()
+    (root / "node_modules/.bin/ort").symlink_to("../onnxruntime-web/validator.js")
+    for name in _runner()._CI_NODE_SOURCE_FILES:
+        destination = root / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("// reviewed source " + name + "\n")
+    reference = {
+        "schema": "jax2onnx-ci-node-runtime-reference-v1",
+        "archive_sha256": "1" * 64,
+        "node_version": "v22.23.4",
+        "npm_version": "10.9.9",
+        "binary": binding(binary),
+        "npm": {
+            "files": {name: binding(raw) for name, raw in npm.items()},
+            "links": {},
+        },
+        "npm_links": {
+            "bin/npm": "lib/node_modules/npm/bin/npm-cli.js",
+            "bin/npx": "lib/node_modules/npm/bin/npx-cli.js",
+        },
+        "node_modules": {
+            "files": {name: binding(raw) for name, raw in modules.items()},
+            "links": {".bin/ort": "onnxruntime-web/validator.js"},
+        },
+    }
+    path = root / "node-reference.json"
+    path.write_text(json.dumps(reference) + "\n")
+    authority = {
+        "prefix": str(prefix),
+        "reference": {
+            "path": path.name,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        },
+        "environment": {name: None for name in _runner()._CI_NODE_ENV_NAMES},
+    }
+    return authority, reference
+
+
+def _node_lane(tmp_path, monkeypatch):
+    module = _runner()
+    root, manifest, environment = _suite(
+        tmp_path,
+        {"test_cases.py": _BODY},
+        ["test_cases.py::test_base"],
+        collection_args=["test_cases.py"],
+    )
+    authority, reference = _node_files(root, tmp_path / "node-prefix")
+    environment["PATH"] = str(tmp_path / "node-prefix/bin") + os.pathsep + os.defpath
+    for name in list(environment):
+        if name.lower().startswith(("node_", "npm_config_")):
+            environment.pop(name)
+    monkeypatch.setattr(module.os, "environ", environment)
+    monkeypatch.setattr(module, "sys", SimpleNamespace(**vars(sys)))
+    # Only the manifest parser reads these attributes; this is a synthetic
+    # admission unit, never a claim that the hosting interpreter is Python3.12.
+    module.sys.version_info = SimpleNamespace(major=3, minor=12)
+    monkeypatch.setattr(
+        module, "_worker_jax_config", lambda: {"status": "NOT_LOADED", "values": {}}
+    )
+    payload = json.loads(manifest.read_text())
+    payload.update(
+        python_minor="3.12", support_role="node-smoke", node_runtime=authority
+    )
+    for name in {*module._CI_NODE_SOURCE_FILES, "node-reference.json"}:
+        payload["source_files"][name] = hashlib.sha256(
+            (root / name).read_bytes()
+        ).hexdigest()
+    jax = {"status": "NOT_LOADED", "values": {}}
+    payload["collection_transition"] = {
+        "startup_jax_config": jax,
+        "collected_environment": payload["environment"],
+        "collected_jax_config": jax,
+        "post_pytest_environment": payload["environment"],
+        "post_pytest_jax_config": jax,
+    }
+    manifest.write_text(json.dumps(payload) + "\n")
+    return module, root, manifest, environment, authority, reference
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "binary",
+        "foreign-PATH",
+        "npm-cli",
+        "javascript",
+        "wasm",
+        "extra",
+        "missing",
+        "retarget",
+        "escape",
+        "not-executable",
+    ],
+)
+def test_node_authority_rejects_runtime_identity_or_complete_inventory_drift(
+    tmp_path, monkeypatch, fault
+):
+    module, root, manifest, environment, authority, _ = _node_lane(
+        tmp_path, monkeypatch
+    )
+    prefix = Path(authority["prefix"])
+    if fault == "binary":
+        path = prefix / "bin/node"
+        path.write_bytes(path.read_bytes().replace(b"reviewed", b"unreview"))
+    elif fault == "foreign-PATH":
+        foreign = tmp_path / "foreign"
+        foreign.mkdir()
+        shutil.copy2(prefix / "bin/node", foreign / "node")
+        environment["PATH"] = str(foreign) + os.pathsep + environment["PATH"]
+    elif fault in {"npm-cli", "javascript", "wasm"}:
+        path = {
+            "npm-cli": prefix / "lib/node_modules/npm/bin/npm-cli.js",
+            "javascript": root / "node_modules/onnxruntime-web/validator.js",
+            "wasm": root / "node_modules/onnxruntime-web/runtime.wasm",
+        }[fault]
+        raw = path.read_bytes()
+        path.write_bytes(bytes([raw[0] ^ 1]) + raw[1:])
+    elif fault == "extra":
+        (root / "node_modules/extra.js").write_text("unreviewed\n")
+    elif fault == "missing":
+        (root / "node_modules/onnxruntime-web/runtime.wasm").unlink()
+    elif fault in {"retarget", "escape"}:
+        link = root / "node_modules/.bin/ort"
+        link.unlink()
+        link.symlink_to(
+            "../onnxruntime-web/package.json"
+            if fault == "retarget"
+            else prefix / "bin/node"
+        )
+    else:
+        (prefix / "bin/node").chmod(0o644)
+    with pytest.raises(ValueError):
+        module._CiLaneContext(manifest, root, environment=environment)
+
+
+def test_node_authority_allows_portable_prefix_and_official_npm_links(
+    tmp_path, monkeypatch
+):
+    module, root, _, environment, authority, reference = _node_lane(
+        tmp_path, monkeypatch
+    )
+    moved = tmp_path / "moved-node"
+    shutil.copytree(authority["prefix"], moved, symlinks=True)
+    authority["prefix"] = str(moved)
+    # Use an empty harmless leading directory rather than assume host /bin lacks Node.
+    harmless = tmp_path / "leading"
+    harmless.mkdir()
+    environment["PATH"] = os.pathsep.join((str(harmless), str(moved / "bin")))
+    observed = module._ci_node_check(
+        root, authority, reference, full=True, environment=environment
+    )
+    assert observed["executable"] == str(moved / "bin/node")
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("NODE_OPTIONS", "--require=foreign.js"),
+        ("NODE_PATH", "/foreign"),
+        ("NODE_ENV", "production"),
+        ("npm_config_node_options", "--require=foreign.js"),
+        ("npm_config_ignore_scripts", "true"),
+        ("NODE_UNDECLARED_SWITCH", "1"),
+    ],
+)
+def test_node_authority_rejects_execution_overlays_and_lowercase_aliases(
+    tmp_path, monkeypatch, name, value
+):
+    module, root, manifest, environment, _, _ = _node_lane(tmp_path, monkeypatch)
+    environment[name] = value
+    with pytest.raises(ValueError, match="overlay"):
+        module._CiLaneContext(manifest, root, environment=environment)
+
+
+@pytest.mark.parametrize("stage", ["startup", "collected", "post_pytest"])
+def test_node_authority_requires_each_actual_context_observation(
+    tmp_path, monkeypatch, stage
+):
+    module, root, manifest, environment, _, _ = _node_lane(tmp_path, monkeypatch)
+    lane = module._CiLaneContext(manifest, root, environment=environment)
+    snapshot = {
+        "status": "OBSERVED",
+        "errors": [],
+        "environment": lane.manifest["environment"],
+        "loaded_jax_config": {"status": "NOT_LOADED", "values": {}},
+    }
+    with pytest.raises(ValueError, match="observation"):
+        lane.check_snapshot(snapshot, stage=stage)
+    lane.observe_node(snapshot)
+    lane.check_snapshot(snapshot, stage=stage)
+
+
+@pytest.mark.parametrize("point", ["post-admission", "post-collection"])
+@pytest.mark.parametrize("component", ["binary", "npm-cli", "javascript", "wasm"])
+def test_node_authority_rechecks_full_bytes_at_source_audit_boundaries(
+    tmp_path, monkeypatch, point, component
+):
+    module, root, manifest, environment, authority, _ = _node_lane(
+        tmp_path, monkeypatch
+    )
+    lane = module._CiLaneContext(manifest, root, environment=environment)
+    if point == "post-collection":
+        snapshot = {
+            "status": "OBSERVED",
+            "errors": [],
+            "environment": lane.manifest["environment"],
+            "loaded_jax_config": {"status": "NOT_LOADED", "values": {}},
+        }
+        lane.observe_node(snapshot)
+        lane.complete_collection(snapshot)
+    path = {
+        "binary": Path(authority["prefix"]) / "bin/node",
+        "npm-cli": Path(authority["prefix"]) / "lib/node_modules/npm/bin/npm-cli.js",
+        "javascript": root / "node_modules/onnxruntime-web/validator.js",
+        "wasm": root / "node_modules/onnxruntime-web/runtime.wasm",
+    }[component]
+    raw = path.read_bytes()
+    path.write_bytes(bytes([raw[0] ^ 1]) + raw[1:])
+    with pytest.raises(ValueError, match="inventory|binary"):
+        lane.recheck(environment=environment)
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing-node", "missing-role", "wrong-role", "wrong-cohort"]
+)
+def test_node_baseline_cannot_drop_its_runtime_role_or_cohort_fence(
+    tmp_path, monkeypatch, fault
+):
+    module, root, manifest, environment, _, _ = _node_lane(tmp_path, monkeypatch)
+    payload = json.loads(manifest.read_text())
+    if fault == "missing-node":
+        del payload["node_runtime"]
+    elif fault == "missing-role":
+        del payload["support_role"]
+    elif fault == "wrong-role":
+        payload["support_role"] = "normalization"
+    else:
+        payload["python_minor"] = "3.13"
+    manifest.write_text(json.dumps(payload) + "\n")
+    with pytest.raises(ValueError, match="Node support"):
+        module._CiLaneContext(manifest, root, environment=environment)
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        "node-reference.json",
+        "package-lock.json",
+        "scripts/onnxruntime_web_validation_utils.mjs",
+    ],
+)
+def test_node_admission_rejects_unbound_reference_lock_or_executed_helper(
+    tmp_path, monkeypatch, binding
+):
+    module, root, manifest, environment, _, _ = _node_lane(tmp_path, monkeypatch)
+    payload = json.loads(manifest.read_text())
+    del payload["source_files"][binding]
+    manifest.write_text(json.dumps(payload) + "\n")
+    with pytest.raises(ValueError, match="source-bound|must bind"):
+        module._CiLaneContext(manifest, root, environment=environment)
 
 
 def _suite(

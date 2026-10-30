@@ -17,9 +17,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -617,6 +619,7 @@ def _worker(request_path: Path) -> int:
             environment=startup_context["environment"],
             expected_sha256=authority[_CI_PRIVATE_OPTIONS[2]],
         )
+        lane_context.observe_node(startup_context)
         lane_context.check_snapshot(startup_context, stage="startup")
     # Import pytest only inside disposable collection/execution children.
     import pytest
@@ -906,6 +909,8 @@ def _worker(request_path: Path) -> int:
             self.session = session
             self.full_items = full_items
             receipt["collection_context"] = _worker_context()
+            if self.lane_context is not None:
+                self.lane_context.observe_node(receipt["collection_context"])
             full_ids = [item.nodeid for item in full_items]
             receipt["full_items"] = [describe(item) for item in full_items]
             receipt["full_preselection_ids"] = full_ids
@@ -1330,6 +1335,8 @@ def _worker(request_path: Path) -> int:
         plugin.release_bf16_capture()
         plugin.release_capture()
         receipt["final_context"] = _worker_context()
+        if lane_context is not None:
+            lane_context.observe_node(receipt["final_context"])
         checkpoint()
     if authority is not None:
         # pytest_unconfigure and observer cleanup have now also returned.
@@ -2092,6 +2099,307 @@ def _ci_lane_transition(transition: Any) -> None:
             )
 
 
+_CI_NODE_PATH_ENV = frozenset(
+    {"NPM_CONFIG_CACHE", "NPM_CONFIG_USERCONFIG", "NPM_CONFIG_GLOBALCONFIG"}
+)
+_CI_NODE_SOURCE_FILES = frozenset(
+    {
+        "package.json",
+        "package-lock.json",
+        "scripts/run_onnxruntime_web_smoke.sh",
+        "scripts/validate_onnxruntime_web.mjs",
+        "scripts/onnxruntime_web_validation_utils.mjs",
+    }
+)
+_CI_NODE_ENV_NAMES = frozenset(
+    {
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "NODE_ENV",
+        "NODE_EXTRA_CA_CERTS",
+        "NODE_ICU_DATA",
+        "NPM_CONFIG_NODE_OPTIONS",
+        "NPM_CONFIG_PREFIX",
+        "NPM_CONFIG_PRODUCTION",
+        "NPM_CONFIG_OMIT",
+        "NPM_CONFIG_INCLUDE",
+        "NPM_CONFIG_IGNORE_SCRIPTS",
+        *_CI_NODE_PATH_ENV,
+    }
+)
+_CI_NODE_ENV_NAMES |= frozenset(name.lower() for name in _CI_NODE_ENV_NAMES)
+
+
+def _ci_node_relative(value: Any) -> str:
+    if (
+        type(value) is not str
+        or not value
+        or value == "."
+        or Path(value).is_absolute()
+        or ".." in Path(value).parts
+        or Path(value).as_posix() != value
+        or any(character in value for character in "\\\x00\n\r")
+    ):
+        raise ValueError("Node bindings need canonical relative paths")
+    return value
+
+
+def _ci_node_digest(value: Any) -> bool:
+    return type(value) is str and re.fullmatch("[0-9a-f]{64}", value) is not None
+
+
+def _ci_node_reference(reference: Any) -> None:
+    """Validate reviewed data, never manufacture expectations from this host."""
+    if (
+        type(reference) is not dict
+        or set(reference)
+        != {
+            "schema",
+            "archive_sha256",
+            "node_version",
+            "npm_version",
+            "binary",
+            "npm",
+            "npm_links",
+            "node_modules",
+        }
+        or reference["schema"] != "jax2onnx-ci-node-runtime-reference-v1"
+        or not _ci_node_digest(reference["archive_sha256"])
+        or type(reference["node_version"]) is not str
+        or re.fullmatch(r"v22\.\d+\.\d+", reference["node_version"]) is None
+        or type(reference["npm_version"]) is not str
+        or re.fullmatch(r"\d+\.\d+\.\d+", reference["npm_version"]) is None
+    ):
+        raise ValueError("unsupported reviewed Node runtime reference")
+
+    def regular(value: Any) -> bool:
+        return (
+            type(value) is dict
+            and set(value) == {"bytes", "sha256"}
+            and type(value["bytes"]) is int
+            and 0 <= value["bytes"] <= 1024**3
+            and _ci_node_digest(value["sha256"])
+        )
+
+    if not regular(reference["binary"]):
+        raise ValueError("Node binary needs an independent size/SHA binding")
+    for name in ("npm", "node_modules"):
+        tree = reference[name]
+        if (
+            type(tree) is not dict
+            or set(tree) != {"files", "links"}
+            or type(tree["files"]) is not dict
+            or not tree["files"]
+            or type(tree["links"]) is not dict
+            or len(tree["files"]) + len(tree["links"]) > 20000
+            or set(tree["files"]) & set(tree["links"])
+        ):
+            raise ValueError("Node tree needs an exact regular-file/link inventory")
+        for path, binding in tree["files"].items():
+            _ci_node_relative(path)
+            if not regular(binding):
+                raise ValueError("Node tree regular files need size/SHA bindings")
+        for path, target in tree["links"].items():
+            _ci_node_relative(path)
+            _ci_node_relative(target)
+    if (
+        reference["npm_links"]
+        != {
+            "bin/npm": "lib/node_modules/npm/bin/npm-cli.js",
+            "bin/npx": "lib/node_modules/npm/bin/npx-cli.js",
+        }
+        or not {"package.json", "bin/npm-cli.js", "bin/npx-cli.js"}
+        <= reference["npm"]["files"].keys()
+    ):
+        raise ValueError("Node reference needs the official npm/npx CLI links")
+
+
+def _ci_node_environment(expected: Any, environment: Any = None) -> dict[str, Any]:
+    if type(expected) is not dict or set(expected) != _CI_NODE_ENV_NAMES:
+        raise ValueError("Node profile needs explicit overlay absence/configuration")
+    for name, value in expected.items():
+        if value is not None and (
+            name.upper() not in _CI_NODE_PATH_ENV
+            or type(value) is not str
+            or not Path(value).is_absolute()
+            or "\x00" in value
+        ):
+            raise ValueError("Node overlays only allow declared portable config paths")
+    env = os.environ if environment is None else environment
+    names = _CI_NODE_ENV_NAMES | {
+        name for name in env if name.lower().startswith(("node_", "npm_config_"))
+    }
+    observed = {name: env.get(name) for name in sorted(names)}
+    if observed != expected:
+        raise ValueError(
+            "Node/npm execution overlay differs from reviewed absence/paths"
+        )
+    return observed
+
+
+def _ci_node_authority(authority: Any) -> None:
+    if (
+        type(authority) is not dict
+        or set(authority) != {"reference", "prefix", "environment"}
+        or type(authority["prefix"]) is not str
+        or not Path(authority["prefix"]).is_absolute()
+        or type(authority["reference"]) is not dict
+        or set(authority["reference"]) != {"path", "sha256"}
+    ):
+        raise ValueError("unsupported Node runtime authority")
+    _ci_node_relative(authority["reference"]["path"])
+    if not _ci_node_digest(authority["reference"]["sha256"]):
+        raise ValueError("Node reference needs a SHA-256 binding")
+    _ci_node_environment(authority["environment"], authority["environment"])
+
+
+def _ci_node_load(
+    root: Path, authority: Any, sources: dict[str, str]
+) -> dict[str, Any]:
+    _ci_node_authority(authority)
+    if not _CI_NODE_SOURCE_FILES <= sources.keys():
+        raise ValueError(
+            "Node support must bind package/lock/smoke/validator/helper sources"
+        )
+    binding = authority["reference"]
+    relative = _ci_node_relative(binding["path"])
+    if (
+        not _ci_node_digest(binding["sha256"])
+        or sources.get(relative) != binding["sha256"]
+    ):
+        raise ValueError("Node expectations must be independently source-bound")
+    path = (root / relative).resolve(strict=True)
+    if not path.is_relative_to(root):
+        raise ValueError("Node reference escapes the checkout")
+    reference, raw = _context_json(
+        path, 4 * 1024 * 1024, label="Node runtime reference"
+    )
+    if hashlib.sha256(raw).hexdigest() != binding["sha256"]:
+        raise ValueError("reviewed Node reference bytes changed")
+    _ci_node_reference(reference)
+    return reference
+
+
+def _ci_node_file(path: Path, expected_bytes: int | None = None) -> dict[str, Any]:
+    if not stat.S_ISREG(path.lstat().st_mode):
+        raise ValueError(f"Node regular-file binding changed kind: {path}")
+    if expected_bytes is not None and path.stat().st_size != expected_bytes:
+        raise ValueError(f"Node regular-file size changed: {path}")
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+            if expected_bytes is not None and size > expected_bytes:
+                raise ValueError(f"Node regular-file grew during its audit: {path}")
+    return {"bytes": size, "sha256": digest.hexdigest()}
+
+
+def _ci_node_tree(root: Path, expected: dict[str, Any]) -> dict[str, Any]:
+    """Stream each regular file once; never follow installed directory links."""
+    root = root.resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError("Node tree root is not a directory")
+    files, links = {}, {}
+    pending = [root]
+    while pending:
+        for path in pending.pop().iterdir():
+            relative = path.relative_to(root).as_posix()
+            _ci_node_relative(relative)
+            mode = path.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                if relative not in expected["links"]:
+                    raise ValueError(f"unreviewed Node installed link: {relative}")
+                target = path.resolve(strict=True)
+                if not target.is_relative_to(root):
+                    raise ValueError(
+                        f"Node installed link escapes its tree: {relative}"
+                    )
+                links[relative] = target.relative_to(root).as_posix()
+            elif stat.S_ISDIR(mode):
+                pending.append(path)
+            elif stat.S_ISREG(mode):
+                if relative not in expected["files"]:
+                    raise ValueError(f"unreviewed Node installed file: {relative}")
+                files[relative] = _ci_node_file(
+                    path, expected["files"][relative]["bytes"]
+                )
+            else:
+                raise ValueError(f"unsupported Node installed file kind: {relative}")
+            if len(files) + len(links) > 20000:
+                raise ValueError("Node installed inventory exceeds its bound")
+    return {"files": dict(sorted(files.items())), "links": dict(sorted(links.items()))}
+
+
+def _ci_node_check(
+    root: Path,
+    authority: dict[str, Any],
+    reference: dict[str, Any],
+    *,
+    full: bool,
+    environment: Any = None,
+) -> dict[str, Any]:
+    """Trusted-loader observations, not dynamic-library or TOCTOU attestation."""
+    env = os.environ if environment is None else environment
+    observed = _ci_node_environment(authority["environment"], env)
+    prefix = Path(authority["prefix"]).resolve(strict=True)
+    if str(prefix) != authority["prefix"]:
+        raise ValueError("Node prefix canonical target changed after binding")
+    binary = prefix / "bin/node"
+    selected = shutil.which("node", path=env.get("PATH", os.defpath))
+    if (
+        selected is None
+        or not stat.S_ISREG(binary.lstat().st_mode)
+        or not os.access(binary, os.X_OK)
+        or Path(selected).resolve(strict=True) != binary
+    ):
+        raise ValueError("bare node does not resolve to the bound executable")
+    result = {
+        "status": "OBSERVED",
+        "reference_sha256": authority["reference"]["sha256"],
+        "node_version": reference["node_version"],
+        "npm_version": reference["npm_version"],
+        "executable": str(binary),
+        "environment": observed,
+    }
+    if full:
+        if _ci_node_file(binary, reference["binary"]["bytes"]) != reference["binary"]:
+            raise ValueError("independent Node binary size/SHA binding changed")
+        for relative, target in reference["npm_links"].items():
+            link = prefix / relative
+            if not link.is_symlink() or link.resolve(strict=True) != prefix / target:
+                raise ValueError("official Node npm/npx CLI link changed")
+        for name, path in (
+            ("npm", prefix / "lib/node_modules/npm"),
+            ("node_modules", root / "node_modules"),
+        ):
+            if (
+                path.is_symlink()
+                or (
+                    name == "npm"
+                    and not path.resolve(strict=True).is_relative_to(prefix)
+                )
+                or _ci_node_tree(path, reference[name]) != reference[name]
+            ):
+                raise ValueError(
+                    f"exact Node {name} regular-file/link inventory changed"
+                )
+        package, _ = _context_json(
+            prefix / "lib/node_modules/npm/package.json",
+            65536,
+            label="bound npm package",
+        )
+        if (
+            type(package) is not dict
+            or package.get("version") != reference["npm_version"]
+        ):
+            raise ValueError(
+                "bound npm package metadata differs from its archive label"
+            )
+    return result
+
+
 def _ci_lane_manifest(
     path: Path, *, environment: Any = None
 ) -> tuple[dict[str, Any], bytes]:
@@ -2109,12 +2417,30 @@ def _ci_lane_manifest(
         or not required <= manifest.keys()
         or manifest.keys()
         - required
-        - {"packages", "collection_args", "collection_transition"}
+        - {
+            "packages",
+            "collection_args",
+            "collection_transition",
+            "support_role",
+            "node_runtime",
+        }
         or manifest["schema"] != "jax2onnx-ci-baseline-v1"
     ):
         raise ValueError("unsupported baseline manifest schema")
     if "collection_transition" in manifest:
         _ci_lane_transition(manifest["collection_transition"])
+    if "node_runtime" in manifest or "support_role" in manifest:
+        if (
+            manifest.get("support_role") != "node-smoke"
+            or manifest["python_minor"] != "3.12"
+            or "node_runtime" not in manifest
+            or "collection_transition" not in manifest
+            or not manifest.get("collection_args")
+        ):
+            raise ValueError(
+                "Node support baseline needs its complete Python3.12 variant"
+            )
+        _ci_node_authority(manifest["node_runtime"])
 
     def digest(value: Any, length: int) -> bool:
         return (
@@ -2375,11 +2701,38 @@ class _CiLaneContext:
         if expected_sha256 is not None and self.sha256 != expected_sha256:
             raise ValueError("baseline manifest SHA changed")
         self.sources = _ci_lane_sources(root, self.manifest["source_files"])
+        self.node_authority = self.manifest.get("node_runtime")
+        self.node_reference = (
+            _ci_node_load(root, self.node_authority, self.manifest["source_files"])
+            if self.node_authority is not None
+            else None
+        )
+        if self.node_reference is not None:
+            _ci_node_check(root, self.node_authority, self.node_reference, full=True)
         self.transition = self.manifest.get("collection_transition")
         self.collection_completed = False
         self.post_pytest_completed = False
 
+    def observe_node(self, snapshot: dict[str, Any]) -> None:
+        if self.node_reference is not None:
+            try:
+                snapshot["node_runtime"] = _ci_node_check(
+                    self.root, self.node_authority, self.node_reference, full=False
+                )
+            except (OSError, ValueError) as exc:
+                # Preserve original worker exceptions while final evidence fails
+                # closed. This adds nothing to ordinary/global raw contexts.
+                snapshot["node_runtime"] = {"status": "UNVERIFIED", "error": str(exc)}
+
     def check_snapshot(self, snapshot: Any, *, stage: str) -> None:
+        if self.node_reference is not None and (
+            type(snapshot) is not dict
+            or snapshot.get("node_runtime")
+            != _ci_node_check(
+                self.root, self.node_authority, self.node_reference, full=False
+            )
+        ):
+            raise ValueError("Node runtime context observation is missing or changed")
         if self.transition is None:
             return
         if stage not in {"startup", "collected", "post_pytest"}:
@@ -2427,22 +2780,23 @@ class _CiLaneContext:
             self.post_pytest_completed = True
 
     def check_collected(self, snapshot: Any = None) -> None:
+        if self.node_reference is not None:
+            # Protocol checks never rehash the binary/npm/WASM trees.
+            _ci_node_check(
+                self.root, self.node_authority, self.node_reference, full=False
+            )
         if self.transition is not None:
             if not self.collection_completed or self.post_pytest_completed:
                 raise ValueError("collection-transition stage is incomplete")
-            self.check_snapshot(
-                (
-                    {
-                        "status": "OBSERVED",
-                        "errors": [],
-                        "environment": _worker_environment(),
-                        "loaded_jax_config": _worker_jax_config(),
-                    }
-                    if snapshot is None
-                    else snapshot
-                ),
-                stage="collected",
-            )
+            if snapshot is None:
+                snapshot = {
+                    "status": "OBSERVED",
+                    "errors": [],
+                    "environment": _worker_environment(),
+                    "loaded_jax_config": _worker_jax_config(),
+                }
+                self.observe_node(snapshot)
+            self.check_snapshot(snapshot, stage="collected")
 
     def check_post_pytest(self, snapshot: Any) -> None:
         if self.transition is not None:
@@ -2468,7 +2822,12 @@ class _CiLaneContext:
         _, raw = _ci_lane_manifest(self.path, environment=environment)
         if hashlib.sha256(raw).hexdigest() != self.sha256:
             raise ValueError("baseline manifest SHA changed")
-        return _ci_lane_sources(self.root, self.manifest["source_files"])
+        bindings = _ci_lane_sources(self.root, self.manifest["source_files"])
+        if self.node_reference is not None:
+            _ci_node_check(
+                self.root, self.node_authority, self.node_reference, full=True
+            )
+        return bindings
 
     def check(
         self, config: Any, items: Any = (), *, post_pytest: bool = False
@@ -2588,6 +2947,14 @@ class _CiCampaignProvision:
             self.path, _context_json
         )
         self.sha256 = self.bindings[self.path]
+        node = context.manifest.get("node_runtime")
+        expected_node = self.helper._node_binding(
+            self.data,
+            self.path,
+            context.root,
+            run,
+            Path(node["prefix"]) if node is not None else None,
+        )
         if (
             baseline["nodeids"] != context.manifest["nodeids"]
             or self.data["python_minor"] != context.manifest["python_minor"]
@@ -2595,6 +2962,11 @@ class _CiCampaignProvision:
             or self.data["packages"] != context.manifest.get("packages")
             or self.data.get("collection_args", [])
             != context.manifest.get("collection_args", [])
+            or expected_node != node
+            or (
+                node is not None
+                and context.manifest.get("support_role") != "node-smoke"
+            )
             or any(
                 context.manifest["source_files"].get(name) != digest
                 for name, digest in baseline["generated"].items()

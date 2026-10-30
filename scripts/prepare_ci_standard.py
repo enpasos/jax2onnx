@@ -115,6 +115,7 @@ def _cohort(
     support = (
         type(data) is dict and data.get("schema") == "jax2onnx-ci-support-cohort-v1"
     )
+    node = support and data.get("support_role") == "node-smoke"
     if (
         type(data) is not dict
         or set(data)
@@ -133,6 +134,7 @@ def _cohort(
             "provenance",
         }
         | ({"support_role", "collection_args"} if support else set())
+        | ({"node_runtime"} if node else set())
         or data["schema"]
         not in {"jax2onnx-ci-standard-cohort-v1", "jax2onnx-ci-support-cohort-v1"}
         or data["python_minor"] != f"{sys.version_info.major}.{sys.version_info.minor}"
@@ -157,6 +159,24 @@ def _cohort(
         bindings[source.resolve(strict=True)] = _sha(raw)
     if type(baseline) is not dict or set(baseline) != {"nodeids", "generated"}:
         raise ValueError("STANDARD baseline needs literal IDs and generated bindings")
+    if node:
+        authority = data["node_runtime"]
+        if (
+            type(authority) is not dict
+            or set(authority) != {"reference", "environment"}
+            or type(authority["environment"]) is not dict
+            or type(authority["reference"]) is not dict
+            or set(authority["reference"]) != {"path", "sha256"}
+        ):
+            raise ValueError("Node support needs its reviewed portable runtime binding")
+        source = path.parent / _relative(authority["reference"]["path"])
+        reference, raw = read_json(
+            source, 4 * 1024 * 1024, label="Node runtime reference"
+        )
+        if _sha(raw) != authority["reference"]["sha256"]:
+            raise ValueError("reviewed Node reference binding differs")
+        _runner()._ci_node_reference(reference)
+        bindings[source.resolve(strict=True)] = _sha(raw)
     return data, baseline, bindings
 
 
@@ -164,6 +184,8 @@ def _binding_names(data: dict[str, Any]) -> set[str]:
     names = {"poetry.lock", "pyproject.toml"}
     if data.get("support_role") == "minimum":
         names.add("scripts/install_minimum_dependencies.py")
+    if data.get("support_role") == "node-smoke":
+        names.update(_runner()._CI_NODE_SOURCE_FILES)
     return names
 
 
@@ -242,12 +264,64 @@ def _environment(template: Any, slots: dict[str, str]) -> dict[str, Any]:
     return result
 
 
+def _node_binding(
+    data: dict[str, Any], path: Path, root: Path, run: Path, node_prefix: Path | None
+) -> dict[str, Any] | None:
+    if data.get("support_role") != "node-smoke":
+        if node_prefix is not None:
+            raise ValueError("node-prefix is only valid for reviewed Node support")
+        return None
+    if node_prefix is None:
+        raise ValueError("Node support needs an explicit portable node-prefix")
+    prefix = node_prefix.resolve(strict=True)
+    expected = data["node_runtime"]
+    binding = expected["reference"]
+    source = (path.parent / _relative(binding["path"])).resolve(strict=True)
+    if not source.is_relative_to(root):
+        raise ValueError("reviewed Node reference escapes the checkout")
+    environment = dict(expected["environment"])
+    suffixes = {
+        "NPM_CONFIG_CACHE": ("/npm-cache", "/npm-cache"),
+        "NPM_CONFIG_USERCONFIG": ("/node-config/user.npmrc", "/config/user.npmrc"),
+        "NPM_CONFIG_GLOBALCONFIG": (
+            "/node-config/global.npmrc",
+            "/config/global.npmrc",
+        ),
+    }
+    for name, value in environment.items():
+        if value is None:
+            continue
+        suffix = suffixes.get(name.upper())
+        allowed = (
+            {
+                "${RUN}" + suffix[0]: str(run) + suffix[0],
+                "${NODE_PREFIX_PARENT}" + suffix[1]: str(prefix.parent) + suffix[1],
+            }
+            if suffix is not None
+            else {}
+        )
+        if type(value) is not str or value not in allowed:
+            raise ValueError(
+                "unreviewed Node environment path slot or execution overlay"
+            )
+        environment[name] = allowed[value]
+    return {
+        "reference": {
+            "path": source.relative_to(root).as_posix(),
+            "sha256": binding["sha256"],
+        },
+        "prefix": str(prefix),
+        "environment": environment,
+    }
+
+
 def _manifest(
     cohort_path: Path,
     root: Path,
     event_sha: str,
     run: Path,
     optional_sources: dict[str, Path] | None = None,
+    node_prefix: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     runner = _runner()
     root = root.resolve(strict=True)
@@ -313,6 +387,10 @@ def _manifest(
     for name in ("collected_environment", "post_pytest_environment"):
         transition[name] = _environment(transition[name], slots)
     runner._ci_lane_transition(transition)
+    node = _node_binding(data, path, root, run, node_prefix)
+    if node is not None:
+        reference = runner._ci_node_load(root, node, sources)
+        runner._ci_node_check(root, node, reference, full=True)
     return {
         "schema": "jax2onnx-ci-baseline-v1",
         "baseline_commit": data["baseline_commit"],
@@ -323,6 +401,11 @@ def _manifest(
         "collection_args": data.get("collection_args", []),
         "environment": environment,
         "collection_transition": transition,
+        **(
+            {"support_role": "node-smoke", "node_runtime": node}
+            if node is not None
+            else {}
+        ),
     }, data
 
 
@@ -334,6 +417,7 @@ def _main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--maxtext-source", type=Path)
     parser.add_argument("--maxdiffusion-source", type=Path)
+    parser.add_argument("--node-prefix", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if os.path.lexists(args.output):
@@ -349,7 +433,9 @@ def _main() -> int:
         )
         if source is not None
     }
-    manifest, _ = _manifest(args.cohort, root, args.event_sha, args.run_dir, optional)
+    manifest, _ = _manifest(
+        args.cohort, root, args.event_sha, args.run_dir, optional, args.node_prefix
+    )
     with output.open("x") as stream:
         stream.write(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     return 0

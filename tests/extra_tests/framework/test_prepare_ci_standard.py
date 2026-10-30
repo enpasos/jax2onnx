@@ -12,6 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.extra_tests.framework.test_ci_lane_selection import _node_files
+
 
 _ROOT = Path(__file__).resolve().parents[3]
 
@@ -142,6 +144,7 @@ def test_portable_manifest_binds_full_git_generated_and_declared_context(authori
         run / "native-model-artifacts"
     )
     assert not run.exists()
+    assert "node_runtime" not in manifest and "support_role" not in manifest
     assert "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR" not in module.os.environ
     assert (
         manifest["collection_transition"]["startup_jax_config"]
@@ -379,6 +382,22 @@ def _support_authority(authority, monkeypatch, role="normalization", minor="3.12
         distributions[-1].version = "8.0"
         for name in module._binding_names(data):
             data["bindings"][name] = module._sha((root / name).read_bytes())
+    if role == "node-smoke":
+        node, _ = _node_files(root, root.parent / "node-prefix")
+        data["node_runtime"] = {
+            name: value for name, value in node.items() if name != "prefix"
+        }
+        for name in module._binding_names(data):
+            data["bindings"][name] = module._sha((root / name).read_bytes())
+        (root / ".gitignore").write_text(
+            (root / ".gitignore").read_text() + "node_modules/\n"
+        )
+        module.os.environ["PATH"] = module.os.pathsep.join(
+            (
+                str(root.parent / "node-prefix/bin"),
+                module.os.environ.get("PATH", module.os.defpath),
+            )
+        )
     _write_json(path, data)
     return module, root, path, run, data, distributions
 
@@ -400,6 +419,78 @@ def test_support_cohort_admits_only_the_four_original_role_cohorts(
     )
     observed, _, _ = module._cohort(path, module._runner()._context_json)
     assert observed == data
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing-node", "wrong-role", "reference-byte", "extra-node-key"]
+)
+def test_node_support_requires_its_source_bound_reference_variant(
+    authority, monkeypatch, fault
+):
+    module, root, path, _, data, _ = _support_authority(
+        authority, monkeypatch, "node-smoke"
+    )
+    if fault == "missing-node":
+        del data["node_runtime"]
+    elif fault == "wrong-role":
+        data["support_role"] = "normalization"
+    elif fault == "reference-byte":
+        (root / "node-reference.json").write_bytes(b"{}\n")
+    else:
+        data["node_runtime"]["refresh_from_host"] = True
+    _write_json(path, data)
+    with pytest.raises(ValueError):
+        module._cohort(path, module._runner()._context_json)
+
+
+@pytest.mark.parametrize("config_name", ["NPM_CONFIG_CACHE", "npm_config_cache"])
+def test_node_renderer_requires_explicit_prefix_and_binds_executed_sources(
+    authority, monkeypatch, config_name
+):
+    module, root, path, run, data, _ = _support_authority(
+        authority, monkeypatch, "node-smoke"
+    )
+    data["node_runtime"]["environment"][config_name] = "${NODE_PREFIX_PARENT}/npm-cache"
+    module.os.environ[config_name] = str(root.parent / "npm-cache")
+    _write_json(path, data)
+    module._git(root, "add", ".")
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "reviewed Node fixture",
+    )
+    event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    with pytest.raises(ValueError, match="node-prefix"):
+        module._manifest(path, root, event, run)
+    manifest, _ = module._manifest(
+        path, root, event, run, node_prefix=root.parent / "node-prefix"
+    )
+    assert manifest["support_role"] == "node-smoke"
+    assert manifest["node_runtime"]["prefix"] == str(root.parent / "node-prefix")
+    assert manifest["node_runtime"]["environment"][config_name] == str(
+        root.parent / "npm-cache"
+    )
+    assert set(data["bindings"]) == {
+        "poetry.lock",
+        "pyproject.toml",
+        *module._runner()._CI_NODE_SOURCE_FILES,
+    }
+    assert (
+        manifest["source_files"]["node-reference.json"]
+        == data["node_runtime"]["reference"]["sha256"]
+    )
+    assert not run.exists()
+
+
+def test_python_renderer_rejects_node_prefix_without_changing_ordinary_shape(authority):
+    module, root, path, event, run, _, _ = authority
+    with pytest.raises(ValueError, match="only valid"):
+        module._manifest(path, root, event, run, node_prefix=root)
 
 
 @pytest.mark.parametrize(
