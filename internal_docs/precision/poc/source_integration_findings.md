@@ -2,6 +2,91 @@
 
 ## Current checkpoint
 
+### Private serialization integrity checkpoint — 2026-10-30
+
+The private SOURCE facade now checks serialization against the final IR state
+supplied to its compositional audit, independently of the optional collector.
+After final names, deployment metadata and the precision report are attached,
+the official shallow model clone captures topology. Official leaf roundtrips
+detach small types, shapes and attributes; exact compact guards protect shared
+tensor storage and metadata. The serialized quantization-name map is detached
+without deep-copying other `.meta` or source objects. Missing semantic rules
+remain **UNVERIFIED**; matching serialization does not validate those rules.
+
+The official codec first produces reference A, which is hashed and released
+before the actual proto is constructed. IR return additionally captures B from
+the same clone after A's ordinary initializer-name normalization. Only the
+reference passes restore captured initializer names, in `finally`; no payload
+or other field is restored. Actual serialization compares with A; the returned
+IR's subsequent serialization compares with B. This preserves legitimate shared
+tensor aliases whose name changes in a later nested initializer. Both references
+are sequential; no pair of complete model protos is retained.
+
+The compact protobuf projection retains defined graph, function, attribute,
+edge, dtype, shape and report fields and ordered exact tensor-storage digests.
+Raw and typed storage are hashed without numeric conversion; unknown wire
+fields, including external-data entries, fail closed. Saved files are parsed
+and hashed from the same header snapshot. Referenced local payload ranges are
+streamed in 1 MiB chunks, with containment checked against the exact opened
+target beneath the resolved requested parent. Header/path/range bindings are
+checked again after the collector. Stable explicit parent symlinks keep working;
+the separate sample loader's stricter symlink and digest rules are unchanged.
+The checkpoint hashes referenced ranges, not unused external-file padding.
+
+Collector exceptions alone remain observational. Mutations to the actual
+returned proto, IR or file fail integrity checks; mutations solely to unreturned
+IR remain observational for proto/file modes. These checks share the official
+codec: an identical permanent codec defect can evade comparison. They do not
+independently reconstruct persisted SOURCE semantics or establish numerical
+acceptance. Public LEGACY behavior, signatures, report schema and return types
+are unchanged. Prepared metadata alone is not a successful export; the original
+full checker and integrity gates must still complete before return.
+
+The qualified source is `38dfb1ff` plus five-file patch `0a578812…`, with
+production bytes unchanged from reviewed V3 `a5f0a8d3…`. Both official cohorts,
+Python 3.11/JAX 0.10.2 and Python 3.13/JAX 0.12.0.1, pass the focused **83** and
+consumer **8** cases, then all **301** cases across the three affected owners,
+with identical ordered identities and no skips. These selections overlap and
+include rejection/diagnostic tests; their counts are not numerical acceptance.
+The complete owner intervals are **8.42 s / 501.62 MiB** and
+**10.22 s / 457.48 MiB**, respectively.
+
+A single guarded **144.30 s** campaign completes **20 actual exports**, each in
+a fresh process: baseline IR and SOURCE proto/IR/standard external/web inline
+routes on both cohorts, with one 128 MiB initializer versus sixteen distinct
+8 MiB initializers. Every export retains all 128 MiB as observable FP64 outputs
+with exact word hashes, including signed zero and distinct NaNs. All eight file
+rows pass actual path-based full checking and CPU ORT 1.31.0 session loading with
+one thread, after needless models are released. No inference runs. The sampled
+owned peak is **1,218.11 MiB**; the separate maximum row self high-water is
+**1,322.88 MiB**. All successful bundles are hashed before targeted removal,
+with closed process/source/package and Root/Main preservation receipts.
+
+IR export cost rises from baseline by **1.77 / 1.90 s** for the single large
+initializer and **0.56 / 0.68 s** for sixteen smaller initializers (311/313).
+Row self-peak changes are about **+2.15 / +2.59 MiB** and
+**+1.87 / -0.98 MiB**; sampled interval deltas are retained separately. These
+measurements qualify this 128 MiB workload, not general large-model or >2 GiB
+exports. Existing full schema serialization limits remain. Full B–F, numerical
+acceptance and exact final integrated-commit qualification remain open.
+
+Evidence is under
+`/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-artifact-v3-PYzWpu/`:
+`qualification-freeze.json` (`bf6dea2a…`), resource row/comparison receipts and
+`closed-c338-postfence.json` (`778402e0…`). The held Root epoch is `c338c33f`;
+rebasing the patch/docs onto `9fb5bb68` is a separate, not-yet-qualified epoch.
+The initial **81 PASS / two FAIL** injection mistake and **224 PASS / two FAIL**
+obsolete report/leaf-codec assumptions remain retained. Their repairs change
+tests and the shared observation helper, not the reviewed production bytes.
+
+The later integration retains an actual normal-hook typing failure: optional
+protobuf stubs were absent and a local variable inferred as `Value` was reused
+for optional operands. Its repair adds only a narrow external-stub annotation
+and local `operand` rename; runtime ASTs match after that exact local
+alpha-normalization. Integrated bytes therefore differ from the qualified
+packet. Normal typing/hooks/docs belong to this later integration epoch; the
+earlier 301-case and 20-export evidence is not an exact integrated-head rerun.
+
 Completed CI checkpoint `d1ab27caafbb6c8234c901ea9fd0dfd28bff536c` has
 **all eight terminal SUCCESS** checks in
 [CI #546](https://github.com/enpasos/jax2onnx/actions/runs/40484915472), with the

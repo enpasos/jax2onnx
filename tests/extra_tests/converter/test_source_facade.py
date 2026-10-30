@@ -18,6 +18,7 @@ import pytest
 from jax2onnx import onnx_function, to_onnx
 from jax2onnx import user_interface as ui
 from jax2onnx.converter import conversion_api
+from jax2onnx.converter import source_structure as structure
 from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.precision import (
@@ -322,7 +323,15 @@ def test_source_report_preserves_mixed_structured_output_order(
                 np.dtype(value.aval.dtype).name for value in traces[0].jaxpr.outvars
             ] == ["float16", "uint32", "bool"]
             candidate = onnx.load_model_from_string(attempt.blob)
-            assert get_precision_report(candidate) is None
+            # The final report is part of the audited/checker candidate now.
+            # A rejected candidate still never becomes a returned export.
+            candidate_report = get_precision_report(candidate)
+            assert candidate_report is not None
+            assert [value.dtype for value in candidate_report.exported_outputs] == [
+                "float16",
+                "uint32",
+                "bool",
+            ]
             assert [value.name for value in candidate.graph.output] == [
                 "half",
                 "bits",
@@ -765,7 +774,7 @@ def test_private_structure_collector_keeps_exact_facade_parity(
 
     def collect(trace: Any, final_ir: ir.Model, result: Any, returned: Any) -> None:
         assert validations[-1][0] is final_ir
-        assert validations[-1][1] is result
+        assert validations[-1][1] == result
         assert trace.closed_jaxpr is not None
         assert get_precision_report(final_ir) == get_precision_report(returned)
         assert get_precision_report(returned) is not None
@@ -793,7 +802,7 @@ def test_private_structure_collector_keeps_exact_facade_parity(
         )
         if enabled:
             assert observed == [returned]
-    assert len(validations) == 2  # One existing shared pass per actual export.
+    assert len(validations) == (6 if return_mode == "ir" else 4)
     assert results[0] == results[1]
     assert (
         results[1][0]
@@ -858,6 +867,631 @@ def test_private_structure_collector_failure_cannot_fail_export(
     assert called == [True]
     onnx.checker.check_model(_proto(artifact), full_check=True)
     assert get_precision_report(artifact).profile == "source-static-v1"
+
+
+@pytest.mark.parametrize("fault_at", [1, 2])
+@pytest.mark.parametrize("mutation", ["operator", "constant"])
+def test_source_serialization_rejects_one_fault_in_either_official_codec_call(
+    fault_at: int, mutation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    actual = ir.to_proto
+    calls = []
+    captured = np.asarray([1, -0.0], np.float32)
+
+    def serialize(model: ir.Model, *args: Any, **kwargs: Any) -> Any:
+        proto = actual(model, *args, **kwargs)
+        if isinstance(model, ir.Model) and get_precision_report(model) is not None:
+            calls.append(model)
+            if len(calls) == fault_at:
+                if mutation == "operator":
+                    node = next(
+                        node for node in proto.graph.node if node.op_type == "Sub"
+                    )
+                    node.op_type = "Add"
+                else:
+                    tensor = proto.graph.initializer[0]
+                    raw = bytearray(tensor.raw_data)
+                    raw[0] ^= 1
+                    tensor.raw_data = bytes(raw)
+        return proto
+
+    monkeypatch.setattr(ir, "to_proto", serialize)
+    with pytest.raises(RuntimeError, match="serialization integrity: protobuf differs"):
+        _source(lambda x: x - captured, [(2,)])
+    assert len(calls) == 2
+    np.testing.assert_array_equal(captured.view(np.uint32), [0x3F800000, 0x80000000])
+
+
+@pytest.mark.parametrize("mutation", ["edge", "constant"])
+def test_source_rechecks_frozen_ledger_after_reference_serialization(
+    mutation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    actual = ir.to_proto
+    actual_audit = ui.validate_source_structure
+    audited = []
+    calls = []
+    captured = np.asarray([1, 2], np.float32)
+
+    def audit(model: ir.Model) -> Any:
+        if not audited:
+            audited.append(model)
+        return actual_audit(model)
+
+    def serialize(model: ir.Model, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(model, ir.Model) and get_precision_report(model) is not None:
+            calls.append(model)
+            if len(calls) == 1:
+                original = audited[0]
+                assert original.meta[structure.RESULT_KEY].status == "validated"
+                if mutation == "edge":
+                    node = next(
+                        node for node in original.graph if node.op_type == "Sub"
+                    )
+                    node.replace_input_with(1, original.graph.inputs[0])
+                else:
+                    value = next(iter(original.graph.initializers.values()))
+                    value.const_value = ir.tensor(np.asarray([3, 4], np.float32))
+        return actual(model, *args, **kwargs)
+
+    monkeypatch.setattr(ir, "to_proto", serialize)
+    monkeypatch.setattr(ui, "validate_source_structure", audit)
+    with pytest.raises(RuntimeError, match="serialization integrity: IR changed"):
+        _source(lambda x: x - captured, [(2,)])
+    assert len(calls) == 1
+    np.testing.assert_array_equal(captured, [1, 2])
+
+
+@pytest.mark.parametrize("mutation", ["operator", "edge"])
+def test_source_audit_capture_binds_a_real_missing_rule_region(
+    mutation: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actual_audit = ui.validate_source_structure
+    actual_serialize = ir.to_proto
+    audited = []
+    outcomes = []
+    calls = []
+
+    def audit(model: ir.Model) -> Any:
+        if not audited:
+            audited.append(model)
+        outcome = actual_audit(model)
+        outcomes.append(outcome)
+        return outcome
+
+    def serialize(model: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(model, ir.Model) and get_precision_report(model) is not None:
+            calls.append(model)
+            if len(calls) == 1:
+                original = audited[0]
+                # Empty Add is represented by an Identity, and its missing rule
+                # still leaves the semantic observation UNVERIFIED.
+                node = next(
+                    node for node in original.graph if node.op_type == "Identity"
+                )
+                if mutation == "operator":
+                    node.op_type = "Neg"
+                else:
+                    node.replace_input_with(0, original.graph.inputs[1])
+        return actual_serialize(model, *args, **kwargs)
+
+    monkeypatch.setattr(ui, "validate_source_structure", audit)
+    monkeypatch.setattr(ir, "to_proto", serialize)
+    with pytest.raises(RuntimeError, match="serialization integrity: protobuf differs"):
+        _source(jax.lax.add, [(0, 3), (0, 3)])
+    assert len(calls) == 2
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0].status == "unverified"
+    assert "equation-0:rule-unavailable" in outcomes[0].reasons
+
+
+@pytest.mark.parametrize("status", ["unverified", "failed"])
+@pytest.mark.parametrize(
+    "mutation",
+    ["none", "operator", "type", "shape", "attribute", "payload", "quantization"],
+)
+def test_source_audit_capture_binds_shared_state_despite_an_unchanged_audit_result(
+    status: str,
+    mutation: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actual_freeze = ui._freeze_source_ir
+    actual_audit = ui.validate_source_structure
+    actual_serialize = ir.to_proto
+    audited = []
+    outcomes = []
+    calls = []
+    captured = np.asarray([[1, 2], [3, 4]], np.float32)
+
+    def freeze(model: ir.Model) -> Any:
+        if mutation == "payload":
+            value = next(iter(model.graph.initializers.values()))
+            # Own a writable backing array for the fault, without modifying the
+            # caller's captured array or depending on JAX array writeability.
+            value.const_value = ir.tensor(
+                np.array(value.const_value.numpy(), copy=True), name=value.name
+            )
+        model.graph.inputs[0].meta["quant_parameter_tensor_names"] = {
+            "scale": "original"
+        }
+        return actual_freeze(model)
+
+    def audit(model: ir.Model) -> Any:
+        if not audited:
+            audited.append(model)
+            ledger = model.meta[structure._LEDGER]
+            if status == "unverified":
+                ledger.gaps.add("injected-existing-gap")
+            else:
+                ledger.failures.add("injected-existing-failure")
+        outcome = actual_audit(model)
+        outcomes.append(outcome)
+        return outcome
+
+    def serialize(model: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(model, ir.Model) and get_precision_report(model) is not None:
+            calls.append(model)
+            if len(calls) == 1:
+                original = audited[0]
+                if mutation == "operator":
+                    node = next(
+                        node for node in original.graph if node.op_type == "Add"
+                    )
+                    node.op_type = "Sub"
+                elif mutation == "type":
+                    original.graph.inputs[0].type.dtype = ir.DataType.DOUBLE
+                elif mutation == "shape":
+                    original.graph.inputs[0].shape[0] = 3
+                elif mutation == "attribute":
+                    node = next(
+                        node for node in original.graph if node.op_type == "Transpose"
+                    )
+                    node.attributes["perm"]._value = (0, 1)
+                elif mutation == "payload":
+                    value = next(iter(original.graph.initializers.values()))
+                    tensor = value.const_value
+                    tensor.numpy().view(np.uint32).flat[0] ^= np.uint32(1)
+                elif mutation == "quantization":
+                    annotation = original.graph.inputs[0].meta[
+                        "quant_parameter_tensor_names"
+                    ]
+                    annotation["scale"] = "changed"
+        return actual_serialize(model, *args, **kwargs)
+
+    monkeypatch.setattr(ui, "_freeze_source_ir", freeze)
+    monkeypatch.setattr(ui, "validate_source_structure", audit)
+    monkeypatch.setattr(ir, "to_proto", serialize)
+
+    def export() -> Any:
+        return _source(lambda x: jax.lax.transpose(x + captured, (1, 0)), [(2, 2)])
+
+    if mutation == "none":
+        assert get_precision_report(export()) is not None
+    else:
+        with pytest.raises(RuntimeError, match="SOURCE serialization integrity"):
+            export()
+    assert outcomes[0].status == status
+    if len(outcomes) > 1:
+        assert outcomes[0] == outcomes[1]
+    np.testing.assert_array_equal(captured, [[1, 2], [3, 4]])
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "ir", "file"])
+def test_source_reference_allows_official_shared_initializer_name_assignment(
+    return_mode: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actual_freeze = ui._freeze_source_ir
+    captured = np.asarray([1, -0.0], np.float32)
+    shared = []
+
+    def freeze(model: ir.Model) -> Any:
+        first = next(iter(model.graph.initializers.values()))
+        tensor = first.const_value
+        tensor.name = "captured_tensor_name"
+        second = ir.Value(
+            name="second_weight",
+            type=first.type,
+            shape=first.shape,
+            const_value=tensor,
+        )
+        model.graph.initializers.add(second)
+        node = ir.Node(
+            "",
+            "Constant",
+            [],
+            [ir.AttrTensor("value", tensor)],
+            num_outputs=1,
+        )
+        node.outputs[0].name = "shared_attribute"
+        model.graph.append(node)
+        shared.append(tensor)
+        return actual_freeze(model)
+
+    monkeypatch.setattr(ui, "_freeze_source_ir", freeze)
+    returned = _source(
+        lambda x: x - captured,
+        [(2,)],
+        return_mode=return_mode,
+        output_path=tmp_path / "shared.onnx",
+    )
+    proto = _proto(returned)
+    assert len(proto.graph.initializer) == 2
+    assert proto.graph.initializer[1].name == "second_weight"
+    node = next(
+        node for node in proto.graph.node if tuple(node.output) == ("shared_attribute",)
+    )
+    assert node.attribute[0].t.name == "second_weight"
+    # Actual serialization retains the established official name normalization.
+    assert shared[0].name == "second_weight"
+    np.testing.assert_array_equal(captured.view(np.uint32), [0x3F800000, 0x80000000])
+
+
+def _install_source_late_initializer_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[ir.TensorProtocol]:
+    actual_freeze = ui._freeze_source_ir
+    shared = []
+
+    def freeze(model: ir.Model) -> Any:
+        tensor = ir.tensor(np.asarray([1, -0.0], np.float32), name="old")
+        shared.append(tensor)
+        constant = ir.Node(
+            "", "Constant", [], [ir.AttrTensor("value", tensor)], num_outputs=1
+        )
+        constant.outputs[0].name = "alias_root"
+        model.graph.append(constant)
+
+        def branch(name: str) -> ir.Graph:
+            value = ir.Value(
+                name="later",
+                type=ir.TensorType(ir.DataType.FLOAT),
+                shape=ir.Shape([2]),
+                const_value=tensor,
+            )
+            return ir.Graph([], [value], nodes=[], initializers=[value], name=name)
+
+        condition = ir.Value(
+            name="alias_condition",
+            type=ir.TensorType(ir.DataType.BOOL),
+            shape=ir.Shape([]),
+            const_value=ir.tensor(np.asarray(True), name="alias_condition"),
+        )
+        model.graph.initializers.add(condition)
+        selection = ir.Node(
+            "",
+            "If",
+            [condition],
+            [
+                ir.AttrGraph("then_branch", branch("alias_then")),
+                ir.AttrGraph("else_branch", branch("alias_else")),
+            ],
+            num_outputs=1,
+        )
+        selection.outputs[0].name = "alias_selected"
+        selection.outputs[0].type = ir.TensorType(ir.DataType.FLOAT)
+        selection.outputs[0].shape = ir.Shape([2])
+        model.graph.append(selection)
+        return actual_freeze(model)
+
+    monkeypatch.setattr(ui, "_freeze_source_ir", freeze)
+    return shared
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "ir", "file"])
+def test_source_reference_covers_names_normalized_by_a_later_nested_initializer(
+    return_mode: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = _install_source_late_initializer_alias(monkeypatch)
+    actual_serialize = ir.to_proto
+    calls = []
+
+    def serialize(model: Any, *args: Any, **kwargs: Any) -> Any:
+        proto = actual_serialize(model, *args, **kwargs)
+        if isinstance(model, ir.Model) and get_precision_report(model) is not None:
+            node = next(
+                node
+                for node in proto.graph.node
+                if tuple(node.output) == ("alias_root",)
+            )
+            calls.append((id(model), node.attribute[0].t.name))
+        return proto
+
+    monkeypatch.setattr(ir, "to_proto", serialize)
+    returned = _source(
+        lambda x: -x,
+        [(2,)],
+        return_mode=return_mode,
+        output_path=tmp_path / "late-alias.onnx",
+    )
+    if return_mode == "ir":
+        assert [name for _, name in calls] == ["old", "later", "old", "later"]
+        assert calls[0][0] == calls[1][0]  # Both references use the same clone.
+        assert calls[2][0] == calls[3][0] == id(returned)
+    else:
+        assert [name for _, name in calls] == ["old", "old"]
+    assert shared[0].name == "later"
+    proto = _proto(returned)
+    onnx.checker.check_model(proto, full_check=True)
+    node = next(
+        node for node in proto.graph.node if tuple(node.output) == ("alias_root",)
+    )
+    assert node.attribute[0].t.name == ("later" if return_mode == "ir" else "old")
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "ir", "file"])
+@pytest.mark.parametrize("mutation", ["name", "attribute", "payload", "graph"])
+def test_source_late_initializer_alias_keeps_ir_mutations_bound_to_the_return(
+    return_mode: str,
+    mutation: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = _install_source_late_initializer_alias(monkeypatch)
+    observed = []
+
+    def mutate(trace: Any, final_ir: ir.Model, result: Any, returned: Any) -> None:
+        observed.append(result.status)
+        if mutation == "name":
+            shared[0].name = "injected_name"
+        elif mutation == "attribute":
+            node = next(
+                node for node in final_ir.graph if node.outputs[0].name == "alias_root"
+            )
+            node.attributes["value"].doc_string = "injected attribute"
+        elif mutation == "payload":
+            shared[0].numpy()[0] = np.float32(3)
+        else:
+            node = next(node for node in final_ir.graph if node.op_type == "Neg")
+            node.op_type = "Abs"
+
+    def export() -> Any:
+        return _source(
+            lambda x: -x,
+            [(2,)],
+            return_mode=return_mode,
+            output_path=tmp_path / "late-alias.onnx",
+            source_structure_collector=mutate,
+        )
+
+    if return_mode == "ir":
+        with pytest.raises(RuntimeError, match="SOURCE serialization integrity"):
+            export()
+    else:
+        returned = export()
+        proto = _proto(returned)
+        node = next(
+            node for node in proto.graph.node if tuple(node.output) == ("alias_root",)
+        )
+        assert node.attribute[0].t.name == "old"
+        assert not node.attribute[0].doc_string
+        np.testing.assert_array_equal(
+            onnx.numpy_helper.to_array(node.attribute[0].t).view(np.uint32),
+            [0x3F800000, 0x80000000],
+        )
+        assert any(node.op_type == "Neg" for node in proto.graph.node)
+    assert observed == ["unverified"]
+
+
+@pytest.mark.parametrize("mutation", ["name", "payload"])
+def test_source_reference_never_restores_attribute_tensor_names_or_payloads(
+    mutation: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actual_freeze = ui._freeze_source_ir
+    actual_serialize = ir.to_proto
+    tensors = []
+    calls = []
+
+    def freeze(model: ir.Model) -> Any:
+        tensor = ir.tensor(np.asarray([1, 2], np.float32), name="attribute_only")
+        node = ir.Node(
+            "", "Constant", [], [ir.AttrTensor("value", tensor)], num_outputs=1
+        )
+        node.outputs[0].name = "attribute_only_value"
+        model.graph.append(node)
+        tensors.append(tensor)
+        return actual_freeze(model)
+
+    def serialize(model: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(model, ir.Model) and get_precision_report(model) is not None:
+            calls.append(model)
+            if len(calls) == 1:
+                if mutation == "name":
+                    tensors[0].name = "injected_name"
+                else:
+                    tensors[0].numpy()[0] = np.float32(3)
+        return actual_serialize(model, *args, **kwargs)
+
+    monkeypatch.setattr(ui, "_freeze_source_ir", freeze)
+    monkeypatch.setattr(ir, "to_proto", serialize)
+    with pytest.raises(RuntimeError, match="shared tensor changed after audit capture"):
+        _source(lambda x: -x, [(2,)])
+    assert len(calls) == 1
+
+
+def test_source_reference_restores_initializer_names_when_the_codec_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actual_freeze = ui._freeze_source_ir
+    actual_serialize = ir.to_proto
+    captured = np.asarray([1, 2], np.float32)
+    tensors = []
+
+    def freeze(model: ir.Model) -> Any:
+        tensor = next(iter(model.graph.initializers.values())).const_value
+        tensor.name = "before_reference"
+        tensors.append(tensor)
+        return actual_freeze(model)
+
+    def serialize(model: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(model, ir.Model) and get_precision_report(model) is not None:
+            tensors[0].name = "changed_before_error"
+            raise LookupError("injected reference codec failure")
+        return actual_serialize(model, *args, **kwargs)
+
+    monkeypatch.setattr(ui, "_freeze_source_ir", freeze)
+    monkeypatch.setattr(ir, "to_proto", serialize)
+    with pytest.raises(LookupError, match="injected reference codec failure"):
+        _source(lambda x: x - captured, [(2,)])
+    assert tensors[0].name == "before_reference"
+
+
+def test_source_reference_name_restoration_failure_cannot_become_export_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(guards: Any) -> None:
+        raise OSError("injected reference name restoration failure")
+
+    monkeypatch.setattr(ui, "_restore_source_initializer_names", broken)
+    with pytest.raises(OSError, match="injected reference name restoration failure"):
+        _source(lambda x: -x, [(2,)])
+
+
+def test_source_serialization_checkpoint_retains_the_official_codec_trust_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Diagnostic of this bounded checkpoint, not SOURCE numerical acceptance:
+    # the same permanent error in both official-codec calls can evade comparison.
+    actual = ir.to_proto
+    calls = []
+
+    def serialize(model: ir.Model, *args: Any, **kwargs: Any) -> Any:
+        proto = actual(model, *args, **kwargs)
+        if isinstance(model, ir.Model) and get_precision_report(model) is not None:
+            calls.append(model)
+            node = next(node for node in proto.graph.node if node.op_type == "Neg")
+            node.op_type = "Abs"
+        return proto
+
+    monkeypatch.setattr(ir, "to_proto", serialize)
+    proto = _source(lambda x: -x, [(2,)])
+    assert len(calls) == 2
+    assert any(node.op_type == "Abs" for node in proto.graph.node)
+    assert get_precision_report(proto).checks[-1].status is CheckStatus.UNVERIFIED
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "ir", "file"])
+def test_source_rejects_collector_mutation_of_the_actual_return(
+    return_mode: str,
+    tmp_path: Path,
+) -> None:
+    def mutate(trace: Any, final_ir: ir.Model, result: Any, returned: Any) -> None:
+        if isinstance(returned, ir.Model):
+            node = next(node for node in returned.graph if node.op_type == "Neg")
+            node.op_type = "Abs"
+        elif isinstance(returned, onnx.ModelProto):
+            node = next(node for node in returned.graph.node if node.op_type == "Neg")
+            node.op_type = "Abs"
+        else:
+            proto = onnx.load_model(returned, load_external_data=False)
+            node = next(node for node in proto.graph.node if node.op_type == "Neg")
+            node.op_type = "Abs"
+            onnx.save_model(proto, returned)
+        raise OSError("observer mutation followed by an observational exception")
+
+    with pytest.raises(RuntimeError, match="SOURCE serialization integrity"):
+        _source(
+            lambda x: -x,
+            [(2,)],
+            return_mode=return_mode,
+            output_path=tmp_path / "mutated.onnx",
+            source_structure_collector=mutate,
+        )
+
+
+@pytest.mark.parametrize("return_mode", ["proto", "file"])
+def test_source_collector_mutation_of_unreturned_ir_is_only_observational(
+    return_mode: str,
+    tmp_path: Path,
+) -> None:
+    def mutate(trace: Any, final_ir: ir.Model, result: Any, returned: Any) -> None:
+        next(node for node in final_ir.graph if node.op_type == "Neg").op_type = "Abs"
+
+    returned = _source(
+        lambda x: -x,
+        [(2,)],
+        return_mode=return_mode,
+        output_path=tmp_path / "correct.onnx",
+        source_structure_collector=mutate,
+    )
+    assert any(node.op_type == "Neg" for node in _proto(returned).graph.node)
+
+
+@pytest.mark.parametrize("mutation", ["bytes", "missing", "rewire", "offset"])
+def test_source_rechecks_external_payload_and_packaging_after_collector(
+    mutation: str,
+    tmp_path: Path,
+) -> None:
+    captured = np.arange(300_000, dtype=np.float32)
+
+    def mutate(trace: Any, final_ir: ir.Model, result: Any, returned: str) -> None:
+        proto = onnx.load_model(returned, load_external_data=False)
+        tensor = next(
+            tensor for tensor in proto.graph.initializer if tensor.external_data
+        )
+        values = {entry.key: entry.value for entry in tensor.external_data}
+        payload = Path(returned).parent / values["location"]
+        if mutation == "missing":
+            payload.unlink()
+        elif mutation == "bytes":
+            with payload.open("r+b") as stream:
+                stream.write(b"changed!")
+        elif mutation == "rewire":
+            replacement = payload.with_name("same-bytes.data")
+            replacement.write_bytes(payload.read_bytes())
+            entry = next(
+                entry for entry in tensor.external_data if entry.key == "location"
+            )
+            entry.value = replacement.name
+            onnx.save_model(proto, returned)
+        else:
+            original = payload.read_bytes()
+            payload.write_bytes(b"padding!" + original)
+            entry = next(
+                entry for entry in tensor.external_data if entry.key == "offset"
+            )
+            entry.value = str(int(values.get("offset", "0")) + 8)
+            onnx.save_model(proto, returned)
+
+    with pytest.raises((RuntimeError, ValueError, OSError)):
+        _source(
+            lambda x: (captured, -x),
+            [(1,)],
+            return_mode="file",
+            output_path=tmp_path / "external.onnx",
+            source_structure_collector=mutate,
+        )
+
+
+def test_source_file_export_accepts_stable_explicit_parent_symlinks(
+    tmp_path: Path,
+) -> None:
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+    captured = np.arange(300_000, dtype=np.float32)
+    returned = _source(
+        lambda x: (captured, -x),
+        [(1,)],
+        return_mode="file",
+        output_path=alias / "source.onnx",
+    )
+    assert returned == str(alias / "source.onnx")
+    assert (actual / "source.onnx.data").is_file()
+    assert get_precision_report(returned) is not None
+
+
+def test_source_missing_semantic_rule_stays_unverified_without_a_collector() -> None:
+    model = _source(jax.lax.add, [(0, 3), (0, 3)], return_mode="ir")
+    observed = model.meta[structure.RESULT_KEY]
+    assert observed.status == "unverified"
+    assert "equation-0:rule-unavailable" in observed.reasons
+    assert get_precision_report(model).checks[-1].status is CheckStatus.UNVERIFIED
 
 
 def test_structure_collector_is_private_source_success_only() -> None:
@@ -973,11 +1607,14 @@ def test_source_ir_return_runs_full_checker_before_claiming_representation(
 def test_source_checks_serialized_boundary_shape_before_attaching_report(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Retain the regression identity: the final report is now present already,
+    # and corrupt serialized boundaries must still prevent any returned export.
     serialize = ir.to_proto
 
-    def corrupt(model: ir.Model) -> onnx.ModelProto:
+    def corrupt(model: Any) -> Any:
         proto = serialize(model)
-        proto.graph.output[0].type.tensor_type.shape.dim[0].dim_value = 3
+        if isinstance(model, ir.Model):
+            proto.graph.output[0].type.tensor_type.shape.dim[0].dim_value = 3
         return proto
 
     monkeypatch.setattr(ir, "to_proto", corrupt)

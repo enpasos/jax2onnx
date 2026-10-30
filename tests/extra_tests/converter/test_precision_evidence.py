@@ -16,6 +16,7 @@ import onnx_ir as ir
 import onnxruntime as ort  # type: ignore[import-untyped]
 import pytest
 
+from jax2onnx import precision
 from jax2onnx.precision import (
     CheckStatus,
     PRECISION_METADATA_KEY,
@@ -672,6 +673,258 @@ def test_artifact_loader_rejects_symlink_paths(tmp_path: Path) -> None:
     report = validate_source_samples(link, samples=[], optimization=None)
     assert report.status is CheckStatus.FAILED
     assert "Symlink" in report.checks[-1].detail
+
+
+@pytest.mark.parametrize("encoding", ["raw", "typed"])
+@pytest.mark.parametrize("word", [0, 1])
+def test_source_fingerprint_preserves_signed_zero_and_nan_storage_words(
+    encoding: str,
+    word: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_numeric_conversion(*args: Any, **kwargs: Any) -> None:
+        pytest.fail(
+            "SOURCE serialization integrity converted tensor values numerically"
+        )
+
+    monkeypatch.setattr(onnx.numpy_helper, "to_array", no_numeric_conversion)
+    monkeypatch.setattr(onnx.TensorProto, "ListFields", no_numeric_conversion)
+    words = np.asarray([0x80000000, 0x7FC00001], dtype="<u4")
+
+    def model_with_words() -> onnx.ModelProto:
+        model = _identity()
+        tensor = onnx.TensorProto(name="storage", data_type=onnx.TensorProto.FLOAT)
+        tensor.dims.append(2)
+        raw = words.tobytes()
+        if encoding == "raw":
+            tensor.raw_data = raw
+        else:
+            # Packed float_data wire field: no Python float/NaN conversion.
+            tensor.MergeFromString(b"\x22\x08" + raw)
+        model.graph.initializer.append(tensor)
+        return model
+
+    original = precision._source_artifact_fingerprint(model_with_words())
+    words[word] ^= np.uint32(0x80000000 if word == 0 else 1)
+    changed = precision._source_artifact_fingerprint(model_with_words())
+    assert original.projection_sha256 == changed.projection_sha256
+    assert original.tensors != changed.tensors
+
+
+@pytest.mark.parametrize(
+    "field", ["model", "graph", "edge", "attribute", "function", "report", "shape"]
+)
+def test_source_projection_preserves_graph_function_attribute_and_report_fields(
+    field: str,
+) -> None:
+    model = _identity()
+    model.functions.append(
+        onnx.helper.make_function(
+            "local",
+            "Leaf",
+            ["x"],
+            ["y"],
+            [onnx.helper.make_node("Neg", ["x"], ["y"])],
+            [onnx.helper.make_opsetid("", 23)],
+        )
+    )
+    attach_precision_report(model, _report())
+    original = precision._source_artifact_fingerprint(model)
+    if field == "model":
+        model.producer_name = "changed"
+    elif field == "graph":
+        model.graph.doc_string = "changed"
+    elif field == "edge":
+        model.graph.node[0].input[0] = "changed"
+    elif field == "attribute":
+        model.functions[0].node[0].attribute.append(
+            onnx.helper.make_attribute("body", model.graph)
+        )
+    elif field == "function":
+        model.functions[0].node[0].op_type = "Abs"
+    elif field == "report":
+        item = next(
+            item for item in model.metadata_props if item.key == PRECISION_METADATA_KEY
+        )
+        item.value += " "
+    else:
+        model.graph.input[0].type.tensor_type.shape.dim[0].dim_value = 2
+    assert precision._source_artifact_fingerprint(model) != original
+
+
+def test_source_projection_rejects_unknown_wire_fields() -> None:
+    model = _identity()
+    model.MergeFromString(b"\xa0\x06\x01")  # Unknown varint field 100.
+    with pytest.raises(ValueError, match="unknown protobuf fields"):
+        precision._source_artifact_fingerprint(model)
+
+
+def test_source_projection_rejects_unknown_external_entry_fields(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "model.onnx"
+    _saved_source_checkpoint_model(path)
+    model = onnx.load_model(path, load_external_data=False)
+    model.graph.initializer[0].external_data[0].MergeFromString(b"\xa0\x06\x01")
+    onnx.save_model(model, path)
+    with pytest.raises(ValueError, match="entry contains unknown protobuf fields"):
+        precision._source_artifact_snapshot(path)
+
+
+def _saved_source_checkpoint_model(path: Path) -> Any:
+    model = _identity()
+    model.graph.initializer.append(
+        onnx.numpy_helper.from_array(np.asarray([2, -0.0], np.float32), "bias")
+    )
+    fingerprint = precision._source_artifact_fingerprint(model)
+    onnx.save_model(
+        model,
+        path,
+        save_as_external_data=True,
+        all_tensors_to_one_file=True,
+        location="payload.bin",
+        size_threshold=0,
+    )
+    return fingerprint
+
+
+def test_source_snapshot_streams_ranges_without_using_the_sample_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "model.onnx"
+    expected = _saved_source_checkpoint_model(path)
+
+    def no_sample_loader(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("SOURCE checkpoint used the fully inlined sample artifact loader")
+
+    monkeypatch.setattr(precision, "_artifact_bytes", no_sample_loader)
+    monkeypatch.setattr(precision, "_SOURCE_HASH_CHUNK", 3)
+    unresolved, snapshot = precision._source_artifact_snapshot(path)
+    assert snapshot.fingerprint == expected
+    assert unresolved.graph.initializer[0].external_data
+    assert not unresolved.graph.initializer[0].raw_data
+    # Unreferenced trailing padding is not part of the execution tensor digest.
+    with (tmp_path / "payload.bin").open("ab") as stream:
+        stream.write(b"unused padding")
+    _, padded = precision._source_artifact_snapshot(path)
+    assert padded.fingerprint == expected
+    assert padded != snapshot  # File identity/size changes are still observed.
+
+
+def test_source_snapshot_accepts_stable_parent_symlinks_and_keeps_sample_digest(
+    tmp_path: Path,
+) -> None:
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+    expected = _saved_source_checkpoint_model(actual / "model.onnx")
+    before = precision._artifact_bytes(actual / "model.onnx")[1]
+    _, snapshot = precision._source_artifact_snapshot(alias / "model.onnx")
+    assert snapshot.fingerprint == expected
+    assert precision._artifact_bytes(actual / "model.onnx")[1] == before
+    with pytest.raises(ValueError, match="Symlink"):
+        precision._artifact_bytes(alias / "model.onnx")
+
+
+def test_source_snapshot_resolves_payloads_from_the_requested_model_parent(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    requested = tmp_path / "requested"
+    requested.mkdir()
+    expected = _saved_source_checkpoint_model(target / "model.onnx")
+    (requested / "model.onnx").symlink_to(target / "model.onnx")
+    (requested / "payload.bin").write_bytes((target / "payload.bin").read_bytes())
+    _, snapshot = precision._source_artifact_snapshot(requested / "model.onnx")
+    assert snapshot.fingerprint == expected
+    assert snapshot.files[1].resolved == str(requested / "payload.bin")
+    (target / "payload.bin").unlink()  # This is not the referenced sidecar.
+    assert precision._source_artifact_snapshot(requested / "model.onnx")[1] == snapshot
+
+
+@pytest.mark.parametrize("swap", ["parent", "model", "payload"])
+def test_source_snapshot_binds_resolved_model_and_payload_paths(
+    swap: str,
+    tmp_path: Path,
+) -> None:
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+    _saved_source_checkpoint_model(actual / "model.onnx")
+    _, snapshot = precision._source_artifact_snapshot(alias / "model.onnx")
+    if swap == "parent":
+        other = tmp_path / "other"
+        other.mkdir()
+        for name in ("model.onnx", "payload.bin"):
+            (other / name).write_bytes((actual / name).read_bytes())
+        alias.unlink()
+        alias.symlink_to(other, target_is_directory=True)
+    else:
+        name = "model.onnx" if swap == "model" else "payload.bin"
+        replacement = actual / "replacement"
+        replacement.write_bytes((actual / name).read_bytes())
+        (actual / name).unlink()
+        (actual / name).symlink_to(replacement)
+    _, changed = precision._source_artifact_snapshot(alias / "model.onnx")
+    assert changed.fingerprint == snapshot.fingerprint
+    assert changed != snapshot
+
+
+def test_source_snapshot_checks_the_exact_resolved_payload_target_it_opens(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "model"
+    directory.mkdir()
+    path = directory / "model.onnx"
+    _saved_source_checkpoint_model(path)
+    payload = directory / "payload.bin"
+    inside = directory / "inside.bin"
+    payload.rename(inside)
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(inside.read_bytes())
+    payload.symlink_to(inside)
+    actual_resolve = Path.resolve
+    swapped = []
+
+    def resolve(value: Path, *args: Any, **kwargs: Any) -> Path:
+        resolved = actual_resolve(value, *args, **kwargs)
+        if value == payload and not swapped:
+            swapped.append(True)
+            payload.unlink()
+            payload.symlink_to(outside)
+        return resolved
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    with pytest.raises(ValueError, match="path or file changed|escapes"):
+        precision._source_artifact_snapshot(path)
+    assert swapped == [True]
+
+
+@pytest.mark.parametrize("range_error", ["negative", "outside", "truncated", "missing"])
+def test_source_snapshot_rejects_invalid_external_ranges(
+    range_error: str,
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "model.onnx"
+    _saved_source_checkpoint_model(path)
+    model = onnx.load_model(path, load_external_data=False)
+    tensor = model.graph.initializer[0]
+    if range_error in {"negative", "outside"}:
+        next(item for item in tensor.external_data if item.key == "offset").value = (
+            "-1" if range_error == "negative" else "100"
+        )
+        onnx.save_model(model, path)
+    elif range_error == "truncated":
+        (tmp_path / "payload.bin").write_bytes(b"short")
+    else:
+        (tmp_path / "payload.bin").unlink()
+    with pytest.raises((ValueError, OSError)):
+        precision._source_artifact_snapshot(path)
 
 
 @pytest.mark.parametrize("witness", ["fp16-square-sum", "weak-bias", "fp32-reciprocal"])

@@ -23,6 +23,27 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
+The private SOURCE
+[serialization-integrity checkpoint](poc/source_integration_findings.md#private-serialization-integrity-checkpoint-2026-10-30)
+is qualified at isolated `38dfb1ff` plus five-file patch `0a578812…`, before
+integration onto `9fb5bb68`. Focused **83** and consumer **8** cases pass on both
+official families; all three affected owners pass **301 identical ordered cases
+each**. A single **144.30 s** campaign completes **20 actual 128 MiB exports**,
+including eight saved-file full-checker/CPU-session-load observations, without
+inference. IR export adds about **1.77–1.90 s** for one large initializer or
+**0.56–0.68 s** for sixteen smaller ones. Exact storage/report checks, process
+closure, both failed test predecessors and the frozen c338 Root/Main28 fence
+are indexed by `source-artifact-v3-PYzWpu/qualification-freeze.json`
+(`bf6dea2a…`). Shared-codec limits, numerical **UNVERIFIED**, the measured
+128 MiB bound, and full B–F/final integrated-commit gates remain explicit; public
+LEGACY behavior is unchanged. This is not >2 GiB or independent SOURCE-semantic
+proof.
+
+Later integration adds only a narrow optional-stub import annotation and local
+`operand` rename after that qualified packet, preserving its runtime behavior.
+The initial typing failure is retained; normal typing/hooks/docs are separate
+integration-epoch checks, not an exact-head repetition of the 301/20 evidence.
+
 Published `234df50e` has **all eight SUCCESS** in
 [CI 569](https://github.com/enpasos/jax2onnx/actions/runs/41024691391):
 the read-only terminal snapshot at **11:43:05 UTC on 30 October** also confirms

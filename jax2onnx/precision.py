@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import stat
 import sys
 from tempfile import TemporaryDirectory
 from typing import Any, Literal, NoReturn, TypeAlias, cast
@@ -29,6 +30,7 @@ import numpy as np
 import numpy.typing as npt
 import onnx
 import onnx_ir as ir
+from google.protobuf.unknown_fields import UnknownFieldSet  # type: ignore[import-untyped]
 
 
 from jax2onnx._source_capability import (
@@ -523,6 +525,254 @@ def _safe_file(path: Path) -> Path:
     if not absolute.is_file():
         raise ValueError(f"Not a regular model/payload file: {path}")
     return absolute
+
+
+@dataclass(frozen=True)
+class _SourceArtifactFingerprint:
+    projection_sha256: str
+    tensors: tuple[tuple[str, int, str], ...]
+
+
+@dataclass(frozen=True)
+class _SourceFileBinding:
+    requested: str
+    resolved: str
+    identity: tuple[int, int, int, int, int]
+    offset: int
+    length: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class _SourceArtifactSnapshot:
+    fingerprint: _SourceArtifactFingerprint
+    files: tuple[_SourceFileBinding, ...]
+
+
+_TENSOR_STORAGE_FIELDS = frozenset(
+    {
+        "raw_data",
+        "float_data",
+        "int32_data",
+        "string_data",
+        "int64_data",
+        "double_data",
+        "uint64_data",
+    }
+)
+_SOURCE_HASH_CHUNK = 1024 * 1024
+
+
+def _source_file_identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
+    if not stat.S_ISREG(value.st_mode):
+        raise ValueError("SOURCE serialization integrity requires regular local files")
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _source_file_binding(
+    requested: Path,
+    *,
+    root: Path,
+    offset: int = 0,
+    length: int | None = None,
+) -> _SourceFileBinding:
+    """Hash one referenced range; allow stable explicit parent symlinks."""
+    requested = requested.absolute()
+    resolved = requested.resolve(strict=True)
+    if not resolved.is_relative_to(root):
+        raise ValueError("SOURCE external tensor escapes the model directory")
+    digest = hashlib.sha256()
+    with resolved.open("rb") as stream:
+        identity = _source_file_identity(os.fstat(stream.fileno()))
+        count = identity[2] - offset if length is None else length
+        if offset < 0 or count < 0 or offset + count > identity[2]:
+            raise ValueError("SOURCE external tensor range is outside its payload")
+        stream.seek(offset)
+        remaining = count
+        while remaining:
+            chunk = stream.read(min(remaining, _SOURCE_HASH_CHUNK))
+            if not chunk:
+                raise ValueError("SOURCE external tensor payload is truncated")
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if _source_file_identity(os.fstat(stream.fileno())) != identity:
+            raise ValueError("SOURCE artifact changed while its payload was read")
+    binding = _SourceFileBinding(
+        str(requested), str(resolved), identity, offset, count, digest.hexdigest()
+    )
+    _source_recheck_file(binding)
+    return binding
+
+
+def _source_recheck_file(binding: _SourceFileBinding) -> None:
+    requested = Path(binding.requested)
+    if (
+        str(requested.resolve(strict=True)) != binding.resolved
+        or _source_file_identity(requested.stat()) != binding.identity
+    ):
+        raise ValueError("SOURCE artifact path or file changed during verification")
+
+
+def _source_artifact_fingerprint(
+    proto: onnx.ModelProto | onnx.TensorProto,
+    *,
+    base: Path | None = None,
+    root: Path | None = None,
+    files: list[_SourceFileBinding] | None = None,
+) -> _SourceArtifactFingerprint:
+    """Compact protobuf projection plus ordered, exact tensor-storage digests.
+
+    This compares serialization with the final audited IR via the official IR
+    codec. It is not an independent reconstruction of SOURCE semantics. Typed
+    protobuf storage stays typed; only external raw storage is normalized to
+    inline raw storage. No numeric conversion can canonicalize tensor bits.
+    """
+    payloads: list[tuple[str, int, str]] = []
+
+    def project(message: Any, target: Any) -> None:
+        # Unknown fields cannot originate in the reviewed codec and must not be
+        # silently dropped by this descriptor-based projection.
+        if UnknownFieldSet(message):
+            raise ValueError("SOURCE artifact contains unknown protobuf fields")
+        tensor = isinstance(message, onnx.TensorProto)
+        omitted: set[str] = set()
+        if tensor:
+            omitted.update(_TENSOR_STORAGE_FIELDS)
+            omitted.update(("external_data", "data_location"))
+            typed = any(
+                len(getattr(message, name))
+                for name in _TENSOR_STORAGE_FIELDS - {"raw_data"}
+            )
+            external = onnx.external_data_helper.uses_external_data(message)
+            if external:
+                if base is None or root is None or files is None:
+                    raise ValueError(
+                        "SOURCE external tensor requires a saved model path"
+                    )
+                if typed or message.HasField("raw_data"):
+                    raise ValueError(
+                        "SOURCE tensor has ambiguous external/inline storage"
+                    )
+                entries = list(message.external_data)
+                if any(UnknownFieldSet(entry) for entry in entries):
+                    raise ValueError(
+                        "SOURCE external-data entry contains unknown protobuf fields"
+                    )
+                values = {entry.key: entry.value for entry in entries}
+                if len(values) != len(entries):
+                    raise ValueError("SOURCE tensor has duplicate external-data keys")
+                if set(values) - {"location", "offset", "length"}:
+                    raise ValueError(
+                        "SOURCE tensor has unrecognized external-data keys"
+                    )
+                location = Path(values.get("location", ""))
+                if (
+                    not values.get("location")
+                    or location.is_absolute()
+                    or ".." in location.parts
+                ):
+                    raise ValueError(
+                        "SOURCE external tensor needs a relative local path"
+                    )
+                payload_path = base / location
+                binding = _source_file_binding(
+                    payload_path,
+                    root=root,
+                    offset=int(values.get("offset", "0")),
+                    length=int(values["length"]) if "length" in values else None,
+                )
+                files.append(binding)
+                payloads.append(("raw", binding.length, binding.sha256))
+            elif (
+                message.external_data
+                or message.data_location != onnx.TensorProto.DEFAULT
+            ):
+                raise ValueError(
+                    "SOURCE tensor has inconsistent external storage metadata"
+                )
+            elif message.HasField("raw_data"):
+                if typed:
+                    raise ValueError("SOURCE tensor has ambiguous raw/typed storage")
+                raw = message.raw_data
+                payloads.append(("raw", len(raw), hashlib.sha256(raw).hexdigest()))
+                del raw
+            else:
+                # Copy at most this current tensor. CopyFrom preserves float
+                # storage words, including NaN payloads and negative zero.
+                storage = onnx.TensorProto()
+                storage.CopyFrom(message)
+                for descriptor in message.DESCRIPTOR.fields:
+                    if descriptor.name not in _TENSOR_STORAGE_FIELDS:
+                        storage.ClearField(descriptor.name)
+                raw = storage.SerializeToString(deterministic=True)
+                payloads.append(("typed", len(raw), hashlib.sha256(raw).hexdigest()))
+                del raw, storage
+        # Tensor ListFields() would materialize omitted raw_data a second time.
+        # Inspect descriptors first so skipped payload fields are never fetched.
+        for descriptor in message.DESCRIPTOR.fields:
+            if descriptor.name in omitted:
+                continue
+            if not descriptor.is_repeated and not message.HasField(descriptor.name):
+                continue
+            value = getattr(message, descriptor.name)
+            if descriptor.is_repeated and not value:
+                continue
+            if descriptor.message_type is not None:
+                destination = getattr(target, descriptor.name)
+                if descriptor.is_repeated:
+                    for child in value:
+                        project(child, destination.add())
+                else:
+                    project(value, destination)
+                    destination.SetInParent()
+            elif descriptor.is_repeated:
+                getattr(target, descriptor.name).extend(value)
+            else:
+                setattr(target, descriptor.name, value)
+
+    projection = type(proto)()
+    project(proto, projection)
+    return _SourceArtifactFingerprint(
+        hashlib.sha256(projection.SerializeToString(deterministic=True)).hexdigest(),
+        tuple(payloads),
+    )
+
+
+def _source_artifact_snapshot(
+    path: str | os.PathLike[str],
+) -> tuple[onnx.ModelProto, _SourceArtifactSnapshot]:
+    """Parse and hash the same local header, then stream referenced ranges."""
+    requested = Path(path).absolute()
+    root = requested.parent.resolve(strict=True)
+    resolved = requested.resolve(strict=True)
+    with resolved.open("rb") as stream:
+        identity = _source_file_identity(os.fstat(stream.fileno()))
+        header = stream.read()
+        if _source_file_identity(os.fstat(stream.fileno())) != identity:
+            raise ValueError("SOURCE model changed while its header was read")
+    binding = _SourceFileBinding(
+        str(requested),
+        str(resolved),
+        identity,
+        0,
+        len(header),
+        hashlib.sha256(header).hexdigest(),
+    )
+    proto = onnx.load_model_from_string(header)
+    del header
+    files = [binding]
+    fingerprint = _source_artifact_fingerprint(
+        proto, base=requested.parent, root=root, files=files
+    )
+    for item in files:
+        _source_recheck_file(item)
+    return proto, _SourceArtifactSnapshot(fingerprint, tuple(files))
 
 
 def _artifact_bytes(model_or_path: ModelArtifact) -> tuple[bytes, str]:

@@ -45,7 +45,7 @@ Example:
 
 import logging
 from functools import partial
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import importlib
 import json
 import os
@@ -145,6 +145,10 @@ from jax2onnx.precision import (
     TensorProperties,
     attach_precision_report,
     get_precision_report,
+    _SourceArtifactFingerprint,
+    _SourceArtifactSnapshot,
+    _source_artifact_fingerprint,
+    _source_artifact_snapshot,
 )
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 
@@ -164,6 +168,151 @@ OnnxFunctionTarget = Union[Callable[..., Any], type[Any]]
 OnnxFunctionDecorator = Callable[[OnnxFunctionTarget], OnnxFunctionTarget]
 
 _temporary_x64 = _force_jax_x64
+
+
+@dataclass(frozen=True)
+class _SourceTensorGuard:
+    tensor: ir.TensorProtocol
+    fingerprint: _SourceArtifactFingerprint
+    name: str | None
+    initializer: bool
+    proto_name_present: bool | None
+
+
+def _freeze_source_ir(
+    model: ir.Model,
+) -> tuple[ir.Model, tuple[_SourceTensorGuard, ...]]:
+    """Freeze topology and small metadata; guard shared tensor storage exactly.
+
+    Model.clone() deliberately shares types, non-graph attributes and tensors.
+    The official leaf codec detaches types/shapes and small attributes. Tensor
+    attributes get new wrappers while tensor objects stay shared; their exact
+    compact guards must match on both sides of reference serialization.
+    """
+    frozen = model.clone()
+    tensors: dict[int, ir.TensorProtocol] = {}
+    initializer_tensors: set[int] = set()
+    values: set[ir.Value] = set()
+    graphs: set[ir.Graph] = set()
+
+    def freeze_value(value: ir.Value) -> None:
+        if value in values:
+            return
+        values.add(value)
+        detached = ir.from_proto(ir.to_proto(value))
+        value.type, value.shape = detached.type, detached.shape
+        # This is the one .meta entry consumed by the official graph codec.
+        # Other .meta entries retain only the clone's ordinary shallow ownership.
+        if "quant_parameter_tensor_names" in value.meta:
+            value.meta["quant_parameter_tensor_names"] = dict(
+                value.meta["quant_parameter_tensor_names"]
+            )
+        if value.const_value is not None:
+            tensors[id(value.const_value)] = value.const_value
+
+    def freeze_attributes(attributes: Any) -> None:
+        for key, attribute in tuple(attributes.items()):
+            if attribute.value is None and not attribute.is_ref():
+                attributes[key] = ir.Attr(
+                    attribute.name,
+                    attribute.type,
+                    None,
+                    doc_string=attribute.doc_string,
+                )
+            elif attribute.is_ref():
+                attributes[key] = ir.from_proto(ir.to_proto(attribute))
+            elif attribute.type is ir.AttributeType.GRAPH:
+                freeze_graph(attribute.as_graph())
+            elif attribute.type is ir.AttributeType.GRAPHS:
+                for graph in attribute.as_graphs():
+                    freeze_graph(graph)
+            elif attribute.type in (
+                ir.AttributeType.TENSOR,
+                ir.AttributeType.TENSORS,
+            ):
+                payloads = (
+                    (attribute.as_tensor(),)
+                    if attribute.type is ir.AttributeType.TENSOR
+                    else tuple(attribute.as_tensors())
+                )
+                for tensor in payloads:
+                    tensors[id(tensor)] = tensor
+                attributes[key] = ir.Attr(
+                    attribute.name,
+                    attribute.type,
+                    (
+                        payloads[0]
+                        if attribute.type is ir.AttributeType.TENSOR
+                        else payloads
+                    ),
+                    doc_string=attribute.doc_string,
+                )
+            else:
+                attributes[key] = ir.from_proto(ir.to_proto(attribute))
+
+    def freeze_graph(graph: ir.Graph) -> None:
+        if graph in graphs:
+            return
+        graphs.add(graph)
+        for value in graph.initializers.values():
+            if value.const_value is not None:
+                initializer_tensors.add(id(value.const_value))
+        for value in (*graph.inputs, *graph.outputs, *graph.initializers.values()):
+            freeze_value(value)
+        for node in graph:
+            for operand in (*node.inputs, *node.outputs):
+                if operand is not None:
+                    freeze_value(operand)
+            freeze_attributes(node.attributes)
+
+    freeze_graph(frozen.graph)
+    for function in iter_ir_functions(frozen.functions):
+        freeze_graph(function.graph)
+        freeze_attributes(function.attributes)
+    guards = []
+    for tensor in tensors.values():
+        proto = ir.to_proto(tensor)
+        guards.append(
+            _SourceTensorGuard(
+                tensor,
+                _source_artifact_fingerprint(proto),
+                tensor.name,
+                id(tensor) in initializer_tensors,
+                (
+                    proto.HasField("name")
+                    if isinstance(tensor, ir.TensorProtoTensor)
+                    else None
+                ),
+            )
+        )
+        del proto
+    return frozen, tuple(guards)
+
+
+def _recheck_source_tensors(
+    guards: tuple[_SourceTensorGuard, ...],
+) -> None:
+    for guard in guards:
+        proto = ir.to_proto(guard.tensor)
+        if _source_artifact_fingerprint(proto) != guard.fingerprint:
+            raise RuntimeError(
+                "SOURCE serialization integrity: "
+                "shared tensor changed after audit capture"
+            )
+        del proto
+
+
+def _restore_source_initializer_names(guards: tuple[_SourceTensorGuard, ...]) -> None:
+    # Only the reference codec's initializer-name side effect is scoped. Actual
+    # serialization keeps its established behavior. No payload/other field is
+    # restored, and a codec or restoration exception still fails the export.
+    for guard in guards:
+        if guard.initializer:
+            if guard.proto_name_present is False:
+                assert isinstance(guard.tensor, ir.TensorProtoTensor)
+                guard.tensor.raw.ClearField("name")
+            else:
+                guard.tensor.name = guard.name
 
 
 def _normalize_return_mode(value: str) -> ReturnMode:
@@ -1546,6 +1695,8 @@ def _to_onnx(
         )
         model_proto: onnx.ModelProto | None = None
         source_structure_result: StructureResult | None = None
+        source_fingerprint: _SourceArtifactFingerprint | None = None
+        source_ir_fingerprint: _SourceArtifactFingerprint | None = None
         if source:
             _finalize_source_deployment(result)
             assert trace_result is not None
@@ -1557,15 +1708,6 @@ def _to_onnx(
                 "output_names": source_output_names,
             }
             _assert_source_boundaries(result, trace_result, opset, **boundary_names)
-            model_proto = ir.to_proto(result)
-            _assert_source_boundaries(
-                model_proto, trace_result, opset, **boundary_names
-            )
-            check_source_schema(model_proto)
-            # Final IR only: after optimizer, postprocessing, output aliases and
-            # IO names. The private result neither changes export admission nor
-            # claims that a serialized proto/file has been structurally audited.
-            source_structure_result = validate_source_structure(result)
             report = _build_source_report(
                 result,
                 trace_result,
@@ -1583,7 +1725,44 @@ def _to_onnx(
                 normalization_mode=normalized_normalization_mode,
             )
             attach_precision_report(result, report)
-            attach_precision_report(model_proto, report)
+
+            # Missing semantic rules remain UNVERIFIED. The mandatory boundary
+            # below only checks serialization integrity relative to this IR.
+            frozen_ir, tensor_guards = _freeze_source_ir(result)
+            source_structure_result = validate_source_structure(result)
+
+            # Freeze compact references BEFORE constructing the returned proto.
+            # IR return also needs the state after ordinary codec name updates.
+            # All passes use the official codec; identical permanent codec faults
+            # remain outside this serialization-integrity checkpoint.
+            _recheck_source_tensors(tensor_guards)
+            try:
+                reference_proto = ir.to_proto(frozen_ir)
+                source_fingerprint = _source_artifact_fingerprint(reference_proto)
+                del reference_proto
+                if normalized_mode == "ir":
+                    reference_proto = ir.to_proto(frozen_ir)
+                    source_ir_fingerprint = _source_artifact_fingerprint(
+                        reference_proto
+                    )
+                    del reference_proto
+            finally:
+                _restore_source_initializer_names(tensor_guards)
+            _recheck_source_tensors(tensor_guards)
+            del frozen_ir, tensor_guards
+            if validate_source_structure(result) != source_structure_result:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: IR changed after its audit"
+                )
+            model_proto = ir.to_proto(result)
+            if _source_artifact_fingerprint(model_proto) != source_fingerprint:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: protobuf differs from audited IR"
+                )
+            _assert_source_boundaries(
+                model_proto, trace_result, opset, **boundary_names
+            )
+            check_source_schema(model_proto)
             if get_precision_report(model_proto) != report:
                 raise RuntimeError(
                     "Source precision metadata failed its serialization roundtrip"
@@ -1605,8 +1784,35 @@ def _to_onnx(
                 except Exception:
                     pass
 
+        def recheck_source_ir() -> None:
+            if source and validate_source_structure(result) != source_structure_result:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: IR changed after its audit"
+                )
+
+        def source_snapshot(
+            path: str,
+        ) -> tuple[onnx.ModelProto, _SourceArtifactSnapshot]:
+            try:
+                return _source_artifact_snapshot(path)
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: "
+                    f"could not verify saved artifact: {exc}"
+                ) from exc
+
         if normalized_mode == "ir":
             observe_source_return(result)
+            if source:
+                recheck_source_ir()
+                # Release the ordinary serialization before checking the actual
+                # returned IR again; retain no second complete proto or weights.
+                model_proto = None
+                current_proto = ir.to_proto(result)
+                if _source_artifact_fingerprint(current_proto) != source_ir_fingerprint:
+                    raise RuntimeError(
+                        "SOURCE serialization integrity: returned IR changed"
+                    )
             return result
 
         if model_proto is None:
@@ -1617,8 +1823,15 @@ def _to_onnx(
                 model_proto, file_path, mode=normalized_export_mode
             )
             if source:
+                # The writer has changed this proto's external storage. Release
+                # it before parsing the actual saved artifact for verification.
+                del model_proto
                 assert trace_result is not None
-                reloaded = onnx.load_model(saved_path, load_external_data=False)
+                reloaded, saved_snapshot = source_snapshot(saved_path)
+                if saved_snapshot.fingerprint != source_fingerprint:
+                    raise RuntimeError(
+                        "SOURCE serialization integrity: saved artifact differs from audited IR"
+                    )
                 _assert_source_boundaries(
                     reloaded, trace_result, opset, **boundary_names
                 )
@@ -1627,9 +1840,22 @@ def _to_onnx(
                     raise RuntimeError(
                         "Saved source precision metadata failed its roundtrip"
                     )
+                del reloaded
             observe_source_return(saved_path)
+            if source:
+                reloaded, current_snapshot = source_snapshot(saved_path)
+                if current_snapshot != saved_snapshot:
+                    raise RuntimeError(
+                        "SOURCE serialization integrity: saved artifact changed after verification"
+                    )
+                del reloaded
             return saved_path
         observe_source_return(model_proto)
+        if source:
+            if _source_artifact_fingerprint(model_proto) != source_fingerprint:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: returned protobuf changed"
+                )
         return model_proto
 
 

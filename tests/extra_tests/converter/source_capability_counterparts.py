@@ -217,27 +217,22 @@ class SourceSchemaObservation:
         return attempt
 
     def assert_report_attachment(self, artifact: Any, report: Any) -> None:
-        """Allow exactly UI's single post-check precision metadata attachment."""
-        attempt = self.assert_checker_boundary()
+        """Require the unchanged checked artifact and its final canonical report."""
+        attempt = self.assert_unchanged()
         assert attempt.returned and attempt.result is None and attempt.cause is None
         assert artifact is attempt.original and report is not None
+        assert self._blob(artifact) == attempt.blob
         frozen = onnx.load_model_from_string(attempt.blob)
-        assert not any(
-            item.key == PRECISION_METADATA_KEY for item in frozen.metadata_props
-        )
         entries = [
-            (index, item)
-            for index, item in enumerate(artifact.metadata_props)
+            item
+            for item in artifact.metadata_props
             if item.key == PRECISION_METADATA_KEY
         ]
         assert len(entries) == 1
-        index, entry = entries[0]
+        (entry,) = entries
+        assert get_precision_report(frozen) == report
         assert get_precision_report(artifact) == report
         assert entry.value == precision_report_to_json(report)
-        candidate = onnx.ModelProto()
-        candidate.CopyFrom(artifact)
-        del candidate.metadata_props[index]
-        assert candidate.SerializeToString() == attempt.blob
 
     def missing_schema_failure(
         self, cause: Exception, *, operator: str, opset: int
