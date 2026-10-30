@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and temporary candidate overlap are accepted architecture. Published `bbe176f6` has four support successes and four full jobs still running; earlier `cd5cb4be` passed all eight old mixed-suite checks without qualifying runtime. Local portable provisioning and its finite component qualification remain private; real cohort authorities, resources, full B–F and gate activation are open. The comparative frozen-main diagnostic stays retired.**
+Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and temporary candidate overlap are accepted architecture. Published `bbe176f6` now has all eight old mixed-suite checks passing, without qualifying runtime. Four local render-only admissions and finite resource-helper controls are accepted within their scope; actual workflow qualification, full B–F and gate activation remain open. The comparative frozen-main diagnostic stays retired.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -52,11 +52,18 @@ The local [portable STANDARD inputs and private CLI](ci_standard/README.md) now
 bind four reviewed cohorts and provision a campaign from its first closed full
 collection. Complete owners pass **373 cases / 1,119 phases each** on official
 3.11 and 3.14, retaining the focused 47/40-case history (pair freeze `237b62f3…`).
-Real rendering requires committed source matching external event authority;
-fresh cohort/whole-job qualification and workflow activation remain pending.
-Published `bbe176f6` still has four support successes and four full jobs running
+All four render-only admissions passed at clean local `11d5739f`, preserving
+generated epochs and restoring Root/Main28 between cohorts (packet `4b5560aa…`).
+The resource observer passes 28 cases / 84 phases on each official family,
+including an ordinary CLI (pair `931cafa8…`); sampled command resources and
+unobserved external Actions intervals remain separate. These local results do
+not establish GitHub event provenance, current collection/runtime, hosted
+1,200-second timing or workflow activation.
+Published `bbe176f6` has **all eight SUCCESS**
 in [CI 40989814728](https://github.com/enpasos/jax2onnx/actions/runs/40989814728)
-at this checkpoint; the local additions make no green-head claim.
+as of **05:21:03 UTC on 30 October**. Old full jobs span **10,349–11,626 s**,
+support **39–96 s**, aggregate **43,715 job-seconds**; this does not qualify the
+20-minute target or constitute a numerical repair.
 
 Frozen main remains `81ad6ca`. Earlier published `cd5cb4be` has **all eight SUCCESS** in
 [CI 40964061166](https://github.com/enpasos/jax2onnx/actions/runs/40964061166),
@@ -1036,15 +1043,22 @@ STANDARD job's 20-minute limit or replace milestone/final acceptance.
 
 | Scope | Runtime acceptance | Memory target | Uploaded evidence target |
 | --- | --- | --- | --- |
-| Standard main baseline, all four cohorts/support | Every successful Linux STANDARD job <=1,200 s from actual job start through checkout/setup/generation/collection/execution/aggregation/upload/final cleanup; queue excluded; timeout/interruption/incomplete fails | <=4 GiB total owned-process RSS per ordinary runner, >=2 GiB host headroom, no OOM/swap growth; fixed worker count must fit this aggregate target | <=100 MiB compressed successful-campaign receipts/logs; seven days. Report complete failure/retry payloads separately without truncation. |
+| Standard main baseline, all four cohorts/support | Every successful Linux STANDARD job <=1,200 s from actual job start through checkout/setup/generation/collection/execution/aggregation/upload/final cleanup; queue excluded; timeout/interruption/incomplete fails | For all controlled project-work intervals: sampled aggregate owned-process RSS <=4 GiB, host headroom >=2 GiB, and no observed OOM/swap growth; fixed worker count fits the aggregate target | <=100 MiB compressed successful-campaign receipts/logs; seven days. Report complete failure/retry payloads separately without truncation. |
 | Focused extras | Provisional <=35m slowest job and <=160m aggregate, charged separately from standard; freeze actual selection and measure before qualification | One native worker per runner; <=4 GiB owned-process RSS and >=2 GiB headroom | <=100 MiB compressed successful receipts/logs; seven days; complete failure evidence retained |
 | Complete CPU acceptance, `S + A`, all four cohorts | Provisional <=45m slowest job, <=90m execution makespan with eight available slots, <=480m aggregate including prerequisites; these targets are not achieved results | One native worker per extra model runner; model packets <=12 GiB owned-process RSS with >=2 GiB host headroom; no OOM/swap growth | <=3.5 GiB per cohort / <=14 GiB total compressed, with complete required payloads; 14 days, final evidence retained through review |
 | Full web integrations | Main web baseline and added web costs reported separately. Historical 180m Node / 240m Chrome limits do not qualify a replacement's runtime | Current `-n auto` configuration is unqualified under the new resource plan; bounded execution and descendant/headroom measurements need review | Numeric budget UNVERIFIED; retain complete failure/replay evidence and report compressed bytes separately |
 
-Measure owned process trees, cgroup peaks and actual host headroom separately;
-filesystem cache is not model RSS. Missing/incomplete telemetry makes resource
-acceptance UNVERIFIED, never zero usage. The runner's existing parent-PID samples
-do not establish descendant peaks; full hosted qualification remains pending.
+Sample every controlled setup, generation, admission, execution,
+aggregation/compression and cleanup interval with owned descendants. An observed
+breach, OS kill or missing required interval receipt fails resource qualification.
+List pinned GitHub-managed checkout/setup/upload/post-hook intervals separately
+as resource **UNOBSERVED**, never zero. These service-only gaps do not themselves
+block activation; the complete Actions job span must still be <=1,200 s, and no
+project work may be hidden in them. Optional unavailable unowned kernel counters
+remain labelled unavailable, without a blanket failure when required owned/proc
+accounting is complete. Measure owned RSS, shared cgroup counters and actual host
+headroom separately; filesystem cache is not model RSS. Full hosted workflow
+qualification remains pending.
 Budget failure does not erase completed semantic results. An OS kill, timeout or
 missing receipt remains incomplete. Existing local one-job/one-worker, one-thread,
 CPUs 4–7, 4 GiB aggregate, 12 GiB startup/8 GiB live available-memory and 4 GiB

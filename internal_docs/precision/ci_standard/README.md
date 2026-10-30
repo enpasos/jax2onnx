@@ -31,8 +31,9 @@ or unknown distributions/plugins fail admission. The renderer installs nothing.
 
 Environment/JAX literals come from each profile's reviewed observations. The
 portable Python 3.11 CPU profile explicitly changes `LD_LIBRARY_PATH` to genuinely
-unset; it is **new and requires fresh real qualification**. Its historical FULL
-and context receipts do not establish equivalent loader/runtime conditions.
+unset. Its local render-only admission passed; actual collection/native-runtime
+qualification remains open. Historical FULL/context receipts do not establish
+equivalent loader/runtime conditions.
 
 ## Private commands
 
@@ -109,6 +110,43 @@ qualification passed 373 cases / 1,119 phases on each official Python 3.11 and
 3.14 family, including all six opt-in synthetic xdist controls. Receipts are in
 `portable-standard-provision-v1-cb_dzqs5/complete-owners-v3/` below
 `/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/` (pair freeze `237b62f3…`).
-These finite results do not qualify real four-cohort provisioning, numerical
-migration, full B–F, resources or whole hosted-job timing. No candidate workflow,
-gate or public precision transition is activated.
+All four local render-only admissions passed at clean `11d5739f`, with each
+original generator run once, own package/plugin expectations, framework-unloaded
+renderer and exact Root/Main restoration. The packet is
+`portable-standard-render-only-11d5739f-8sxiaspv/aggregate-freeze.json` under the
+same evidence root (hash `4b5560aa…`). This uses a reviewer-supplied **local SHA**,
+not GitHub event provenance. Saved cohort epochs remain distinct from restored
+Root28; no collection, runtime or FULL followed these admissions.
+
+## Controlled-command resource observer
+
+`scripts/run_with_resources.py` is a standalone Linux observer; it does not
+change runner requests, authority schemas, profiles or child argv/env/cwd/streams.
+For example, with an independently approved command and fresh external output:
+
+```sh
+python -B scripts/run_with_resources.py \
+  --output-dir "$RUNNER_TEMP/command-resources" --timeout-seconds 900 \
+  -- python -B -m mkdocs build --strict \
+    --site-dir "$RUNNER_TEMP/documentation-site"
+```
+
+It samples itself and owned PID/starttime descendants every 0.2 s through
+cleanup, including separately sessioned/adopted children. Defaults are 4 GiB
+aggregate RSS, 2 GiB host headroom and 4 GiB declared-filesystem free space;
+existing local outer guards retain their stricter 12/8 GiB host floors. Required
+read/accounting failures and observed breaches cannot pass. Optional/shared
+kernel and cgroup counters retain unavailable/reset/ownership labels, without
+inferring OOM from a signal or replacing unknown values with zero.
+
+Pair every receipt with the actual command exit/signal. The summary separates
+the main child result, guard result, adopted wait outcomes and planned wrapper
+termination. It claims only sampled controlled-command compliance. External
+Actions resource intervals remain UNOBSERVED, not an automatic activation block;
+the separate whole-job 1,200-second requirement still includes those actions.
+
+The dedicated owner passes 28 cases / 84 phases on each official 3.11/3.14 family,
+including an ordinary exact CLI, detached descendants, PID reuse and preserved
+failed controls. Evidence is `owned-resource-wrapper-v2-owners-xgispep0/`
+(pair `931cafa8…`). No candidate workflow, numerical migration, full B–F or hosted
+timing/resource qualification is activated by these finite results.

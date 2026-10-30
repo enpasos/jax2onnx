@@ -23,15 +23,24 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-Published `bbe176f6` has four support successes and four full jobs still running
+Published `bbe176f6` has **all eight SUCCESS**
 in [CI 40989814728](https://github.com/enpasos/jax2onnx/actions/runs/40989814728)
-at this checkpoint. The reviewed local [portable STANDARD provisioning](ci_standard/README.md)
-adds source-bound four-cohort inputs and first-collection campaign construction;
+as of **05:21:03 UTC on 30 October**. Its old mixed-suite full jobs cost
+**10,349–11,626 s**, support **39–96 s**, aggregate **43,715 job-seconds**;
+this is neither 20-minute qualification nor a numerical repair.
+The reviewed local [portable STANDARD provisioning](ci_standard/README.md)
+binds four-cohort inputs and first-collection campaign construction;
 complete component/process owners pass **373 cases / 1,119 phases each** on
 official Python 3.11 and 3.14 (pair freeze `237b62f3…`). The prior focused
-47/40-case evidence is retained. Real rendering awaits committed exact-event
-source and fresh cohort qualification; no workflow, 20-minute or numerical
-acceptance follows from these finite tests.
+47/40-case evidence is retained. All four render-only admissions passed at clean
+local `11d5739f`, with one original generation per cohort and exact Root/Main
+restoration (packet `4b5560aa…`). This is local SHA admission, not GitHub event
+provenance, collection or native runtime qualification. The private command
+resource observer passes **28 cases / 84 phases each** on official 3.11 and 3.14
+(pair `931cafa8…`), including an ordinary CLI and preserved failed controls.
+It measures sampled controlled-command resources; external Actions intervals
+remain explicitly unobserved. No workflow, whole-job timing, public SOURCE or
+full B–F acceptance follows from these finite results.
 
 Earlier published `cd5cb4bebf6de00223bf9454f7fb6f15a317e2cf`, against frozen main
 `81ad6ca`, has **all eight SUCCESS** in
