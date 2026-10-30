@@ -475,22 +475,29 @@ def test_same_typed_serialized_boundary_reorder_is_rejected(
 ) -> None:
     if boundary == "proto":
         original = ir.to_proto
+        model_calls = 0
 
         def swapped(model: Any) -> Any:
+            nonlocal model_calls
             proto = original(model)
-            getattr(proto.graph, role).reverse()
+            if isinstance(model, ir.Model):
+                model_calls += 1
+                getattr(proto.graph, role).reverse()
             return proto
 
         monkeypatch.setattr(ir, "to_proto", swapped)
     else:
-        original_load = onnx.load_model
+        original_load = ui._source_artifact_snapshot
+        snapshot_calls = 0
 
         def swapped_load(*args: Any, **kwargs: Any) -> Any:
-            proto = original_load(*args, **kwargs)
+            nonlocal snapshot_calls
+            proto, snapshot = original_load(*args, **kwargs)
+            snapshot_calls += 1
             getattr(proto.graph, role).reverse()
-            return proto
+            return proto, snapshot
 
-        monkeypatch.setattr(onnx, "load_model", swapped_load)
+        monkeypatch.setattr(ui, "_source_artifact_snapshot", swapped_load)
     with pytest.raises(SourcePrecisionError, match="names/order"):
         _source(
             lambda *, a, b: (a, b),
@@ -500,6 +507,10 @@ def test_same_typed_serialized_boundary_reorder_is_rejected(
             output_path=tmp_path / "corrupt.onnx",
             output_names=["first", "second"],
         )
+    if boundary == "proto":
+        assert model_calls == 2
+    else:
+        assert snapshot_calls == 1
 
 
 def test_source_context_rejects_name_only_or_non_bool_flag() -> None:

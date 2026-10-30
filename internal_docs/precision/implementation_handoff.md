@@ -24,10 +24,10 @@ jobs; it does not activate a gate.
 ## Current checkpoint — 2026-10-30
 
 At local `613f1b69`, official312 full collection records **C=19,461**; only the two original MaxText exports/context/closed-worker checks pass in this finite witness.
-Both saved-model full checkers **FAIL** at `node_Cast_149` (`tensor(complex64)`); numerical acceptance remains **UNVERIFIED**.
-[Closed evidence](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/closed-integration.json) (`7cb90c94…`) and [source diagnosis](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/checker-only/source-diagnosis-v1.json) (`f9c80518…`) retain the failures; historical Main artifact outcomes remain **UNVERIFIED**.
-Actual artifact SHA256s: `deepseek2-16b`: `e262053fd7af7f5a78e29a1b3a90f36ebfbdc7ec03ae31dee1b8d3514ae9af28`; `deepseek2-236b`: `fd60cdbb2e22c0a2927b04c217e6e1d3d3e8b70c972a0641ae28b1133843a55d`.
-Full S, original 45+5, all 12 native owners and full B–F remain unqualified.
+Both saved-model full checkers **FAIL** at `node_Cast_149` (`tensor(complex64)`); [frozen Main deepseek2-16b](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/main312-deepseek-schema-plan-smcaLK/closed-summary.json) (`e8d9dbfd…`) also fails schema checking with the same 13-node defect chain. Main deepseek2-236b remains **UNVERIFIED**; numerical acceptance remains **UNVERIFIED**.
+CI #572 at exact `2ccb4c04` records ten successful jobs, locked312 sampled owned RSS **4102.66 MiB > 4096 MiB**, locked311 cancelled beyond the whole-job budget, and stale full-suite serialization-reader test hooks. Reviewed owner isolation and test-hook repairs preserve the criteria; qualification remains open.
+[Closed evidence](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/closed-integration.json) (`7cb90c94…`) and [source diagnosis](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/checker-only/source-diagnosis-v1.json) (`f9c80518…`) retain artifact SHA256s: deepseek2-16b `e262053fd7af7f5a78e29a1b3a90f36ebfbdc7ec03ae31dee1b8d3514ae9af28`; deepseek2-236b `fd60cdbb2e22c0a2927b04c217e6e1d3d3e8b70c972a0641ae28b1133843a55d`.
+Full S, original 45+5, all 12 native owners and full B–F remain unqualified; strict reference-case numerical acceptance remains **FAILED**.
 
 The reviewed V2 checkpoint appends eight fixed temporary STANDARD candidates
 beside the untouched authoritative old eight in the same PR #277 workflow

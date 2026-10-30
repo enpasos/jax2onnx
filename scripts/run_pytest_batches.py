@@ -2582,6 +2582,8 @@ _CI_PRIVATE_OPTIONS: tuple[str, ...] = (
 _CI_STANDARD_OWNERS: frozenset[str] = frozenset(
     (
         "tests/examples/test_eqx_dino.py",
+        "tests/examples/test_maxdiffusion.py",
+        "tests/examples/test_maxtext.py",
         "tests/examples/test_nnx_dino.py",
     )
 )

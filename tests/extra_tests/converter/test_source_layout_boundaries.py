@@ -734,16 +734,19 @@ def test_finalized_layout_shape_cannot_be_silently_reset_to_canonical(
 def test_reloaded_layout_boundary_shape_remains_strict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    load = onnx.load_model
+    load = ui._source_artifact_snapshot
+    snapshot_calls = 0
 
     def corrupt(*args: Any, **kwargs: Any) -> Any:
-        proto = load(*args, **kwargs)
+        nonlocal snapshot_calls
+        proto, snapshot = load(*args, **kwargs)
+        snapshot_calls += 1
         dims = proto.graph.input[0].type.tensor_type.shape.dim
         for dim, size in zip(dims, (1, 2, 3, 4), strict=True):
             dim.dim_value = size
-        return proto
+        return proto, snapshot
 
-    monkeypatch.setattr(onnx, "load_model", corrupt)
+    monkeypatch.setattr(ui, "_source_artifact_snapshot", corrupt)
     with pytest.raises(SourcePrecisionError, match="boundary dtype or shape"):
         _source(
             lambda x: -x,
@@ -753,3 +756,5 @@ def test_reloaded_layout_boundary_shape_remains_strict(
             return_mode="file",
             output_path=tmp_path / "corrupt.onnx",
         )
+
+    assert snapshot_calls == 1

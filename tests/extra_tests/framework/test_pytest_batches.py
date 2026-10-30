@@ -1622,6 +1622,49 @@ def test_lane_batch_plan_keeps_reviewed_dino_owners_whole_without_regrouping() -
     assert all([nodeid] in batches and [nodeid] in default for nodeid in native)
 
 
+@pytest.mark.parametrize(
+    ("owner", "count"),
+    [
+        ("tests/examples/test_maxdiffusion.py", 5),
+        ("tests/examples/test_maxtext.py", 45),
+    ],
+)
+def test_lane_batch_plan_isolates_all_original_optional_models(
+    owner: str, count: int
+) -> None:
+    module = _runner()
+    cohort = json.loads(
+        (
+            _RUNNER.parents[1] / "internal_docs/precision/ci_standard/py312.json"
+        ).read_text()
+    )
+    standard = cohort["baseline"]["nodeids"]
+    assert len(standard) == 4621
+    items = [
+        {
+            "nodeid": nodeid,
+            "module": nodeid.split("::", 1)[0],
+            "class": None,
+        }
+        for nodeid in standard
+    ]
+    batches = module._plan(items, 500, isolated_owners=module._CI_STANDARD_OWNERS)
+    assert [nodeid for batch in batches for nodeid in batch] == standard
+    for preserved_owner in (
+        "tests/examples/test_eqx_dino.py",
+        "tests/examples/test_nnx_dino.py",
+    ):
+        preserved_cases = [
+            nodeid for nodeid in standard if nodeid.startswith(preserved_owner + "::")
+        ]
+        assert preserved_cases and preserved_cases in batches
+    original_cases = [nodeid for nodeid in standard if nodeid.startswith(owner + "::")]
+    assert len(original_cases) == count
+    assert [batch for batch in batches if any(n in original_cases for n in batch)] == [
+        original_cases
+    ]
+
+
 @pytest.mark.parametrize("fault", ["oversized", "noncontiguous"])
 def test_lane_batch_plan_rejects_unpreservable_whole_owner(fault: str) -> None:
     module = _runner()
