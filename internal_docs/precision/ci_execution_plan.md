@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and temporary candidate overlap are accepted architecture. Published `bbe176f6` now has all eight old mixed-suite checks passing, without qualifying runtime. Four local render-only admissions and finite resource-helper controls are accepted within their scope; actual workflow qualification, full B–F and gate activation remain open. The comparative frozen-main diagnostic stays retired.**
+Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and temporary candidate overlap are accepted architecture. Published `10c46eb2` CI remains pending at the 07:33 UTC snapshot; predecessor `bbe176f6` has all eight old mixed-suite checks passing. The local private support extension and bounded observations are qualified only within their recorded scope. Actual workflow qualification, full B–F and gate activation remain open. The comparative frozen-main diagnostic stays retired.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -59,7 +59,24 @@ including an ordinary CLI (pair `931cafa8…`); sampled command resources and
 unobserved external Actions intervals remain separate. These local results do
 not establish GitHub event provenance, current collection/runtime, hosted
 1,200-second timing or workflow activation.
-Published `bbe176f6` has **all eight SUCCESS**
+The [private support variant](ci_standard/README.md#private-support-variant)
+retains original ordered command selectors and a separate command inventory,
+exact minimum package/installer bindings and all existing native/closure checks.
+It passes 447 controls on 3.13 (362 unchanged prior IDs, 11 explicit global
+mappings, 74 new); the bookkeeping error is retained. The refined complete
+3.11 run passes 447 controls with genuine unsupported-role rejection, then only
+the two positive support controls are repeated on 3.13 (pair `2635bb2d…`).
+Separate clean-`10c46eb2` minimum475 and normalization102 observations retain
+three actual contexts, metadata and Root/Main preservation; minimum A140 is
+unexecuted. These pre-documentation epochs are observations, not real support
+authority, canonical admission, hosted timing or full SOURCE/B–F numerical
+acceptance; the original legacy criteria executed unchanged.
+
+Published `10c46eb2` is pending in
+[CI 41014331472](https://github.com/enpasos/jax2onnx/actions/runs/41014331472):
+at **07:33 UTC on 30 October**, four support jobs succeeded and four full jobs
+were running, with all eight checkout assertions successful. Predecessor
+`bbe176f6` has **all eight SUCCESS**
 in [CI 40989814728](https://github.com/enpasos/jax2onnx/actions/runs/40989814728)
 as of **05:21:03 UTC on 30 October**. Old full jobs span **10,349–11,626 s**,
 support **39–96 s**, aggregate **43,715 job-seconds**; this does not qualify the

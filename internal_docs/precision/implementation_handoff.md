@@ -23,7 +23,11 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-Published `bbe176f6` has **all eight SUCCESS**
+Published `10c46eb2` is **pending** in
+[CI 41014331472](https://github.com/enpasos/jax2onnx/actions/runs/41014331472):
+at **07:33 UTC on 30 October**, all four support jobs succeeded and all four
+full Python jobs were running; all eight checkout assertions succeeded.
+Predecessor `bbe176f6` has **all eight SUCCESS**
 in [CI 40989814728](https://github.com/enpasos/jax2onnx/actions/runs/40989814728)
 as of **05:21:03 UTC on 30 October**. Its old mixed-suite full jobs cost
 **10,349–11,626 s**, support **39–96 s**, aggregate **43,715 job-seconds**;
@@ -41,6 +45,22 @@ resource observer passes **28 cases / 84 phases each** on official 3.11 and 3.14
 It measures sampled controlled-command resources; external Actions intervals
 remain explicitly unobserved. No workflow, whole-job timing, public SOURCE or
 full B–F acceptance follows from these finite results.
+
+The support extension remains private and unactivated. It closes the
+private role/cohort, exact ordered-selector and minimum-installation binding
+logic described in the [support variant](ci_standard/README.md#private-support-variant).
+Its 447 controls / 1,341 phases pass on 3.13; the prior 373 are 362 unchanged
+IDs plus 11 explicit global mappings, with the failed literal-ID bookkeeping
+record preserved. The refined 447-case 3.11 run includes a genuine unsupported
+normalization-role rejection before coordinator C/batch; only the two affected
+positive routes were repeated on 3.13 (pair `2635bb2d…`). These proofs bind their
+isolated `10c46eb2` plus reviewed-patch epochs, before this documentation edit.
+Separate clean-10c minimum312 S475 and normalization313 S102 observations pass
+with actual startup/collection/post-unconfigure contexts and exact Root/Main
+preservation (`9959dfdc…`, `f5565ad5…`); minimum's 140 extras were unexecuted.
+They supply no real support profile, canonical admission, skip allowance,
+hosted timing or full SOURCE/B–F numerical acceptance. Their original legacy
+criteria executed unchanged. No authority JSON or workflow changed.
 
 Earlier published `cd5cb4bebf6de00223bf9454f7fb6f15a317e2cf`, against frozen main
 `81ad6ca`, has **all eight SUCCESS** in

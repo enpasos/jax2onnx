@@ -349,3 +349,203 @@ def test_future_run_uses_the_same_canonical_path_as_the_coordinator(authority):
     assert manifest["environment"]["JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"] == str(
         (alias / run.name).resolve() / "native-model-artifacts"
     )
+
+
+def _support_authority(authority, monkeypatch, role="normalization", minor="3.12"):
+    module, root, path, _, run, original, distributions = authority
+    data = deepcopy(original)
+    data.update(
+        schema="jax2onnx-ci-support-cohort-v1",
+        support_role=role,
+        python_minor=minor,
+        collection_args=["tests/test_base.py"],
+    )
+    monkeypatch.setattr(
+        module,
+        "sys",
+        SimpleNamespace(version_info=SimpleNamespace(major=3, minor=int(minor[2:]))),
+    )
+    if role == "minimum":
+        installer = root / "scripts/install_minimum_dependencies.py"
+        installer.parent.mkdir()
+        installer.write_bytes(
+            (_ROOT / "scripts/install_minimum_dependencies.py").read_bytes()
+        )
+        (root / "pyproject.toml").write_text(
+            '[project]\nversion = "0.17.1"\ndependencies = ["pytest>=8.0"]\n'
+        )
+        data["packages"]["pytest"] = "8.0"
+        data["plugins"][0]["version"] = "8.0"
+        distributions[-1].version = "8.0"
+        for name in module._binding_names(data):
+            data["bindings"][name] = module._sha((root / name).read_bytes())
+    _write_json(path, data)
+    return module, root, path, run, data, distributions
+
+
+@pytest.mark.parametrize(
+    ("role", "minor"),
+    [
+        ("minimum", "3.12"),
+        ("normalization", "3.12"),
+        ("normalization", "3.13"),
+        ("node-smoke", "3.12"),
+    ],
+)
+def test_support_cohort_admits_only_the_four_original_role_cohorts(
+    authority, monkeypatch, role, minor
+):
+    module, _, path, _, data, _ = _support_authority(
+        authority, monkeypatch, role, minor
+    )
+    observed, _, _ = module._cohort(path, module._runner()._context_json)
+    assert observed == data
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "role",
+        "cohort",
+        "empty",
+        "duplicate",
+        "non-string",
+        "toggle",
+        "locked-role",
+        "locked-selectors",
+    ],
+)
+def test_support_cohort_rejects_role_selector_and_installation_policy_overrides(
+    authority, monkeypatch, fault
+):
+    module, _, path, _, data, _ = _support_authority(authority, monkeypatch)
+    if fault == "role":
+        data["support_role"] = "arbitrary"
+    elif fault == "cohort":
+        data["python_minor"] = "3.11"
+        module.sys.version_info.minor = 11
+    elif fault == "empty":
+        data["collection_args"] = []
+    elif fault == "duplicate":
+        data["collection_args"] *= 2
+    elif fault == "non-string":
+        data["collection_args"] = [1]
+    elif fault == "toggle":
+        data["installation_policy"] = "minimum"
+    else:
+        data["schema"] = "jax2onnx-ci-standard-cohort-v1"
+        del data["collection_args" if fault == "locked-role" else "support_role"]
+    _write_json(path, data)
+    with pytest.raises(ValueError):
+        module._cohort(path, module._runner()._context_json)
+
+
+def test_support_renderer_keeps_ordered_command_and_absent_generated_directories(
+    authority, monkeypatch
+):
+    module, root, path, run, data, _ = _support_authority(authority, monkeypatch)
+    (root / "tests/test_other.py").write_text("def test_exact(): pass\n")
+    data["collection_args"].append("tests/test_other.py::test_exact")
+    data["baseline"]["nodeids"].append(data["collection_args"][-1])
+    for name in data["baseline"]["generated"]:
+        (root / name).unlink()
+    (root / "tests/examples").rmdir()
+    (root / "tests/primitives").rmdir()
+    data["baseline"]["generated"] = {}
+    _write_json(path, data)
+    module._git(root, "add", ".")
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "support",
+    )
+    event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    manifest, _ = module._manifest(path, root, event, run)
+    assert manifest["collection_args"] == data["collection_args"]
+    assert manifest["nodeids"] == data["baseline"]["nodeids"]
+
+
+def test_minimum_support_uses_exact_frozen_packages_outside_foundation_lock(
+    authority, monkeypatch
+):
+    module, root, _, _, data, _ = _support_authority(authority, monkeypatch, "minimum")
+    # This direct floor deliberately differs from the locked foundation.
+    module._installation(data, root)
+    assert module._binding_names(data) == {
+        "poetry.lock",
+        "pyproject.toml",
+        "scripts/install_minimum_dependencies.py",
+    }
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing-package",
+        "package",
+        "extra-package",
+        "bootstrap",
+        "extra-bootstrap",
+        "project",
+        "plugin",
+    ],
+)
+def test_minimum_support_rejects_distribution_bootstrap_and_plugin_drift(
+    authority, monkeypatch, fault
+):
+    module, root, _, _, data, distributions = _support_authority(
+        authority, monkeypatch, "minimum"
+    )
+    if fault == "missing-package":
+        distributions.pop()
+    elif fault == "package":
+        distributions[-1].version = "wrong"
+    elif fault == "extra-package":
+        distributions.append(
+            SimpleNamespace(metadata={"Name": "foreign"}, version="1", entry_points=[])
+        )
+    elif fault == "bootstrap":
+        data["bootstrap"]["pip"] = "wrong"
+    elif fault == "extra-bootstrap":
+        data["bootstrap"]["setuptools"] = "1"
+    elif fault == "project":
+        (root / "pyproject.toml").write_text(
+            '[project]\nversion = "different"\ndependencies = ["pytest>=8.0"]\n'
+        )
+    else:
+        distributions[-1].entry_points[0].value = "foreign.plugin"
+    with pytest.raises(ValueError):
+        module._installation(data, root)
+
+
+@pytest.mark.parametrize(
+    "binding",
+    ["pyproject.toml", "scripts/install_minimum_dependencies.py", "poetry.lock"],
+)
+def test_minimum_support_rejects_altered_project_installer_and_foundation_bindings(
+    authority, monkeypatch, binding
+):
+    module, root, path, run, data, _ = _support_authority(
+        authority, monkeypatch, "minimum"
+    )
+    data["bindings"][binding] = "0" * 64
+    _write_json(path, data)
+    module._git(root, "add", ".")
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "support",
+    )
+    event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    with pytest.raises(ValueError, match="binding"):
+        module._manifest(path, root, event, run)

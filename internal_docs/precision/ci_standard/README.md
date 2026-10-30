@@ -1,4 +1,4 @@
-# Private STANDARD provisioning
+# Private STANDARD and support provisioning
 
 This is private test-execution tooling, not a public SOURCE API or an activated
 workflow. Real rendering requires a committed source tree whose HEAD and every
@@ -23,9 +23,13 @@ in `modern-baseline.json`. Their package, plugin, environment, JAX transition an
 provenance records remain separate. Their observed global PR collections differ;
 no global inventory is transported from one cohort to another.
 
-Every dependency version must occur in the bound Poetry lock. The editable
-project version comes from the bound `pyproject.toml`; pip is an explicit
-bootstrap pin. The complete installed distribution set and complete `pytest11`
+Locked STANDARD, normalization and node-smoke versions must occur in the bound
+Poetry lock. A minimum-support cohort instead freezes an independently reviewed
+complete floor installation and additionally binds
+`scripts/install_minimum_dependencies.py`; it does not infer floors from the
+running environment. The editable project version comes from the bound
+`pyproject.toml`; pip is an explicit bootstrap pin. The complete installed
+distribution set and complete `pytest11`
 entry-point set must match the reviewed profile: missing, different, duplicate
 or unknown distributions/plugins fail admission. The renderer installs nothing.
 
@@ -38,7 +42,10 @@ equivalent loader/runtime conditions.
 ## Private commands
 
 First establish the exact declared CPU/environment profile using the supported
-official interpreter, then run the original `scripts/generate_tests.py` once.
+official interpreter. Run the original `scripts/generate_tests.py` once for
+STANDARD and support commands whose original setup includes generation.
+Normalization retains no generation and a clean checkout with both ignored
+`tests/primitives` and `tests/examples` directories absent.
 Generation is a separate child; its environment changes do not rewrite the
 coordinator's startup profile. Preserve existing generated artifacts before its
 normal cleanup. Do not add framework flags, package overlays or cache clearing.
@@ -89,8 +96,9 @@ fails instead of refreshing authority from the observation.
 ## First-collection provisioning and limits
 
 `--_ci-provision-campaign` is mutually exclusive with the existing
-`--ci-campaign-contract` route. It requires full-global canonical standard
-selection, freezes source-bound skip allowances before collection, and runs the
+`--ci-campaign-contract` route. STANDARD requires full-global canonical selection;
+the support variant below retains its exact original command. Provisioning
+freezes source-bound skip allowances before collection and runs the
 existing canonical collection exactly once. After closed-worker hashes,
 exit status, zero execution and the independent environment/JAX transition pass,
 it writes the existing campaign-v1 contract against that untouched raw receipt
@@ -117,6 +125,40 @@ renderer and exact Root/Main restoration. The packet is
 same evidence root (hash `4b5560aa…`). This uses a reviewer-supplied **local SHA**,
 not GitHub event provenance. Saved cohort epochs remain distinct from restored
 Root28; no collection, runtime or FULL followed these admissions.
+
+## Private support variant
+
+`jax2onnx-ci-support-cohort-v1` adds a required `support_role` and ordered
+`collection_args`: minimum and node-smoke require Python 3.12; normalization
+permits 3.12/3.13. Repeat each original selector as `--test-path` in that exact
+order. Other selection overrides remain prohibited. The support campaign uses
+`jax2onnx-ci-support-campaign-v1` with `command_inventory`; the unchanged global
+route retains `global_inventory`. Both supplied-contract and first-collection
+routes keep closed-worker, complete command C, ordered S/disjoint A, native
+phase/skip/`wasxfail`, JUnit and final source/context checks. No real support
+cohort JSON or workflow is activated by this extension.
+
+The five-file extension passes 447 controls / 1,341 phases on official 3.13;
+the prior 373 controls remain as 362 literal IDs plus 11 explicit global
+renamings/parameterizations, with 74 additional cases. Its preserved
+`closure-error.json` records the rejected literal-ID bookkeeping assumption.
+After the test-only refinement, all 447 controls pass on 3.11, including a
+genuine unsupported-normalization-role rejection before any coordinator C/batch;
+the two affected positive routes pass again on 3.13. Rejection is not positive
+support qualification. Final packet `support-provision-test-v2-alqe7ufe/`
+(pair freeze `2635bb2d…`) is below the evidence root above.
+
+Separate clean-`10c46eb2` observations retain all three actual worker boundaries:
+JAX is unloaded before pytest; collected/post-unconfigure x64 is true for
+minimum312 and false for normalization313. Minimum passes S=475 / 1,425 phases
+with its complete C=615 and A=140 explicitly unexecuted; normalization passes
+C=S=102 / 306 phases with no skips. Their CPU/LD-unset/subject-import profiles,
+110/8 and 109/8 package/plugin maps, generated/no-generation states and exact
+Root/Main preservation are recorded in
+`support-context-observation-10c46eb2-20261030/`. These are observations, not
+real-profile admission, canonical support qualification or hosted timing proof;
+they create no skip allowance or full SOURCE/B–F numerical acceptance. The
+original legacy checks executed their existing criteria unchanged.
 
 ## Controlled-command resource observer
 

@@ -1024,6 +1024,8 @@ class TestGroup:
         "collection-phase",
         "collection-completed",
         "collection-timing",
+        "selector-missing",
+        "selector-changed",
     ],
 )
 def test_canonical_closed_lane_receipt_binds_terminal_authority_and_raw_files(
@@ -1031,7 +1033,10 @@ def test_canonical_closed_lane_receipt_binds_terminal_authority_and_raw_files(
 ):
     module = _runner()
     suite, manifest, environment = _suite(
-        tmp_path, {"test_cases.py": _BODY}, ["test_cases.py::test_base"]
+        tmp_path,
+        {"test_cases.py": _BODY},
+        ["test_cases.py::test_base"],
+        collection_args=["test_cases.py"] if fault.startswith("selector-") else None,
     )
     context = module._CiLaneContext(manifest, suite, environment=environment)
     folder = tmp_path / "closed-worker"
@@ -1042,6 +1047,7 @@ def test_canonical_closed_lane_receipt_binds_terminal_authority_and_raw_files(
             "--_j2o-ci-lane=standard",
             "--_j2o-ci-main-baseline=" + str(manifest),
             "--_j2o-ci-main-sha256=" + context.sha256,
+            *context.manifest.get("collection_args", []),
             "--collect-only",
         ],
     }
@@ -1063,6 +1069,11 @@ def test_canonical_closed_lane_receipt_binds_terminal_authority_and_raw_files(
             "errors": [],
         },
     }
+    if fault.startswith("selector-"):
+        receipt.update(
+            collection_args=["test_cases.py"],
+            qualified_collection_args=["test_cases.py"],
+        )
     module._write(folder / "request.json", request)
     module._write(folder / "receipt.json", receipt)
     terminal = {
@@ -1093,6 +1104,10 @@ def test_canonical_closed_lane_receipt_binds_terminal_authority_and_raw_files(
             receipt["phase_durations"] = {
                 "test_cases.py::test_base": [{"when": "setup", "seconds": 0.0}]
             }
+        elif fault == "selector-missing":
+            del receipt["qualified_collection_args"]
+        elif fault == "selector-changed":
+            receipt["collection_args"] = ["test_foreign.py"]
         else:
             receipt["ci_lane"]["lane"] = "extra"
         module._write(folder / "receipt.json", receipt)
@@ -1326,7 +1341,7 @@ def pytest_runtestloop(session):
     assert not (suite / "body-ran").exists()
 
 
-def _campaign_fixture(tmp_path):
+def _campaign_fixture(tmp_path, *, support=False):
     module = _runner()
     standard = ["test_cases.py::test_base", "test_cases.py::test_other"]
     extra = ["test_cases.py::test_extra"]
@@ -1337,6 +1352,7 @@ def _campaign_fixture(tmp_path):
             "def test_other(): pass\ndef test_extra(): pass\n"
         },
         standard,
+        collection_args=["test_cases.py"] if support else None,
     )
     manifest_payload = json.loads(manifest.read_text())
     environment_map = manifest_payload["environment"]
@@ -1370,6 +1386,14 @@ def _campaign_fixture(tmp_path):
         "phase_durations": {},
         "completed": [],
         "ci_lane": {"standard_ids": standard, "extra_ids": extra},
+        **(
+            {
+                "collection_args": ["test_cases.py"],
+                "qualified_collection_args": ["test_cases.py"],
+            }
+            if support
+            else {}
+        ),
     }
     for stage in ("startup_context", "collection_context", "final_context"):
         inventory[stage] = {
@@ -1381,13 +1405,15 @@ def _campaign_fixture(tmp_path):
     inventory_path = tmp_path / "global-collection.json"
     inventory_path.write_text(json.dumps(inventory) + "\n")
     contract = {
-        "schema": "jax2onnx-ci-campaign-v1",
+        "schema": (
+            "jax2onnx-ci-support-campaign-v1" if support else "jax2onnx-ci-campaign-v1"
+        ),
         "python_minor": f"{sys.version_info.major}.{sys.version_info.minor}",
         "main_manifest": {
             "path": manifest.name,
             "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
         },
-        "global_inventory": {
+        "command_inventory" if support else "global_inventory": {
             "path": inventory_path.name,
             "sha256": hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
         },
@@ -1402,7 +1428,10 @@ def _campaign_fixture(tmp_path):
 def _campaign_rewrite_inventory(contract_path, inventory_path, inventory):
     inventory_path.write_text(json.dumps(inventory) + "\n")
     contract = json.loads(contract_path.read_text())
-    contract["global_inventory"]["sha256"] = hashlib.sha256(
+    inventory_name = (
+        "command_inventory" if "command_inventory" in contract else "global_inventory"
+    )
+    contract[inventory_name]["sha256"] = hashlib.sha256(
         inventory_path.read_bytes()
     ).hexdigest()
     contract_path.write_text(json.dumps(contract) + "\n")
@@ -1448,8 +1477,13 @@ def _campaign_junit(path, receipt):
     ET.ElementTree(suite).write(path)
 
 
-def test_campaign_contract_binds_relative_inputs_and_exact_global_projection(tmp_path):
-    module, lane, contract_path, _, inventory = _campaign_fixture(tmp_path)
+@pytest.mark.parametrize("support", [False, True], ids=["global", "support"])
+def test_campaign_contract_binds_relative_inputs_and_exact_projection(
+    tmp_path, support
+):
+    module, lane, contract_path, _, inventory = _campaign_fixture(
+        tmp_path, support=support
+    )
     campaign = module._CiCampaignContext(contract_path, lane)
     standard, extra = campaign.collection(inventory)
     assert standard == lane.manifest["nodeids"]
@@ -1709,6 +1743,7 @@ def test_campaign_skip_allowance_does_not_authorize_other_outcomes(tmp_path, fau
         "wasxfail-empty",
         "wasxfail-passed",
         "missing-phase",
+        "duplicate-phase",
         "phase-order",
         "completion-order",
         "foreign-source",
@@ -1717,8 +1752,11 @@ def test_campaign_skip_allowance_does_not_authorize_other_outcomes(tmp_path, fau
         "junit-failure",
     ],
 )
-def test_campaign_batch_rejects_unqualified_native_or_junit_outcomes(tmp_path, fault):
-    module, lane, path, _, inventory = _campaign_fixture(tmp_path)
+@pytest.mark.parametrize("support", [False, True], ids=["global", "support"])
+def test_campaign_batch_rejects_unqualified_native_or_junit_outcomes(
+    tmp_path, fault, support
+):
+    module, lane, path, _, inventory = _campaign_fixture(tmp_path, support=support)
     campaign = module._CiCampaignContext(path, lane)
     batch, assigned, junit_path = _campaign_batch(tmp_path, inventory)
     campaign.batch(batch, assigned, junit_path)
@@ -1734,6 +1772,8 @@ def test_campaign_batch_rejects_unqualified_native_or_junit_outcomes(tmp_path, f
         reports[1]["wasxfail"] = "" if fault.endswith("empty") else "original xfail"
     elif fault == "missing-phase":
         reports.pop()
+    elif fault == "duplicate-phase":
+        reports.append(reports[-1].copy())
     elif fault == "phase-order":
         reports.reverse()
     elif fault == "completion-order":
@@ -1816,3 +1856,80 @@ def test_campaign_rejects_unqualified_pytest_xml_serializer(tmp_path, monkeypatc
     )
     with pytest.raises(ValueError, match="qualified pytest 9.1.1"):
         module._CiCampaignContext(path, lane)
+
+
+@pytest.mark.parametrize("field", ["collection_args", "qualified_collection_args"])
+@pytest.mark.parametrize("fault", ["missing", "global", "foreign", "injected"])
+@pytest.mark.parametrize("stage", ["initial", "collection", "batch"])
+def test_support_campaign_binds_both_receipt_selectors_at_every_stage(
+    tmp_path, field, fault, stage
+):
+    module, lane, path, inventory_path, inventory = _campaign_fixture(
+        tmp_path, support=True
+    )
+    campaign = module._CiCampaignContext(path, lane)
+    if stage == "batch":
+        receipt, assigned, junit_path = _campaign_batch(tmp_path, inventory)
+    else:
+        receipt = copy.deepcopy(inventory)
+    if fault == "missing":
+        del receipt[field]
+    else:
+        receipt[field] = {
+            "global": [],
+            "foreign": ["test_foreign.py"],
+            "injected": ["test_cases.py", "test_foreign.py"],
+        }[fault]
+    with pytest.raises(ValueError, match="selectors"):
+        if stage == "initial":
+            _campaign_rewrite_inventory(path, inventory_path, receipt)
+            module._CiCampaignContext(path, lane)
+        elif stage == "collection":
+            campaign.collection(receipt)
+        else:
+            campaign.batch(receipt, assigned, junit_path)
+
+
+@pytest.mark.parametrize("fault", ["global-key", "global-schema", "empty-authority"])
+def test_support_campaign_rejects_global_inventory_substitution(tmp_path, fault):
+    module, lane, path, _, _ = _campaign_fixture(tmp_path, support=True)
+    contract = json.loads(path.read_text())
+    if fault == "global-key":
+        contract["global_inventory"] = contract.pop("command_inventory")
+    elif fault == "global-schema":
+        contract["schema"] = "jax2onnx-ci-campaign-v1"
+    else:
+        manifest = json.loads(lane.path.read_text())
+        manifest["collection_args"] = []
+        lane.path.write_text(json.dumps(manifest) + "\n")
+        contract["main_manifest"]["sha256"] = hashlib.sha256(
+            lane.path.read_bytes()
+        ).hexdigest()
+        lane = module._CiLaneContext(
+            lane.path, lane.root, environment=manifest["environment"]
+        )
+    path.write_text(json.dumps(contract) + "\n")
+    with pytest.raises(ValueError):
+        module._CiCampaignContext(path, lane)
+
+
+@pytest.mark.parametrize(
+    "fault", ["empty", "reordered", "injected", "keyword", "marker", "positional"]
+)
+def test_support_campaign_accepts_only_the_original_ordered_command(monkeypatch, fault):
+    module = _runner()
+    monkeypatch.setenv("PYTEST_ADDOPTS", "")
+    selectors = ["test_cases.py", "test_exact.py::TestOwner::test_exact"]
+    module._ci_campaign_arguments(selectors, ["-q", "--durations=50"], selectors)
+    actual = {
+        "empty": [],
+        "reordered": list(reversed(selectors)),
+        "injected": [*selectors, "test_other.py"],
+    }.get(fault, selectors)
+    options = {
+        "keyword": ["-k", "base"],
+        "marker": ["-m", "slow"],
+        "positional": ["test_cases.py"],
+    }.get(fault, [])
+    with pytest.raises(ValueError):
+        module._ci_campaign_arguments(actual, options, selectors)

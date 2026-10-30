@@ -2403,7 +2403,9 @@ def test_installed_native_manifest_rejects_foreign_protocols(
     assert observation.report["installed_native_files"]["status"] == "UNVERIFIED"
 
 
-def _prepare_campaign_suite(tmp_path, monkeypatch, mode, *, xml_controls=False):
+def _prepare_campaign_suite(
+    tmp_path, monkeypatch, mode, *, xml_controls=False, support=False
+):
     reason = "original\x07skip\x7f" if xml_controls else "original skip"
     source = """from pathlib import Path
 import pytest
@@ -2428,6 +2430,9 @@ def test_extra():
         "test_collection_skip.py": "import pytest\n"
         "pytest.skip('unselected collection skip', allow_module_level=True)\n",
     }
+    selectors = ("test_cases.py", "test_collection_skip.py") if support else ()
+    if support:
+        files["test_outside.py"] = "raise AssertionError('outside command imported')\n"
     if xml_controls:
         case_id = "illegal\x07\x7f"
         files["test_cases.py"] = source.replace(
@@ -2454,6 +2459,7 @@ def pytest_collectreport(report):
         tmp_path,
         files,
         standard,
+        collection_args=selectors,
     )
     child_environment = {
         **environment,
@@ -2465,10 +2471,23 @@ def pytest_collectreport(report):
     preparation = tmp_path / "preparation"
     preparation.mkdir()
     monkeypatch.chdir(suite)
+    authority_options = (
+        [
+            "--_j2o-ci-lane=standard",
+            f"--_j2o-ci-main-baseline={manifest}",
+            "--_j2o-ci-main-sha256="
+            + hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        ]
+        if support
+        else []
+    )
     assert (
         module._child(
             preparation / "global-collection",
-            {"kind": "collection", "pytest_args": ["-q", "--collect-only"]},
+            {
+                "kind": "collection",
+                "pytest_args": ["-q", *authority_options, *selectors, "--collect-only"],
+            },
             {"processes": []},
             preparation,
             environment=child_environment,
@@ -2507,13 +2526,17 @@ def pytest_collectreport(report):
     contract.write_text(
         json.dumps(
             {
-                "schema": "jax2onnx-ci-campaign-v1",
+                "schema": (
+                    "jax2onnx-ci-support-campaign-v1"
+                    if support
+                    else "jax2onnx-ci-campaign-v1"
+                ),
                 "python_minor": f"{sys.version_info.major}.{sys.version_info.minor}",
                 "main_manifest": {
                     "path": manifest.name,
                     "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
                 },
-                "global_inventory": {
+                "command_inventory" if support else "global_inventory": {
                     "path": str(inventory.relative_to(tmp_path)),
                     "sha256": hashlib.sha256(inventory.read_bytes()).hexdigest(),
                 },
@@ -2682,9 +2705,9 @@ def test_campaign_final_closure_rejects_semantically_unchanged_junit_mutation(
     )
 
 
-def _prepare_provision_suite(tmp_path, monkeypatch):
+def _prepare_provision_suite(tmp_path, monkeypatch, *, support=False):
     suite, manifest, environment, contract, inventory = _prepare_campaign_suite(
-        tmp_path, monkeypatch, "allowed-skip"
+        tmp_path, monkeypatch, "allowed-skip", support=support
     )
     payload = json.loads(manifest.read_text())
     preparation_spec = spec_from_file_location(
@@ -2741,6 +2764,12 @@ def _prepare_provision_suite(tmp_path, monkeypatch):
         "allowed_skips": json.loads(contract.read_text())["allowed_skips"],
         "provenance": {},
     }
+    if support:
+        data.update(
+            schema="jax2onnx-ci-support-cohort-v1",
+            support_role="normalization",
+            collection_args=payload["collection_args"],
+        )
     cohort = suite / "cohort.json"
     cohort.write_text(json.dumps(data) + "\n")
     payload["source_files"]["cohort.json"] = hashlib.sha256(
@@ -2868,6 +2897,103 @@ def test_provision_authority_conflicts_are_rejected_before_children(
     with pytest.raises(SystemExit) as error:
         module._main()
     assert error.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "provision",
+    [False, True],
+    ids=[
+        "contract",
+        (
+            "first-collection"
+            if sys.version_info[:2] in {(3, 12), (3, 13)}
+            else "unsupported-normalization-role"
+        ),
+    ],
+)
+def test_real_support_campaign_preserves_original_command_universe(
+    tmp_path, monkeypatch, provision
+):
+    module = _runner()
+    if provision:
+        suite, manifest, environment, authority, inventory = _prepare_provision_suite(
+            tmp_path, monkeypatch, support=True
+        )
+        option = "--_ci-provision-campaign"
+    else:
+        suite, manifest, environment, authority, inventory = _prepare_campaign_suite(
+            tmp_path, monkeypatch, "allowed-skip", support=True
+        )
+        option = "--ci-campaign-contract"
+    selectors = json.loads(manifest.read_text())["collection_args"]
+    monkeypatch.chdir(suite)
+    monkeypatch.setattr(module.os, "environ", environment)
+    output = tmp_path / "receipts"
+    arguments = [
+        str(_RUNNER),
+        "--output-dir",
+        str(output),
+        "--ci-lane",
+        "standard",
+        "--ci-main-baseline",
+        str(manifest),
+        option,
+        str(authority),
+    ]
+    for selector in selectors:
+        arguments.extend(("--test-path", selector))
+    monkeypatch.setattr(module.sys, "argv", [*arguments, "--", "-q"])
+    if provision and sys.version_info[:2] not in {(3, 12), (3, 13)}:
+        cohort = json.loads(authority.read_text())
+        assert cohort["support_role"] == "normalization"
+        assert (
+            cohort["python_minor"]
+            == f"{sys.version_info.major}.{sys.version_info.minor}"
+        )
+        children = []
+
+        def forbidden_child(*args, **kwargs):
+            children.append((args, kwargs))
+            raise AssertionError("unsupported role launched a canonical child")
+
+        monkeypatch.setattr(module, "_child", forbidden_child)
+        assert module._main() == 1
+        run = json.loads((output / "run.json").read_text())
+        assert run["status"] == "FAIL"
+        assert run["failure"] == {
+            "type": "ValueError",
+            "message": "unsupported support role/cohort or ordered selectors",
+        }
+        assert run["processes"] == run["completed"] == children == []
+        assert not (output / "collection").exists()
+        assert not list(output.glob("batch-*"))
+        return
+    assert module._main() == 0
+    run = json.loads((output / "run.json").read_text())
+    assert run["nodeids"] == inventory["full_preselection_ids"]
+    assert run["completed"] == json.loads(manifest.read_text())["nodeids"]
+    assert run["ci_lane"]["extra_ids"] == ["test_cases.py::test_extra"]
+    assert len(run["processes"]) == 2
+    assert not (suite / "extra-ran").exists()
+    for folder in ("collection", "batch-0001"):
+        receipt = json.loads((output / folder / "receipt.json").read_text())
+        assert (
+            receipt["collection_args"]
+            == receipt["qualified_collection_args"]
+            == selectors
+        )
+        assert receipt["full_preselection_ids"] == run["nodeids"]
+        assert receipt["collection_skips"] == inventory["collection_skips"]
+    if provision:
+        contract = json.loads((output / "ci-provisioned-campaign.json").read_text())
+        assert contract["schema"] == "jax2onnx-ci-support-campaign-v1"
+        assert "global_inventory" not in contract
+        assert (
+            contract["command_inventory"]["sha256"]
+            == hashlib.sha256(
+                (output / "collection/receipt.json").read_bytes()
+            ).hexdigest()
+        )
 
 
 @pytest.mark.parametrize(

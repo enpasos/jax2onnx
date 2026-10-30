@@ -22,6 +22,13 @@ import tomllib
 from typing import Any
 
 
+_SUPPORT_COHORTS = {
+    "minimum": {"3.12"},
+    "normalization": {"3.12", "3.13"},
+    "node-smoke": {"3.12"},
+}
+
+
 def _runner() -> Any:
     spec = spec_from_file_location(
         "_standard_authority_runner", Path(__file__).with_name("run_pytest_batches.py")
@@ -105,6 +112,9 @@ def _cohort(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[Path, str]]:
     data, raw = read_json(path, 4 * 1024 * 1024, label="STANDARD cohort")
     bindings = {path.resolve(strict=True): _sha(raw)}
+    support = (
+        type(data) is dict and data.get("schema") == "jax2onnx-ci-support-cohort-v1"
+    )
     if (
         type(data) is not dict
         or set(data)
@@ -122,10 +132,22 @@ def _cohort(
             "allowed_skips",
             "provenance",
         }
-        or data["schema"] != "jax2onnx-ci-standard-cohort-v1"
+        | ({"support_role", "collection_args"} if support else set())
+        or data["schema"]
+        not in {"jax2onnx-ci-standard-cohort-v1", "jax2onnx-ci-support-cohort-v1"}
         or data["python_minor"] != f"{sys.version_info.major}.{sys.version_info.minor}"
     ):
         raise ValueError("unsupported STANDARD cohort")
+    if support and (
+        type(data["support_role"]) is not str
+        or data["support_role"] not in _SUPPORT_COHORTS
+        or data["python_minor"] not in _SUPPORT_COHORTS[data["support_role"]]
+        or type(data["collection_args"]) is not list
+        or not data["collection_args"]
+        or any(type(value) is not str or not value for value in data["collection_args"])
+        or len(set(data["collection_args"])) != len(data["collection_args"])
+    ):
+        raise ValueError("unsupported support role/cohort or ordered selectors")
     baseline = data["baseline"]
     if type(baseline) is dict and set(baseline) == {"path", "sha256"}:
         source = path.parent / _relative(baseline["path"])
@@ -138,6 +160,13 @@ def _cohort(
     return data, baseline, bindings
 
 
+def _binding_names(data: dict[str, Any]) -> set[str]:
+    names = {"poetry.lock", "pyproject.toml"}
+    if data.get("support_role") == "minimum":
+        names.add("scripts/install_minimum_dependencies.py")
+    return names
+
+
 def _installation(data: dict[str, Any], root: Path) -> None:
     lock = tomllib.loads((root / "poetry.lock").read_text())
     locked: dict[str, set[str]] = {}
@@ -146,6 +175,8 @@ def _installation(data: dict[str, Any], root: Path) -> None:
     expected = data["packages"]
     bootstrap = data["bootstrap"]
     project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+    # Minimum authority freezes the complete independently reviewed installation;
+    # its bound lock records the foundation, rather than resolving floors here.
     if (
         type(expected) is not dict
         or type(bootstrap) is not dict
@@ -159,6 +190,7 @@ def _installation(data: dict[str, Any], root: Path) -> None:
             or not version
             or (
                 name not in {"pip", "jax2onnx"}
+                and data.get("support_role") != "minimum"
                 and version not in locked.get(name, set())
             )
             for name, version in expected.items()
@@ -239,8 +271,8 @@ def _manifest(
     for name, expected in data["bindings"].items():
         if sources.get(_relative(name)) != expected:
             raise ValueError("cohort lock/project binding differs")
-    if set(data["bindings"]) != {"poetry.lock", "pyproject.toml"}:
-        raise ValueError("cohort must bind lock and project")
+    if set(data["bindings"]) != _binding_names(data):
+        raise ValueError("cohort must bind lock/project and its minimum installer")
     if set(data["baseline"]) == {"path", "sha256"}:
         shared = (path.parent / data["baseline"]["path"]).relative_to(root).as_posix()
         if sources.get(shared) != data["baseline"]["sha256"]:
@@ -288,7 +320,7 @@ def _manifest(
         "nodeids": baseline["nodeids"],
         "source_files": dict(sorted(sources.items())),
         "packages": data["packages"],
-        "collection_args": [],
+        "collection_args": data.get("collection_args", []),
         "environment": environment,
         "collection_transition": transition,
     }, data

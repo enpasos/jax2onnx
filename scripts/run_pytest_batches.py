@@ -872,6 +872,11 @@ def _worker(request_path: Path) -> int:
                         source_files=self.lane_context.sources,
                     )
                     self.audit_lane()
+                    if self.lane_context.manifest.get("collection_args", []):
+                        receipt["collection_args"] = list(config.option.file_or_dir)
+                        receipt["qualified_collection_args"] = list(
+                            self.lane_context.manifest["collection_args"]
+                        )
                 except (OSError, ValueError, LookupError) as exc:
                     self.lane_error(str(exc), terminal=True)
                     raise pytest.UsageError(str(exc)) from exc
@@ -1549,8 +1554,15 @@ def _main() -> int:
         if args.ci_lane != "standard":
             parser.error("a campaign contract requires canonical --ci-lane standard")
         try:
-            _ci_campaign_arguments(args.test_path, options)
-        except ValueError as error:
+            manifest, _ = _context_json(
+                args.ci_main_baseline, 16 * 1024 * 1024, label="baseline manifest"
+            )
+            if type(manifest) is not dict:
+                raise ValueError("campaign requires a baseline manifest")
+            _ci_campaign_arguments(
+                args.test_path, options, manifest.get("collection_args", [])
+            )
+        except (OSError, ValueError) as error:
             parser.error(str(error))
     if (
         args._ci_provision_campaign
@@ -1791,10 +1803,9 @@ def _main() -> int:
             run["ci_campaign"] = {
                 "contract_path": str(campaign.path),
                 "contract_sha256": campaign.sha256,
-                "global_inventory_path": str(
-                    campaign.references["global_inventory"][0]
-                ),
-                "global_inventory_sha256": campaign.inventory_sha256,
+                campaign.inventory_name
+                + "_path": str(campaign.references[campaign.inventory_name][0]),
+                campaign.inventory_name + "_sha256": campaign.inventory_sha256,
             }
             _write(root / "run.json", run)
 
@@ -1851,8 +1862,8 @@ def _main() -> int:
             run["ci_campaign"] = {
                 "contract_path": str(campaign.path),
                 "contract_sha256": campaign.sha256,
-                "global_inventory_path": str(collection / "receipt.json"),
-                "global_inventory_sha256": campaign.inventory_sha256,
+                campaign.inventory_name + "_path": str(collection / "receipt.json"),
+                campaign.inventory_name + "_sha256": campaign.inventory_sha256,
                 "provision_source": str(provision.path),
                 "provision_sha256": provision.sha256,
             }
@@ -2508,10 +2519,12 @@ class _CiLaneContext:
         return bindings
 
 
-def _ci_campaign_arguments(test_paths: list[str], options: list[str]) -> None:
-    """The first campaign profile collects globally with reporting options only."""
-    if test_paths:
-        raise ValueError("campaign collection rejects --test-path prefilters")
+def _ci_campaign_arguments(
+    test_paths: list[str], options: list[str], collection_args: list[str]
+) -> None:
+    """Collect the complete authority command with reporting options only."""
+    if test_paths != collection_args:
+        raise ValueError("campaign --test-path selectors differ from authority")
     flags = {
         "-q",
         "--quiet",
@@ -2580,6 +2593,8 @@ class _CiCampaignProvision:
             or self.data["python_minor"] != context.manifest["python_minor"]
             or self.data["baseline_commit"] != context.manifest["baseline_commit"]
             or self.data["packages"] != context.manifest.get("packages")
+            or self.data.get("collection_args", [])
+            != context.manifest.get("collection_args", [])
             or any(
                 context.manifest["source_files"].get(name) != digest
                 for name, digest in baseline["generated"].items()
@@ -2616,8 +2631,8 @@ class _CiCampaignProvision:
         if any(
             self.context.manifest["source_files"].get(name) != digest
             for name, digest in self.data["bindings"].items()
-        ) or set(self.data["bindings"]) != {"poetry.lock", "pyproject.toml"}:
-            raise ValueError("provisioned lock/project binding differs")
+        ) or set(self.data["bindings"]) != self.helper._binding_names(self.data):
+            raise ValueError("provisioned lock/project/installer binding differs")
         for path, digest in self.bindings.items():
             relative = path.relative_to(self.context.root).as_posix()
             if (
@@ -2628,14 +2643,19 @@ class _CiCampaignProvision:
         self.helper._installation(self.data, self.context.root)
 
     def campaign(self, collection: Path) -> "_CiCampaignContext":
+        support = self.data["schema"] == "jax2onnx-ci-support-cohort-v1"
         payload = {
-            "schema": "jax2onnx-ci-campaign-v1",
+            "schema": (
+                "jax2onnx-ci-support-campaign-v1"
+                if support
+                else "jax2onnx-ci-campaign-v1"
+            ),
             "python_minor": self.context.manifest["python_minor"],
             "main_manifest": {
                 "path": str(self.context.path),
                 "sha256": self.context.sha256,
             },
-            "global_inventory": {
+            "command_inventory" if support else "global_inventory": {
                 "path": str(collection / "receipt.json"),
                 "sha256": hashlib.sha256(
                     (collection / "receipt.json").read_bytes()
@@ -2685,6 +2705,13 @@ class _CiCampaignContext:
         self.context = lane_context
         contract, raw = _context_json(self.path, 65536, label="campaign contract")
         self.sha256 = hashlib.sha256(raw).hexdigest()
+        self.support = (
+            type(contract) is dict
+            and contract.get("schema") == "jax2onnx-ci-support-campaign-v1"
+        )
+        self.inventory_name = (
+            "command_inventory" if self.support else "global_inventory"
+        )
         if (
             type(contract) is not dict
             or set(contract)
@@ -2692,12 +2719,13 @@ class _CiCampaignContext:
                 "schema",
                 "python_minor",
                 "main_manifest",
-                "global_inventory",
+                self.inventory_name,
                 "allowed_skips",
             }
-            or contract["schema"] != "jax2onnx-ci-campaign-v1"
+            or contract["schema"]
+            not in {"jax2onnx-ci-campaign-v1", "jax2onnx-ci-support-campaign-v1"}
             or contract["python_minor"] != lane_context.manifest["python_minor"]
-            or lane_context.manifest.get("collection_args", [])
+            or bool(lane_context.manifest.get("collection_args", [])) != self.support
         ):
             raise ValueError("unsupported campaign contract or full-global cohort")
         if lane_context.transition is None:
@@ -2711,7 +2739,7 @@ class _CiCampaignContext:
                 "campaign JUnit serialization requires qualified pytest 9.1.1"
             )
         self.references = {}
-        for name in ("main_manifest", "global_inventory"):
+        for name in ("main_manifest", self.inventory_name):
             reference = contract[name]
             if (
                 type(reference) is not dict
@@ -2727,9 +2755,9 @@ class _CiCampaignContext:
             self.references[name] = (resolved, reference["sha256"])
         if self.references["main_manifest"] != (lane_context.path, lane_context.sha256):
             raise ValueError("campaign main manifest binding differs")
-        inventory_path, self.inventory_sha256 = self.references["global_inventory"]
+        inventory_path, self.inventory_sha256 = self.references[self.inventory_name]
         self.inventory, payload = _context_json(
-            inventory_path, 16 * 1024 * 1024, label="global inventory"
+            inventory_path, 16 * 1024 * 1024, label=self.inventory_name
         )
         if hashlib.sha256(payload).hexdigest() != self.inventory_sha256:
             raise ValueError("campaign global inventory SHA differs")
@@ -2755,6 +2783,7 @@ class _CiCampaignContext:
             or "diagnostic_control" in receipt
         ):
             raise ValueError("campaign inventory needs a closed phase-free collection")
+        self._selectors(receipt)
         full = receipt.get("full_preselection_ids")
         items = receipt.get("full_items")
         skips = receipt.get("collection_skips")
@@ -2804,6 +2833,13 @@ class _CiCampaignContext:
             self.context.check_snapshot(receipt.get(key), stage=stage)
         return standard, extra
 
+    def _selectors(self, receipt: dict[str, Any]) -> None:
+        if self.support and any(
+            receipt.get(name) != self.context.manifest["collection_args"]
+            for name in ("collection_args", "qualified_collection_args")
+        ):
+            raise ValueError("support campaign receipt selectors differ from authority")
+
     def collection(self, receipt: dict[str, Any]) -> tuple[list[str], list[str]]:
         partition = self._inventory(receipt)
         if any(
@@ -2837,6 +2873,7 @@ class _CiCampaignContext:
 
         full = self.inventory["full_preselection_ids"]
         skips = self.inventory["collection_skips"]
+        self._selectors(receipt)
         _validate(receipt, assigned, full, skips)
         assigned_set = set(assigned)
         if (
@@ -3002,6 +3039,12 @@ def _ci_lane_closed(
     ):
         raise ValueError("closed canonical lane receipt/request binding differs")
     receipt = json.loads(payload)
+    selectors = context.manifest.get("collection_args", [])
+    if selectors and any(
+        receipt.get(name) != selectors
+        for name in ("collection_args", "qualified_collection_args")
+    ):
+        raise ValueError("closed canonical lane support receipt selectors differ")
     if context.transition is not None:
         if (
             receipt.get("collection_transition_completed") is not True
