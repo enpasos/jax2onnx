@@ -766,18 +766,23 @@ def test_missing_shared_rule_is_unverified_without_affecting_product(
 def test_actual_ir_contradiction_retains_the_original_shared_result(
     original_scope, tmp_path, monkeypatch
 ):
-    actual = user_interface.validate_source_structure
+    actual = user_interface._freeze_source_ir
+    mutations = []
 
-    def mutate_then_check(model):
-        next(node for node in model.graph if node.op_type == "Add").op_type = "Sub"
+    def mutate_then_freeze(model):
+        node = next(node for node in model.graph if node.op_type == "Add")
+        before = node.op_type
+        node.op_type = "Sub"
+        mutations.append((before, node.op_type))
         return actual(model)
 
-    monkeypatch.setattr(user_interface, "validate_source_structure", mutate_then_check)
+    monkeypatch.setattr(user_interface, "_freeze_source_ir", mutate_then_freeze)
     prepared, capture = _bridge_prepared(
         original_scope, tmp_path / "bad-ir", return_mode="ir"
     )
     result = raw.run_raw_source_case(prepared, capture=capture)
     record = _bridge_record(capture)
+    assert mutations == [("Add", "Sub")]
     assert record["ir_result"]["status"] == "failed"
     assert record["ir_result"]["reasons"]
     assert record["source_binding"]["status"] == "validated"
