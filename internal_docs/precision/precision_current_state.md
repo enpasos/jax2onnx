@@ -1,6 +1,14 @@
 # Computation Precision Current State
 
-## Current checkpoint — 2026-10-27
+## Current status — 2026-10-30
+
+The [current handoff](implementation_handoff.md#current-checkpoint-2026-10-30)
+records published `cd5cb4be` with eight successful existing CI checks and bounded
+private runner qualification. Whole-job 20-minute STANDARD qualification,
+remaining cohorts/support and full B–F remain pending. No private gate is
+activated; public LEGACY behavior is unchanged.
+
+## Historical checkpoint — 2026-10-27
 
 Completed CI checkpoint `d1ab27caafbb6c8234c901ea9fd0dfd28bff536c` has **all eight
 terminal SUCCESS** checks in

@@ -1,8 +1,13 @@
 # Computation Precision: Current User Experience
 
 Public precision-policy reference: `main` at `fae17822`, 2026-10-17, after the
-merged double-consumer repair. The latest local-branch snapshot below is dated
-2026-10-27; it does not change the public export options or defaults.
+merged double-consumer repair. Older local-branch records below are dated
+2026-10-27 and retain their original scope.
+
+As of **2026-10-30**, the [current handoff](implementation_handoff.md#current-checkpoint-2026-10-30)
+records published `cd5cb4be` with eight successful existing CI checks. The private
+runner remains ungated; whole-job 20-minute STANDARD qualification and full B–F
+are unfinished. Public LEGACY options and defaults remain unchanged.
 
 This document explains the precision behavior available to JAX model exporters.
 See the [technical details](precision_current_state.md) for implementation and
@@ -12,7 +17,7 @@ and [migration guide](precision_migration_plan_user_view.md) describe proposed
 changes. The merged double-consumer repair covers selected double-precision
 loading and execution; the broader precision contract remains a proposal.
 
-## Local Branch Snapshot
+## Older Local Branch Snapshots
 
 The latest finite CI repair qualification is recorded in the
 [handoff](implementation_handoff.md) and

@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status: **Main coverage architecture and the absolute 20-minute Linux STANDARD-job rule are accepted. Finite mapped-main-owner Python 3.11 functional/resource evidence at `14439a07` remains valid within its scope; whole-job timing, other cohorts, exact-head CI and gate activation remain pending. The comparative frozen-main diagnostic is retired.**
+Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and the temporary candidate-overlap amendment below are accepted architecture. Published `cd5cb4be` has all eight old mixed-suite checks passing, without qualifying their runtime. The private strict campaign/path audit and finite PR312 qualification are accepted within their scope; remaining cohorts/support, portable authorities, resources, full B–F and gate activation remain open. The comparative frozen-main diagnostic stays retired.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -17,8 +17,9 @@ Preserve main's complete existing coverage. Every added SOURCE, migration or
 regression check belongs to a separately identified extra lane, complete and
 disjoint from standard. Those checks remain required at their assigned trigger;
 separating them does not delete, weaken or waive them. Extra cost remains visible.
-Keep the initially bounded layout of **four Python cohorts plus four support
-jobs**. Sequential canonical packets are work inside those jobs, not permission
+Keep the activated layout bounded to **four Python cohorts plus four support
+jobs**. The temporary qualification overlap below is a separate, one-milestone
+amendment. Sequential canonical packets are work inside those jobs, not permission
 to multiply hosted jobs or apply the limit separately to each packet/process.
 
 This amendment supersedes relative NoIncrease, paired main/PR timing campaigns,
@@ -44,6 +45,64 @@ The reviewed candidate permits incremental implementation. Literal selection,
 main-to-PR contract mapping, collection-context equivalence, measured whole-job
 20-minute runtime and all gate-activation evidence remain unqualified. This review does
 not accept missing migration verifiers or claim performance results.
+
+## Current private qualification — 2026-10-30
+
+Frozen main remains `81ad6ca`. Published `cd5cb4be` has **all eight SUCCESS** in
+[CI 40964061166](https://github.com/enpasos/jax2onnx/actions/runs/40964061166),
+terminal **01:05:49 UTC on 30 October**. Its old mixed-suite full-job spans are
+**9,525–10,394 s**, support **54–137 s**, aggregate **40,191 job-seconds
+(11h09m51s)**. This is neither 20-minute qualification nor a numerical repair.
+`e8bed493` and `450732ad` each retain seven successes and a Python 3.11 native
+BF16 TopK failure before export, with unchanged mathematics and unresolved
+cause; AMD success does not prove causation.
+
+The optional strict campaign contract and per-audit exact-path memo remain
+private and unused by ordinary CI. Every role check and source/package/context
+checkpoint stays intact; no memo survives an audit. Complete owners pass
+**336 cases / 1,008 phases each** on official Python 3.11
+(179.61 s / 325.57 MiB) and 3.14 (214.35 s / 359.05 MiB), including all opt-in
+synthetic xdist controls. Current PR312 has **C=18,862 / S=4,621 / A=14,241**,
+all original **45+5 optional cases** in S, and only the exact Main312 scan
+setup-skip/teardown-pass allowance at line 17. Main's passing Keras case supplies
+no allowance. Unprofiled collection is **218.07 s / 1,189.66 MiB**; the original
+first ten Eqx cases pass 30 native phases and ten JUnit cases under a
+**220.11 s / 1,315.77 MiB** guard. Accepted freezes are `b1f8ad67…`,
+`8c6c2e3d…` and `4af8b725…`, linked in the [handoff](implementation_handoff.md#current-checkpoint-2026-10-30).
+FULL312 was not launched; these costs do not establish a viable 1,200-second
+FULL job. No environment changed: cached home312 has 170 versus qualified 156
+distributions (27 missing, 15 different, 41 extra), with no qualified safe disk
+headroom for replacement. Other cohorts/support, portable manifests, resource
+ownership and full B–F remain open.
+
+## Temporary transition amendment — 2026-10-30
+
+Astra accepts **one PR qualification milestone with at most eight fixed candidate
+jobs alongside the untouched authoritative old eight**: at most sixteen jobs in
+that temporary overlap. Candidates use the existing runner and complete main S,
+original inputs/assertions and all 45+5 Python 3.12 optional cases. The fixed
+roles are four locked Python 3.11–3.14 jobs, minimum Python 3.12, normalization
+Python 3.12 and 3.13, and Node 22 smoke on Python 3.12. Retain minimum Python
+3.11 as additional assigned coverage; it is not dropped.
+
+Every successful candidate's **whole completed job span is at most 1,200 s**,
+including checkout/setup, generation, collection, validation, aggregation,
+uploads and cleanup, excluding queue time. Timeout, interruption or incomplete
+evidence fails. Preserve the existing aggregate memory/headroom and artifact
+budgets below. Candidate aggregate cost is at most **160 job-minutes**, with
+actual legacy-job and failed-attempt costs reported in addition. Do not shard,
+apply the budget per packet, revive main-comparison benchmarks, dispatch runs
+or introduce a new controller.
+
+Support reuse requires the **same head, complete context/ownership and resource
+evidence**. Current telemetry is incomplete, so reuse is not assumed. All old
+eight outcomes remain required on the qualification head. Independently review
+the concrete workflow, complete mapping and actual results before activation;
+retire the candidates at activation and verify the activated head. This is
+architecture only: **no candidate workflow or standard/extra gate is activated**,
+and neither numerical acceptance nor future performance is guaranteed.
+
+## Historical checkout and CI observations — 2026-10-29
 
 The reference main commit, supplied by root's fresh remote/local observation, is
 `81ad6ca2592635c8d2ced6dbd77292c487f0351b`. Freeze this SHA as the initial baseline;

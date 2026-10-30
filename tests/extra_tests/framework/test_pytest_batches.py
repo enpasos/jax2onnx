@@ -2403,6 +2403,339 @@ def test_installed_native_manifest_rejects_foreign_protocols(
     assert observation.report["installed_native_files"]["status"] == "UNVERIFIED"
 
 
+def _prepare_campaign_suite(tmp_path, monkeypatch, mode, *, xml_controls=False):
+    reason = "original\x07skip\x7f" if xml_controls else "original skip"
+    source = """from pathlib import Path
+import pytest
+def test_base():
+    Path('base-ran').touch()
+def test_original_skip():
+    ORIGINAL_OUTCOME
+def test_extra():
+    Path('extra-ran').touch()
+""".replace(
+        "ORIGINAL_OUTCOME",
+        {
+            "allowed-skip": f"pytest.skip({reason!r})",
+            "unexpected-skip": f"pytest.skip({reason!r})",
+            "xfail": "pytest.xfail('historical xfail')",
+            "pass": "pass",
+        }[mode],
+    )
+    standard = ["test_cases.py::test_base", "test_cases.py::test_original_skip"]
+    files = {
+        "test_cases.py": source,
+        "test_collection_skip.py": "import pytest\n"
+        "pytest.skip('unselected collection skip', allow_module_level=True)\n",
+    }
+    if xml_controls:
+        case_id = "illegal\x07\x7f"
+        files["test_cases.py"] = source.replace(
+            "def test_original_skip():",
+            f"@pytest.mark.parametrize('marker', [None], ids=[{case_id!r}])\n"
+            "def test_original_skip(marker):",
+        )
+        standard[1] += f"[{case_id}]"
+        files["pytest.ini"] = (
+            "[pytest]\ntestpaths = .\n"
+            "disable_test_id_escaping_and_forfeit_all_rights_to_community_support = True\n"
+        )
+        # A synthetic native collect report exercises pytest's real serializer;
+        # the canonical observer and JUnit both receive the same raw text.
+        files[
+            "conftest.py"
+        ] = """import pytest
+@pytest.hookimpl(tryfirst=True)
+def pytest_collectreport(report):
+    if report.skipped:
+        report.longrepr = 'collection\\x01skip\\x7f'
+"""
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        files,
+        standard,
+    )
+    child_environment = {
+        **environment,
+        "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": str(
+            tmp_path / "receipts/native-model-artifacts"
+        ),
+    }
+    module = _runner()
+    preparation = tmp_path / "preparation"
+    preparation.mkdir()
+    monkeypatch.chdir(suite)
+    assert (
+        module._child(
+            preparation / "global-collection",
+            {"kind": "collection", "pytest_args": ["-q", "--collect-only"]},
+            {"processes": []},
+            preparation,
+            environment=child_environment,
+        )
+        == 0
+    )
+    inventory = preparation / "global-collection/receipt.json"
+    observed = json.loads(inventory.read_text())
+    assert observed["phases"] == observed["phase_durations"] == {}
+    assert observed["completed"] == []
+    payload = json.loads(manifest.read_text())
+    payload["collection_transition"] = {
+        "startup_jax_config": observed["startup_context"]["loaded_jax_config"],
+        "collected_environment": module._ci_lane_environment(
+            observed["collection_context"]["environment"]
+        ),
+        "collected_jax_config": observed["collection_context"]["loaded_jax_config"],
+        "post_pytest_environment": module._ci_lane_environment(
+            observed["final_context"]["environment"]
+        ),
+        "post_pytest_jax_config": observed["final_context"]["loaded_jax_config"],
+    }
+    manifest.write_text(json.dumps(payload) + "\n")
+    allowed_skips = []
+    if mode in {"allowed-skip", "pass"}:
+        allowed_skips.append(
+            {
+                "nodeid": standard[1],
+                "phases": ["setup:passed", "call:skipped", "teardown:passed"],
+                "source": "test_cases.py",
+                "line": 7 if xml_controls else 6,
+                "reason": reason,
+            }
+        )
+    contract = tmp_path / "campaign.json"
+    contract.write_text(
+        json.dumps(
+            {
+                "schema": "jax2onnx-ci-campaign-v1",
+                "python_minor": f"{sys.version_info.major}.{sys.version_info.minor}",
+                "main_manifest": {
+                    "path": manifest.name,
+                    "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                },
+                "global_inventory": {
+                    "path": str(inventory.relative_to(tmp_path)),
+                    "sha256": hashlib.sha256(inventory.read_bytes()).hexdigest(),
+                },
+                "allowed_skips": allowed_skips,
+            }
+        )
+        + "\n"
+    )
+    return suite, manifest, environment, contract, observed
+
+
+@pytest.mark.parametrize("mode", ["allowed-skip", "pass", "unexpected-skip", "xfail"])
+def test_real_canonical_campaign_retains_full_context_and_strict_native_outcomes(
+    tmp_path, monkeypatch, mode
+):
+    suite, manifest, environment, contract, inventory = _prepare_campaign_suite(
+        tmp_path, monkeypatch, mode
+    )
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        runner_args=(
+            "--ci-lane",
+            "standard",
+            "--ci-main-baseline",
+            str(manifest),
+            "--ci-campaign-contract",
+            str(contract),
+        ),
+        test_paths=(),
+        environment=environment,
+    )
+    success = mode in {"allowed-skip", "pass"}
+    assert (result.returncode == 0) is success, result.stdout + result.stderr
+    assert (run["status"] == "PASS") is success
+    assert run["nodeids"] == inventory["full_preselection_ids"]
+    assert (suite / "base-ran").exists()
+    assert not (suite / "extra-ran").exists()
+    raw_collection = json.loads((receipts / "collection/receipt.json").read_text())
+    assert raw_collection["full_items"] == inventory["full_items"]
+    assert raw_collection["collection_skips"] == inventory["collection_skips"]
+    assert raw_collection["collection_transition_completed"] is True
+    assert raw_collection["post_pytest_completed"] is True
+    if success:
+        assert run["completed"] == json.loads(manifest.read_text())["nodeids"]
+        assert len(run["processes"]) == 2
+        batch = json.loads((receipts / "batch-0001/receipt.json").read_text())
+        assert batch["full_preselection_ids"] == inventory["full_preselection_ids"]
+        assert batch["collection_transition_completed"] is True
+        assert batch["post_pytest_completed"] is True
+    else:
+        assert "campaign" in run["failure"]["message"]
+
+
+def test_real_campaign_uses_pinned_pytest_binary_xml_serialization(
+    tmp_path, monkeypatch
+):
+    suite, manifest, environment, contract, inventory = _prepare_campaign_suite(
+        tmp_path, monkeypatch, "allowed-skip", xml_controls=True
+    )
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        runner_args=(
+            "--ci-lane",
+            "standard",
+            "--ci-main-baseline",
+            str(manifest),
+            "--ci-campaign-contract",
+            str(contract),
+        ),
+        test_paths=(),
+        environment=environment,
+    )
+    assert result.returncode == 0 and run["status"] == "PASS", (
+        result.stdout + result.stderr
+    )
+    assert run["completed"] == json.loads(manifest.read_text())["nodeids"]
+    assert inventory["collection_skips"][0]["longrepr"] == "collection\x01skip\x7f"
+    folder = receipts / "batch-0001"
+    tree = ET.parse(folder / "junit.xml")
+    cases = tree.findall(".//testcase")
+    runtime = next(
+        case for case in cases if case.get("name", "").startswith("test_original_skip")
+    )
+    assert runtime.get("name") == "test_original_skip[illegal#x07#x7F]"
+    assert runtime.find("skipped").get("message") == "original#x07skip#x7F"
+    collection_skip = next(
+        case.find("skipped")
+        for case in cases
+        if case.find("skipped") is not None
+        and case.find("skipped").get("message") == "collection skipped"
+    )
+    assert collection_skip.text == "collection#x01skip#x7F"
+    assert "type" not in collection_skip.attrib
+    # A native collection skip cannot be re-labelled as an expected xfail.
+    collection_skip.set("type", "pytest.xfail")
+    tree.write(folder / "junit.xml")
+    module = _runner()
+    payload = json.loads(manifest.read_text())
+    lane = module._CiLaneContext(manifest, suite, environment=payload["environment"])
+    campaign = module._CiCampaignContext(contract, lane)
+    receipt = json.loads((folder / "receipt.json").read_text())
+    with pytest.raises(ValueError, match="JUnit skipped outcome differs"):
+        campaign.batch(receipt, run["completed"], folder / "junit.xml")
+
+
+def test_campaign_final_closure_rejects_semantically_unchanged_junit_mutation(
+    tmp_path, monkeypatch
+):
+    suite, manifest, environment, contract, _ = _prepare_campaign_suite(
+        tmp_path, monkeypatch, "pass"
+    )
+    module = _runner()
+    original = module._CiCampaignContext.batch
+    mutations = []
+
+    def validate_then_mutate(self, receipt, assigned, junit_path):
+        original(self, receipt, assigned, junit_path)
+        mutations.append(junit_path)
+        junit_path.write_bytes(junit_path.read_bytes() + b"\n")
+
+    monkeypatch.setattr(module._CiCampaignContext, "batch", validate_then_mutate)
+    monkeypatch.setattr(module.os, "environ", environment)
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            str(_RUNNER),
+            "--output-dir",
+            str(tmp_path / "receipts"),
+            "--ci-lane",
+            "standard",
+            "--ci-main-baseline",
+            str(manifest),
+            "--ci-campaign-contract",
+            str(contract),
+            "--",
+            "-q",
+        ],
+    )
+    assert module._main() == 1
+    run = json.loads((tmp_path / "receipts/run.json").read_text())
+    assert run["status"] == "FAIL"
+    assert "closed canonical lane evidence changed" in run["failure"]["message"]
+    assert run["completed"] == json.loads(manifest.read_text())["nodeids"]
+    folder = tmp_path / "receipts/batch-0001"
+    assert mutations == [folder / "junit.xml"]
+    assert (
+        run["ci_lane"]["closed_workers"][folder.name]["junit.xml"]
+        != hashlib.sha256((folder / "junit.xml").read_bytes()).hexdigest()
+    )
+    native = json.loads((folder / "receipt.json").read_text())
+    assert all(
+        report["outcome"] == "passed"
+        for reports in native["phases"].values()
+        for report in reports
+    )
+    payload = json.loads(manifest.read_text())
+    lane = module._CiLaneContext(manifest, suite, environment=payload["environment"])
+    original(
+        module._CiCampaignContext(contract, lane),
+        native,
+        run["completed"],
+        folder / "junit.xml",
+    )
+
+
+@pytest.mark.parametrize(
+    "fault", ["orphan", "extra-lane", "test-path", "positional", "keyword", "addopts"]
+)
+def test_campaign_admission_rejects_prefilters_before_any_child(
+    tmp_path, monkeypatch, capsys, fault
+):
+    module = _runner()
+    suite, manifest, _ = _prepare_lane_suite(
+        tmp_path,
+        {"test_cases.py": "def test_base(): pass\n"},
+        ["test_cases.py::test_base"],
+    )
+    contract = tmp_path / "not-read-campaign.json"
+    contract.write_text("{}\n")
+    monkeypatch.chdir(suite)
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k base" if fault == "addopts" else "")
+    arguments = [
+        str(_RUNNER),
+        "--output-dir",
+        str(tmp_path / "campaign-output"),
+        "--ci-campaign-contract",
+        str(contract),
+    ]
+    if fault != "orphan":
+        arguments.extend(
+            (
+                "--ci-lane",
+                "extra" if fault == "extra-lane" else "standard",
+                "--ci-main-baseline",
+                str(manifest),
+            )
+        )
+    if fault == "test-path":
+        arguments.extend(("--test-path", "test_cases.py"))
+    arguments.extend(("--", "-q"))
+    if fault == "positional":
+        arguments.append("test_cases.py::test_base")
+    elif fault == "keyword":
+        arguments.extend(("-k", "base"))
+    monkeypatch.setattr(module.sys, "argv", arguments)
+    children = []
+
+    def forbidden_child(*args, **kwargs):
+        children.append((args, kwargs))
+        raise AssertionError("campaign admission launched a child")
+
+    monkeypatch.setattr(module, "_child", forbidden_child)
+    with pytest.raises(SystemExit) as error:
+        module._main()
+    assert error.value.code == 2
+    assert "campaign" in capsys.readouterr().err
+    assert children == []
+
+
 @pytest.mark.parametrize("mutation", ("inode", "stat", "record"))
 def test_installed_native_manifest_streams_and_fences_live_file_changes(
     mutation: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -1,6 +1,6 @@
-# Precision migration handoff — 2026-10-29
+# Precision migration handoff — 2026-10-30
 
-## Active Linux STANDARD timing — 2026-10-29
+## Active Linux STANDARD timing — 2026-10-30
 
 Each successful Linux STANDARD job must finish within **1,200 seconds
 (20 minutes)** from actual job start through checkout, setup, generation,
@@ -17,6 +17,53 @@ assertions, skips and resource limits. Keep four Python cohorts plus four suppor
 jobs initially bounded, with complete/disjoint extras and all milestone/final
 obligations. Mapping, context, resources, direct xdist and actual whole-job timing
 remain pending where unqualified; no runner, selector or CI gate is activated.
+The [30 October temporary transition amendment](ci_execution_plan.md#temporary-transition-amendment-2026-10-30)
+permits one bounded candidate qualification alongside the authoritative old eight
+jobs; it does not activate a gate.
+
+## Current checkpoint — 2026-10-30
+
+Published `cd5cb4bebf6de00223bf9454f7fb6f15a317e2cf`, against frozen main
+`81ad6ca`, has **all eight SUCCESS** in
+[CI 40964061166](https://github.com/enpasos/jax2onnx/actions/runs/40964061166),
+terminal at **01:05:49 UTC on 30 October**. These are the old mixed-suite jobs:
+full Python job spans **9,525–10,394 s**, support **54–137 s**, aggregate
+**40,191 job-seconds (11h09m51s)**. They do not satisfy the new 20-minute rule.
+Predecessors `e8bed493` and `450732ad` each retain seven successes and the Python
+3.11 native BF16 TopK failure before export. The calculation is unchanged;
+passing AMD counterparts do not identify its cause or establish a numerical
+repair. The strict official eager/JIT contract remains binding.
+
+The private canonical campaign remains unused by CI. Its strict collection,
+outcome and closed-worker checks retain all source/package/context fences.
+Path validation now memoizes exact raw paths only within each audit, repeating
+role containment checks on every entry and resolving afresh on the next audit.
+Both complete affected owners pass **336 cases / 1,008 phases** on each official
+family: Python 3.11 **179.61 s / 325.57 MiB**, Python 3.14
+**214.35 s / 359.05 MiB**, with all synthetic xdist controls enabled. Pair freeze
+`b1f8ad67…` is at
+`/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/jax2onnx-campaign-path-audit-complete-owners-_bimjju7/freeze.json`.
+
+Current PR312 observes **C=18,862 / S=4,621 / A=14,241**, preserving all original
+**45 MaxText + 5 MaxDiffusion** identities in standard. The sole skip allowance
+is frozen Main312's scan setup skip at source line 17, followed by passed
+teardown; Keras passed on Main and contributes no allowance. The unprofiled
+canonical collection costs **218.07 s / 1,189.66 MiB**; the original first ten
+Eqx cases pass **30 native phases / 10 JUnit cases** in a guarded
+**220.11 s / 1,315.77 MiB**. Their freezes `8c6c2e3d…` and `4af8b725…` are in
+`canonical-standard312-cd5-campaignv2-prepare-20261030-v1/qualify-path-audit-unprofiled-v1/`
+and `qualify-path-audit-first10-v1/` below the same evidence root. These are
+finite functional results; **FULL312 was not launched**, and the collection
+cost does not justify a predictably over-budget FULL run.
+These receipts bind the pre-documentation worktree epoch with the same Python
+bytes; they do not establish exact committed-feature acceptance.
+
+No installed environment changed. The cached home312 environment is unsafe for
+reuse: 170 distributions versus the qualified 156, with 27 missing, 15 different
+and 41 extra; safe replacement disk headroom is unqualified. Other cohorts,
+support ownership/telemetry, portable manifests, resources, full B–F and final
+exact-commit acceptance remain open. Historical records below retain their
+original epochs and limits.
 
 ## Inventory-header integrity — local correctness checkpoint
 
@@ -134,7 +181,7 @@ mapped-main-owner Python 3.11 qualification is independently accepted below.
 Full44, broader cohorts, whole-job timing, residual membership
 costs and literal exact-head CI remain separate open obligations.
 
-## Latest qualification and open gates — 2026-10-29
+## Historical qualification and open gates — 2026-10-29
 
 PR #277 publishes `14439a075f18979510ba4a0e6e97fb7342e6c800` at the latest
 observation, **16:58:48 UTC on 2026-10-29**.

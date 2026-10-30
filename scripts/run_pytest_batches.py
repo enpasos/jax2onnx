@@ -10,6 +10,7 @@ No retry or resource-limit change can turn an incomplete run into success.
 """
 
 import argparse
+import ast
 from collections import Counter
 from datetime import datetime, timezone
 import hashlib
@@ -17,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -132,6 +134,19 @@ def _context_read(path: Path, limit: int = 2 * 1024 * 1024) -> bytes:
     if len(payload) > limit:
         raise ValueError("worker context file exceeds bound")
     return payload
+
+
+def _context_json(path: Path, limit: int, *, label: str) -> tuple[Any, bytes]:
+    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate {label} key")
+            result[key] = value
+        return result
+
+    raw = _context_read(path, limit)
+    return json.loads(raw, object_pairs_hook=object_pairs), raw
 
 
 def _worker_environment() -> dict[str, str | None]:
@@ -1509,6 +1524,7 @@ def _main() -> int:
     parser.add_argument("--test-path", action="append", default=[])
     parser.add_argument("--ci-lane", choices=("standard", "extra"), action=_CiAuthority)
     parser.add_argument("--ci-main-baseline", type=Path, action=_CiAuthority)
+    parser.add_argument("--ci-campaign-contract", type=Path, action=_CiAuthority)
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if not 1 <= args.batch_size <= _MAX_BATCH_SIZE:
@@ -1520,6 +1536,13 @@ def _main() -> int:
         parser.error(
             "canonical CI selection requires both --ci-lane and --ci-main-baseline"
         )
+    if args.ci_campaign_contract:
+        if args.ci_lane != "standard":
+            parser.error("a campaign contract requires canonical --ci-lane standard")
+        try:
+            _ci_campaign_arguments(args.test_path, options)
+        except ValueError as error:
+            parser.error(str(error))
     if any(
         argument == name or argument.startswith(name + "=")
         for argument in [*options, *args.test_path]
@@ -1569,6 +1592,7 @@ def _main() -> int:
     helper = None
     setup_failure = None
     lane_context = None
+    campaign = None
     lane_environment = None
     lane_closed: list[tuple[Path, dict[str, Any], dict[str, str]]] = []
     run["native_model_artifact_transport"] = "native-model-artifact-transport.json"
@@ -1747,14 +1771,29 @@ def _main() -> int:
             }
             _write(root / "run.json", run)
 
+        if args.ci_campaign_contract:
+            campaign = _CiCampaignContext(args.ci_campaign_contract, lane_context)
+            run["ci_campaign"] = {
+                "contract_path": str(campaign.path),
+                "contract_sha256": campaign.sha256,
+                "global_inventory_path": str(
+                    campaign.references["global_inventory"][0]
+                ),
+                "global_inventory_sha256": campaign.inventory_sha256,
+            }
+            _write(root / "run.json", run)
+
         def closed_lane_worker(folder: Path, request: dict[str, Any]) -> dict[str, Any]:
             if lane_context is None:
                 return json.loads((folder / "receipt.json").read_text())
             lane_context.recheck(environment=lane_environment)
             receipt = _ci_lane_closed(folder, request, lane_context)
+            names = ("request.json", "receipt.json", "lane-terminal.json")
+            if campaign is not None and request["kind"] == "batch":
+                names += ("junit.xml",)
             hashes = {
                 name: hashlib.sha256((folder / name).read_bytes()).hexdigest()
-                for name in ("request.json", "receipt.json", "lane-terminal.json")
+                for name in names
             }
             lane_closed.append((folder, request, hashes))
             run["ci_lane"]["closed_workers"][folder.name] = hashes
@@ -1784,6 +1823,8 @@ def _main() -> int:
             raise ValueError("full-suite collection receipt is incomplete")
         if not nodeids or len(set(nodeids)) != len(nodeids):
             raise ValueError("full-suite collection is empty or has duplicate node IDs")
+        if campaign is not None:
+            campaign.collection(baseline)
         lane_ids = nodeids
         if lane_context is not None:
             standard, extra = _ci_lane_partition(nodeids, lane_context.manifest)
@@ -1838,6 +1879,8 @@ def _main() -> int:
                 baseline["collection_skips"]
             ):
                 raise ValueError(f"{folder.name} JUnit does not account for every item")
+            if campaign is not None:
+                campaign.batch(receipt, assigned, folder / "junit.xml")
             run["completed"].extend(receipt["completed"])
             _write(root / "run.json", run)
         if Counter(run["completed"]) != Counter(lane_ids) or (
@@ -1882,6 +1925,16 @@ def _main() -> int:
                         "closed canonical lane evidence changed after validation"
                     )
                 _ci_lane_closed(folder, request, lane_context)
+            if campaign is not None:
+                campaign.recheck()
+                for folder, request, _ in lane_closed:
+                    receipt = _ci_lane_closed(folder, request, lane_context)
+                    if request["kind"] == "collection":
+                        campaign.collection(receipt)
+                    else:
+                        campaign.batch(
+                            receipt, request["assigned"], folder / "junit.xml"
+                        )
         except (OSError, ValueError, LookupError) as error:
             run["status"] = "FAIL"
             run["failure"] = {"type": type(error).__name__, "message": str(error)}
@@ -1996,16 +2049,7 @@ def _ci_lane_transition(transition: Any) -> None:
 def _ci_lane_manifest(
     path: Path, *, environment: Any = None
 ) -> tuple[dict[str, Any], bytes]:
-    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("duplicate baseline manifest key")
-            result[key] = value
-        return result
-
-    raw = _context_read(path, 16 * 1024 * 1024)
-    manifest = json.loads(raw, object_pairs_hook=object_pairs)
+    manifest, raw = _context_json(path, 16 * 1024 * 1024, label="baseline manifest")
     required = {
         "schema",
         "baseline_commit",
@@ -2362,7 +2406,7 @@ class _CiLaneContext:
                 )
             self.check_snapshot(snapshot, stage="post_pytest")
 
-    def check_source(self, path: Any) -> None:
+    def check_source(self, path: Any) -> Path | None:
         if path is None:
             return
         resolved = Path(path).resolve()
@@ -2372,6 +2416,7 @@ class _CiLaneContext:
                 raise ValueError(
                     f"unbound collected owner or dependency source: {relative}"
                 )
+        return resolved
 
     def recheck(self, *, environment: Any = None) -> dict[str, Any]:
         _, raw = _ci_lane_manifest(self.path, environment=environment)
@@ -2401,22 +2446,371 @@ class _CiLaneContext:
             relative = Path(config.inipath).resolve().relative_to(self.root).as_posix()
             if relative not in self.manifest["source_files"]:
                 raise ValueError(f"unbound pytest configuration: {relative}")
+        checked_paths: dict[str | bytes, Path] = {}
+
+        def checked_source(path: Any) -> Path:
+            key = os.fspath(path)
+            if key not in checked_paths:
+                resolved = self.check_source(path)
+                assert resolved is not None
+                checked_paths[key] = resolved
+            return checked_paths[key]
+
         for item in items:
-            if not Path(item.path).resolve().is_relative_to(self.root):
+            if not checked_source(item.path).is_relative_to(self.root):
                 raise ValueError("collected test owner resolves outside the checkout")
-            self.check_source(item.path)
         for name, module in list(sys.modules.items()):
             namespace = vars(module) if module is not None else {}
             path = namespace.get("__file__")
             if type(path) is not str:
                 continue
+            resolved = checked_source(path)
             if name == "jax2onnx" or name.startswith(("jax2onnx.", "tests.")):
-                if not Path(path).resolve().is_relative_to(self.root):
+                if not resolved.is_relative_to(self.root):
                     raise ValueError(
                         f"test/converter module resolves outside the checkout: {name}"
                     )
-            self.check_source(path)
         return bindings
+
+
+def _ci_campaign_arguments(test_paths: list[str], options: list[str]) -> None:
+    """The first campaign profile collects globally with reporting options only."""
+    if test_paths:
+        raise ValueError("campaign collection rejects --test-path prefilters")
+    flags = {
+        "-q",
+        "--quiet",
+        "-v",
+        "--verbose",
+        "-x",
+        "--exitfirst",
+        "--disable-warnings",
+        "--showlocals",
+        "--no-header",
+        "--no-summary",
+    }
+    values = {
+        "--durations",
+        "--durations-min",
+        "--tb",
+        "--color",
+        "--capture",
+        "--maxfail",
+    }
+    for arguments in (options, shlex.split(os.environ.get("PYTEST_ADDOPTS", ""))):
+        pending = False
+        for argument in arguments:
+            if pending:
+                if not argument or argument.startswith("-"):
+                    raise ValueError("campaign reporting option needs a value")
+                pending = False
+            elif argument in flags:
+                continue
+            elif argument in values:
+                pending = True
+            elif "=" in argument and argument.split("=", 1)[0] in values:
+                if not argument.split("=", 1)[1]:
+                    raise ValueError("campaign reporting option needs a value")
+            else:
+                raise ValueError(
+                    f"campaign rejects selection/context override: {argument}"
+                )
+        if pending:
+            raise ValueError("campaign reporting option needs a value")
+
+
+class _CiCampaignContext:
+    """Optional strict outcomes around the existing canonical lane machinery."""
+
+    def __init__(self, path: Path, lane_context: _CiLaneContext) -> None:
+        self.path = path.resolve(strict=True)
+        self.context = lane_context
+        contract, raw = _context_json(self.path, 65536, label="campaign contract")
+        self.sha256 = hashlib.sha256(raw).hexdigest()
+        if (
+            type(contract) is not dict
+            or set(contract)
+            != {
+                "schema",
+                "python_minor",
+                "main_manifest",
+                "global_inventory",
+                "allowed_skips",
+            }
+            or contract["schema"] != "jax2onnx-ci-campaign-v1"
+            or contract["python_minor"] != lane_context.manifest["python_minor"]
+            or lane_context.manifest.get("collection_args", [])
+        ):
+            raise ValueError("unsupported campaign contract or full-global cohort")
+        if lane_context.transition is None:
+            raise ValueError(
+                "campaign requires independently observed collection_transition"
+            )
+        from importlib.metadata import version
+
+        if version("pytest") != "9.1.1":
+            raise ValueError(
+                "campaign JUnit serialization requires qualified pytest 9.1.1"
+            )
+        self.references = {}
+        for name in ("main_manifest", "global_inventory"):
+            reference = contract[name]
+            if (
+                type(reference) is not dict
+                or set(reference) != {"path", "sha256"}
+                or type(reference["path"]) is not str
+                or not reference["path"]
+                or type(reference["sha256"]) is not str
+                or len(reference["sha256"]) != 64
+                or any(c not in "0123456789abcdef" for c in reference["sha256"])
+            ):
+                raise ValueError("campaign reference needs a path and SHA-256")
+            resolved = (self.path.parent / reference["path"]).resolve(strict=True)
+            self.references[name] = (resolved, reference["sha256"])
+        if self.references["main_manifest"] != (lane_context.path, lane_context.sha256):
+            raise ValueError("campaign main manifest binding differs")
+        inventory_path, self.inventory_sha256 = self.references["global_inventory"]
+        self.inventory, payload = _context_json(
+            inventory_path, 16 * 1024 * 1024, label="global inventory"
+        )
+        if hashlib.sha256(payload).hexdigest() != self.inventory_sha256:
+            raise ValueError("campaign global inventory SHA differs")
+        self.standard, self.extra = self._inventory(self.inventory)
+        self.allowed_skips = {}
+        if type(contract["allowed_skips"]) is not list:
+            raise ValueError("campaign allowed_skips must be a list")
+        for skip in contract["allowed_skips"]:
+            if (
+                type(skip) is not dict
+                or set(skip) != {"nodeid", "phases", "source", "line", "reason"}
+                or type(skip["nodeid"]) is not str
+                or skip["nodeid"] not in self.standard
+                or skip["nodeid"] in self.allowed_skips
+                or skip["phases"]
+                not in (
+                    ["setup:skipped", "teardown:passed"],
+                    ["setup:passed", "call:skipped", "teardown:passed"],
+                )
+                or type(skip["source"]) is not str
+                or skip["source"] not in lane_context.manifest["source_files"]
+                or type(skip["line"]) is not int
+                or skip["line"] < 1
+                or type(skip["reason"]) is not str
+                or not skip["reason"]
+            ):
+                raise ValueError("campaign skip allowance is not exact/source-bound")
+            self.allowed_skips[skip["nodeid"]] = skip
+        self.recheck()
+
+    def _inventory(self, receipt: Any) -> tuple[list[str], list[str]]:
+        if (
+            type(receipt) is not dict
+            or receipt.get("kind") != "collection"
+            or not _ci_lane_phase_free(receipt)
+            or receipt.get("full_collection_checked") is not True
+            or receipt.get("collection_errors") != []
+            or type(receipt.get("exitstatus")) is not int
+            or receipt["exitstatus"] != 0
+            or type(receipt.get("finished")) is not str
+            or not receipt["finished"]
+            or receipt.get("assigned_ids") != []
+            or receipt.get("supplemental", False) is not False
+            or receipt.get("native_source_recomputed", False) is not False
+            or receipt.get("cast_observer_enabled", True) is not True
+            or "diagnostic_control" in receipt
+        ):
+            raise ValueError("campaign inventory needs a closed phase-free collection")
+        full = receipt.get("full_preselection_ids")
+        items = receipt.get("full_items")
+        skips = receipt.get("collection_skips")
+        if (
+            type(full) is not list
+            or not full
+            or any(type(node) is not str or not node for node in full)
+            or len(set(full)) != len(full)
+            or type(items) is not list
+            or any(
+                type(item) is not dict
+                or set(item) != {"nodeid", "module", "class"}
+                or type(item["module"]) is not str
+                or not item["module"]
+                or (item["class"] is not None and type(item["class"]) is not str)
+                for item in items
+            )
+            or [item["nodeid"] for item in items] != full
+            or receipt.get("items") != items
+            or receipt.get("selected_ids") != full
+            or type(skips) is not list
+            or any(
+                type(skip) is not dict
+                or set(skip) != {"nodeid", "longrepr"}
+                or any(type(skip[key]) is not str for key in skip)
+                for skip in skips
+            )
+        ):
+            raise ValueError(
+                "campaign inventory has incomplete C/items/collection skips"
+            )
+        standard, extra = _ci_lane_partition(full, self.context.manifest)
+        for key, expected in (("full", full), ("standard", standard), ("extra", extra)):
+            if key in receipt and receipt[key] != expected:
+                raise ValueError("campaign stored C/S/A projection differs")
+        lane = receipt.get("ci_lane", {})
+        if type(lane) is not dict or any(
+            key in lane and lane[key] != expected
+            for key, expected in (("standard_ids", standard), ("extra_ids", extra))
+        ):
+            raise ValueError("campaign stored S/A projection differs")
+        for key, stage in (
+            ("startup_context", "startup"),
+            ("collection_context", "collected"),
+            ("final_context", "post_pytest"),
+        ):
+            self.context.check_snapshot(receipt.get(key), stage=stage)
+        return standard, extra
+
+    def collection(self, receipt: dict[str, Any]) -> tuple[list[str], list[str]]:
+        partition = self._inventory(receipt)
+        if any(
+            receipt[key] != self.inventory[key]
+            for key in (
+                "full_preselection_ids",
+                "full_items",
+                "items",
+                "selected_ids",
+                "collection_skips",
+            )
+        ):
+            raise ValueError("campaign fresh global collection differs from inventory")
+        return partition
+
+    @staticmethod
+    def _junit_key(nodeid: str) -> tuple[str, str]:
+        from _pytest.junitxml import bin_xml_escape
+
+        # Match pytest's public JUnit names, including parameters containing ::.
+        head, bracket, parameters = nodeid.partition("[")
+        names = head.split("::")
+        names[0] = names[0].replace("/", ".").removesuffix(".py")
+        names[-1] += bracket + parameters
+        return ".".join(names[:-1]), bin_xml_escape(names[-1])
+
+    def batch(
+        self, receipt: dict[str, Any], assigned: list[str], junit_path: Path
+    ) -> None:
+        from _pytest.junitxml import bin_xml_escape
+
+        full = self.inventory["full_preselection_ids"]
+        skips = self.inventory["collection_skips"]
+        _validate(receipt, assigned, full, skips)
+        assigned_set = set(assigned)
+        if (
+            not assigned
+            or len(assigned_set) != len(assigned)
+            or [node for node in self.standard if node in assigned_set] != assigned
+            or receipt["completed"] != assigned
+        ):
+            raise ValueError("campaign batch differs from ordered S assignment")
+        expected = {}
+        for nodeid in assigned:
+            reports = receipt["phases"][nodeid]
+            phases = [f"{report['when']}:{report['outcome']}" for report in reports]
+            if any("wasxfail" in report for report in reports):
+                raise ValueError("campaign rejects any wasxfail presence")
+            allowance = None
+            if phases != ["setup:passed", "call:passed", "teardown:passed"]:
+                allowance = self.allowed_skips.get(nodeid)
+                if allowance is None or phases != allowance["phases"]:
+                    raise ValueError(
+                        "campaign has unexpected or incomplete phases/skip"
+                    )
+                report = next(
+                    report for report in reports if report["outcome"] == "skipped"
+                )
+                literal = report.get("longrepr")
+                if type(literal) is not str or len(literal) > 65536:
+                    raise ValueError("campaign skipped report needs an exact location")
+                try:
+                    location = ast.literal_eval(literal)
+                except (ValueError, SyntaxError, RecursionError) as error:
+                    raise ValueError(
+                        "campaign skipped location is malformed"
+                    ) from error
+                if type(location) is not tuple or len(location) != 3:
+                    raise ValueError("campaign skipped location is malformed")
+                source, line, reason = location
+                if type(source) is not str:
+                    raise ValueError("campaign skipped source is malformed")
+                source_path = Path(source)
+                if source_path.is_absolute():
+                    try:
+                        source = source_path.relative_to(self.context.root).as_posix()
+                    except ValueError as error:
+                        raise ValueError(
+                            "campaign skipped source is outside checkout"
+                        ) from error
+                if (
+                    source != allowance["source"]
+                    or type(line) is not int
+                    or line != allowance["line"]
+                    or reason != "Skipped: " + allowance["reason"]
+                ):
+                    raise ValueError("campaign skipped source/line/reason differs")
+            key = self._junit_key(nodeid)
+            if key in expected:
+                raise ValueError("campaign JUnit identities are ambiguous")
+            expected[key] = ("case", allowance)
+        for skip in skips:
+            key = self._junit_key(skip["nodeid"])
+            if key in expected:
+                raise ValueError("campaign JUnit collection identities are ambiguous")
+            expected[key] = ("collection", skip)
+        tree = ET.fromstring(_context_read(junit_path, 16 * 1024 * 1024))
+        cases = tree.findall(".//testcase")
+        keys = [(case.get("classname", ""), case.get("name", "")) for case in cases]
+        if (
+            Counter(keys) != Counter(expected.keys())
+            or tree.findall(".//failure")
+            or tree.findall(".//error")
+        ):
+            raise ValueError("campaign JUnit identities/outcomes differ")
+        for case, key in zip(cases, keys, strict=True):
+            kind, allowance = expected[key]
+            skipped = case.findall("skipped")
+            if allowance is None:
+                if skipped:
+                    raise ValueError("campaign JUnit has an unexpected skip")
+            elif (
+                len(skipped) != 1
+                or (
+                    kind == "case"
+                    and (
+                        skipped[0].get("type") != "pytest.skip"
+                        or skipped[0].get("message")
+                        != bin_xml_escape(allowance["reason"])
+                    )
+                )
+                or (
+                    kind == "collection"
+                    and (
+                        "type" in skipped[0].attrib
+                        or skipped[0].get("message") != "collection skipped"
+                        or skipped[0].text != bin_xml_escape(allowance["longrepr"])
+                    )
+                )
+            ):
+                raise ValueError("campaign JUnit skipped outcome differs")
+
+    def recheck(self) -> None:
+        if hashlib.sha256(_context_read(self.path, 65536)).hexdigest() != self.sha256:
+            raise ValueError("campaign contract SHA changed")
+        for path, expected in self.references.values():
+            if (
+                hashlib.sha256(_context_read(path, 16 * 1024 * 1024)).hexdigest()
+                != expected
+            ):
+                raise ValueError("campaign referenced bytes changed")
+        self.context.recheck(environment=self.context.manifest["environment"])
 
 
 def _ci_lane_worker_authority(options: list[str]) -> dict[str, str] | None:

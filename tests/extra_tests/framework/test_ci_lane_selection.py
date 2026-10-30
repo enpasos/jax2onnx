@@ -2,6 +2,7 @@
 
 """Unused lane selection preserves full collection and native phase accounting."""
 
+import copy
 import hashlib
 from importlib import metadata
 from importlib.util import module_from_spec, spec_from_file_location
@@ -10,6 +11,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -513,6 +515,104 @@ def test_actual_local_contract_sources_cannot_be_omitted(tmp_path, unbound):
     manifest.write_text(json.dumps(contract))
     result, receipt = _run(suite, manifest, environment, tmp_path / "report")
     _assert_failed_before_body(result, receipt, suite)
+
+
+def _source_audit_context(tmp_path, monkeypatch):
+    module = _runner()
+    suite, manifest, _ = _suite(
+        tmp_path, {"test_cases.py": _BODY}, ["test_cases.py::test_base"]
+    )
+    payload = json.loads(manifest.read_text())
+    payload["environment"] = module._ci_lane_environment(os.environ)
+    manifest.write_text(json.dumps(payload))
+    context = module._CiLaneContext(manifest, suite)
+    observed_sys = type(sys)("audit-sys")
+    observed_sys.version_info = sys.version_info
+    observed_sys.modules = {}
+    monkeypatch.setattr(module, "sys", observed_sys)
+    config = SimpleNamespace(
+        rootpath=suite,
+        option=SimpleNamespace(),
+        inipath=suite / "pytest.ini",
+        getini=lambda name: [],
+    )
+    return module, context, config
+
+
+def test_source_audit_deduplicates_exact_raw_paths_only_within_one_audit(
+    tmp_path, monkeypatch
+):
+    module, context, config = _source_audit_context(tmp_path, monkeypatch)
+    owner = context.root / "test_cases.py"
+    alternate = str(context.root) + "/./test_cases.py"
+    module.sys.modules.update(
+        ordinary=SimpleNamespace(__file__=str(owner)),
+        lexical_alias=SimpleNamespace(__file__=alternate),
+    )
+    module.sys.modules["tests.owner"] = SimpleNamespace(__file__=str(owner))
+    calls = []
+    original = context.check_source
+
+    def checked(path):
+        calls.append(os.fspath(path))
+        return original(path)
+
+    monkeypatch.setattr(context, "check_source", checked)
+    items = [SimpleNamespace(path=owner) for _ in range(8)]
+    # Mandatory manifest/hash resolutions remain independent of this count.
+    for _ in range(2):
+        calls.clear()
+        assert context.check(config, items) == context.sources
+        assert calls == [str(owner), alternate]
+    assert original(None) is None
+    assert original(owner) == owner.resolve()
+
+
+@pytest.mark.parametrize("name", ["tests.alias", "jax2onnx", "jax2onnx.alias"])
+def test_source_audit_preserves_protected_namespace_checks_on_memo_hits(
+    tmp_path, monkeypatch, name
+):
+    module, context, config = _source_audit_context(tmp_path, monkeypatch)
+    outside = tmp_path / "external.py"
+    outside.write_text("VALUE = 1\n")
+    module.sys.modules["ordinary"] = SimpleNamespace(__file__=str(outside))
+    assert context.check(config) == context.sources
+    module.sys.modules[name] = SimpleNamespace(__file__=str(outside))
+    calls = []
+    original = context.check_source
+
+    def checked(path):
+        calls.append(os.fspath(path))
+        return original(path)
+
+    monkeypatch.setattr(context, "check_source", checked)
+    with pytest.raises(ValueError, match="test/converter module resolves outside"):
+        context.check(config)
+    assert calls == [str(outside)]
+
+
+@pytest.mark.parametrize("target", ["outside", "unbound"])
+def test_source_audit_resolves_retargeted_symlink_in_next_audit(
+    tmp_path, monkeypatch, target
+):
+    module, context, config = _source_audit_context(tmp_path, monkeypatch)
+    alias = context.root / "alias.py"
+    alias.symlink_to(context.root / "test_cases.py")
+    module.sys.modules["tests.alias"] = SimpleNamespace(__file__=str(alias))
+    assert context.check(config) == context.sources
+    replacement = (
+        tmp_path / "outside.py" if target == "outside" else context.root / "unbound.py"
+    )
+    replacement.write_text("VALUE = 1\n")
+    alias.unlink()
+    alias.symlink_to(replacement)
+    message = (
+        "test/converter module resolves outside"
+        if target == "outside"
+        else "unbound collected owner or dependency source"
+    )
+    with pytest.raises(ValueError, match=message):
+        context.check(config)
 
 
 def test_collect_only_inventory_does_not_claim_execution_success(tmp_path):
@@ -1224,3 +1324,495 @@ def pytest_runtestloop(session):
     assert receipt["phases"] == receipt["phase_durations"] == {}
     assert receipt["completed"] == []
     assert not (suite / "body-ran").exists()
+
+
+def _campaign_fixture(tmp_path):
+    module = _runner()
+    standard = ["test_cases.py::test_base", "test_cases.py::test_other"]
+    extra = ["test_cases.py::test_extra"]
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_cases.py": "def test_base(): pass\n"
+            "def test_other(): pass\ndef test_extra(): pass\n"
+        },
+        standard,
+    )
+    manifest_payload = json.loads(manifest.read_text())
+    environment_map = manifest_payload["environment"]
+    jax_config = {"status": "NOT_LOADED", "values": {}}
+    manifest_payload["collection_transition"] = {
+        "startup_jax_config": jax_config,
+        "collected_environment": environment_map,
+        "collected_jax_config": jax_config,
+        "post_pytest_environment": environment_map,
+        "post_pytest_jax_config": jax_config,
+    }
+    manifest.write_text(json.dumps(manifest_payload) + "\n")
+    full = standard + extra
+    items = [
+        {"nodeid": nodeid, "module": "test_cases.py", "class": None} for nodeid in full
+    ]
+    inventory = {
+        "kind": "collection",
+        "pytest_args": ["--collect-only"],
+        "items": items,
+        "full_items": copy.deepcopy(items),
+        "full_preselection_ids": full,
+        "selected_ids": full,
+        "assigned_ids": [],
+        "full_collection_checked": True,
+        "collection_errors": [],
+        "collection_skips": [],
+        "exitstatus": 0,
+        "finished": "closed",
+        "phases": {},
+        "phase_durations": {},
+        "completed": [],
+        "ci_lane": {"standard_ids": standard, "extra_ids": extra},
+    }
+    for stage in ("startup_context", "collection_context", "final_context"):
+        inventory[stage] = {
+            "status": "OBSERVED",
+            "errors": [],
+            "environment": copy.deepcopy(environment_map),
+            "loaded_jax_config": copy.deepcopy(jax_config),
+        }
+    inventory_path = tmp_path / "global-collection.json"
+    inventory_path.write_text(json.dumps(inventory) + "\n")
+    contract = {
+        "schema": "jax2onnx-ci-campaign-v1",
+        "python_minor": f"{sys.version_info.major}.{sys.version_info.minor}",
+        "main_manifest": {
+            "path": manifest.name,
+            "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        },
+        "global_inventory": {
+            "path": inventory_path.name,
+            "sha256": hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
+        },
+        "allowed_skips": [],
+    }
+    contract_path = tmp_path / "campaign.json"
+    contract_path.write_text(json.dumps(contract) + "\n")
+    context = module._CiLaneContext(manifest, suite, environment=environment)
+    return module, context, contract_path, inventory_path, inventory
+
+
+def _campaign_rewrite_inventory(contract_path, inventory_path, inventory):
+    inventory_path.write_text(json.dumps(inventory) + "\n")
+    contract = json.loads(contract_path.read_text())
+    contract["global_inventory"]["sha256"] = hashlib.sha256(
+        inventory_path.read_bytes()
+    ).hexdigest()
+    contract_path.write_text(json.dumps(contract) + "\n")
+
+
+def _campaign_batch(tmp_path, inventory):
+    assigned = inventory["ci_lane"]["standard_ids"]
+    receipt = copy.deepcopy(inventory)
+    receipt.update(
+        kind="batch",
+        items=inventory["items"][: len(assigned)],
+        assigned_ids=assigned,
+        selected_ids=assigned,
+        completed=assigned,
+        phases={
+            nodeid: [
+                {"when": phase, "outcome": "passed"}
+                for phase in ("setup", "call", "teardown")
+            ]
+            for nodeid in assigned
+        },
+    )
+    junit_path = tmp_path / "batch-junit.xml"
+    _campaign_junit(junit_path, receipt)
+    return receipt, assigned, junit_path
+
+
+def _campaign_junit(path, receipt):
+    from xml.etree import ElementTree as ET
+
+    suite = ET.Element("testsuite")
+    for nodeid in receipt["assigned_ids"]:
+        owner, _, name = nodeid.partition("::")
+        case = ET.SubElement(
+            suite,
+            "testcase",
+            classname=owner.removesuffix(".py").replace("/", "."),
+            name=name,
+            file=owner,
+        )
+        if any(report["outcome"] == "skipped" for report in receipt["phases"][nodeid]):
+            ET.SubElement(case, "skipped", type="pytest.skip", message="original skip")
+    ET.ElementTree(suite).write(path)
+
+
+def test_campaign_contract_binds_relative_inputs_and_exact_global_projection(tmp_path):
+    module, lane, contract_path, _, inventory = _campaign_fixture(tmp_path)
+    campaign = module._CiCampaignContext(contract_path, lane)
+    standard, extra = campaign.collection(inventory)
+    assert standard == lane.manifest["nodeids"]
+    assert extra == ["test_cases.py::test_extra"]
+    assert set(standard).isdisjoint(extra)
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory)
+    campaign.batch(batch, assigned, junit_path)
+    campaign.recheck()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "unknown-root",
+        "missing-root",
+        "duplicate-root",
+        "duplicate-reference",
+        "unknown-reference",
+        "bad-sha",
+        "wrong-inventory-sha",
+        "wrong-cohort",
+        "crossed-main",
+        "missing-inventory",
+        "prefiltered-main",
+        "unbound-skip-source",
+    ],
+)
+def test_campaign_contract_rejects_unreviewed_admission(tmp_path, fault):
+    module, lane, path, inventory_path, _ = _campaign_fixture(tmp_path)
+    payload = json.loads(path.read_text())
+    if fault == "unknown-root":
+        payload["accepted"] = True
+    elif fault == "missing-root":
+        del payload["global_inventory"]
+    elif fault == "duplicate-root":
+        path.write_text(
+            path.read_text().replace('"schema":', '"schema": "duplicate", "schema":', 1)
+        )
+    elif fault == "duplicate-reference":
+        path.write_text(
+            path.read_text().replace('"path":', '"path": "duplicate", "path":', 1)
+        )
+    elif fault == "unknown-reference":
+        payload["main_manifest"]["accepted"] = True
+    elif fault == "bad-sha":
+        payload["global_inventory"]["sha256"] = "g" * 64
+    elif fault == "wrong-inventory-sha":
+        payload["global_inventory"]["sha256"] = "0" * 64
+    elif fault == "wrong-cohort":
+        payload["python_minor"] = "3.12" if sys.version_info.minor != 12 else "3.11"
+    elif fault == "crossed-main":
+        other = path.with_name("other-baseline.json")
+        other.write_bytes(lane.path.read_bytes())
+        payload["main_manifest"]["path"] = other.name
+    elif fault == "missing-inventory":
+        inventory_path.unlink()
+    elif fault == "prefiltered-main":
+        manifest = json.loads(lane.path.read_text())
+        manifest["collection_args"] = ["test_cases.py"]
+        lane.path.write_text(json.dumps(manifest) + "\n")
+        payload["main_manifest"]["sha256"] = hashlib.sha256(
+            lane.path.read_bytes()
+        ).hexdigest()
+        lane = module._CiLaneContext(
+            lane.path, lane.root, environment=manifest["environment"]
+        )
+    else:
+        payload["allowed_skips"] = [
+            {
+                "nodeid": lane.manifest["nodeids"][0],
+                "phases": ["setup:skipped", "teardown:passed"],
+                "source": "unreviewed.py",
+                "line": 1,
+                "reason": "original skip",
+            }
+        ]
+    if not fault.startswith("duplicate-"):
+        path.write_text(json.dumps(payload) + "\n")
+    with pytest.raises((OSError, ValueError)):
+        module._CiCampaignContext(path, lane)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing-C",
+        "missing-baseline-C",
+        "reordered-C",
+        "items",
+        "executed",
+        "incomplete",
+        "missing-S",
+        "extra-S",
+        "extra-A",
+    ],
+)
+def test_campaign_contract_rejects_incomplete_or_crossed_global_inventory(
+    tmp_path, fault
+):
+    module, lane, path, inventory_path, inventory = _campaign_fixture(tmp_path)
+    if fault == "missing-C":
+        inventory["full_preselection_ids"].pop()
+    elif fault == "missing-baseline-C":
+        for key in ("full_preselection_ids", "selected_ids", "items", "full_items"):
+            inventory[key] = inventory[key][1:]
+    elif fault == "reordered-C":
+        inventory["full_preselection_ids"] = list(
+            reversed(inventory["full_preselection_ids"])
+        )
+    elif fault == "items":
+        inventory["full_items"][0]["module"] = "other.py"
+    elif fault == "executed":
+        inventory["phases"] = {
+            lane.manifest["nodeids"][0]: [{"when": "setup", "outcome": "passed"}]
+        }
+    elif fault == "incomplete":
+        inventory["full_collection_checked"] = False
+    elif fault == "missing-S":
+        inventory["ci_lane"]["standard_ids"] = lane.manifest["nodeids"][:-1]
+    elif fault == "extra-S":
+        inventory["ci_lane"]["standard_ids"] = inventory["full_preselection_ids"]
+    else:
+        inventory["ci_lane"]["extra_ids"] = [lane.manifest["nodeids"][0]]
+    _campaign_rewrite_inventory(path, inventory_path, inventory)
+    with pytest.raises(ValueError):
+        module._CiCampaignContext(path, lane)
+
+
+@pytest.mark.parametrize("fault", ["order", "items", "collection-skip"])
+def test_campaign_collection_matches_every_fresh_global_observation(tmp_path, fault):
+    module, lane, path, _, inventory = _campaign_fixture(tmp_path)
+    campaign = module._CiCampaignContext(path, lane)
+    assert campaign.collection(inventory)[0] == lane.manifest["nodeids"]
+    fresh = copy.deepcopy(inventory)
+    if fault == "order":
+        for key in ("items", "full_items", "full_preselection_ids", "selected_ids"):
+            fresh[key] = list(reversed(fresh[key]))
+    elif fault == "items":
+        fresh["items"][0]["class"] = "test_cases.py::DifferentScope"
+        fresh["full_items"] = copy.deepcopy(fresh["items"])
+    else:
+        fresh["collection_skips"] = [
+            {"nodeid": "unselected.py", "longrepr": "unreviewed"}
+        ]
+    with pytest.raises(ValueError):
+        campaign.collection(fresh)
+
+
+@pytest.mark.parametrize(
+    "stage", ["startup_context", "collection_context", "final_context"]
+)
+def test_campaign_keeps_every_independently_bound_context_stage(tmp_path, stage):
+    module, lane, path, _, inventory = _campaign_fixture(tmp_path)
+    campaign = module._CiCampaignContext(path, lane)
+    campaign.collection(inventory)
+    fresh = copy.deepcopy(inventory)
+    fresh[stage]["loaded_jax_config"]["status"] = "UNVERIFIED"
+    with pytest.raises(ValueError, match="collection-transition"):
+        campaign.collection(fresh)
+
+
+@pytest.mark.parametrize("phase", ["setup", "call"])
+def test_campaign_allows_only_the_exact_complete_original_skip(tmp_path, phase):
+    module, lane, path, _, inventory = _campaign_fixture(tmp_path)
+    payload = json.loads(path.read_text())
+    names = ["setup", "teardown"] if phase == "setup" else ["setup", "call", "teardown"]
+    expected = [
+        {"when": name, "outcome": "skipped" if name == phase else "passed"}
+        for name in names
+    ]
+    payload["allowed_skips"] = [
+        {
+            "nodeid": lane.manifest["nodeids"][0],
+            "phases": [report["when"] + ":" + report["outcome"] for report in expected],
+            "source": "test_cases.py",
+            "line": 1,
+            "reason": "original skip",
+        }
+    ]
+    path.write_text(json.dumps(payload) + "\n")
+    campaign = module._CiCampaignContext(path, lane)
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory)
+    # An allowance does not require a skip when the original case now passes.
+    campaign.batch(batch, assigned, junit_path)
+    expected[0 if phase == "setup" else 1]["longrepr"] = repr(
+        (str(lane.root / "test_cases.py"), 1, "Skipped: original skip")
+    )
+    batch["phases"][assigned[0]] = expected
+    _campaign_junit(junit_path, batch)
+    campaign.batch(batch, assigned, junit_path)
+    expected[0 if phase == "setup" else 1]["longrepr"] = repr(
+        ("test_cases.py", 1, "Skipped: original skip")
+    )
+    campaign.batch(batch, assigned, junit_path)
+    expected[0 if phase == "setup" else 1]["longrepr"] = repr(
+        (str(lane.root / "test_cases.py"), 2, "Skipped: original skip")
+    )
+    with pytest.raises(ValueError):
+        campaign.batch(batch, assigned, junit_path)
+
+
+@pytest.mark.parametrize("fault", ["phase", "reason", "source", "wasxfail", "junit"])
+def test_campaign_skip_allowance_does_not_authorize_other_outcomes(tmp_path, fault):
+    module, lane, path, _, inventory = _campaign_fixture(tmp_path)
+    payload = json.loads(path.read_text())
+    payload["allowed_skips"] = [
+        {
+            "nodeid": lane.manifest["nodeids"][0],
+            "phases": ["setup:passed", "call:skipped", "teardown:passed"],
+            "source": "test_cases.py",
+            "line": 1,
+            "reason": "original skip",
+        }
+    ]
+    path.write_text(json.dumps(payload) + "\n")
+    campaign = module._CiCampaignContext(path, lane)
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory)
+    reports = batch["phases"][assigned[0]]
+    reports[1].update(
+        outcome="skipped",
+        longrepr=repr((str(lane.root / "test_cases.py"), 1, "Skipped: original skip")),
+    )
+    _campaign_junit(junit_path, batch)
+    campaign.batch(batch, assigned, junit_path)
+    if fault == "phase":
+        reports.pop(1)
+        reports[0].update(
+            outcome="skipped",
+            longrepr=repr(
+                (str(lane.root / "test_cases.py"), 1, "Skipped: original skip")
+            ),
+        )
+    elif fault == "reason":
+        reports[1]["longrepr"] = repr(
+            (str(lane.root / "test_cases.py"), 1, "Skipped: different reason")
+        )
+    elif fault == "source":
+        reports[1]["longrepr"] = repr(
+            ("/unrelated/test_cases.py", 1, "Skipped: original skip")
+        )
+    elif fault == "wasxfail":
+        reports[1]["wasxfail"] = ""
+    else:
+        junit_path.write_text(
+            junit_path.read_text().replace(
+                'message="original skip"', 'message="different reason"'
+            )
+        )
+    with pytest.raises(ValueError):
+        campaign.batch(batch, assigned, junit_path)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "skip",
+        "wasxfail-empty",
+        "wasxfail-passed",
+        "missing-phase",
+        "phase-order",
+        "completion-order",
+        "foreign-source",
+        "junit-missing",
+        "junit-identity",
+        "junit-failure",
+    ],
+)
+def test_campaign_batch_rejects_unqualified_native_or_junit_outcomes(tmp_path, fault):
+    module, lane, path, _, inventory = _campaign_fixture(tmp_path)
+    campaign = module._CiCampaignContext(path, lane)
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory)
+    campaign.batch(batch, assigned, junit_path)
+    reports = batch["phases"][assigned[0]]
+    if fault == "skip":
+        reports[1].update(
+            outcome="skipped",
+            longrepr=repr(
+                (str(lane.root / "test_cases.py"), 1, "Skipped: original skip")
+            ),
+        )
+    elif fault.startswith("wasxfail"):
+        reports[1]["wasxfail"] = "" if fault.endswith("empty") else "original xfail"
+    elif fault == "missing-phase":
+        reports.pop()
+    elif fault == "phase-order":
+        reports.reverse()
+    elif fault == "completion-order":
+        batch["completed"] = list(reversed(assigned))
+    elif fault == "foreign-source":
+        reports[1].update(
+            outcome="skipped",
+            longrepr=repr(("/foreign/test_cases.py", 1, "Skipped: original skip")),
+        )
+    elif fault == "junit-missing":
+        junit_path.write_text("<testsuite/>")
+    elif fault == "junit-identity":
+        junit_path.write_text(
+            junit_path.read_text().replace('name="test_base"', 'name="different_case"')
+        )
+    else:
+        junit_path.write_text(
+            '<testsuite><testcase classname="test_cases" name="test_base"><failure/></testcase><testcase classname="test_cases" name="test_other"/></testsuite>'
+        )
+    with pytest.raises(ValueError):
+        campaign.batch(batch, assigned, junit_path)
+
+
+@pytest.mark.parametrize("target", ["contract", "inventory", "main", "source"])
+def test_campaign_rechecks_reviewed_bytes_before_final_success(tmp_path, target):
+    module, lane, path, inventory_path, inventory = _campaign_fixture(tmp_path)
+    campaign = module._CiCampaignContext(path, lane)
+    campaign.collection(inventory)
+    campaign.recheck()
+    changed = {
+        "contract": path,
+        "inventory": inventory_path,
+        "main": lane.path,
+        "source": lane.root / "test_cases.py",
+    }[target]
+    changed.write_bytes(changed.read_bytes() + b"\n")
+    with pytest.raises(ValueError):
+        campaign.recheck()
+
+
+def test_campaign_requires_transition_but_generic_static_manifest_stays_valid(tmp_path):
+    module, lane, path, _, _ = _campaign_fixture(tmp_path)
+    manifest = json.loads(lane.path.read_text())
+    del manifest["collection_transition"]
+    lane.path.write_text(json.dumps(manifest) + "\n")
+    contract = json.loads(path.read_text())
+    contract["main_manifest"]["sha256"] = hashlib.sha256(
+        lane.path.read_bytes()
+    ).hexdigest()
+    path.write_text(json.dumps(contract) + "\n")
+    static = module._CiLaneContext(
+        lane.path, lane.root, environment=manifest["environment"]
+    )
+    assert static.transition is None
+    static.recheck(environment=manifest["environment"])
+    with pytest.raises(
+        ValueError, match="requires independently observed collection_transition"
+    ):
+        module._CiCampaignContext(path, static)
+
+
+@pytest.mark.parametrize(
+    "stage", ["startup_context", "collection_context", "final_context"]
+)
+def test_campaign_rejects_missing_independently_observed_snapshot(tmp_path, stage):
+    module, lane, path, inventory_path, inventory = _campaign_fixture(tmp_path)
+    del inventory[stage]
+    _campaign_rewrite_inventory(path, inventory_path, inventory)
+    with pytest.raises(ValueError, match="context snapshot is unverified"):
+        module._CiCampaignContext(path, lane)
+
+
+def test_campaign_rejects_unqualified_pytest_xml_serializer(tmp_path, monkeypatch):
+    module, lane, path, _, _ = _campaign_fixture(tmp_path)
+    original = metadata.version
+    monkeypatch.setattr(
+        metadata,
+        "version",
+        lambda name: "9.1.2" if name == "pytest" else original(name),
+    )
+    with pytest.raises(ValueError, match="qualified pytest 9.1.1"):
+        module._CiCampaignContext(path, lane)
