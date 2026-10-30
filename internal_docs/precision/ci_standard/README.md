@@ -5,6 +5,14 @@ workflow. Real rendering requires a committed source tree whose HEAD and every
 tracked file match an independently supplied event SHA. These inputs do not
 qualify a hosted job against the complete 1,200-second budget.
 
+At `56c6a24f`, [CI 571](https://github.com/enpasos/jax2onnx/actions/runs/41060058197)
+passes all four candidate support jobs. All four global candidates fail:
+locked312 detects MaxText leaking `XLA_FLAGS`; locked311/313/314 reject ten
+unchanged missing-npm call skips omitted from their allowances. Remaining
+assigned cases were unexecuted. These failures remain recorded; the source
+repairs require fresh qualification. Gate activation and complete job-budget
+acceptance remain open.
+
 ## Reviewed cohort inputs
 
 All profiles preserve literal ordered main `81ad6ca` identities. Generated
@@ -32,9 +40,9 @@ The normalization declarations share only `normalization-baseline.json`: the
 literal Main IDs for layer-norm then cosine, with an empty generated map. Their
 package and boundary-context records remain separate. Actual absence of both
 generated directories is still required at setup and closure; `{}` alone does
-not prove absence. All support skip-allowance lists are empty. The Node
-declaration, `node-baseline.json` and `node-runtime-reference.json` are source-only
-candidate data pending review, commit and fresh canonical admission.
+not prove absence. All support skip-allowance lists are empty. The committed
+Node declaration, `node-baseline.json` and `node-runtime-reference.json` retain
+their separate local and hosted admission evidence.
 
 The modern profiles share only the hash-bound literal identities/generated map
 in `modern-baseline.json`. Their package, plugin, environment, JAX transition and
@@ -125,10 +133,18 @@ complete/disjoint extras A, every later collection, native phases, JUnit and fin
 source/context closures retain their existing checks and worker request formats.
 
 Allowances are exact source/line/reason/phase records, not required skips. A
-complete ordinary pass remains valid. Python 3.11 permits the reviewed scan and
-Keras skips; Python 3.12 permits only the scan skip, since its Main Keras case
-passed; each modern profile permits only its independently observed Keras skip.
-Unexpected skips and any native `wasxfail` presence fail campaign validation.
+complete ordinary pass remains valid. All four global profiles preserve ten
+original missing-npm call-skip conditions. Their owner bytes and original setup
+match Main; hosted Main's 12/11/11/11 aggregate skips support this parity, while
+its individual phases/reasons were not recorded. Exact phases/locations/reasons
+were observed in CI 571 on locked311/313/314. This corrects an omitted conditional
+contract, without changing tests or adding skips. Python 3.11 also permits the
+reviewed scan and Keras skips; Python 3.12 retains only its scan allowance beyond
+these ten, since its Main Keras case passed; each modern profile retains its
+independently observed Keras allowance. The dedicated original Node lane still
+executes all ten, with no allowances. Unexpected skips and any native
+`wasxfail` presence fail campaign validation; allowed skips are not numerical
+acceptance.
 
 Focused v3 controls passed 47 cases; the preceding 40-case result and its sole
 path-containment review finding remain preserved. Complete component/process

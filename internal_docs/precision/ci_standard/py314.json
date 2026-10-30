@@ -335,6 +335,116 @@
       "source": "tests/extra_tests/test_activation_argument_binding.py",
       "line": 175,
       "reason": "Keras is an optional integration"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_quickstart.py::TestQuickstart::test_quickstart_web_model_runs_in_onnxruntime_web_wasm",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_quickstart.py",
+      "line": 78,
+      "reason": "Run `npm install` to enable onnxruntime-web tests"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_onnxruntime_web_wasm_validation_smoke",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 126,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_copysign_broadcast_web_export_keeps_operand_shapes",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 182,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_einsum_labeled_broadcast_web_export_expands_inputs",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 235,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_irfft_web_export_keeps_real_channel_rank",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 276,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_nanmedian_web_export_sorts_nans_last",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 314,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_sort_web_export_preserves_nan_after_sorting_last",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 352,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_symmetric_product_web_export_stamps_transpose_shape",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 408,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_zeta_broadcast_web_export_keeps_guard_shapes",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 457,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
+    },
+    {
+      "nodeid": "tests/extra_tests/test_return_modes.py::test_flip_sequences_web_export_expands_broadcast_index_grid",
+      "phases": [
+        "setup:passed",
+        "call:skipped",
+        "teardown:passed"
+      ],
+      "source": "tests/extra_tests/test_return_modes.py",
+      "line": 524,
+      "reason": "Run `npm install` to enable onnxruntime-web validation"
     }
   ],
   "provenance": {

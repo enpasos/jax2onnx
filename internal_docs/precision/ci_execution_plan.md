@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status — 2026-10-30: **Eight reviewed fixed STANDARD candidates are wired beside the untouched authoritative old eight for one PR #277 qualification milestone. Actual same-head sixteen-job outcomes, complete 1,200-second candidate spans, 160 candidate job-minutes, controlled resources and the 100-MiB successful-artifact budget remain UNVERIFIED. Published `234df50e` retains all eight old checks passing. Local support and committed Node admission retain their recorded SHA scope; coordinated gate activation and full B–F remain open. The comparative frozen-main diagnostic stays retired.**
+Status — 2026-10-30: **At published `56c6a24f`, CI 571 passes all four candidate support jobs and fails all four global candidates: a MaxText `XLA_FLAGS` leak on locked312 and omitted original missing-npm skip allowances on locked311/313/314. Remaining assigned cases were unexecuted. The old four full jobs also fail at the prior BitCast diagnostic expectation, repaired locally at `4cd77c46`; failed predecessors remain recorded. All-eight candidate qualification, complete 1,200-second spans, 160 job-minutes and the 100-MiB successful-artifact budget remain open. Gate activation and full B–F remain open; the comparative frozen-main diagnostic stays retired.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -47,6 +47,23 @@ main-to-PR contract mapping, collection-context equivalence, measured whole-job
 not accept missing migration verifiers or claim performance results.
 
 ## Current private qualification — 2026-10-30
+
+In [CI 571](https://github.com/enpasos/jax2onnx/actions/runs/41060058197), the
+same-head candidate normalization312/313, minimum312 and Node312 jobs pass in
+**65 / 74 / 134 / 125 s**, totaling **398 job-seconds / 2,506,645 artifact bytes**.
+This qualifies those four support observations only, not all-eight acceptance.
+The locked312 worker stops after 79 of 176 assigned cases in batch 0003 when
+MaxText initialization leaves its HLO-dump `XLA_FLAGS` in the process environment.
+Locked311/313/314 instead reject ten original missing-npm call skips; their
+exact native phases, source bytes, lines and reasons agree. Later assigned
+cases remain unexecuted, and all four actual global results remain failed.
+
+The four global profiles now restore only those ten omitted conditional
+allowances. Owner bytes and npm setup match frozen Main, whose actual hosted
+global jobs recorded 12/11/11/11 aggregate skips; historical per-ID skip phases
+remain inferred, not observed. The unchanged dedicated Node lane executes all
+ten with zero allowances. Source repairs do not waive context checks, change
+inputs or comparisons, establish numerical acceptance, or qualify a new head.
 
 The [private support variant](ci_standard/README.md#private-support-variant)
 retains exact original selectors, installation maps and first-collection
@@ -150,8 +167,8 @@ output inventories, separate failed model/temp payloads and raw upload fallback.
 Successful receipts/logs retain seven days and share the **100-MiB aggregate**
 compressed-artifact budget; failure/retry payloads and old-job costs are separate.
 This is temporary qualification wiring, **not coordinated standard/extra gate
-activation**. Actual same-head sixteen-job outcomes and complete candidate
-timing/resource/artifact evidence remain UNVERIFIED. Before retiring old jobs,
+activation**. Successful same-head sixteen-job qualification and complete
+candidate timing/resource/artifact evidence remain open. Before retiring old jobs,
 assign minimum311 additional coverage, minimum312 **A=140** and every other
 extra/integration/quality obligation to explicit executable owners. Public
 LEGACY behavior and all full B–F/final acceptance obligations remain unchanged.
