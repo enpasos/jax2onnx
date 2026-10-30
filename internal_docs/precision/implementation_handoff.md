@@ -23,6 +23,12 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
+At local `613f1b69`, official312 full collection records **C=19,461**; only the two original MaxText exports/context/closed-worker checks pass in this finite witness.
+Both saved-model full checkers **FAIL** at `node_Cast_149` (`tensor(complex64)`); numerical acceptance remains **UNVERIFIED**.
+[Closed evidence](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/closed-integration.json) (`7cb90c94…`) and [source diagnosis](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/checker-only/source-diagnosis-v1.json) (`f9c80518…`) retain the failures; historical Main artifact outcomes remain **UNVERIFIED**.
+Actual artifact SHA256s: `deepseek2-16b`: `e262053fd7af7f5a78e29a1b3a90f36ebfbdc7ec03ae31dee1b8d3514ae9af28`; `deepseek2-236b`: `fd60cdbb2e22c0a2927b04c217e6e1d3d3e8b70c972a0641ae28b1133843a55d`.
+Full S, original 45+5, all 12 native owners and full B–F remain unqualified.
+
 The reviewed V2 checkpoint appends eight fixed temporary STANDARD candidates
 beside the untouched authoritative old eight in the same PR #277 workflow
 (patch `e8778409…`, independent review `95defced…`). Canonical first-C→S,
