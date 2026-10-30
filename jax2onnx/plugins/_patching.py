@@ -96,7 +96,10 @@ def _record_owned_patch(
 
 
 def _forget_owned_patch(record: _OwnedPatch) -> None:
-    _OWNED_PATCHES.remove(record)
+    if _OWNED_PATCHES and _OWNED_PATCHES[-1] is record:
+        _OWNED_PATCHES.pop()
+    else:
+        _OWNED_PATCHES.remove(record)
 
 
 def _has_owned_leaf_patches() -> bool:

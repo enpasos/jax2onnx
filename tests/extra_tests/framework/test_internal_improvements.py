@@ -800,6 +800,62 @@ def test_patch_context_unwinds_earlier_targets_when_later_factory_raises(
     assert not plugin_system._PATCH_STATE
 
 
+@pytest.mark.parametrize(
+    "kind", ["empty-list", "empty-list-subclass", "false-list", "false-iterable"]
+)
+def test_leaf_binding_preserves_custom_iteration_and_single_factory_call(
+    kind: str,
+) -> None:
+    original, replacement = object(), object()
+    owner = SimpleNamespace(target=original)
+    events: list[str] = []
+    payload = (
+        []
+        if kind == "empty-list-subclass"
+        else [AssignSpec(owner, "target", replacement)]
+    )
+
+    class CustomIterable:
+        def __iter__(self) -> Any:
+            events.append("iterate")
+            return iter(payload)
+
+        def __bool__(self) -> bool:
+            raise AssertionError("Custom binding specs must be iterated directly")
+
+    class CustomList(list[Any], CustomIterable):
+        __iter__ = CustomIterable.__iter__
+        __bool__ = CustomIterable.__bool__
+
+    if kind == "empty-list":
+        specs: Any = []
+    elif kind == "false-iterable":
+        specs = CustomIterable()
+    else:
+        specs = CustomList()
+
+    class Leaf(plugin_system.PrimitiveLeafPlugin):
+        @classmethod
+        def ensure_abstract_eval_bound(cls) -> None:
+            events.append("abstract")
+
+        @classmethod
+        def binding_specs(cls) -> Any:
+            events.append("factory")
+            return specs
+
+    with Leaf.plugin_binding():
+        assert owner.target is (
+            replacement if kind in {"false-list", "false-iterable"} else original
+        )
+    assert owner.target is original
+    assert events == (
+        ["abstract", "factory"]
+        if kind == "empty-list"
+        else ["abstract", "factory", "iterate"]
+    )
+
+
 def test_leaf_duplicate_target_stack_restores_original_in_reverse_order() -> None:
     original, first, second = object(), object(), object()
     owner = SimpleNamespace(target=original)

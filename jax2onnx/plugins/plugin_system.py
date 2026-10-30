@@ -569,7 +569,11 @@ class PrimitiveLeafPlugin(PrimitivePlugin, PrimitiveLowering):
             # including AssignSpec declarations, while retaining registry/AD setup.
             yield
             return
-        with apply_patches(cls.binding_specs(), owner=cls):
+        specs = cls.binding_specs()
+        if type(specs) is list and not specs:
+            yield
+            return
+        with apply_patches(specs, owner=cls):
             yield
 
     def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
