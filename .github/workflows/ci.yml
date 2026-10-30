@@ -383,11 +383,6 @@ jobs:
       CANDIDATE_ID: ${{ matrix.id }}
       CANDIDATE_ROLE: ${{ matrix.role }}
       CANDIDATE_COHORT: internal_docs/precision/ci_standard/${{ matrix.cohort }}.json
-      CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}
-      CANDIDATE_TOOLS: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tools
-      CANDIDATE_VENV: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-venv
-      CANDIDATE_NODE_PARENT: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-node
-      CANDIDATE_TMP: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tmp
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -401,6 +396,12 @@ jobs:
 
     - name: Observe original setup and canonical STANDARD execution
       id: work
+      env:
+        CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}
+        CANDIDATE_TOOLS: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tools
+        CANDIDATE_VENV: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-venv
+        CANDIDATE_NODE_PARENT: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-node
+        CANDIDATE_TMP: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tmp
       run: |
         set -euo pipefail
         python -B scripts/run_with_resources.py \
@@ -598,6 +599,11 @@ jobs:
       id: pack
       if: always()
       env:
+        CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}
+        CANDIDATE_TOOLS: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tools
+        CANDIDATE_VENV: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-venv
+        CANDIDATE_NODE_PARENT: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-node
+        CANDIDATE_TMP: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tmp
         CANDIDATE_PRIOR_STATUS: ${{ job.status }}
       run: |
         set -euo pipefail
@@ -699,9 +705,9 @@ jobs:
       with:
         name: candidate-standard-${{ matrix.id }}-${{ job.status }}
         path: |
-          ${{ env.CANDIDATE_DIR }}.tar.gz
-          ${{ env.CANDIDATE_DIR }}-accounting.json
-          ${{ env.CANDIDATE_DIR }}-pack-resources/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}.tar.gz
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-accounting.json
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-pack-resources/
         retention-days: ${{ job.status == 'success' && 7 || 14 }}
         compression-level: 0
         if-no-files-found: error
@@ -712,7 +718,7 @@ jobs:
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: candidate-standard-${{ matrix.id }}-failure-payloads
-        path: ${{ env.CANDIDATE_DIR }}-failure-payloads.tar.gz
+        path: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-failure-payloads.tar.gz
         retention-days: 14
         compression-level: 0
         if-no-files-found: error
@@ -723,14 +729,14 @@ jobs:
       with:
         name: candidate-standard-${{ matrix.id }}-raw-failure-evidence
         path: |
-          ${{ env.CANDIDATE_DIR }}/
-          ${{ env.CANDIDATE_DIR }}-work-resources/
-          ${{ env.CANDIDATE_DIR }}-pack-resources/
-          ${{ env.CANDIDATE_DIR }}-accounting.json
-          ${{ env.CANDIDATE_TMP }}/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-work-resources/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-pack-resources/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-accounting.json
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tmp/
           ${{ github.workspace }}/onnx/
-          ${{ env.CANDIDATE_NODE_PARENT }}/npm-cache/_logs/
-          ${{ env.CANDIDATE_NODE_PARENT }}/config/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-node/npm-cache/_logs/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-node/config/
         retention-days: 14
         include-hidden-files: true
         compression-level: 0
