@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 from typing import Any
+import weakref
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -2979,6 +2980,80 @@ def test_real_campaign_uses_pinned_pytest_binary_xml_serialization(
     receipt = json.loads((folder / "receipt.json").read_text())
     with pytest.raises(ValueError, match="JUnit skipped outcome differs"):
         campaign.batch(receipt, run["completed"], folder / "junit.xml")
+
+
+@pytest.mark.parametrize("tamper", [False, True])
+def test_next_child_releases_previous_receipt_without_losing_final_byte_audit(
+    tmp_path, monkeypatch, tamper
+):
+    suite, manifest, environment, contract, _ = _prepare_campaign_suite(
+        tmp_path, monkeypatch, "pass"
+    )
+    module = _runner()
+    original_closed = module._ci_lane_closed
+    original_child = module._child
+    receipts = []
+    next_children = []
+
+    class TrackedReceipt(dict):
+        pass
+
+    def closed(folder, request, context):
+        receipt = original_closed(folder, request, context)
+        if request["kind"] == "batch":
+            receipt = TrackedReceipt(receipt)
+            receipts.append((folder, weakref.ref(receipt)))
+        return receipt
+
+    def child(folder, request, *args, **kwargs):
+        if folder.name == "batch-0002":
+            assert len(receipts) == 1
+            previous_folder, previous = receipts[0]
+            assert previous() is None
+            next_children.append(folder)
+            if tamper:
+                path = previous_folder / "receipt.json"
+                path.write_bytes(path.read_bytes() + b"\n")
+        return original_child(folder, request, *args, **kwargs)
+
+    monkeypatch.setattr(module, "_ci_lane_closed", closed)
+    monkeypatch.setattr(module, "_child", child)
+    monkeypatch.setattr(module.os, "environ", environment)
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            str(_RUNNER),
+            "--output-dir",
+            str(tmp_path / "receipts"),
+            "--batch-size=1",
+            "--ci-lane=standard",
+            f"--ci-main-baseline={manifest}",
+            f"--ci-campaign-contract={contract}",
+            "--",
+            "-q",
+        ],
+    )
+    assert module._main() == int(tamper)
+    run = json.loads((tmp_path / "receipts/run.json").read_text())
+    assert next_children == [tmp_path / "receipts/batch-0002"]
+    assert run["completed"] == json.loads(manifest.read_text())["nodeids"]
+    assert run["status"] == ("FAIL" if tamper else "PASS")
+    if tamper:
+        assert "closed canonical lane evidence changed" in run["failure"]["message"]
+    for index in (1, 2):
+        receipt = json.loads(
+            (tmp_path / f"receipts/batch-{index:04d}/receipt.json").read_text()
+        )
+        assert [
+            (report["when"], report["outcome"])
+            for reports in receipt["phases"].values()
+            for report in reports
+        ] == [
+            ("setup", "passed"),
+            ("call", "passed"),
+            ("teardown", "passed"),
+        ]
 
 
 def test_campaign_final_closure_rejects_semantically_unchanged_junit_mutation(

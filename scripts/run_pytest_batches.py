@@ -1874,12 +1874,14 @@ def _main() -> int:
             }
         if campaign is not None:
             campaign.collection(baseline)
+        collection_skips = baseline["collection_skips"]
         lane_ids = nodeids
         if lane_context is not None:
             standard, extra = _ci_lane_partition(nodeids, lane_context.manifest)
             lane_ids = standard if args.ci_lane == "standard" else extra
             chosen = set(lane_ids)
             items = [item for item in items if item["nodeid"] in chosen]
+            del chosen
             run["lane_nodeids"] = lane_ids
             run["ci_lane"].update(standard_ids=standard, extra_ids=extra)
         batches = _plan(
@@ -1891,6 +1893,7 @@ def _main() -> int:
         )
         if [nodeid for batch in batches for nodeid in batch] != lane_ids:
             raise ValueError("batch plan differs from the ordered chosen lane")
+        del baseline, items
         run["nodeids"] = nodeids
         run["batches"] = batches
         _write(root / "run.json", run)
@@ -1914,24 +1917,25 @@ def _main() -> int:
                 "kind": "batch",
                 "assigned": assigned,
                 "full_preselection_ids": nodeids,
-                "collection_skips": baseline["collection_skips"],
+                "collection_skips": collection_skips,
                 "pytest_args": [*worker_options, *args.test_path],
             }
             if canonical_child(folder, request) != 0:
                 raise ValueError(f"{folder.name} process did not finish successfully")
             receipt = closed_lane_worker(folder, request)
-            _validate(receipt, assigned, nodeids, baseline["collection_skips"])
+            _validate(receipt, assigned, nodeids, collection_skips)
             if lane_context is not None and receipt["completed"] != assigned:
                 raise ValueError("completed batch order differs from its assignment")
             junit = ET.parse(folder / "junit.xml")
             if len(junit.findall(".//testcase")) != len(assigned) + len(
-                baseline["collection_skips"]
+                collection_skips
             ):
                 raise ValueError(f"{folder.name} JUnit does not account for every item")
             if campaign is not None:
                 campaign.batch(receipt, assigned, folder / "junit.xml")
             run["completed"].extend(receipt["completed"])
             _write(root / "run.json", run)
+            del receipt, junit
         if Counter(run["completed"]) != Counter(lane_ids) or (
             lane_context is not None and run["completed"] != lane_ids
         ):
