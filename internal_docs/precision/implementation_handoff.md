@@ -16,12 +16,26 @@ main `81ad6ca` coverage, including original Python 3.12 optional models, inputs,
 assertions, skips and resource limits. Keep four Python cohorts plus four support
 jobs initially bounded, with complete/disjoint extras and all milestone/final
 obligations. Mapping, context, resources, direct xdist and actual whole-job timing
-remain pending where unqualified; no runner, selector or CI gate is activated.
+remain pending where unqualified; coordinated standard/extra gates are inactive.
 The [30 October temporary transition amendment](ci_execution_plan.md#temporary-transition-amendment-2026-10-30)
 permits one bounded candidate qualification alongside the authoritative old eight
 jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
+
+The reviewed V2 checkpoint appends eight fixed temporary STANDARD candidates
+beside the untouched authoritative old eight in the same PR #277 workflow
+(patch `e8778409…`, independent review `95defced…`). Canonical first-C→S,
+original setup/inputs/criteria, owned Linux temporary capture, retained-output
+inventories and complete failure payloads/raw fallback remain explicit. This
+implements one qualification milestone, not coordinated standard/extra gate
+activation. Actual same-head sixteen-job outcomes, complete **<=1,200-second**
+candidate spans, **<=160 candidate job-minutes**, controlled-resource closures
+and **<=100 MiB** compressed successful receipts/logs remain **UNVERIFIED**.
+Failure/retry and old-job costs are reported separately. Keep minimum311,
+minimum312 **A=140**, all other extras, original full models, quality checks and
+integrations assigned before retiring old jobs. Public LEGACY behavior is
+unchanged; full B–F/final exact-commit acceptance remains open.
 
 The private SOURCE
 [serialization-integrity checkpoint](poc/source_integration_findings.md#private-serialization-integrity-checkpoint-2026-10-30)
@@ -77,8 +91,14 @@ pass without top-level skips/xfails; the full outer command costs **1,006.50 s /
 342.02 MiB**. Pinned formatting/static checks, E109/8 metadata, source/Root/Main28
 and process/scratch closures pass (receipt `24a0c16b…`, freeze `f04a9ee3…`,
 `node-admission-controls-38df-v1-udqox36j/`). This is synthetic admission/control
-qualification. The new Node cohort/baseline/reference are source-only candidates
-requiring review, commit and actual canonical C→S50 admission.
+qualification. Reviewed Node data is now committed at `9fb5bb68`; its separate
+actual local canonical admission passes **C=S=50 / A=0, 150 native phases and
+50 JUnit cases**, with six real Node/environment/JAX observations and the new
+native-evidence key. Source/package/origin/retention/resource closures pass in
+**809.36 s / 1,010.27 MiB** (`canonical-node312-next-v1/summary.json`,
+`9b75973c…`; independent Astra acceptance `fb1f24bf…`). This local controlled
+sequence excludes earlier tool installation and is neither hosted whole-job nor
+full B–F acceptance; not all fifty owners establish numerical equivalence.
 
 The earlier original Node50 observation passes 150 native phases with C=S=50
 and no extras (`9d1ed5d2…`). Its failed D-TMPDIR capture predecessor

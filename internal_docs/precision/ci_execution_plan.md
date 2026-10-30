@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and temporary candidate overlap are accepted architecture. Published `234df50e` has all eight old checks passing at the 11:43:05 UTC terminal snapshot; its full jobs take 10,169–12,556 s. Three committed c338 support cohorts have bounded local canonical qualification. Private Node code controls pass; new Node data/admission, actual hosted qualification, full B–F and gate activation remain open. The comparative frozen-main diagnostic stays retired.**
+Status — 2026-10-30: **Eight reviewed fixed STANDARD candidates are wired beside the untouched authoritative old eight for one PR #277 qualification milestone. Actual same-head sixteen-job outcomes, complete 1,200-second candidate spans, 160 candidate job-minutes, controlled resources and the 100-MiB successful-artifact budget remain UNVERIFIED. Published `234df50e` retains all eight old checks passing. Local support and committed Node admission retain their recorded SHA scope; coordinated gate activation and full B–F remain open. The comparative frozen-main diagnostic stays retired.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -63,12 +63,16 @@ The [private Node binding](ci_standard/README.md#private-portable-node-binding)
 has reviewed source and ordinary312 synthetic controls: 53 focused and 494 full
 owner controls pass, no top-level skip/xfail, **1,006.50 s / 342.02 MiB** outer
 cost. This binds `38dfb1ff` plus five-file patch `010719c8…`, before new docs/data
-(receipt `24a0c16b…`, freeze `f04a9ee3…`). The Node cohort/baseline and unchanged
-reviewed reference `47cb4f12…` are source-only candidates. Commit reviewed data
-before new canonical C→S50/three-Node-context admission; do not refresh expected
-runtime hashes from the host. Earlier raw Node50/150 phases are a distinct
-legacy observation, with failed capture/diagnostic evidence preserved. No
-workflow or gate is activated.
+(receipt `24a0c16b…`, freeze `f04a9ee3…`). The reviewed cohort/baseline and
+unchanged reference `47cb4f12…` are committed at `9fb5bb68`. At that exact head,
+local canonical admission passes **C=S=50 / A=0, 150 phases and 50 JUnit cases**,
+with six actual Node/environment/JAX observations, the new native-evidence key,
+and closed source/package/resource/retention checks. The controlled sequence
+costs **809.36 s / 1,010.27 MiB** (summary `9b75973c…`, independent acceptance
+`fb1f24bf…`). This excludes earlier tool installation and proves no hosted
+whole-job budget or complete SOURCE/B–F acceptance; not all fifty owners are
+numerical tests. Earlier raw Node50/150 phases and failed capture/diagnostic
+evidence remain distinct. Never refresh expected runtime hashes from the host.
 
 Earlier portable controls/render-only/resource qualification remains in its
 recorded epochs (`237b62f3…`, `4b5560aa…`, `931cafa8…`); the 447-case support
@@ -135,9 +139,22 @@ Support reuse requires the **same head, complete context/ownership and resource
 evidence**. Current telemetry is incomplete, so reuse is not assumed. All old
 eight outcomes remain required on the qualification head. Independently review
 the concrete workflow, complete mapping and actual results before activation;
-retire the candidates at activation and verify the activated head. This is
-architecture only: **no candidate workflow or standard/extra gate is activated**,
-and neither numerical acceptance nor future performance is guaranteed.
+retire the candidates at activation and verify the activated head.
+
+The concrete V2 wiring and failure-retention paths are independently accepted
+(workflow patch `e8778409…`, review `95defced…`). Exactly eight fixed candidates
+are appended to the same workflow for PR #277; the eight old jobs stay
+unchanged and authoritative. Each candidate uses the original setup and first
+complete canonical C→S, with private Linux temporary capture, complete retained
+output inventories, separate failed model/temp payloads and raw upload fallback.
+Successful receipts/logs retain seven days and share the **100-MiB aggregate**
+compressed-artifact budget; failure/retry payloads and old-job costs are separate.
+This is temporary qualification wiring, **not coordinated standard/extra gate
+activation**. Actual same-head sixteen-job outcomes and complete candidate
+timing/resource/artifact evidence remain UNVERIFIED. Before retiring old jobs,
+assign minimum311 additional coverage, minimum312 **A=140** and every other
+extra/integration/quality obligation to explicit executable owners. Public
+LEGACY behavior and all full B–F/final acceptance obligations remain unchanged.
 
 ## Historical checkout and CI observations — 2026-10-29
 

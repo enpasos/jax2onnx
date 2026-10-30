@@ -357,3 +357,381 @@ jobs:
         name: pytest-receipts-python-${{ matrix.python-version }}
         path: ${{ runner.temp }}/jax2onnx-pytest-batches
         if-no-files-found: warn
+
+
+  # One PR qualification milestone only. The eight jobs above remain authoritative.
+  # This explicit matrix adds eight fixed roles; no shard or dispatch controller.
+  candidate-standard:
+    name: candidate STANDARD (${{ matrix.id }})
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 277
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - {id: locked311, python: '3.11', cohort: py311, role: locked}
+        - {id: locked312, python: '3.12', cohort: py312, role: locked}
+        - {id: locked313, python: '3.13', cohort: py313, role: locked}
+        - {id: locked314, python: '3.14', cohort: py314, role: locked}
+        - {id: minimum312, python: '3.12', cohort: minimum312, role: minimum}
+        - {id: normalization312, python: '3.12', cohort: normalization312, role: normalization}
+        - {id: normalization313, python: '3.13', cohort: normalization313, role: normalization}
+        - {id: node312, python: '3.12', cohort: node312, role: node-smoke}
+    env:
+      EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_ID: ${{ matrix.id }}
+      CANDIDATE_ROLE: ${{ matrix.role }}
+      CANDIDATE_COHORT: internal_docs/precision/ci_standard/${{ matrix.cohort }}.json
+      CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}
+      CANDIDATE_TOOLS: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tools
+      CANDIDATE_VENV: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-venv
+      CANDIDATE_NODE_PARENT: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-node
+      CANDIDATE_TMP: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tmp
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Set up Python ${{ matrix.python }}
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: ${{ matrix.python }}
+
+    - name: Observe original setup and canonical STANDARD execution
+      id: work
+      run: |
+        set -euo pipefail
+        python -B scripts/run_with_resources.py \
+          --output-dir "${CANDIDATE_DIR}-work-resources" --timeout-seconds 1100 \
+          --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
+          bash -euo pipefail - <<'BASH'
+        mkdir "$CANDIDATE_DIR"
+        mkdir "$CANDIDATE_DIR/setup-diagnostics"
+        exec > >(tee "$CANDIDATE_DIR/controlled.log") 2>&1
+        cleanup() {
+          result=$?
+          trap - EXIT
+          printf '%s\n' "$result" > "$CANDIDATE_DIR/controlled-exit-code.txt"
+          # Preserve setup diagnostics before removing their owning trees. On a
+          # failed copy, retain the originals for the raw failure upload instead.
+          retained=0
+          for diagnostic in "$CANDIDATE_NODE_PARENT/npm-cache/_logs" \
+            "$CANDIDATE_NODE_PARENT/config"; do
+            if [[ -e "$diagnostic" || -L "$diagnostic" ]]; then
+              cp -a -- "$diagnostic" "$CANDIDATE_DIR/setup-diagnostics/" || retained=$?
+            fi
+          done
+          if [[ "$retained" == 0 ]]; then
+            # Canonical source/context closure precedes successful cleanup.
+            # Model outputs, private TMPDIR and receipts are never removed here.
+            rm -rf -- "$CANDIDATE_TOOLS" "$CANDIDATE_VENV" \
+              "$CANDIDATE_NODE_PARENT" "$CANDIDATE_DIR/optional-sources" || retained=$?
+          fi
+          printf '%s\n' "$retained" > "$CANDIDATE_DIR/setup-diagnostics/retention-exit-code.txt"
+          if [[ "$result" == 0 && "$retained" != 0 ]]; then result=$retained; fi
+          exit "$result"
+        }
+        trap cleanup EXIT
+        # Linux tempfile/pytest FD capture and default basetemp inherit this
+        # fresh owned directory. Keep ordinary checkout/onnx as a real directory.
+        mkdir -m 700 "$CANDIDATE_TMP"
+        export TMPDIR="$CANDIDATE_TMP"
+        test -f "$CANDIDATE_COHORT"
+        expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
+        actual_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+        test "$actual_commit" = "$expected_commit"
+        printf 'expected commit: %s\nchecked-out commit: %s\nevent commit: %s\n' \
+          "$EXPECTED_CHECKOUT_SHA" "$actual_commit" "$GITHUB_SHA" \
+          > "$CANDIDATE_DIR/checkout.txt"
+        LC_ALL=C lscpu > "$CANDIDATE_DIR/cpu.txt"
+        printf '%s %s\n' "${ImageOS:-unknown}" "${ImageVersion:-unknown}" \
+          > "$CANDIDATE_DIR/runner-image.txt"
+        test ! -e tests/primitives && test ! -L tests/primitives
+        test ! -e tests/examples && test ! -L tests/examples
+
+        # Render only the tracked profile's declared values and existing slots.
+        # Genuine absence, original plugin autoload and TF transitions matter.
+        python -B - <<'PY' > "$CANDIDATE_DIR/profile.env"
+        import json
+        import os
+        from pathlib import Path
+        import shlex
+
+        profile = json.loads(Path(os.environ["CANDIDATE_COHORT"]).read_text())
+        slots = {
+            "${CHECKOUT}": os.environ["GITHUB_WORKSPACE"],
+            "${MAXTEXT_SOURCE}": os.environ["CANDIDATE_DIR"] + "/optional-sources/maxtext",
+            "${MAXDIFFUSION_SOURCE}": os.environ["CANDIDATE_DIR"] + "/optional-sources/maxdiffusion",
+        }
+        print("unset TF_CPP_MIN_LOG_LEVEL PYTEST_VERSION JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR")
+        for name, value in profile["environment"].items():
+            if name == "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR":
+                continue
+            if value is None:
+                print("unset " + name)
+            else:
+                print("export " + name + "=" + shlex.quote(slots.get(value, value)))
+        print("export CANDIDATE_BOOTSTRAP_PIP=" + shlex.quote(profile["bootstrap"]["pip"]))
+        if os.environ["CANDIDATE_ROLE"] == "node-smoke":
+            for name, value in profile["node_runtime"]["environment"].items():
+                if value is None:
+                    print("unset " + name)
+                else:
+                    value = value.replace("${NODE_PREFIX_PARENT}", os.environ["CANDIDATE_NODE_PARENT"])
+                    print("export " + name + "=" + shlex.quote(value))
+            # Smoke's original generator has no runtime validation flags.
+            print("unset JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB JAX2ONNX_ONNXRUNTIME_WEB_RUNNER")
+        PY
+        source "$CANDIDATE_DIR/profile.env"
+
+        # Poetry lives outside the admitted project environment. No package from
+        # the tool environment may satisfy the complete cohort package/plugin map.
+        python -m venv "$CANDIDATE_TOOLS"
+        "$CANDIDATE_TOOLS/bin/python" -m pip install 'poetry>=2.0,<3.0'
+        python -m venv --without-pip "$CANDIDATE_VENV"
+        "$CANDIDATE_TOOLS/bin/python" -m pip --python "$CANDIDATE_VENV/bin/python" \
+          install "pip==$CANDIDATE_BOOTSTRAP_PIP"
+        export VIRTUAL_ENV="$CANDIDATE_VENV"
+        export PATH="$CANDIDATE_VENV/bin:$CANDIDATE_TOOLS/bin:$PATH"
+        export POETRY_VIRTUALENVS_CREATE=false
+        poetry --version > "$CANDIDATE_DIR/poetry-version.txt"
+        poetry install --no-interaction
+
+        if [[ "$CANDIDATE_ID" == locked312 ]]; then
+          mkdir "$CANDIDATE_DIR/optional-sources"
+          for integration in MAXTEXT MAXDIFFUSION; do
+            source_name="JAX2ONNX_${integration}_SRC"
+            ref_name="JAX2ONNX_${integration}_REF"
+            source_dir="${!source_name}"
+            git init "$source_dir"
+            if [[ "$integration" == MAXTEXT ]]; then
+              remote=https://github.com/AI-Hypercomputer/maxtext.git
+              group=maxtext
+            else
+              remote=https://github.com/google/maxdiffusion.git
+              group=maxdiffusion
+            fi
+            git -C "$source_dir" remote add origin "$remote"
+            git -C "$source_dir" fetch --depth 1 origin "${!ref_name}"
+            git -C "$source_dir" checkout --detach FETCH_HEAD
+            test "$(git -C "$source_dir" rev-parse HEAD)" = "${!ref_name}"
+            test -z "$(git -C "$source_dir" status --porcelain)"
+            poetry install --no-interaction --with "$group"
+          done
+        fi
+        if [[ "$CANDIDATE_ROLE" == minimum ]]; then
+          python scripts/install_minimum_dependencies.py
+          python -m pip check
+        fi
+        python -m pip list --format=json > "$CANDIDATE_DIR/installed-packages.json"
+        if [[ "$CANDIDATE_ROLE" == locked ]]; then
+          python -B scripts/observe_native_axisdata.py > "$CANDIDATE_DIR/native-axisdata.json"
+        fi
+
+        render_args=()
+        if [[ "$CANDIDATE_ID" == locked312 ]]; then
+          render_args+=(--maxtext-source "$JAX2ONNX_MAXTEXT_SRC" \
+            --maxdiffusion-source "$JAX2ONNX_MAXDIFFUSION_SRC")
+        fi
+        if [[ "$CANDIDATE_ROLE" == node-smoke ]]; then
+          test "$(uname -m)" = x86_64
+          mkdir -p "$CANDIDATE_NODE_PARENT/config"
+          : > "$CANDIDATE_NODE_PARENT/config/user.npmrc"
+          : > "$CANDIDATE_NODE_PARENT/config/global.npmrc"
+          archive="$CANDIDATE_NODE_PARENT/node-v22.23.4-linux-x64.tar.xz"
+          curl --fail --location --retry 2 \
+            https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz \
+            --output "$archive"
+          printf '%s  %s\n' \
+            1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce \
+            "$archive" | sha256sum --check --status
+          tar -xJf "$archive" -C "$CANDIDATE_NODE_PARENT"
+          node_prefix="$CANDIDATE_NODE_PARENT/node-v22.23.4-linux-x64"
+          export PATH="$node_prefix/bin:$PATH"
+          npm ci
+          render_args+=(--node-prefix "$node_prefix")
+        fi
+
+        if [[ "$CANDIDATE_ROLE" != normalization ]]; then
+          # Exactly one original generation for this environment (26 or 28 files).
+          python scripts/generate_tests.py
+        else
+          test ! -e tests/primitives && test ! -L tests/primitives
+          test ! -e tests/examples && test ! -L tests/examples
+        fi
+        if [[ "$CANDIDATE_ROLE" == node-smoke ]]; then
+          export JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1
+          export JAX2ONNX_ONNXRUNTIME_WEB_RUNNER=node
+        fi
+        python -B scripts/prepare_ci_standard.py \
+          --cohort "$CANDIDATE_COHORT" --event-sha "$EXPECTED_CHECKOUT_SHA" \
+          --run-dir "$CANDIDATE_DIR/run" --output "$CANDIDATE_DIR/main.json" \
+          "${render_args[@]}"
+        # Repeat the original support selectors literally and in their own order.
+        mapfile -t selectors < <(python -B - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        for selector in json.loads(Path(os.environ["CANDIDATE_COHORT"]).read_text()).get("collection_args", []):
+            print(selector)
+        PY
+        )
+        selection_args=()
+        for selector in "${selectors[@]}"; do
+          selection_args+=(--test-path "$selector")
+        done
+        python -B scripts/run_pytest_batches.py \
+          --batch-size 500 --output-dir "$CANDIDATE_DIR/run" \
+          --ci-lane standard --ci-main-baseline "$CANDIDATE_DIR/main.json" \
+          --_ci-provision-campaign "$CANDIDATE_COHORT" "${selection_args[@]}" \
+          -- --durations=50 --durations-min=1
+        if [[ "$CANDIDATE_ROLE" == normalization ]]; then
+          test ! -e tests/primitives && test ! -L tests/primitives
+          test ! -e tests/examples && test ! -L tests/examples
+        fi
+        BASH
+
+    - name: Observe output inventory and evidence compression
+      id: pack
+      if: always()
+      env:
+        CANDIDATE_PRIOR_STATUS: ${{ job.status }}
+      run: |
+        set -euo pipefail
+        python -B scripts/run_with_resources.py \
+          --output-dir "${CANDIDATE_DIR}-pack-resources" --timeout-seconds 90 \
+          --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
+          bash -euo pipefail - <<'BASH'
+        mkdir -p "$CANDIDATE_DIR/setup-diagnostics"
+        # This starts after canonical closure (or the actual failed work exit).
+        # Stream the complete retained inventory with bounded hashing memory;
+        # successful receipts do not carry every ordinary generated model/temp.
+        python -B - <<'PY'
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import stat
+
+        evidence = Path(os.environ["CANDIDATE_DIR"])
+        roots = {
+            "checkout/onnx": Path(os.environ["GITHUB_WORKSPACE"]) / "onnx",
+            "owned-tmp": Path(os.environ["CANDIDATE_TMP"]),
+            "setup-diagnostics": evidence / "setup-diagnostics",
+        }
+        with (evidence / "retained-output-inventory.jsonl").open("x") as output:
+            for label, root in roots.items():
+                output.write(json.dumps({"root": label, "path": str(root), "exists": os.path.lexists(root)}) + "\n")
+                if not os.path.lexists(root):
+                    continue
+                pending = [root]
+                while pending:
+                    path = pending.pop()
+                    before = path.lstat()
+                    row = {"root": label, "path": path.relative_to(root).as_posix(), "bytes": before.st_size}
+                    if stat.S_ISLNK(before.st_mode):
+                        row.update(type="symlink", target=os.readlink(path))
+                    elif stat.S_ISDIR(before.st_mode):
+                        row["type"] = "directory"
+                        pending.extend(sorted(path.iterdir(), reverse=True))
+                    elif stat.S_ISREG(before.st_mode):
+                        digest = hashlib.sha256()
+                        with path.open("rb") as stream:
+                            while chunk := stream.read(1024 * 1024):
+                                digest.update(chunk)
+                        after = path.lstat()
+                        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+                            raise RuntimeError("retained output changed during inventory: " + str(path))
+                        row.update(type="file", sha256=digest.hexdigest())
+                    else:
+                        row.update(type="special", mode=before.st_mode)
+                    output.write(json.dumps(row) + "\n")
+        PY
+        paths=()
+        for path in "$CANDIDATE_DIR" "${CANDIDATE_DIR}-work-resources"; do
+          if [[ -e "$path" ]]; then
+            paths+=("$(basename "$path")")
+          fi
+        done
+        tar -czf "${CANDIDATE_DIR}.tar.gz" -C "$RUNNER_TEMP" "${paths[@]}"
+        if [[ "$CANDIDATE_PRIOR_STATUS" != success ]]; then
+          # Failure payloads have their own artifact and accounting, with no size
+          # truncation. A failed/incomplete pack instead triggers the raw fallback.
+          payloads=()
+          for path in "$GITHUB_WORKSPACE/onnx" "$CANDIDATE_TMP" \
+            "$CANDIDATE_DIR/setup-diagnostics" \
+            "$CANDIDATE_NODE_PARENT/npm-cache/_logs" "$CANDIDATE_NODE_PARENT/config"; do
+            if [[ -e "$path" || -L "$path" ]]; then
+              payloads+=(-C "$(dirname "$path")" "$(basename "$path")")
+            fi
+          done
+          tar -czf "${CANDIDATE_DIR}-failure-payloads.tar.gz" "${payloads[@]}"
+        fi
+        python -B - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        archive = Path(os.environ["CANDIDATE_DIR"] + ".tar.gz")
+        failure = Path(os.environ["CANDIDATE_DIR"] + "-failure-payloads.tar.gz")
+        accounting = {
+            "candidate": os.environ["CANDIDATE_ID"],
+            "expected_head": os.environ["EXPECTED_CHECKOUT_SHA"],
+            "prior_job_status": os.environ["CANDIDATE_PRIOR_STATUS"],
+            "compressed_receipts_bytes": archive.stat().st_size,
+            "compressed_failure_payload_bytes": failure.stat().st_size if failure.exists() else None,
+            "managed_actions_resource_intervals": "UNOBSERVED: checkout, setup-python, upload, post hooks",
+            "whole_job_timing": "UNVERIFIED until actual Actions started_at/completed_at including post hooks",
+            "campaign_budgets": "All eight successful spans <=1200s; aggregate <=9600s; successful uploaded artifacts <=104857600 bytes",
+            "failure_evidence": "Complete retained model/temp/setup payloads counted separately; raw fallback on pack/upload failure; missing/interrupted evidence cannot qualify",
+        }
+        Path(os.environ["CANDIDATE_DIR"] + "-accounting.json").write_text(json.dumps(accounting, indent=2) + "\n")
+        PY
+        BASH
+
+    - name: Upload candidate receipts and resource observations
+      id: receipts
+      if: always() && steps.pack.outcome == 'success'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-standard-${{ matrix.id }}-${{ job.status }}
+        path: |
+          ${{ env.CANDIDATE_DIR }}.tar.gz
+          ${{ env.CANDIDATE_DIR }}-accounting.json
+          ${{ env.CANDIDATE_DIR }}-pack-resources/
+        retention-days: ${{ job.status == 'success' && 7 || 14 }}
+        compression-level: 0
+        if-no-files-found: error
+
+    - name: Upload complete retained failure models and temporary outputs
+      id: failure_payloads
+      if: always() && steps.work.outcome != 'success' && steps.pack.outcome == 'success'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-standard-${{ matrix.id }}-failure-payloads
+        path: ${{ env.CANDIDATE_DIR }}-failure-payloads.tar.gz
+        retention-days: 14
+        compression-level: 0
+        if-no-files-found: error
+
+    - name: Upload raw failure evidence when packing or upload is incomplete
+      if: always() && (steps.pack.outcome != 'success' || steps.receipts.outcome != 'success' || (steps.work.outcome != 'success' && steps.failure_payloads.outcome != 'success'))
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-standard-${{ matrix.id }}-raw-failure-evidence
+        path: |
+          ${{ env.CANDIDATE_DIR }}/
+          ${{ env.CANDIDATE_DIR }}-work-resources/
+          ${{ env.CANDIDATE_DIR }}-pack-resources/
+          ${{ env.CANDIDATE_DIR }}-accounting.json
+          ${{ env.CANDIDATE_TMP }}/
+          ${{ github.workspace }}/onnx/
+          ${{ env.CANDIDATE_NODE_PARENT }}/npm-cache/_logs/
+          ${{ env.CANDIDATE_NODE_PARENT }}/config/
+        retention-days: 14
+        include-hidden-files: true
+        compression-level: 0
+        if-no-files-found: error
