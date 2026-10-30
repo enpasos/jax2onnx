@@ -82,6 +82,16 @@ option.
 | No float64 `Cos` on CPU | Missing in 1.24.1, present in 1.31.0 | float64 `lax.cos`, `jnp.cos` | Half-angle form `1 - 2 * Sin(x / 2)²` |
 | No float64 `Erf` on CPU | CPU 1.24.1, 1.31.0 | Public LEGACY float64 exact `jax.nn.gelu`, `nnx.gelu` | The legacy export uses `Erf` (or `Gelu`, which expands to it) and fails to load; its generated metadata restricts these cases to float32. This does not describe the private SOURCE Erfc algorithm. |
 | CPU `Where` returns `+0.0` when it selects `-0.0` | CPU 1.24.1, 1.31.0 | `log1p`, `expm1`, `sinh` | `log1p` and `sinh` end in `Mul` to keep the sign; `expm1(-0.0)` exports as `+0.0`. |
+| Default-domain opset 27 rejected as unreleased at model load | CPU 1.31.0, official JAX/jaxlib 0.10.2 and 0.12.0.1 | Private SOURCE opset-27 BitCast and same-type Identity artifacts | Runtime-load **FAILED** with requested opset 27 / supported opset 26; numerical acceptance remains **UNVERIFIED**. Preserve the requested artifact and diagnostic; do not enable unreleased opsets or change the opset automatically. |
+
+The finite equal-width SOURCE bitcast tests execute all 38 ordered ordinary
+floating/integer pairs, including BF16, at opset 26 on CPU ORT 1.31.0 with
+optimization disabled and enabled. Their raw BF16 transport reads actual
+returned OrtValues, including repeated output names and input aliases. Earlier
+comparisons against unwritten requested buffers were test-harness failures;
+they do not demonstrate a BF16 BitCast kernel defect. The opset-27 rejection
+above occurs before execution and also affects Identity. These observations
+do not qualify the minimum ONNX 1.20.1 / ORT 1.24.1 combination.
 
 Private SOURCE `log1p` and `expm1` retain their existing typed elementary
 algorithms and bit-preserving selection, with separate dtype/opset and numerical

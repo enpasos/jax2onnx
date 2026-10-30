@@ -2322,7 +2322,7 @@ def _validate_equation(
         return
     site.require(
         not any(_extended_symbolic_shape(value) for value in (*inputs, *outputs))
-        or name in {"dot_general", "transpose", "jit"}
+        or name in {"dot_general", "transpose", "jit", "bitcast_convert_type"}
         or bool(name and name.startswith("onnx_fn::"))
         or name
         in {
@@ -2379,6 +2379,7 @@ def _validate_equation(
             "xor",
             "not",
             "convert_element_type",
+            "bitcast_convert_type",
             "broadcast_in_dim",
             "cond",
             "random_bits",
@@ -2582,25 +2583,50 @@ def _validate_equation(
     elif name == "gather":
         _validate_gather(eqn, inputs, outputs, site)
     elif name == "bitcast_convert_type":
+        site.require(
+            eqn.primitive is jax.lax.bitcast_convert_type_p
+            and not eqn.effects
+            and type(eqn.params) is dict,
+            "bitcast identity, effects or parameter container differs from native",
+            "the pure canonical lax.bitcast_convert_type_p with native dictionary parameters",
+            category="lowering-defect",
+        )
         _arity(eqn, 1, 1, site)
         _params(eqn, {"new_dtype"}, site, required={"new_dtype"})
         source, target = inputs[0], outputs[0]
         site.require(
-            (source.dtype, target.dtype) == ("float32", "uint32"),
-            "bitcast type pair is outside the profile",
-            "float32-to-uint32 bit representation with equal word width and shape",
+            set(eqn.params) == {"new_dtype"},
+            "bitcast has additional unaudited parameters",
+            "exactly the native new_dtype parameter",
+            category="lowering-defect",
+        )
+        site.require(
+            source.dtype in _FLOATS | _INTEGERS
+            and target.dtype in _FLOATS | _INTEGERS
+            or source.dtype == target.dtype == "bool",
+            "bitcast representation is outside this implemented family",
+            "ordinary floating/integer identity representations, or Boolean identity; packed complex bitcasts remain separate migration work",
+        )
+        site.require(
+            np.dtype(source.dtype).itemsize == np.dtype(target.dtype).itemsize,
+            "different-width bitcast needs a separate implementation",
+            "equal logical and physical word widths; different-width source bitcasts remain unfinished migration work",
         )
         _same_shape(target.shape, source.shape, site)
         site.require(
-            np.dtype(eqn.params.get("new_dtype")) == np.dtype(np.uint32),
-            "bitcast attribute disagrees with its result dtype",
-            "new_dtype=uint32",
+            isinstance(eqn.params["new_dtype"], np.dtype)
+            and eqn.params["new_dtype"] == np.dtype(target.dtype)
+            and target.symbol == source.symbol
+            and target.symbol_axis == source.symbol_axis
+            and eqn.outvars[0].aval.weak_type is False,
+            "bitcast attribute, scope or weakness disagrees with its traced result",
+            "the actual new_dtype, unchanged native shape and symbolic scope, and a strong result even for a weak operand",
             category="lowering-defect",
         )
-        if site.opset != 26:
+        if source.dtype != target.dtype and site.opset < 26:
             site.fail(
                 "ONNX BitCast requires opset 26",
-                "opset 26 for float32-to-uint32 BitCast",
+                "opset 26 or newer for an equal-width distinct-dtype BitCast",
                 "select opset=26 if the target supports it, or remove the bitcast; export never upgrades the opset automatically",
                 category="representation-limit",
             )

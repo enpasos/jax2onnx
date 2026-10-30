@@ -85,6 +85,209 @@ def test_same_typed_graph_mutations_cannot_reuse_validated_result(
     assert structure.validate_source_structure(model).status == "failed"
 
 
+@pytest.mark.parametrize("opset", [26, 27])
+@pytest.mark.parametrize("shape", [(), (2, 3), (0, 3), "B, 3"])
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        ("uint8", "int8"),
+        ("bfloat16", "float16"),
+        ("int32", "float32"),
+        ("float64", "uint64"),
+    ],
+)
+def test_bitcast_direct_rule_keeps_native_storage_and_shape(
+    opset: int, shape: Any, source: str, target: str
+) -> None:
+    native_shape = jax_export.symbolic_shape(shape) if isinstance(shape, str) else shape
+    with jax.enable_x64(True):
+        model = ui._to_onnx(
+            lambda x: jax.lax.bitcast_convert_type(x, np.dtype(target)),
+            [jax.ShapeDtypeStruct(native_shape, np.dtype(source))],
+            precision_policy=PrecisionPolicy.SOURCE,
+            opset=opset,
+            return_mode="ir",
+        )
+    result = model.meta[structure.RESULT_KEY]
+    assert result.status == "validated"
+    assert result.expected_equations == result.checked_equations == 1
+    node = next(node for node in model.graph if node.op_type == "BitCast")
+    assert node.op_type == "BitCast"
+    assert node.attributes["to"].as_int() == int(model.graph.outputs[0].dtype.value)
+    assert node.inputs[0] is model.graph.inputs[0]
+    assert model.graph.opset_imports[""] == opset
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+def test_bitcast_frozen_rule_accepts_native_nonleading_zero_tail_symbol() -> None:
+    shape = jax_export.symbolic_shape("3, B, 0")
+    eqn = jax.make_jaxpr(lambda x: jax.lax.bitcast_convert_type(x, np.uint32))(
+        jax.ShapeDtypeStruct(shape, np.float32)
+    ).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.outvars
+    )
+    assert inputs[0].same_shape(outputs[0])
+    assert outputs[0].shape == (3, "B", 0)
+    assert outputs[0].symbol_axis == 1
+    assert rules.freeze_source_semantic_key(eqn, inputs, outputs) == (
+        "direct",
+        "bitcast_convert_type",
+        "BitCast",
+        (("to", 12),),
+        False,
+    )
+
+
+@pytest.mark.parametrize("opset", [23, 26, 27])
+def test_same_dtype_bitcast_uses_identity_rule_and_semantic_key(opset: int) -> None:
+    def native(x: Any) -> Any:
+        return jax.lax.bitcast_convert_type(x, np.float32)
+
+    model = _source(native, arity=1, opset=opset)
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    assert not any(node.op_type == "BitCast" for node in model.graph)
+    graph = jax.make_jaxpr(native)(jax.ShapeDtypeStruct((2, 3), np.float32)).jaxpr
+    shapes = structure._ShapeFreezer()
+    eqn = graph.eqns[0]
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.outvars
+    )
+    assert rules.freeze_source_semantic_key(eqn, inputs, outputs) == (
+        "direct",
+        "bitcast_convert_type",
+        "Identity",
+        (),
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "primitive",
+        "effects",
+        "params",
+        "to",
+        "weakness",
+        "encoding",
+        "logical-shape",
+        "dtype",
+        "width",
+        "scope",
+        "symbol-axis",
+    ],
+)
+def test_bitcast_rule_does_not_freeze_non_native_representation(fault: str) -> None:
+    native = jax.make_jaxpr(lambda x: jax.lax.bitcast_convert_type(x, np.uint32))(
+        jax.ShapeDtypeStruct((2,), np.float32)
+    ).jaxpr.eqns[0]
+    eqn = SimpleNamespace(
+        primitive=native.primitive, params=dict(native.params), effects=native.effects
+    )
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.outvars
+    )
+    assert rules.freeze_source_semantic_key(eqn, inputs, outputs) == (
+        "direct",
+        "bitcast_convert_type",
+        "BitCast",
+        (("to", 12),),
+        False,
+    )
+    if fault == "primitive":
+        eqn.primitive = Primitive("bitcast_convert_type")
+    elif fault == "effects":
+        eqn.effects = (object(),)
+    elif fault == "params":
+        eqn.params["sharding"] = None
+    elif fault == "to":
+        eqn.params["new_dtype"] = np.dtype(np.int32)
+    else:
+        changes = {
+            "weakness": {"weak_type": True},
+            "encoding": {"encoding": "complex-real-pair"},
+            "logical-shape": {"logical_shape": (1, 2)},
+            "dtype": {"dtype": ir.DataType.INT32},
+            "width": {"logical_dtype": "uint16", "dtype": ir.DataType.UINT16},
+            "scope": {"symbol_token": object()},
+            "symbol-axis": {"symbol_axis": 0, "logical_symbol_axis": 0},
+        }[fault]
+        outputs = (replace(outputs[0], **changes),)
+    assert rules.freeze_source_structure_rule(eqn, inputs, outputs) is None
+    assert rules.freeze_source_semantic_key(eqn, inputs, outputs) is None
+
+
+@pytest.mark.parametrize("fault", ["cast", "to", "rewire", "dtype", "shape"])
+def test_bitcast_structure_rejects_changed_operator_attributes_edges_and_metadata(
+    fault: str,
+) -> None:
+    model = _source(
+        lambda x, y: (jax.lax.bitcast_convert_type(x, np.uint32), y), opset=26
+    )
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    node = next(node for node in model.graph if node.op_type == "BitCast")
+    if fault == "cast":
+        node.op_type = "Cast"
+    elif fault == "to":
+        node.attributes["to"] = ir.AttrInt64("to", int(ir.DataType.INT32.value))
+    elif fault == "rewire":
+        node.replace_input_with(0, model.graph.inputs[1])
+    elif fault == "dtype":
+        node.outputs[0].dtype = ir.DataType.INT32
+    else:
+        node.outputs[0].shape = ir.Shape((3, 2))
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+def test_bitcast_constant_word_mutation_cannot_reuse_original_storage() -> None:
+    words = np.asarray([0x80000000, 0x7FC00001], np.uint32)
+    model = _source(
+        lambda x: (x, jax.lax.bitcast_convert_type(words, np.float32)),
+        arity=1,
+        shape=(2,),
+        opset=26,
+    )
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    constant = next(iter(model.graph.initializers.values()))
+    changed = words.copy()
+    changed[1] ^= np.uint32(1)
+    constant.const_value = ir.tensor(changed)
+    result = structure.validate_source_structure(model)
+    assert result.status == "failed"
+    assert "source-constant-storage-differs" in result.reasons
+
+
+def test_nested_jit_bitcasts_keep_distinct_semantic_keys_and_original_edges() -> None:
+    @jax.jit
+    def inner(x: Any) -> Any:
+        return jax.lax.bitcast_convert_type(x, np.uint32)
+
+    @jax.jit
+    def outer(x: Any) -> Any:
+        return jax.lax.bitcast_convert_type(inner(x), np.int32)
+
+    model = _source(outer, arity=1, opset=27)
+    result = model.meta[structure.RESULT_KEY]
+    assert result.status == "validated"
+    assert result.expected_equations == result.checked_equations == 4
+    first, second = [node for node in model.graph if node.op_type == "BitCast"]
+    assert first.attributes["to"].as_int() == int(ir.DataType.UINT32.value)
+    assert second.attributes["to"].as_int() == int(ir.DataType.INT32.value)
+    assert second.inputs[0] is first.outputs[0]
+
+
 @pytest.mark.parametrize("mutation", ["signed-zero", "nan-payload"])
 def test_exact_source_constant_storage_detects_signed_zero_and_nan_payload_changes(
     mutation: str,

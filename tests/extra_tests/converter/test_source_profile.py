@@ -70,7 +70,11 @@ def _graph(
         primitive=(
             jax.lax.convert_element_type_p
             if name == "convert_element_type"
-            else SimpleNamespace(name=name)
+            else (
+                jax.lax.bitcast_convert_type_p
+                if name == "bitcast_convert_type"
+                else SimpleNamespace(name=name)
+            )
         ),
         invars=invars,
         outvars=outvars,
@@ -323,15 +327,127 @@ def test_profile_bitcast_representation_failure_is_actionable() -> None:
 
 @pytest.mark.parametrize(
     ("source", "target"),
-    [(np.float32, np.int32), (np.uint32, np.float32), (np.float64, np.uint32)],
+    [
+        (source, target)
+        for group in (
+            ("int8", "uint8"),
+            ("float16", "bfloat16", "int16", "uint16"),
+            ("float32", "int32", "uint32"),
+            ("float64", "int64", "uint64"),
+        )
+        for source in group
+        for target in group
+    ],
 )
-def test_profile_excludes_other_bitcast_pairs(source: Any, target: Any) -> None:
+@pytest.mark.parametrize("shape", [(), (2, 3), (0, 3), "B, 3", "3, B, 0"])
+def test_profile_admits_equal_width_native_bitcast_pairs(
+    source: str, target: str, shape: Any
+) -> None:
+    native_shape = export.symbolic_shape(shape) if isinstance(shape, str) else shape
+    # Native admission is broader than the existing leading-B input facade.
+    trace = jax.make_jaxpr(lambda x: jax.lax.bitcast_convert_type(x, np.dtype(target)))(
+        jax.ShapeDtypeStruct(native_shape, np.dtype(source))
+    ).jaxpr
+    for opset in (23, 26, 27) if source == target else (26, 27):
+        validate_source_jaxpr(trace, opset)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.bool_])
+def test_profile_bitcast_strips_operand_weakness(dtype: Any) -> None:
     trace = _trace(
-        lambda x: jax.lax.bitcast_convert_type(x, target), _spec((2,), source)
+        lambda x: jax.lax.bitcast_convert_type(x, dtype),
+        jax.ShapeDtypeStruct((), dtype, weak_type=True),
     )
+    assert trace.invars[0].aval.weak_type is True
+    assert trace.outvars[0].aval.weak_type is False
+    for opset in (23, 26, 27):
+        validate_source_jaxpr(trace, opset)
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [(np.float64, np.uint32), (np.uint8, np.int32), (np.complex64, np.int64)],
+)
+def test_profile_bitcast_unfinished_representations_are_not_onnx_limits(
+    source: Any, target: Any
+) -> None:
+    if source is np.float64 and target is np.uint32:
+        graph = _trace(
+            lambda x: jax.lax.bitcast_convert_type(x, target), _spec((2,), source)
+        )
+        assert graph.outvars[0].aval.shape == (2, 2)
+    else:
+        # Malformed/packed complex equations do not claim that the official
+        # JAX callable permits these particular pairs.
+        graph = _graph(
+            "bitcast_convert_type",
+            [_spec((2,), source)],
+            [_spec((2,), target)],
+            {"new_dtype": np.dtype(target)},
+        )
     with pytest.raises(SourcePrecisionError) as captured:
-        validate_source_jaxpr(trace, 26)
+        validate_source_jaxpr(graph, 26)
     assert captured.value.category == "profile-exclusion"
+    assert "migration work" in captured.value.requirement
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "extra",
+        "placement",
+        "container",
+        "new-dtype-type",
+        "new-dtype-value",
+        "result-dtype",
+        "shape",
+        "weakness",
+        "primitive",
+        "effects",
+        "scope",
+        "symbol-axis",
+    ],
+)
+def test_profile_bitcast_rejects_non_native_contracts(fault: str) -> None:
+    graph = _graph(
+        "bitcast_convert_type",
+        [_spec((2,), np.float32)],
+        [_spec((2,), np.uint32)],
+        {"new_dtype": np.dtype(np.uint32)},
+    )
+    eqn = graph.eqns[0]
+    if fault == "missing":
+        eqn.params.clear()
+    elif fault in {"extra", "placement"}:
+        eqn.params["sharding" if fault == "placement" else "unused"] = None
+    elif fault == "container":
+        from types import MappingProxyType
+
+        eqn.params = MappingProxyType(eqn.params)
+    elif fault == "new-dtype-type":
+        eqn.params["new_dtype"] = np.uint32
+    elif fault == "new-dtype-value":
+        eqn.params["new_dtype"] = np.dtype(np.int32)
+    elif fault == "result-dtype":
+        eqn.outvars[0].aval = _spec((2,), np.int32)
+    elif fault == "shape":
+        eqn.outvars[0].aval = _spec((3,), np.uint32)
+    elif fault == "weakness":
+        eqn.outvars[0].aval = jax.ShapeDtypeStruct((2,), np.uint32, weak_type=True)
+    elif fault == "primitive":
+        eqn.primitive = SimpleNamespace(name="bitcast_convert_type")
+    elif fault == "effects":
+        eqn.effects = (object(),)
+    else:
+        (batch,) = export.symbolic_shape("B")
+        (foreign,) = export.symbolic_shape("B")
+        eqn.invars[0].aval = jax.ShapeDtypeStruct((2, batch), np.float32)
+        eqn.outvars[0].aval = jax.ShapeDtypeStruct(
+            (2, foreign) if fault == "scope" else (batch, 2), np.uint32
+        )
+    with pytest.raises(SourcePrecisionError):
+        validate_source_jaxpr(graph, 26)
 
 
 def _nested_proto_nodes(graph: Any) -> Iterator[Any]:

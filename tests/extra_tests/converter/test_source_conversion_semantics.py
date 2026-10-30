@@ -2,14 +2,23 @@
 
 """Explicit conversion boundaries with native edge references fixed first."""
 
+import ctypes
+from dataclasses import asdict
+import json
+from pathlib import Path
 from typing import Any
 
 import jax
 from jax import export
 import jax.numpy as jnp
 import numpy as np
+import onnx
+import onnxruntime as ort
 import pytest
 
+from jax2onnx import user_interface as ui
+from jax2onnx._source_capability import diagnostic_from_detail
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import (
     SourcePrecisionError,
     validate_source_jaxpr,
@@ -22,6 +31,7 @@ from jax2onnx.precision import (
     validate_source_samples,
 )
 from tests.extra_tests.converter.test_source_pointwise_mul_exp import _artifact, _accept
+from tests.extra_tests.converter.source_precision_support import raw_source_case
 from tests.extra_tests.converter.test_source_predicate_families import (
     _INTEGER_DTYPES,
     _FLOAT_DTYPES,
@@ -33,6 +43,399 @@ from tests.extra_tests.converter.test_source_predicate_families import (
 # export. These controls and criteria are fixed without reading target outputs.
 _BITWISE = SampleCriteria("bitwise")
 _NAN_CLASS = SampleCriteria("exact", equal_nan=True)
+
+
+_BITCAST_GROUPS = (
+    ("int8", "uint8"),
+    ("float16", "bfloat16", "int16", "uint16"),
+    ("float32", "int32", "uint32"),
+    ("float64", "int64", "uint64"),
+)
+
+
+def _bitcast_values(dtype: str) -> np.ndarray:
+    """Bitcast-specific payloads; NaN payload equality is part of this operation."""
+    native = np.dtype(dtype)
+    width = native.itemsize * 8
+    sign = 1 << (width - 1)
+    if native.kind in "iu":
+        return _integer_edges(dtype)
+    fraction = {"float16": 10, "bfloat16": 7, "float32": 23, "float64": 52}[dtype]
+    exponent = ((1 << (width - fraction - 1)) - 1) << fraction
+    # Both zeros, subnormal endpoints, minimum normal, finite neighbors of 1,
+    # finite maximum, infinities and multiple signed quiet/signaling NaN words.
+    one = {"float16": 15, "bfloat16": 127, "float32": 127, "float64": 1023}[dtype]
+    words = [
+        0,
+        1,
+        (1 << fraction) - 1,
+        1 << fraction,
+        (one << fraction) - 1,
+        one << fraction,
+        (one << fraction) + 1,
+        exponent - 1,
+        exponent,
+        exponent | 1,
+        exponent | (1 << (fraction - 1)) | 1,
+        exponent | (1 << (fraction - 1)) | 2,
+    ]
+    words += [word | sign for word in words]
+    return np.asarray(words, dtype=f"uint{width}").view(native)
+
+
+def _bitcast_artifact(
+    fn: Any, specs: list[Any], feeds: Any, path: Path, *, opset: int
+) -> tuple[Any, Any]:
+    # Keep actual eager, fresh JIT and warmed JIT output trees before export.
+    # No source replacement or host numeric conversion supplies a reference.
+    traces = 0
+
+    def native(*values: Any) -> Any:
+        nonlocal traces
+        traces += 1
+        return fn(*values)
+
+    # This unique local callable has no previous JIT cache entry, including
+    # when fn is an original registration retained by another test.
+    compiled = jax.jit(native)
+    signatures = set()
+    snapshots = []
+    for values in feeds:
+        signature = (
+            jax.tree.structure(values),
+            tuple(
+                (
+                    tuple(value.shape),
+                    np.dtype(value.dtype).name,
+                    bool(getattr(value, "weak_type", False)),
+                )
+                for value in jax.tree.leaves(values)
+            ),
+        )
+        eager = jax.tree.map(np.asarray, fn(*values))
+        before = traces
+        fresh = jax.tree.map(np.asarray, compiled(*values))
+        assert traces == before + (signature not in signatures)
+        signatures.add(signature)
+        after = traces
+        warmed = jax.tree.map(np.asarray, compiled(*values))
+        assert traces == after
+        assert jax.tree.structure(eager) == jax.tree.structure(fresh)
+        assert jax.tree.structure(eager) == jax.tree.structure(warmed)
+        for reference in (fresh, warmed):
+            for actual, expected in zip(
+                jax.tree.leaves(reference), jax.tree.leaves(eager), strict=True
+            ):
+                assert (actual.dtype, actual.shape) == (expected.dtype, expected.shape)
+                assert actual.tobytes() == expected.tobytes()
+        snapshots.append(eager)
+    _, proto, report, references = _artifact(
+        fn, specs, feeds=feeds, mode="file", path=path, opset=opset
+    )
+    assert path.is_file()
+    reloaded = onnx.load(path)
+    assert reloaded.SerializeToString() == proto.SerializeToString()
+    for expected, (eager, fresh) in zip(snapshots, references, strict=True):
+        for reference in (eager, fresh):
+            for actual, original in zip(
+                reference, jax.tree.leaves(expected), strict=True
+            ):
+                assert (actual.dtype, actual.shape) == (original.dtype, original.shape)
+                assert actual.tobytes() == original.tobytes()
+    if opset == 27:
+        # ONNX schema/structure admission is separate from this observed target
+        # load failure. A passing diagnostic leaves numerics UNVERIFIED.
+        outcomes = []
+        for optimization in ("disabled", "all"):
+            evidence = validate_source_samples(
+                reloaded,
+                samples=[
+                    SourceSample(values, expected[0], _BITWISE)
+                    for values, expected in zip(feeds, references, strict=True)
+                ],
+                optimization=optimization,
+            )
+            assert evidence.status is CheckStatus.FAILED
+            assert evidence.artifact_sha256 is not None
+            top = {check.category: check for check in evidence.checks}
+            assert top["artifact-load"].status is CheckStatus.VALIDATED
+            assert top["onnx-schema"].status is CheckStatus.VALIDATED
+            assert top["runtime-load"].status is CheckStatus.FAILED
+            assert len(evidence.samples) == 1
+            checks = {check.category: check for check in evidence.samples[0].checks}
+            assert checks["runtime-load"].status is CheckStatus.FAILED
+            assert checks["numerical-acceptance"].status is CheckStatus.UNVERIFIED
+            assert evidence.samples[0].outputs == ()
+            diagnostic = diagnostic_from_detail(
+                checks["runtime-load"].detail,
+                artifact_sha256=evidence.artifact_sha256,
+                providers_requested=("CPUExecutionProvider",),
+            )
+            assert diagnostic is not None and diagnostic.boundary == "runtime-load"
+            assert diagnostic.opset_imports == (("", 27),)
+            assert diagnostic.context["requested_opset"] == 27
+            assert diagnostic.context["supported_opset"] == 26
+            assert diagnostic.context["runtime_version"] == ort.__version__
+            with pytest.raises(SampleAcceptanceError):
+                evidence.require_sample_acceptance()
+            outcomes.append(
+                {
+                    "optimization": optimization,
+                    "runtime-load": "failed",
+                    "numerical-acceptance": "unverified",
+                    "capability": asdict(diagnostic),
+                }
+            )
+        path.with_suffix(".runtime-load.json").write_text(
+            json.dumps(outcomes, indent=2)
+        )
+        return reloaded, report
+    if not any(
+        np.asarray(value).dtype.name == "bfloat16"
+        for values in feeds
+        for value in values
+    ) and not any(
+        value.dtype.name == "bfloat16"
+        for expected in snapshots
+        for value in jax.tree.leaves(expected)
+    ):
+        # This existing acceptance helper pins CPU, disables fallback and runs
+        # both ORT optimization settings against independent eager/JIT values.
+        _accept(reloaded, feeds, references, _BITWISE)
+        return reloaded, report
+    # BF16's NumPy runtime binding cannot carry its dtype. Bind the original
+    # uint16 storage with the actual ONNX type for inputs and outputs.
+    for optimization in (
+        ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+        ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+    ):
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = options.inter_op_num_threads = 1
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        options.graph_optimization_level = optimization
+        session = ort.InferenceSession(
+            str(path), options, providers=["CPUExecutionProvider"]
+        )
+        session.disable_fallback()
+        assert session.get_providers() == ["CPUExecutionProvider"]
+        for values, expected, reference_pair in zip(
+            feeds, snapshots, references, strict=True
+        ):
+            binding = session.io_binding()
+            storage = []
+            input_values = []
+            for value, meta, declared in zip(
+                values, session.get_inputs(), reloaded.graph.input, strict=True
+            ):
+                array = np.asarray(value)
+                assert (
+                    onnx.helper.tensor_dtype_to_np_dtype(
+                        declared.type.tensor_type.elem_type
+                    )
+                    == array.dtype
+                )
+                bits = (
+                    array.view(np.uint16) if array.dtype.name == "bfloat16" else array
+                )
+                bits = np.array(bits, copy=True, order="C")
+                storage.append(bits)
+                input_value = ort.OrtValue.ortvalue_from_numpy_with_onnx_type(
+                    bits, declared.type.tensor_type.elem_type
+                )
+                input_values.append(input_value)
+                binding.bind_ortvalue_input(meta.name, input_value)
+            output_contracts = {}
+            for value, meta, declared in zip(
+                jax.tree.leaves(expected),
+                session.get_outputs(),
+                reloaded.graph.output,
+                strict=True,
+            ):
+                assert (
+                    onnx.helper.tensor_dtype_to_np_dtype(
+                        declared.type.tensor_type.elem_type
+                    )
+                    == value.dtype
+                )
+                contract = (
+                    declared.type.tensor_type.elem_type,
+                    value.shape,
+                    value.nbytes,
+                )
+                if meta.name in output_contracts:
+                    assert output_contracts[meta.name] == contract
+                else:
+                    output_contracts[meta.name] = contract
+                    binding.bind_output(meta.name, "cpu")
+            session.run_with_iobinding(binding)
+            # Repeated graph output names share a binding. ORT can also return
+            # an input alias without writing a requested NumPy output buffer.
+            # Retain and inspect the actual returned CPU values in bind order.
+            output_values = binding.get_outputs()
+            actual_by_name = dict(zip(output_contracts, output_values, strict=True))
+            for name, actual in actual_by_name.items():
+                dtype, shape, byte_count = output_contracts[name]
+                assert actual.device_name() == "cpu"
+                assert actual.element_type() == dtype
+                assert tuple(actual.shape()) == shape
+                assert actual.tensor_size_in_bytes() == byte_count
+            for native_outputs in reference_pair:
+                for meta, reference in zip(
+                    session.get_outputs(), native_outputs, strict=True
+                ):
+                    actual = actual_by_name[meta.name]
+                    # The checked OrtValue owns the CPU allocation throughout
+                    # this bounded read; BF16 never crosses a numeric cast.
+                    if reference.nbytes:
+                        pointer = actual.data_ptr()
+                        assert pointer != 0
+                        raw = ctypes.string_at(pointer, reference.nbytes)
+                    else:
+                        raw = b""
+                    assert raw == reference.tobytes()
+    return reloaded, report
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        (source, target)
+        for group in _BITCAST_GROUPS
+        for source in group
+        for target in group
+    ],
+)
+def test_equal_width_bitcast_preserves_adversarial_storage_and_siblings(
+    source: str, target: str, tmp_path: Path
+) -> None:
+    with jax.enable_x64(True):
+        original = _bitcast_values(source)
+        value = jnp.asarray(original)
+        assert np.asarray(value).tobytes() == original.tobytes()
+
+        def model(x: Any) -> Any:
+            result = jax.lax.bitcast_convert_type(x, np.dtype(target))
+            return result, x, result
+
+        expected = original.view(np.dtype(target))
+        eager = model(value)
+        assert jax.tree.structure(eager) == jax.tree.structure(
+            (expected, original, expected)
+        )
+        for actual, reference in zip(
+            eager, (expected, original, expected), strict=True
+        ):
+            assert (actual.dtype, actual.shape) == (reference.dtype, reference.shape)
+            assert np.asarray(actual).tobytes() == reference.tobytes()
+        _, report = _bitcast_artifact(
+            model,
+            [jax.ShapeDtypeStruct(value.shape, np.dtype(source))],
+            ((value,),),
+            tmp_path / "bitcast.onnx",
+            opset=26,
+        )
+        assert tuple(v.dtype for v in report.traced_outputs) == (target, source, target)
+
+
+@pytest.mark.parametrize("ordinal", [0, 1, 2])
+def test_original_bitcast_registrations_keep_callable_values_callback_and_opset(
+    ordinal: int, tmp_path: Path
+) -> None:
+    case = raw_source_case("plugin::bitcast_convert_type", ordinal)
+    original, callback = case["callable"], case["post_check_onnx_graph"]
+    values = tuple(case["input_values"])
+    snapshots = tuple(value.tobytes() for value in values)
+    opset = case.get("opset_version", 23)
+    with jax.enable_x64(True):
+        proto, _ = _bitcast_artifact(
+            original,
+            [jax.ShapeDtypeStruct(v.shape, v.dtype) for v in values],
+            (values,),
+            tmp_path / "original.onnx",
+            opset=opset,
+        )
+    assert callback(proto)
+    assert opset == (23 if ordinal == 2 else 26)
+    assert snapshots == (
+        (
+            np.asarray(3.5, np.float32).tobytes()
+            if ordinal == 0
+            else (
+                np.asarray([0x3F800000, 0x40000000], np.uint32).tobytes()
+                if ordinal == 1
+                else np.asarray([1.5, -2.0], np.float32).tobytes()
+            )
+        ),
+    )
+    assert tuple(value.tobytes() for value in values) == snapshots
+    reloaded = raw_source_case("plugin::bitcast_convert_type", ordinal)
+    assert reloaded["callable"] is original
+    assert reloaded["post_check_onnx_graph"] is callback
+
+
+@pytest.mark.parametrize("opset", [23, 26, 27])
+@pytest.mark.parametrize("dtype", [np.float32, np.bool_])
+def test_identity_bitcast_saved_artifact_at_original_and_newer_opsets(
+    opset: int, dtype: Any, tmp_path: Path
+) -> None:
+    value = (
+        np.asarray([False, True, True, False], np.bool_)
+        if dtype is np.bool_
+        else _bitcast_values("float32")
+    )
+    proto, _ = _bitcast_artifact(
+        lambda x: jax.lax.bitcast_convert_type(x, dtype),
+        [jax.ShapeDtypeStruct(value.shape, dtype)],
+        ((value,),),
+        tmp_path / "identity.onnx",
+        opset=opset,
+    )
+    assert all(node.op_type == "Identity" for node in proto.graph.node)
+    assert proto.opset_import[0].version == opset
+
+
+@pytest.mark.parametrize("shape", [(), (0, 3), "B, 2, 3"])
+def test_opset27_bitcast_scalar_empty_and_native_symbolic_runtime_load_diagnostic(
+    shape: Any, tmp_path: Path
+) -> None:
+    native_shape = export.symbolic_shape(shape) if isinstance(shape, str) else shape
+    concrete_shapes = (
+        [(batch, 2, 3) for batch in (1, 3)] if isinstance(shape, str) else [shape]
+    )
+    feeds = tuple(
+        (np.resize(_bitcast_values("float32"), concrete),)
+        for concrete in concrete_shapes
+    )
+
+    def native(x: Any) -> Any:
+        if isinstance(shape, str):
+            x = jax.lax.transpose(x, (1, 0, 2))
+        return jax.lax.bitcast_convert_type(x, np.int32)
+
+    proto, _ = _bitcast_artifact(
+        native,
+        [jax.ShapeDtypeStruct(native_shape, np.float32)],
+        feeds,
+        tmp_path / "native-shape.onnx",
+        opset=27,
+    )
+    assert [node.op_type for node in proto.graph.node] == (
+        ["Transpose", "BitCast"] if isinstance(shape, str) else ["BitCast"]
+    )
+    assert onnx.defs.get_schema("BitCast", 27).since_version == 26
+
+
+@pytest.mark.parametrize("dtype", [np.float64, np.int64, np.uint64])
+def test_bitcast_keeps_explicit_x64_input_conflict(dtype: Any) -> None:
+    with jax.enable_x64(False):
+        with pytest.raises(SourcePrecisionError) as captured:
+            ui._to_onnx(
+                lambda x: jax.lax.bitcast_convert_type(x, np.uint64),
+                [jax.ShapeDtypeStruct((2,), dtype)],
+                precision_policy=PrecisionPolicy.SOURCE,
+                opset=26,
+            )
+        assert captured.value.category == "configuration-conflict"
 
 
 def _integer_edges(dtype: str) -> np.ndarray:

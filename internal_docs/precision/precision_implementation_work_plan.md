@@ -520,7 +520,7 @@ numerical acceptance for every composition or execution target.
 | Input dtypes | FP16, BF16, FP32, FP64. Explicit FP64 inputs with JAX x64 disabled fail before tracing. |
 | Floating operations | Audited add, subtract, multiply, negate, divide, square root, broadcast, numeric conversion, and reduce-sum contracts; floating comparisons and the selector conversion required by `cond`. |
 | Matrix operation | Default-precision FP16 operands with an explicitly preferred FP32 result, positive static rank-2/rank-3 shapes, matching batch axis 0 for rank 3, and contracting axes `(-1, -2)`. Other dtypes, axes, shapes, or precision algorithms fail explicitly. |
-| Bitcast | FP32 to UINT32 at opset 26, with equal word width and preserved shape. Broader bitcast support requires a separate audit. |
+| Bitcast | The initial FP32-to-UINT32 packet now extends to equal-width ordinary floating/integer identity representations, preserving native shape, symbolic scope and strong results. Same-type bitcasts use Identity, including opset 23; distinct types require opset 26+. Boolean identity is included. Unequal-width and packed-complex forms remain unfinished implementation. |
 | Scopes | Inline computation, audited `@onnx_function` specializations and captured/static state, and two-branch `cond`. Apply the same profile to nested bodies. |
 | Outputs | Flattened structured results in existing output order, including mixed admitted floating types, Boolean comparison results, and the admitted UINT32 bitcast result. Integer arithmetic is excluded. |
 | ONNX opsets | 23 and 26. The caller selects any required newer opset explicitly. |

@@ -23,15 +23,39 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-Published `10c46eb2` is **pending** in
-[CI 41014331472](https://github.com/enpasos/jax2onnx/actions/runs/41014331472):
-at **07:33 UTC on 30 October**, all four support jobs succeeded and all four
-full Python jobs were running; all eight checkout assertions succeeded.
-Predecessor `bbe176f6` has **all eight SUCCESS**
-in [CI 40989814728](https://github.com/enpasos/jax2onnx/actions/runs/40989814728)
-as of **05:21:03 UTC on 30 October**. Its old mixed-suite full jobs cost
-**10,349–11,626 s**, support **39–96 s**, aggregate **43,715 job-seconds**;
+Published `234df50e` is **pending** in
+[CI 569](https://github.com/enpasos/jax2onnx/actions/runs/41024691391):
+at the read-only observation **09:58:08 UTC on 30 October**, all four support
+jobs succeeded and all four full Python jobs were running.
+Predecessor `10c46eb2` has **all eight SUCCESS** in
+[CI 568](https://github.com/enpasos/jax2onnx/actions/runs/41014331472), terminal
+at **09:24:47 UTC**. Its old mixed-suite full jobs cost **9,343–10,545 s**,
+aggregate **40,907 job-seconds**;
 this is neither 20-minute qualification nor a numerical repair.
+
+The private equal-width bitcast packet is qualified at `234df50e` plus the
+five-file source patch `72cf6368…`, before these documentation edits. On each
+official JAX/jaxlib family, **0.10.2 / Python 3.11** and **0.12.0.1 / Python 3.13**,
+the focused 317 cases comprise **45 numerical artifact cases**, **five observed
+opset-27 target-load diagnostics** (runtime **FAILED**, numerics **UNVERIFIED**),
+three x64 rejection diagnostics and 264 admission/structure controls. Both full
+three-owner runs pass **692 cases**, without skips: 311 takes **51.69 s /
+1,331.23 MiB**, 313 **38.39 s / 743.91 MiB** under the outer guard. These broader
+counts are not numerical acceptance counts. Source, package, import-origin and
+process closures pass, with no owned processes remaining. Evidence is under
+`/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-bitcast-234-v2-DuP9xp`
+(`closed-qualification.json`, SHA `4358a36b…`). The emitter and all three original
+registrations are unchanged; public LEGACY behavior is unchanged.
+
+The predecessor bitcast runs remain **308 PASS / nine FAIL** on 311 and
+**310 PASS / seven FAIL** on 313. The single 32-observation transport diagnostic
+also retains actual exit **1** (`ee52f187…`): every actual returned word matches,
+but repeated bindings and input aliases leave requested buffers unwritten.
+The corrected helper binds unique names and checks actual CPU OrtValues against
+both original eager/JIT references. No BF16 kernel defect follows from those
+harness failures. Opset 27 still fails the actual ORT 1.31.0 load boundary;
+minimum ONNX 1.20.1 / ORT 1.24.1 validation, unequal-width/packed-complex
+implementation and complete B–F/final exact-commit acceptance remain open.
 The reviewed local [portable STANDARD provisioning](ci_standard/README.md)
 binds four-cohort inputs and first-collection campaign construction;
 complete component/process owners pass **373 cases / 1,119 phases each** on
@@ -61,6 +85,18 @@ preservation (`9959dfdc…`, `f5565ad5…`); minimum's 140 extras were unexecute
 They supply no real support profile, canonical admission, skip allowance,
 hosted timing or full SOURCE/B–F numerical acceptance. Their original legacy
 criteria executed unchanged. No authority JSON or workflow changed.
+
+A separate ordinary locked Python 3.12 prefix now has a completed default-group
+install and pip check: **109 distributions / eight pytest entry points**, with
+all **107 selected dependency wheels** bound to their filenames/hashes. This is
+metadata/provisioning evidence, with no framework imports or numerical claim
+(`full-install-v1`, summary `da9f5361…`, freeze `d935fb49…`). The subsequent
+original normalization312 observation at clean `234df50e` passes **102 cases /
+306 native phases**, zero skips/wasxfail, **C=S=102 / A=0**, without generation
+(`7ebfedd5…` / `aaa187c6…`). Its unchanged legacy criteria, contexts and process
+closures are retained; neither observation activates a support/canonical gate
+or establishes hosted timing or full SOURCE acceptance. Both receipts are under
+`/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/`.
 
 Earlier published `cd5cb4bebf6de00223bf9454f7fb6f15a317e2cf`, against frozen main
 `81ad6ca`, has **all eight SUCCESS** in
@@ -97,9 +133,9 @@ cost does not justify a predictably over-budget FULL run.
 These receipts bind the pre-documentation worktree epoch with the same Python
 bytes; they do not establish exact committed-feature acceptance.
 
-No installed environment changed. The cached home312 environment is unsafe for
-reuse: 170 distributions versus the qualified 156, with 27 missing, 15 different
-and 41 extra; safe replacement disk headroom is unqualified. Other cohorts,
+The cached home312 environment was not reused: its earlier 170 distributions
+versus the qualified 156, with 27 missing, 15 different and 41 extra, remain a
+separate unsafe prefix. The new ordinary312 prefix above does not repair it. Other cohorts,
 support ownership/telemetry, portable manifests, resources, full B–F and final
 exact-commit acceptance remain open. Historical records below retain their
 original epochs and limits.

@@ -303,8 +303,12 @@ admission does not broaden the original samples. Some CPU samples agree; a new F
 fails the required runtime rounding. An allowlist of individually covered
 primitives is therefore not a support claim for every composition. BF16 has
 structural evidence in the source prototype, with separate known kernel
-limitations recorded in the current-state analysis. Opset-23 bitcasts and
-different-width bitcasts are rejected. Audited `onnx_function` calls and
+limitations recorded in the current-state analysis. Same-type bitcasts now use
+Identity, including at opset 23; equal-width distinct ordinary floating/integer
+types require BitCast at opset 26 or newer. Different-width and packed-complex
+bitcasts remain unfinished implementation. Opset admission does not establish
+runtime support: CPU ORT 1.31.0 rejects opset 27 at load, including Identity
+artifacts, leaving numerical acceptance unverified. Audited `onnx_function` calls and
 two-branch `cond` are included, with floating `gt` and Boolean-to-INT32 selector
 conversion. The added arithmetic paths include Div, BroadcastInDim, both square-root
 plugins, and bounded matrix products. Source lowering keeps separate arithmetic

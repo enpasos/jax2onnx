@@ -59,6 +59,7 @@ _PRIMITIVES: Final = {
     "transpose": jax.lax.transpose_p,
     "stop_gradient": jax.lax.stop_gradient_p,
     "convert_element_type": jax.lax.convert_element_type_p,
+    "bitcast_convert_type": jax.lax.bitcast_convert_type_p,
     "lt": jax.lax.lt_p,
     "le": jax.lax.le_p,
     "gt": jax.lax.gt_p,
@@ -187,6 +188,52 @@ def freeze_source_structure_rule(
     name = primitive.name
     if _PRIMITIVES.get(name) is not primitive:
         return None
+    if primitive is jax.lax.bitcast_convert_type_p:
+        if (
+            eqn.effects
+            or type(eqn.params) is not dict
+            or set(eqn.params) != {"new_dtype"}
+            or len(inputs) != 1
+            or len(outputs) != 1
+        ):
+            return None
+        source, target = inputs[0], outputs[0]
+        try:
+            source_dtype = np.dtype(source.logical_dtype)
+            target_dtype = np.dtype(target.logical_dtype)
+            source_ir_dtype = ir.DataType.from_numpy(source_dtype)
+            target_ir_dtype = ir.DataType.from_numpy(target_dtype)
+        except (TypeError, ValueError):
+            return None
+        if (
+            any(
+                value.encoding != "identity"
+                or value.shape != value.logical_shape
+                or value.symbol_axis != value.logical_symbol_axis
+                for value in (source, target)
+            )
+            or source_ir_dtype != source.dtype
+            or target_ir_dtype != target.dtype
+            or not (
+                source_dtype.kind in "iuf"
+                or source_dtype.name == "bfloat16"
+                or source_dtype == target_dtype == np.dtype(np.bool_)
+            )
+            or not (
+                target_dtype.kind in "iuf"
+                or target_dtype.name == "bfloat16"
+                or source_dtype == target_dtype == np.dtype(np.bool_)
+            )
+            or source_dtype.itemsize != target_dtype.itemsize
+            or not isinstance(eqn.params["new_dtype"], np.dtype)
+            or eqn.params["new_dtype"] != target_dtype
+            or not source.same_shape(target)
+            or target.weak_type is not False
+        ):
+            return None
+        if source_dtype == target_dtype:
+            return _DirectRule("Identity", identity_alias=True)
+        return _DirectRule("BitCast", (("to", int(target.dtype.value)),))
     # Scalar numeric conditions and counters have their own exact contracts.
     # Boolean arithmetic and general integer expressions remain separate rules.
     scalar_numeric = (
