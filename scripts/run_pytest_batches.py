@@ -1524,7 +1524,16 @@ def _main() -> int:
     parser.add_argument("--test-path", action="append", default=[])
     parser.add_argument("--ci-lane", choices=("standard", "extra"), action=_CiAuthority)
     parser.add_argument("--ci-main-baseline", type=Path, action=_CiAuthority)
-    parser.add_argument("--ci-campaign-contract", type=Path, action=_CiAuthority)
+    campaign_authority = parser.add_mutually_exclusive_group()
+    campaign_authority.add_argument(
+        "--ci-campaign-contract", type=Path, action=_CiAuthority
+    )
+    campaign_authority.add_argument(
+        "--_ci-provision-campaign",
+        type=Path,
+        action=_CiAuthority,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if not 1 <= args.batch_size <= _MAX_BATCH_SIZE:
@@ -1536,13 +1545,18 @@ def _main() -> int:
         parser.error(
             "canonical CI selection requires both --ci-lane and --ci-main-baseline"
         )
-    if args.ci_campaign_contract:
+    if args.ci_campaign_contract or args._ci_provision_campaign:
         if args.ci_lane != "standard":
             parser.error("a campaign contract requires canonical --ci-lane standard")
         try:
             _ci_campaign_arguments(args.test_path, options)
         except ValueError as error:
             parser.error(str(error))
+    if (
+        args._ci_provision_campaign
+        and "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR" in os.environ
+    ):
+        parser.error("provisioning requires the parent native evidence key absent")
     if any(
         argument == name or argument.startswith(name + "=")
         for argument in [*options, *args.test_path]
@@ -1593,6 +1607,7 @@ def _main() -> int:
     setup_failure = None
     lane_context = None
     campaign = None
+    provision = None
     lane_environment = None
     lane_closed: list[tuple[Path, dict[str, Any], dict[str, str]]] = []
     run["native_model_artifact_transport"] = "native-model-artifact-transport.json"
@@ -1783,6 +1798,11 @@ def _main() -> int:
             }
             _write(root / "run.json", run)
 
+        if args._ci_provision_campaign:
+            provision = _CiCampaignProvision(
+                args._ci_provision_campaign, lane_context, root
+            )
+
         def closed_lane_worker(folder: Path, request: dict[str, Any]) -> dict[str, Any]:
             if lane_context is None:
                 return json.loads((folder / "receipt.json").read_text())
@@ -1823,6 +1843,19 @@ def _main() -> int:
             raise ValueError("full-suite collection receipt is incomplete")
         if not nodeids or len(set(nodeids)) != len(nodeids):
             raise ValueError("full-suite collection is empty or has duplicate node IDs")
+        if provision is not None:
+            # Freeze the independently reviewed allowances before collecting;
+            # bind only the untouched, closed first collection afterward.
+            provision.recheck()
+            campaign = provision.campaign(collection)
+            run["ci_campaign"] = {
+                "contract_path": str(campaign.path),
+                "contract_sha256": campaign.sha256,
+                "global_inventory_path": str(collection / "receipt.json"),
+                "global_inventory_sha256": campaign.inventory_sha256,
+                "provision_source": str(provision.path),
+                "provision_sha256": provision.sha256,
+            }
         if campaign is not None:
             campaign.collection(baseline)
         lane_ids = nodeids
@@ -1935,6 +1968,8 @@ def _main() -> int:
                         campaign.batch(
                             receipt, request["assigned"], folder / "junit.xml"
                         )
+            if provision is not None:
+                provision.recheck()
         except (OSError, ValueError, LookupError) as error:
             run["status"] = "FAIL"
             run["failure"] = {"type": type(error).__name__, "message": str(error)}
@@ -2519,6 +2554,129 @@ def _ci_campaign_arguments(test_paths: list[str], options: list[str]) -> None:
             raise ValueError("campaign reporting option needs a value")
 
 
+class _CiCampaignProvision:
+    """Source-bound allowances for the existing first canonical collection."""
+
+    def __init__(self, path: Path, context: _CiLaneContext, run: Path) -> None:
+        from importlib.util import module_from_spec, spec_from_file_location
+
+        self.path = path.resolve(strict=True)
+        self.context = context
+        self.run = run
+        spec = spec_from_file_location(
+            "_ci_standard_preparation",
+            Path(__file__).with_name("prepare_ci_standard.py"),
+        )
+        if spec is None or spec.loader is None:
+            raise ValueError("STANDARD authority renderer is unavailable")
+        self.helper = module_from_spec(spec)
+        spec.loader.exec_module(self.helper)
+        self.data, baseline, self.bindings = self.helper._cohort(
+            self.path, _context_json
+        )
+        self.sha256 = self.bindings[self.path]
+        if (
+            baseline["nodeids"] != context.manifest["nodeids"]
+            or self.data["python_minor"] != context.manifest["python_minor"]
+            or self.data["baseline_commit"] != context.manifest["baseline_commit"]
+            or self.data["packages"] != context.manifest.get("packages")
+            or any(
+                context.manifest["source_files"].get(name) != digest
+                for name, digest in baseline["generated"].items()
+            )
+        ):
+            raise ValueError("provisioned cohort differs from rendered main authority")
+        slots = {
+            "${CHECKOUT}": str(context.root),
+            "${RUN}/native-model-artifacts": str(run / "native-model-artifacts"),
+            **{
+                f"${{{name}_SOURCE}}": context.manifest["environment"].get(
+                    f"JAX2ONNX_{name}_SRC"
+                )
+                for name in ("MAXTEXT", "MAXDIFFUSION")
+            },
+        }
+        expected_transition = dict(self.data["collection_transition"])
+        for name in ("collected_environment", "post_pytest_environment"):
+            expected_transition[name] = self.helper._environment(
+                expected_transition[name], slots
+            )
+        if (
+            self.helper._environment(self.data["environment"], slots)
+            != context.manifest["environment"]
+            or expected_transition != context.transition
+        ):
+            raise ValueError("provisioned context differs from reviewed template")
+        # Validate allowance shape before C; final membership and outcome checks
+        # remain the responsibility of the unchanged campaign validator.
+        _ci_campaign_skips(self.data["allowed_skips"], context)
+        self.recheck()
+
+    def recheck(self) -> None:
+        if any(
+            self.context.manifest["source_files"].get(name) != digest
+            for name, digest in self.data["bindings"].items()
+        ) or set(self.data["bindings"]) != {"poetry.lock", "pyproject.toml"}:
+            raise ValueError("provisioned lock/project binding differs")
+        for path, digest in self.bindings.items():
+            relative = path.relative_to(self.context.root).as_posix()
+            if (
+                self.context.manifest["source_files"].get(relative) != digest
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest
+            ):
+                raise ValueError("reviewed provision source changed")
+        self.helper._installation(self.data, self.context.root)
+
+    def campaign(self, collection: Path) -> "_CiCampaignContext":
+        payload = {
+            "schema": "jax2onnx-ci-campaign-v1",
+            "python_minor": self.context.manifest["python_minor"],
+            "main_manifest": {
+                "path": str(self.context.path),
+                "sha256": self.context.sha256,
+            },
+            "global_inventory": {
+                "path": str(collection / "receipt.json"),
+                "sha256": hashlib.sha256(
+                    (collection / "receipt.json").read_bytes()
+                ).hexdigest(),
+            },
+            "allowed_skips": self.data["allowed_skips"],
+        }
+        path = self.run / "ci-provisioned-campaign.json"
+        with path.open("x") as stream:
+            stream.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        return _CiCampaignContext(path, self.context)
+
+
+def _ci_campaign_skips(skips: Any, context: _CiLaneContext) -> dict[str, Any]:
+    allowed = {}
+    if type(skips) is not list:
+        raise ValueError("campaign allowed_skips must be a list")
+    for skip in skips:
+        if (
+            type(skip) is not dict
+            or set(skip) != {"nodeid", "phases", "source", "line", "reason"}
+            or type(skip["nodeid"]) is not str
+            or skip["nodeid"] not in context.manifest["nodeids"]
+            or skip["nodeid"] in allowed
+            or skip["phases"]
+            not in (
+                ["setup:skipped", "teardown:passed"],
+                ["setup:passed", "call:skipped", "teardown:passed"],
+            )
+            or type(skip["source"]) is not str
+            or skip["source"] not in context.manifest["source_files"]
+            or type(skip["line"]) is not int
+            or skip["line"] < 1
+            or type(skip["reason"]) is not str
+            or not skip["reason"]
+        ):
+            raise ValueError("campaign skip allowance is not exact/source-bound")
+        allowed[skip["nodeid"]] = skip
+    return allowed
+
+
 class _CiCampaignContext:
     """Optional strict outcomes around the existing canonical lane machinery."""
 
@@ -2576,30 +2734,7 @@ class _CiCampaignContext:
         if hashlib.sha256(payload).hexdigest() != self.inventory_sha256:
             raise ValueError("campaign global inventory SHA differs")
         self.standard, self.extra = self._inventory(self.inventory)
-        self.allowed_skips = {}
-        if type(contract["allowed_skips"]) is not list:
-            raise ValueError("campaign allowed_skips must be a list")
-        for skip in contract["allowed_skips"]:
-            if (
-                type(skip) is not dict
-                or set(skip) != {"nodeid", "phases", "source", "line", "reason"}
-                or type(skip["nodeid"]) is not str
-                or skip["nodeid"] not in self.standard
-                or skip["nodeid"] in self.allowed_skips
-                or skip["phases"]
-                not in (
-                    ["setup:skipped", "teardown:passed"],
-                    ["setup:passed", "call:skipped", "teardown:passed"],
-                )
-                or type(skip["source"]) is not str
-                or skip["source"] not in lane_context.manifest["source_files"]
-                or type(skip["line"]) is not int
-                or skip["line"] < 1
-                or type(skip["reason"]) is not str
-                or not skip["reason"]
-            ):
-                raise ValueError("campaign skip allowance is not exact/source-bound")
-            self.allowed_skips[skip["nodeid"]] = skip
+        self.allowed_skips = _ci_campaign_skips(contract["allowed_skips"], lane_context)
         self.recheck()
 
     def _inventory(self, receipt: Any) -> tuple[list[str], list[str]]:

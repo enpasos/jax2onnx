@@ -23,7 +23,17 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-Published `cd5cb4bebf6de00223bf9454f7fb6f15a317e2cf`, against frozen main
+Published `bbe176f6` has four support successes and four full jobs still running
+in [CI 40989814728](https://github.com/enpasos/jax2onnx/actions/runs/40989814728)
+at this checkpoint. The reviewed local [portable STANDARD provisioning](ci_standard/README.md)
+adds source-bound four-cohort inputs and first-collection campaign construction;
+complete component/process owners pass **373 cases / 1,119 phases each** on
+official Python 3.11 and 3.14 (pair freeze `237b62f3…`). The prior focused
+47/40-case evidence is retained. Real rendering awaits committed exact-event
+source and fresh cohort qualification; no workflow, 20-minute or numerical
+acceptance follows from these finite tests.
+
+Earlier published `cd5cb4bebf6de00223bf9454f7fb6f15a317e2cf`, against frozen main
 `81ad6ca`, has **all eight SUCCESS** in
 [CI 40964061166](https://github.com/enpasos/jax2onnx/actions/runs/40964061166),
 terminal at **01:05:49 UTC on 30 October**. These are the old mixed-suite jobs:
@@ -34,7 +44,7 @@ Predecessors `e8bed493` and `450732ad` each retain seven successes and the Pytho
 passing AMD counterparts do not identify its cause or establish a numerical
 repair. The strict official eager/JIT contract remains binding.
 
-The private canonical campaign remains unused by CI. Its strict collection,
+The earlier private canonical campaign checkpoint remains unused by CI. Its strict collection,
 outcome and closed-worker checks retain all source/package/context fences.
 Path validation now memoizes exact raw paths only within each audit, repeating
 role containment checks on every entry and resolving afresh on the next audit.

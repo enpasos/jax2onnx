@@ -1,6 +1,6 @@
 # Precision migration CI execution plan
 
-Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and the temporary candidate-overlap amendment below are accepted architecture. Published `cd5cb4be` has all eight old mixed-suite checks passing, without qualifying their runtime. The private strict campaign/path audit and finite PR312 qualification are accepted within their scope; remaining cohorts/support, portable authorities, resources, full B–F and gate activation remain open. The comparative frozen-main diagnostic stays retired.**
+Status — 2026-10-30: **The absolute 20-minute Linux STANDARD-job rule and temporary candidate overlap are accepted architecture. Published `bbe176f6` has four support successes and four full jobs still running; earlier `cd5cb4be` passed all eight old mixed-suite checks without qualifying runtime. Local portable provisioning and its finite component qualification remain private; real cohort authorities, resources, full B–F and gate activation are open. The comparative frozen-main diagnostic stays retired.**
 
 ## Binding user clarification — 2026-10-29
 
@@ -48,7 +48,17 @@ not accept missing migration verifiers or claim performance results.
 
 ## Current private qualification — 2026-10-30
 
-Frozen main remains `81ad6ca`. Published `cd5cb4be` has **all eight SUCCESS** in
+The local [portable STANDARD inputs and private CLI](ci_standard/README.md) now
+bind four reviewed cohorts and provision a campaign from its first closed full
+collection. Complete owners pass **373 cases / 1,119 phases each** on official
+3.11 and 3.14, retaining the focused 47/40-case history (pair freeze `237b62f3…`).
+Real rendering requires committed source matching external event authority;
+fresh cohort/whole-job qualification and workflow activation remain pending.
+Published `bbe176f6` still has four support successes and four full jobs running
+in [CI 40989814728](https://github.com/enpasos/jax2onnx/actions/runs/40989814728)
+at this checkpoint; the local additions make no green-head claim.
+
+Frozen main remains `81ad6ca`. Earlier published `cd5cb4be` has **all eight SUCCESS** in
 [CI 40964061166](https://github.com/enpasos/jax2onnx/actions/runs/40964061166),
 terminal **01:05:49 UTC on 30 October**. Its old mixed-suite full-job spans are
 **9,525–10,394 s**, support **54–137 s**, aggregate **40,191 job-seconds

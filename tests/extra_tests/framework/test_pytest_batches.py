@@ -2682,6 +2682,194 @@ def test_campaign_final_closure_rejects_semantically_unchanged_junit_mutation(
     )
 
 
+def _prepare_provision_suite(tmp_path, monkeypatch):
+    suite, manifest, environment, contract, inventory = _prepare_campaign_suite(
+        tmp_path, monkeypatch, "allowed-skip"
+    )
+    payload = json.loads(manifest.read_text())
+    preparation_spec = spec_from_file_location(
+        "_provision_fixture_preparation", _RUNNER.with_name("prepare_ci_standard.py")
+    )
+    preparation = module_from_spec(preparation_spec)
+    preparation_spec.loader.exec_module(preparation)
+    payload["packages"] = {
+        preparation._name(distribution.metadata["Name"]): distribution.version
+        for distribution in metadata.distributions()
+    }
+    plugins = [
+        {
+            "name": entry.name,
+            "value": entry.value,
+            "distribution": preparation._name(distribution.metadata["Name"]),
+            "version": distribution.version,
+        }
+        for distribution in metadata.distributions()
+        for entry in distribution.entry_points
+        if entry.group == "pytest11"
+    ]
+    for name in ("poetry.lock", "pyproject.toml"):
+        (suite / name).write_bytes((_RUNNER.parents[1] / name).read_bytes())
+        payload["source_files"][name] = hashlib.sha256(
+            (suite / name).read_bytes()
+        ).hexdigest()
+    transition = json.loads(json.dumps(payload["collection_transition"]))
+    worker_environment = dict(payload["environment"])
+    for mapping in (
+        worker_environment,
+        transition["collected_environment"],
+        transition["post_pytest_environment"],
+    ):
+        mapping["JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"] = (
+            "${RUN}/native-model-artifacts"
+        )
+    data = {
+        "schema": "jax2onnx-ci-standard-cohort-v1",
+        "python_minor": payload["python_minor"],
+        "baseline_commit": payload["baseline_commit"],
+        "baseline": {"nodeids": payload["nodeids"], "generated": {}},
+        "bindings": {
+            name: payload["source_files"][name]
+            for name in ("poetry.lock", "pyproject.toml")
+        },
+        "packages": payload["packages"],
+        "bootstrap": {"pip": payload["packages"]["pip"]},
+        "plugins": sorted(
+            plugins, key=lambda value: (value["name"], value["distribution"])
+        ),
+        "environment": worker_environment,
+        "collection_transition": transition,
+        "allowed_skips": json.loads(contract.read_text())["allowed_skips"],
+        "provenance": {},
+    }
+    cohort = suite / "cohort.json"
+    cohort.write_text(json.dumps(data) + "\n")
+    payload["source_files"]["cohort.json"] = hashlib.sha256(
+        cohort.read_bytes()
+    ).hexdigest()
+    manifest.write_text(json.dumps(payload) + "\n")
+    return suite, manifest, environment, cohort, inventory
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [None, "skip-mutation", "early-execution", "terminal", "subsequent-C", "read-race"],
+)
+def test_real_first_collection_provisions_one_unchanged_canonical_campaign(
+    tmp_path, monkeypatch, fault
+):
+    module = _runner()
+    suite, manifest, environment, cohort, inventory = _prepare_provision_suite(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.chdir(suite)
+    monkeypatch.setattr(module.os, "environ", environment)
+    original = module._child
+    collections = []
+    if fault == "read-race":
+        original_read = module._context_json
+
+        def transient_read(path, *args, **kwargs):
+            data, raw = original_read(path, *args, **kwargs)
+            if path == cohort:
+                data["allowed_skips"][0]["reason"] = "transient unreviewed reason"
+                raw = (json.dumps(data) + "\n").encode()
+            return data, raw
+
+        monkeypatch.setattr(module, "_context_json", transient_read)
+
+    def child(folder, request, *args, **kwargs):
+        result = original(folder, request, *args, **kwargs)
+        if request["kind"] == "collection":
+            collections.append(folder)
+            if fault == "skip-mutation":
+                data = json.loads(cohort.read_text())
+                data["allowed_skips"][0]["reason"] = "forged"
+                cohort.write_text(json.dumps(data) + "\n")
+            elif fault == "terminal":
+                terminal = folder / "lane-terminal.json"
+                data = json.loads(terminal.read_text())
+                data["exitstatus"] = 1
+                terminal.write_text(json.dumps(data) + "\n")
+            elif fault == "early-execution":
+                receipt = folder / "receipt.json"
+                data = json.loads(receipt.read_text())
+                data["phases"] = {
+                    inventory["full_preselection_ids"][0]: [
+                        {"when": "call", "outcome": "passed"}
+                    ]
+                }
+                receipt.write_text(json.dumps(data) + "\n")
+                terminal = folder / "lane-terminal.json"
+                data = json.loads(terminal.read_text())
+                data["receipt_sha256"] = hashlib.sha256(
+                    receipt.read_bytes()
+                ).hexdigest()
+                terminal.write_text(json.dumps(data) + "\n")
+        elif fault == "subsequent-C":
+            receipt = folder / "receipt.json"
+            data = json.loads(receipt.read_text())
+            data["full_preselection_ids"] = data["full_preselection_ids"][:-1]
+            receipt.write_text(json.dumps(data) + "\n")
+            terminal = folder / "lane-terminal.json"
+            data = json.loads(terminal.read_text())
+            data["receipt_sha256"] = hashlib.sha256(receipt.read_bytes()).hexdigest()
+            terminal.write_text(json.dumps(data) + "\n")
+        return result
+
+    monkeypatch.setattr(module, "_child", child)
+    output = tmp_path / "receipts"
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            str(_RUNNER),
+            "--output-dir",
+            str(output),
+            "--ci-lane",
+            "standard",
+            "--ci-main-baseline",
+            str(manifest),
+            "--_ci-provision-campaign",
+            str(cohort),
+            "--",
+            "-q",
+        ],
+    )
+    assert module._main() == (0 if fault is None else 1)
+    run = json.loads((output / "run.json").read_text())
+    assert collections == ([] if fault == "read-race" else [output / "collection"])
+    if fault is None:
+        assert run["completed"] == json.loads(manifest.read_text())["nodeids"]
+        assert len(run["processes"]) == 2
+        contract = json.loads((output / "ci-provisioned-campaign.json").read_text())
+        raw = (output / "collection/receipt.json").read_bytes()
+        assert contract["global_inventory"]["sha256"] == hashlib.sha256(raw).hexdigest()
+        assert (
+            json.loads(raw)["full_preselection_ids"]
+            == inventory["full_preselection_ids"]
+        )
+        assert run["ci_lane"]["extra_ids"] == ["test_cases.py::test_extra"]
+        assert not (suite / "extra-ran").exists()
+    else:
+        assert run["status"] == "FAIL"
+        if fault != "subsequent-C":
+            assert len(run["processes"]) == (0 if fault == "read-race" else 1)
+
+
+def test_provision_authority_conflicts_are_rejected_before_children(
+    tmp_path, monkeypatch
+):
+    module = _runner()
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [str(_RUNNER), "--ci-campaign-contract=a", "--_ci-provision-campaign=b"],
+    )
+    with pytest.raises(SystemExit) as error:
+        module._main()
+    assert error.value.code == 2
+
+
 @pytest.mark.parametrize(
     "fault", ["orphan", "extra-lane", "test-path", "positional", "keyword", "addopts"]
 )
