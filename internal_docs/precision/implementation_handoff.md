@@ -23,11 +23,11 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-At local `613f1b69`, official312 full collection records **C=19,461**; only the two original MaxText exports/context/closed-worker checks pass in this finite witness.
-Both saved-model full checkers **FAIL** at `node_Cast_149` (`tensor(complex64)`); [frozen Main deepseek2-16b](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/main312-deepseek-schema-plan-smcaLK/closed-summary.json) (`e8d9dbfd…`) also fails schema checking with the same 13-node defect chain. Main deepseek2-236b remains **UNVERIFIED**; numerical acceptance remains **UNVERIFIED**.
-CI #572 at exact `2ccb4c04` records ten successful jobs, locked312 sampled owned RSS **4102.66 MiB > 4096 MiB**, locked311 cancelled beyond the whole-job budget, and stale full-suite serialization-reader test hooks. Reviewed owner isolation and test-hook repairs preserve the criteria; qualification remains open.
-[Closed evidence](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/closed-integration.json) (`7cb90c94…`) and [source diagnosis](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/checker-only/source-diagnosis-v1.json) (`f9c80518…`) retain artifact SHA256s: deepseek2-16b `e262053fd7af7f5a78e29a1b3a90f36ebfbdc7ec03ae31dee1b8d3514ae9af28`; deepseek2-236b `fd60cdbb2e22c0a2927b04c217e6e1d3d3e8b70c972a0641ae28b1133843a55d`.
-Full S, original 45+5, all 12 native owners and full B–F remain unqualified; strict reference-case numerical acceptance remains **FAILED**.
+Published `c5d60d4c` in [CI 573](https://github.com/enpasos/jax2onnx/actions/runs/41076579765) records **10 SUCCESS, four old full jobs in progress, locked311 CANCELLED and locked312 FAILURE** at the 16:54 UTC snapshot. Locked311 spans **1,227 s > 1,200 s**; its work deadline leaves 3,993 of 4,571 cases in closed workers and 211 more with complete phases in the interrupted worker. Locked312 exceeds sampled owned **4,345.49 MiB > 4,096 MiB** after Diffusion 5 and MaxText 44; the final Omni case is unfinished. All-eight STANDARD qualification remains failed. CI 572's ten successes, five failures and one cancellation remain historical; `c5d60d4c` contains the owner-isolation and stale-reader-test repairs, without changing their criteria.
+
+The unchanged original Omni case separately exports in a different import/session context with an external CALL profiler: **one export PASS**, sampled owned peak **3,954.83 MiB**, [closed diagnostic](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-direct-diag-lnris2sr/run-call-observer/closed-call-observer.json) (`86a0c3ee…`). Its retained 688,657-byte model (`c244349d…`) separately **passes `onnx.checker.check_model(..., full_check=True)`** ([checker closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-checker-only-nxi1sakk/run/closed-checker-only.json), `9080c14a…`); numerics remain **UNVERIFIED**. This diagnostic establishes no canonical memory repair, stable headroom or whole-50 acceptance. Earlier `613f1b69` full collection **C=19,461** and two closed DeepSeek exports/context checks remain finite evidence; both saved-model checkers **FAIL** at `node_Cast_149` (`tensor(complex64)`) ([closed evidence](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/closed-integration.json), `7cb90c94…`; [source diagnosis](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci571-global-integrate-9c4wik_f/checker-only/source-diagnosis-v1.json), `f9c80518…`). Frozen Main deepseek2-16b also fails with the same 13-node chain ([Main closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/main312-deepseek-schema-plan-smcaLK/closed-summary.json), `e8d9dbfd…`); Main deepseek2-236b remains **UNVERIFIED**.
+
+Detached `1421bd8d` qualifies only scoped plugin-binding/patch-removal bookkeeping: both complete owners pass **131 cases on each official 3.11/3.13 family**, with pinned hooks, typing and strict docs. Its small synthetic bookkeeping measurements do not predict whole-CI savings. It is not applied to the published head. Full S, original 45+5, all 12 native owners and full B–F remain unqualified; strict reference-case numerical acceptance remains **FAILED**.
 
 The reviewed V2 checkpoint appends eight fixed temporary STANDARD candidates
 beside the untouched authoritative old eight in the same PR #277 workflow
@@ -35,7 +35,7 @@ beside the untouched authoritative old eight in the same PR #277 workflow
 original setup/inputs/criteria, owned Linux temporary capture, retained-output
 inventories and complete failure payloads/raw fallback remain explicit. This
 implements one qualification milestone, not coordinated standard/extra gate
-activation. Actual same-head sixteen-job outcomes, complete **<=1,200-second**
+activation. At that checkpoint, actual same-head sixteen-job outcomes, complete **<=1,200-second**
 candidate spans, **<=160 candidate job-minutes**, controlled-resource closures
 and **<=100 MiB** compressed successful receipts/logs remain **UNVERIFIED**.
 Failure/retry and old-job costs are reported separately. Keep minimum311,

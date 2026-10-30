@@ -1665,6 +1665,76 @@ def test_lane_batch_plan_isolates_all_original_optional_models(
     ]
 
 
+def test_batch_plan_fills_remainder_with_a_whole_class_from_a_small_module() -> None:
+    module = _runner()
+    items = [
+        {"nodeid": f"{owner}::{scope}::{index}", "module": owner, "class": scope}
+        for owner, scope in (
+            ("test_before.py", "Before"),
+            ("test_small.py", "First"),
+            ("test_small.py", "Second"),
+        )
+        for index in range(2)
+    ]
+    batches = module._plan(items, 4)
+    assert batches == [
+        [item["nodeid"] for item in items[:4]],
+        [item["nodeid"] for item in items[4:]],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("minor", "count", "tail"),
+    [
+        ("311", 4571, [492, 453]),
+        ("312", 4621, [492, 453]),
+        ("313", 4573, [496, 453]),
+        ("314", 4573, [496, 453]),
+    ],
+)
+def test_lane_batch_plan_fills_original_tail_without_splitting_classes(
+    minor: str, count: int, tail: list[int]
+) -> None:
+    module = _runner()
+    directory = _RUNNER.parents[1] / "internal_docs/precision/ci_standard"
+    cohort = json.loads((directory / f"py{minor}.json").read_text())
+    baseline = cohort["baseline"]
+    if "path" in baseline:
+        baseline = json.loads((directory / baseline["path"]).read_text())
+    standard = baseline["nodeids"]
+    assert len(standard) == count
+    items = []
+    for nodeid in standard:
+        # Parameters may themselves contain ::; they do not add pytest parents.
+        parents = nodeid.split("[", 1)[0].split("::")[:-1]
+        items.append(
+            {
+                "nodeid": nodeid,
+                "module": parents[0],
+                "class": "::".join(parents) if len(parents) > 1 else None,
+            }
+        )
+    batches = module._plan(items, 500, isolated_owners=module._CI_STANDARD_OWNERS)
+    assert [nodeid for batch in batches for nodeid in batch] == standard
+    assert all(1 <= len(batch) <= 500 for batch in batches)
+    assert [len(batch) for batch in batches[-2:]] == tail
+    assert len(batches) == (16 if minor == "312" else 13)
+    for owner in module._CI_STANDARD_OWNERS:
+        original = [item["nodeid"] for item in items if item["module"] == owner]
+        if original:
+            assert original in batches
+    positions = {
+        nodeid: index for index, batch in enumerate(batches) for nodeid in batch
+    }
+    class_positions: dict[str, set[int]] = {}
+    for item in items:
+        if item["class"] is not None:
+            class_positions.setdefault(item["class"], set()).add(
+                positions[item["nodeid"]]
+            )
+    assert all(len(indices) == 1 for indices in class_positions.values())
+
+
 @pytest.mark.parametrize("fault", ["oversized", "noncontiguous"])
 def test_lane_batch_plan_rejects_unpreservable_whole_owner(fault: str) -> None:
     module = _runner()

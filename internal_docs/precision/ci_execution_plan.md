@@ -1,6 +1,8 @@
 # Precision migration CI execution plan
 
-Status — 2026-10-30: **At published `56c6a24f`, CI 571 passes all four candidate support jobs and fails all four global candidates: a MaxText `XLA_FLAGS` leak on locked312 and omitted original missing-npm skip allowances on locked311/313/314. Remaining assigned cases were unexecuted. The old four full jobs also fail at the prior BitCast diagnostic expectation, repaired locally at `4cd77c46`; failed predecessors remain recorded. All-eight candidate qualification, complete 1,200-second spans, 160 job-minutes and the 100-MiB successful-artifact budget remain open. Gate activation and full B–F remain open; the comparative frozen-main diagnostic stays retired.**
+Status — 2026-10-30: Published `c5d60d4c` [CI 573](https://github.com/enpasos/jax2onnx/actions/runs/41076579765) has **10 SUCCESS, four old full jobs in progress, locked311 CANCELLED and locked312 FAILURE** at 16:54 UTC. Six of eight candidates succeed; locked311's **1,227-second** whole-job span and locked312's owned-RSS guard stop leave all-eight qualification failed. The eight candidate spans total **4,301 s / 71.68 job-minutes**, and the six successful archives total **30,775,351 bytes**; these partial successes do not satisfy all-eight acceptance ([frozen budgets](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci573-c5d60-aw64dezy/candidate-terminal-budget.json), `6027acf6…`). CI 571/572 failures and their source repairs remain historical evidence below and in the handoff.
+
+The original Omni case separately passes an export with an external CALL profiler in a different import/session context; its retained artifact independently passes the full ONNX checker ([checker closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-checker-only-nxi1sakk/run/closed-checker-only.json), `9080c14a…`). Numerics, canonical memory repair, the complete original 45+5 and full S remain unqualified. Detached `1421bd8d` has only finite bookkeeping/owner/quality qualification and is not applied to the published head; no whole-job saving is inferred. The unchanged 1,200-second, 4-GiB, 160-job-minute and 100-MiB requirements, full B–F and gate activation remain open.
 
 ## Binding user clarification — 2026-10-29
 
@@ -46,7 +48,7 @@ main-to-PR contract mapping, collection-context equivalence, measured whole-job
 20-minute runtime and all gate-activation evidence remain unqualified. This review does
 not accept missing migration verifiers or claim performance results.
 
-## Current private qualification — 2026-10-30
+## Earlier private qualification — 2026-10-30
 
 In [CI 571](https://github.com/enpasos/jax2onnx/actions/runs/41060058197), the
 same-head candidate normalization312/313, minimum312 and Node312 jobs pass in

@@ -479,7 +479,7 @@ def _plan(
     *,
     isolated_owners: frozenset[str] = frozenset(),
 ) -> list[list[str]]:
-    """Keep consecutive modules/classes together when they fit the bound."""
+    """Pack consecutive classes; keep isolated owners in their own batches."""
     groups: list[tuple[list[str], bool]] = []
     isolated_seen: set[str] = set()
     index = 0
@@ -498,8 +498,6 @@ def _plan(
                 raise ValueError("isolated whole owner exceeds the batch bound")
             isolated_seen.add(module)
             groups.append(([item["nodeid"] for item in segment], True))
-        elif len(segment) <= limit:
-            groups.append(([item["nodeid"] for item in segment], False))
         else:
             offset = 0
             while offset < len(segment):
