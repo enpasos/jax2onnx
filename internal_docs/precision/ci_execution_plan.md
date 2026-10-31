@@ -1,24 +1,58 @@
 # Precision migration CI execution plan
 
-At published `22a7b4d0`, [CI 576](https://github.com/enpasos/jax2onnx/actions/runs/41158051464)
-has seven successful candidates and a locked312 owned-RSS failure. The four
-authoritative support jobs succeeded; the four authoritative full-suite jobs
-were still running at the **02:21:45 UTC** observation. Locked311 closes its
-original **4,571 S cases** (4,559 PASS, 12 original SKIPs) in an
-**806-second whole job**
-([finite qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked311-success-7ddyjp6h/finite-locked311-qualification.json),
-`4633f91e…`). This finite cohort success
-does not qualify all eight candidates or activate the proposed gates.
-
-Locked312 reaches **4,499,320,832 bytes / 4,290.887 MiB > 4,096 MiB** sampled
-aggregate owned RSS. Its work interval ends after **581.058 seconds**, with
-103 S cases in closed batches, five original MaxDiffusion cases passed and
-44 MaxText cases with passed phase triplets. The original Omni case is
-unfinished; worker and cleanup closure are incomplete. Host/cgroup OOM counters
-do not establish an OOM cause
-([actual accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/locked312-actual-failure-accounting.json),
-[resource receipt](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/ci-candidate-locked312-work-resources__summary.json)).
+At published `506903cc`, [CI 577](https://github.com/enpasos/jax2onnx/actions/runs/41169144281)
+has seven successful STANDARD candidates and locked312 FAILURE. Four original
+support jobs succeeded; four original full-suite jobs were still LIVE at the
+**2026-10-31 05:27:02 UTC** observation. Locked311/313/314 close their original
+Main S=4,571 / 4,573 / 4,573 in **882 / 894 / 1,017-second whole jobs**
+([bounded successful-job accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci577-506903cc-watch-jfyzgsw7/locked311-313-314-success-accounting.json)).
 All-eight STANDARD qualification remains **FAILED**.
+
+Locked312's first WORK crossing is **4,295,016,448 bytes > 4 GiB** at
+644.033 seconds; the subsequent cleanup sampled peak is **4,300,374,016 bytes**.
+That simultaneous peak includes the controller's **114.129 MiB** and Omni
+worker's **3,969.777 MiB**. Only 147 S cases close, including 44 original
+MaxText and five MaxDiffusion cases. Original Omni has setup PASS only;
+call/teardown and cleanup are not closed, and OOM cause remains unverified.
+The censored worker trace cannot establish standalone completion below 4 GiB
+([failure accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci577-506903cc-watch-jfyzgsw7/locked312-failure-trigger-phase-accounting.json),
+`52ac19bd…`). Its whole job is 742 seconds; time compliance does not repair the
+RSS/closure failure or qualify the earlier finite `98a34705` proof as a campaign.
+
+The scoped inventory-lifetime candidate releases complete decoded C/O receipt
+graphs before child launch, retaining bound paths/digests and ordered IDs. It
+rereads checked local inventories for required comparisons and preserves full
+initial projection, context/native, deep accounting, phase/JUnit and final
+receipt-byte audits
+([source plan](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/campaign-inventory-lifetime-source-_ito3jun/source-plan.json)).
+The complete controller test file has **203 PASS / zero skips per official311/313 family**
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/campaign-inventory-lifetime-controls311-9ev9c4de/qualification-closure.json),
+`b398abed…`;
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/campaign-inventory-lifetime-controls313-retry-r10s8az3/qualification-closure.json),
+`ca67718d…`), retaining one existing cohort-specific provisioning role. All three
+new real Main-owner multibatch/lifetime/late C/O tampering controls pass.
+This establishes object release and audit semantics, **not hosted RSS savings**.
+The earlier 313 result, **137 PASS / 1 FAIL / 65 unexecuted**, remains a retained
+unchanged 4-GiB+64-MiB disk-prerequisite failure
+([failure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/campaign-inventory-lifetime-controls313-_jtmwdr5/qualification-failure-closure.json)).
+Verified PAX preservation of two completed task-owned scratches recovered
+54,296,576 allocated bytes before the unchanged retry
+([preservation](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/campaign-inventory-scratch-preservation-m0sq7deb/preservation-retirement-closure.json)).
+
+Original **45+5 optional cases / Main S=4,621**, inputs, criteria, lock profiles,
+4-GiB and 1,200-second limits remain unchanged. **Exact-head hosted RSS and full
+campaign acceptance remain PENDING**; no benchmark or finite Omni repeat is
+needed before that qualification. Public LEGACY/gate activation remains HOLD.
+
+Previous published snapshot: `22a7b4d0` / [CI 576](https://github.com/enpasos/jax2onnx/actions/runs/41158051464)
+had seven successful candidates and locked312's **4,499,320,832-byte** RSS failure
+with unfinished Omni/cleanup
+([accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/locked312-actual-failure-accounting.json),
+[resources](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/ci-candidate-locked312-work-resources__summary.json)).
+Locked311 closed S=4,571 in an 806-second whole job
+([finite qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked311-success-7ddyjp6h/finite-locked311-qualification.json),
+`4633f91e…`); its four original support jobs succeeded and four full suites were
+still running at that snapshot's 02:21:45 UTC observation.
 
 The reviewed local scheduler checkpoint `7b528095` gives the exact original Omni
 case a fresh execution worker after its 44 predecessors. The batcher preserves

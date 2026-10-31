@@ -3792,6 +3792,115 @@ def _prepare_main_owner_provision_suite(tmp_path, monkeypatch, *, import_effect=
     return suite, manifest, environment, cohort, selectors
 
 
+@pytest.mark.parametrize("tamper", [None, "global-collection", "collection"])
+def test_main_owner_campaign_releases_inventories_before_children_and_rechecks_bytes(
+    tmp_path, monkeypatch, tamper
+):
+    module = _runner()
+    suite, manifest, environment, cohort, selectors = (
+        _prepare_main_owner_provision_suite(tmp_path, monkeypatch)
+    )
+    output = tmp_path / "receipts"
+    original_json, original_closed = module._context_json, module._ci_lane_closed
+    original_child, original_batch = module._child, module._CiCampaignContext.batch
+    probes, launches, mutations = [], [], []
+
+    class InventoryProbe:
+        def __init__(self, path):
+            self.path = path
+
+        def __eq__(self, other):
+            return type(other) is InventoryProbe and self.path == other.path
+
+    def observe_inventory(receipt, path):
+        path = path.resolve()
+        if path.parent.parent == output and path.parent.name in {
+            "global-collection",
+            "collection",
+        }:
+            # Observe lifetime without changing the real on-disk bytes or their
+            # native validation. Equal test-only markers let repeated copies
+            # retain every existing deep comparison.
+            probe = InventoryProbe(path)
+            receipt["_inventory_lifetime_probe"] = probe
+            probes.append((path.parent.name, weakref.ref(probe)))
+        return receipt
+
+    def context_json(path, *args, **kwargs):
+        value, payload = original_json(path, *args, **kwargs)
+        if path.name == "receipt.json":
+            value = observe_inventory(value, path)
+        return value, payload
+
+    def closed(folder, request, context):
+        value = original_closed(folder, request, context)
+        return observe_inventory(value, folder / "receipt.json")
+
+    def child(folder, request, *args, **kwargs):
+        if request["kind"] == "batch":
+            assert {role for role, _ in probes} == {"global-collection", "collection"}
+            assert all(probe() is None for _, probe in probes)
+            launches.append(folder.name)
+        return original_child(folder, request, *args, **kwargs)
+
+    def validate_then_mutate(self, receipt, assigned, junit_path):
+        original_batch(self, receipt, assigned, junit_path)
+        if tamper is not None and junit_path.parent.name == "batch-0002":
+            path = output / tamper / "receipt.json"
+            path.write_bytes(path.read_bytes() + b"\n")
+            mutations.append(path)
+
+    monkeypatch.setattr(module, "_context_json", context_json)
+    monkeypatch.setattr(module, "_ci_lane_closed", closed)
+    monkeypatch.setattr(module, "_child", child)
+    monkeypatch.setattr(module._CiCampaignContext, "batch", validate_then_mutate)
+    monkeypatch.chdir(suite)
+    monkeypatch.setattr(module.os, "environ", environment)
+    argv = [
+        str(_RUNNER),
+        "--output-dir",
+        str(output),
+        "--batch-size=1",
+        "--ci-lane=standard",
+        f"--ci-main-baseline={manifest}",
+        f"--_ci-provision-campaign={cohort}",
+    ]
+    for selector in selectors:
+        argv.extend(("--test-path", selector))
+    monkeypatch.setattr(module.sys, "argv", [*argv, "--", "-q"])
+    assert module._main() == int(tamper is not None)
+    run = json.loads((output / "run.json").read_text())
+    standard = json.loads(manifest.read_text())["nodeids"]
+    assert len(standard) == 2 and run["completed"] == standard
+    assert run["status"] == ("PASS" if tamper is None else "FAIL")
+    assert launches == ["batch-0001", "batch-0002"] and len(run["processes"]) == 4
+    assert run["global_extra_nodeids"] == [
+        "test_cases.py::test_extra",
+        "test_z_outside.py::test_outside_extra",
+    ]
+    assert (
+        not (suite / "extra-ran").exists()
+        and not (suite / "outside-extra-ran").exists()
+    )
+    owner = json.loads((output / "collection/receipt.json").read_text())
+    for index in (1, 2):
+        batch = json.loads((output / f"batch-{index:04d}/receipt.json").read_text())
+        assert batch["full_preselection_ids"] == owner["full_preselection_ids"]
+        assert batch["full_items"] == owner["full_items"]
+        assert batch["collection_reports"] == owner["collection_reports"]
+        assert batch["full_collection_checked"] is True
+    if tamper is None:
+        assert mutations == []
+    else:
+        assert mutations == [output / tamper / "receipt.json"]
+        expected = (
+            "closed Main-owner global discovery bytes changed"
+            if tamper == "global-collection"
+            else "closed canonical lane evidence changed"
+        )
+        assert expected in run["failure"]["message"]
+
+
 @pytest.mark.parametrize(
     "import_effect",
     [False, True],

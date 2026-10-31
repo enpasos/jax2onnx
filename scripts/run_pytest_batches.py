@@ -1996,9 +1996,7 @@ def _main() -> int:
             campaign.collection(baseline)
             if campaign.owner:
                 run["collection_scope"] = "main-owners"
-                run["global_nodeids"] = campaign.global_inventory[
-                    "full_preselection_ids"
-                ]
+                run["global_nodeids"] = campaign.global_nodeids
                 run["global_extra_nodeids"] = campaign.extra
                 run["ci_campaign"].update(
                     {
@@ -3423,19 +3421,34 @@ class _CiCampaignContext:
             self.references[name] = (resolved, reference["sha256"])
         if self.references["main_manifest"] != (lane_context.path, lane_context.sha256):
             raise ValueError("campaign main manifest binding differs")
-        inventory_path, self.inventory_sha256 = self.references[self.inventory_name]
-        self.inventory, payload = _context_json(
-            inventory_path, 16 * 1024 * 1024, label=self.inventory_name
-        )
-        if hashlib.sha256(payload).hexdigest() != self.inventory_sha256:
-            raise ValueError("campaign global inventory SHA differs")
-        self.standard, self.extra = self._inventory(self.inventory)
+        self.inventory_sha256 = self.references[self.inventory_name][1]
+        inventory = self._load_inventory(self.inventory_name)
+        self.standard, self.extra = self._inventory(inventory)
         if self.owner:
-            self._owner_inventories(run)
+            self._owner_inventories(run, inventory)
+        del inventory
+        if self.owner:
+            self._owner_closed_inventories()
         self.allowed_skips = _ci_campaign_skips(contract["allowed_skips"], lane_context)
         self.recheck()
 
-    def _owner_inventories(self, run: Path | None) -> None:
+    def _load_inventory(self, name: str) -> Any:
+        path, digest = self.references[name]
+        global_owner = self.owner and name == "global_inventory"
+        inventory, payload = _context_json(
+            path,
+            16 * 1024 * 1024,
+            label="global inventory" if global_owner else name,
+        )
+        if hashlib.sha256(payload).hexdigest() != digest:
+            raise ValueError(
+                "Main-owner global inventory SHA differs"
+                if global_owner
+                else "campaign global inventory SHA differs"
+            )
+        return inventory
+
+    def _owner_inventories(self, run: Path | None, inventory: Any) -> None:
         if run is None:
             raise ValueError("Main-owner campaign needs its actual current RUN binding")
         self.run = run.resolve(strict=True)
@@ -3480,26 +3493,21 @@ class _CiCampaignContext:
             raise ValueError(
                 "Main-owner C/O manifests have different source/cohort/context epochs"
             )
-        inventory_path, digest = self.references["global_inventory"]
-        self.global_inventory, raw = _context_json(
-            inventory_path, 16 * 1024 * 1024, label="global inventory"
-        )
-        if hashlib.sha256(raw).hexdigest() != digest:
-            raise ValueError("Main-owner global inventory SHA differs")
+        global_inventory = self._load_inventory("global_inventory")
         standard, extra = self._inventory(
-            self.global_inventory, context=self.global_context, owner=False
+            global_inventory, context=self.global_context, owner=False
         )
         expected_items = [
             item
-            for item in self.global_inventory["full_items"]
+            for item in global_inventory["full_items"]
             if item["module"] in set(self.context.manifest["collection_args"])
         ]
-        if self.inventory["full_items"] != expected_items or self.standard != standard:
+        if inventory["full_items"] != expected_items or self.standard != standard:
             raise ValueError(
                 "Main-owner O is not the complete ordered C owner projection"
             )
         self.standard, self.extra = standard, extra
-        self._owner_closed_inventories()
+        self.global_nodeids = global_inventory["full_preselection_ids"]
 
     def _owner_closed_inventories(self) -> None:
         for name, context in (
@@ -3507,6 +3515,7 @@ class _CiCampaignContext:
             ("owner_inventory", self.context),
         ):
             folder = self.references[name][0].parent
+            expected = self._load_inventory(name)
             request, _raw = _context_json(
                 folder / "request.json",
                 16 * 1024 * 1024,
@@ -3517,13 +3526,11 @@ class _CiCampaignContext:
                     "Main-owner inventory is not a native collection worker"
                 )
             closed = _ci_lane_closed(folder, request, context)
-            expected = (
-                self.global_inventory if name == "global_inventory" else self.inventory
-            )
             if closed != expected:
                 raise ValueError(
                     "Main-owner inventory differs from closed native worker bytes"
                 )
+            del expected, closed, request, _raw
 
     def _inventory(
         self,
@@ -3633,13 +3640,14 @@ class _CiCampaignContext:
 
     def collection(self, receipt: dict[str, Any]) -> tuple[list[str], list[str]]:
         partition = self._inventory(receipt)
+        inventory = self._load_inventory(self.inventory_name)
         if (
             self.owner
-            and receipt["collection_reports"] != self.inventory["collection_reports"]
+            and receipt["collection_reports"] != inventory["collection_reports"]
         ):
             raise ValueError("Main-owner collector chronology differs from frozen O")
         if any(
-            receipt[key] != self.inventory[key]
+            receipt[key] != inventory[key]
             for key in (
                 "full_preselection_ids",
                 "full_items",
@@ -3667,12 +3675,13 @@ class _CiCampaignContext:
     ) -> None:
         from _pytest.junitxml import bin_xml_escape
 
-        full = self.inventory["full_preselection_ids"]
-        skips = self.inventory["collection_skips"]
+        inventory = self._load_inventory(self.inventory_name)
+        full = inventory["full_preselection_ids"]
+        skips = inventory["collection_skips"]
         self._selectors(receipt)
         if self.owner and (
-            receipt["full_items"] != self.inventory["full_items"]
-            or receipt["collection_reports"] != self.inventory["collection_reports"]
+            receipt["full_items"] != inventory["full_items"]
+            or receipt["collection_reports"] != inventory["collection_reports"]
         ):
             raise ValueError(
                 "Main-owner batch differs from complete frozen O/items/chronology"

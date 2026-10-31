@@ -23,21 +23,47 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-Checkpoint update — 2026-10-31: published `22a7b4d0` in
-[CI 576](https://github.com/enpasos/jax2onnx/actions/runs/41158051464) has seven
-successful candidates and a locked312 owned-RSS failure. All four authoritative
-support jobs succeeded; all four authoritative full-suite jobs were still
-running at the **02:21:45 UTC** observation. Locked311 closes all **4,571
-original S cases** (4,559 PASS, 12 original SKIPs) in an **806-second whole job**
-([finite qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked311-success-7ddyjp6h/finite-locked311-qualification.json),
-`4633f91e…`). Locked312 instead reaches
-**4,499,320,832 bytes / 4,290.887 MiB** owned RSS above the unchanged 4-GiB cap;
-44 MaxText cases have passed phases, but the original Omni case and worker/
-cleanup closure remain incomplete. Five original MaxDiffusion cases passed.
-The guard, not a pytest assertion or timeout, stops the work interval at
-581.058 seconds; OOM cause remains unverified
+Published `506903cc` / [CI 577](https://github.com/enpasos/jax2onnx/actions/runs/41169144281)
+remains all-eight **FAILED**: seven STANDARD candidates succeed; locked312
+crosses the unchanged RSS cap. Four original support jobs succeed and four
+original full suites remain LIVE at the **2026-10-31 05:27:02 UTC** observation.
+Locked311/313/314 close original S=4,571 / 4,573 / 4,573 in 882 / 894 / 1,017-second
+whole jobs
+([successful-job accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci577-506903cc-watch-jfyzgsw7/locked311-313-314-success-accounting.json)).
+Locked312 first crosses during WORK at **4,295,016,448 bytes**; its later cleanup
+sampled peak is **4,300,374,016 bytes**, including controller 114.129 MiB and
+Omni worker 3,969.777 MiB. Omni has setup PASS only; call/teardown and cleanup
+are not closed, OOM cause is unverified, and the censored trace proves no
+standalone worker fit
+([failure accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci577-506903cc-watch-jfyzgsw7/locked312-failure-trigger-phase-accounting.json)).
+
+The scoped C/O inventory-lifetime candidate retains bound paths/digests and
+ordered projections, releases full receipt graphs before workers, and preserves
+all initial projection, native/context, deep accounting, phase/JUnit and final
+byte audits. The complete controller test file has **203 PASS / zero skips on each
+[311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/campaign-inventory-lifetime-controls311-9ev9c4de/qualification-closure.json) and
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/campaign-inventory-lifetime-controls313-retry-r10s8az3/qualification-closure.json)**,
+including all three new Main-owner controls and the existing cohort-specific
+provisioning role. The 313 disk-failing 137/1/65 predecessor remains retained;
+the unchanged retry followed verified task-owned scratch archival and capacity
+restoration. This establishes object-lifetime/audit semantics, **not hosted RSS
+impact**. Finite `98a34705` Omni PASS remains separate from the full campaign.
+
+Only the approved runner/test pair and these two documents form this checkpoint.
+Original **45+5 / Main S=4,621**, inputs, criteria, locks, 4-GiB/1,200-second
+limits and all audits remain unchanged. **Exact-head full hosted RSS/campaign
+acceptance is PENDING**; no benchmark or finite Omni repeat is needed. Public
+LEGACY/gate activation remains HOLD.
+
+Previous snapshot: published `22a7b4d0` / [CI 576](https://github.com/enpasos/jax2onnx/actions/runs/41158051464)
+had seven successful candidates and locked312's 4,499,320,832-byte RSS failure,
+unfinished Omni and cleanup
 ([accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/locked312-actual-failure-accounting.json),
 [resources](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/ci-candidate-locked312-work-resources__summary.json)).
+Locked311 closed S=4,571 in an 806-second whole job
+([qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked311-success-7ddyjp6h/finite-locked311-qualification.json));
+its four original supports succeeded and four full suites were still LIVE at
+that snapshot's 02:21:45 UTC observation.
 
 The independently reviewed repair splits the existing MaxText packet into its
 44 predecessors and a fresh original-Omni singleton, preserving their order,
