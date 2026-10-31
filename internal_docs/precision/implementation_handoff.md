@@ -1,45 +1,32 @@
 # Precision migration handoff — 2026-10-31
 
-## Current published CI and local EXTRA qualification
+## Current published CI and local repair
 
-Root/origin/PR277 is published at `2d273e23`. CI585 closes all nine STANDARD
-compute jobs plus strict 3.12 join, including original all-files hooks once per
-cohort, source/context/phases/JUnit, resources and cleanup. Whole jobs total
-84.92 minutes (maximum 1,061 seconds); all 19 success uploads total 65,308,579
-bytes. See [the current scoped result and remaining gates](ci_execution_plan.md#current-ci585-standard-result-and-extra-profile-data).
-CI585 is terminal: 17 jobs succeeded and original 3.12 failed on a stale Node
-terminal-file count that included a bounded primary copy. The exact original
-process/copy repair passes all three parameters on 3.12 and all three off-cohort
-rejections on each 3.11/3.13 family. The hosted failure stays failed. The same
-retained 3.12 log reports seven ordinary BF16 TopK cases passed; earlier BF16
-failures remain preserved and no upstream-fix or full-science claim follows.
+Root/origin/PR277 is published at `3d7e5317`. CI586 exposes two retained CI
+failures: focused EXTRA lacks the frozen original-history Git object in shallow
+checkouts; STANDARD 3.14 exceeds the unchanged WORK deadline and whole-job budget.
+The bounded local repair provisions the exact immutable object without changing
+HEAD or metadata criteria, and moves only STANDARD 3.14 to the existing complete
+Main-owner collection route with its original 4,573 S IDs and 188 literal modules.
+Genuine shallow-Git/affected metadata controls close 8 PASS on each official
+3.11/3.13 family and the unchanged 3.12 case passes exclusively. The two earlier
+overlapping resource epochs remain unqualified. Current literal F=1,506 adds only
+the new Git control; original global collection epochs and complete R/science
+assignments remain explicit. Clean 3.14 C/O, exact-head hosted timing, full timed F
+and activation are still pending. See [current evidence and limits](ci_execution_plan.md#current-ci586-repair-checkpoint).
 
-Accepted local metadata implementation `e84111ed` is the base of four proposed
-GLOBAL EXTRA profiles. Final genuine working-tree collections derive F=1,505 in each
-cohort, including all 134 metadata controls, four declaration checks and the
-112 checked workflow/resource controls and three existing Node controls;
-full A/R and the seven mandatory scientific BF16 cases remain retained. Actual
-non-3.12 fixed-harness skips have exact native/JUnit evidence; 3.12 must execute
-that control. Initial F=1,390 data commit `895225ac` has clean renderer/context admission
-and finite native validation on all four official runtimes, including all six
-xdist controls per cohort. The 3.12 local combined deadline/raw-retention failures
-remain failures; its successful one-batch continuation preserves the original C
-and authority. Model transport remains UNVERIFIED. Full timed F, scientific
-acceptance and gate activation remain open. Four nonreplacement focused workflow
-rows and a source-bound 2,000-second observer route are prepared separately;
-all new affected controls are included in the one final combined F=1,505 freeze. Their
-focused workflow/CLI checks pass **112 cases per official 3.11/3.13 family**,
-including real observer subprocesses under explicit synthetic Actions fixtures.
-The later Node repair changes one existing test body only; unchanged collection
-declarations bridge its separately tested source to the retained C epoch.
-Its supported 3.12 parameter IDs differ from other cohorts, so F hashes differ.
-This does not qualify hosted F timing or numerical behavior.
+CI585 remains 17 successful jobs and one stale Node-copy control failure,
+repaired and qualified locally before `3d7e5317`. Its scoped STANDARD result and
+finite F=1,390 admission are historical evidence at their recorded heads, not
+current full-F or scientific acceptance. All seven ordinary BF16 cases passed
+in CI585's retained 3.12 log; earlier BF16 failures remain preserved without an
+upstream-fix claim.
 
 The user's 2026-10-31 16:02:41 UTC reviewed SOURCE publication exception remains
-limited to the named BF16 failure, which stays mandatory and FAILED. It waives no
-new CI regression or scientific/final gate. Public behavior remains LEGACY;
-Native3/ORT2, 3,712 caller obligations, default-strict extrema, replay, original
-models/artifacts and Node/Chrome work remain open.
+limited to the named BF16 failure, which stays mandatory and FAILED where
+observed. It waives no new CI regression or scientific/final gate. Public behavior
+remains LEGACY; Native3/ORT2, 3,712 caller obligations, default-strict extrema,
+replay, original models/artifacts and Node/Chrome work remain open.
 
 ## Strict metadata accounting checkpoint — local implementation qualification
 

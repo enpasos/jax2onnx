@@ -947,9 +947,32 @@ def test_reviewed_global_EXTRA_profile_preserves_STANDARD_and_critical_ownership
     directory = _ROOT / "internal_docs/precision/ci_standard"
     standard = json.loads((directory / f"py{minor}.json").read_text())
     extra = json.loads((directory / f"py{minor}-extra.json").read_text())
-    assert standard["schema"] == extra["schema"] == "jax2onnx-ci-standard-cohort-v1"
-    assert set(extra) == set(standard) | {"focused_extra_ids", "extra_allowed_skips"}
-    for name in set(standard) - {"environment", "collection_transition", "provenance"}:
+    assert extra["schema"] == "jax2onnx-ci-standard-cohort-v1"
+    if minor == "314":
+        assert standard["schema"] == "jax2onnx-ci-main-owner-cohort-v1"
+        owner_baseline = standard["baseline"]
+        if "path" in owner_baseline:
+            owner_baseline = json.loads(
+                (directory / owner_baseline["path"]).read_text()
+            )
+        assert standard["collection_args"] == list(
+            dict.fromkeys(node.split("::", 1)[0] for node in owner_baseline["nodeids"])
+        )
+        assert "collection_args" not in extra
+    else:
+        assert standard["schema"] == "jax2onnx-ci-standard-cohort-v1"
+        assert "collection_args" not in standard and "collection_args" not in extra
+    assert set(extra) == (set(standard) - {"collection_args"}) | {
+        "focused_extra_ids",
+        "extra_allowed_skips",
+    }
+    for name in set(standard) - {
+        "environment",
+        "collection_transition",
+        "provenance",
+        "schema",
+        "collection_args",
+    }:
         assert extra[name] == standard[name]
     flags = {"JAX2ONNX_TEST_CI_LANE_XDIST": "1", "JAX2ONNX_RUN_FIXED_PARTS_SMOKE": "1"}
     assert extra["environment"] == {**standard["environment"], **flags}
@@ -962,6 +985,10 @@ def test_reviewed_global_EXTRA_profile_preserves_STANDARD_and_critical_ownership
         for key, value in standard["provenance"].items()
     )
     focused = extra["focused_extra_ids"]
+    assert (
+        "tests/extra_tests/framework/test_ci_download_cache.py::"
+        "test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest"
+    ) in focused
     assert focused and len(focused) == len(set(focused))
     assert all(type(nodeid) is str and nodeid for nodeid in focused)
     baseline = standard["baseline"]

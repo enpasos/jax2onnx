@@ -255,6 +255,21 @@ jobs:
         echo "expected commit: ${expected_commit}"
         test "$actual_commit" = "$expected_commit"
 
+    - name: Fetch frozen original SOURCE history
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        set -euo pipefail
+        source_anchor=ccc861b0dff5042958a267addc43b622a4b61d49
+        source_head="$(git rev-parse --verify 'HEAD^{commit}')"
+        test "$source_head" = "$EXPECTED_CHECKOUT_SHA"
+        git fetch --no-tags --depth=1 origin "$source_anchor"
+        test "$(git rev-parse --verify 'ccc861b0^{commit}')" = "$source_anchor"
+        git archive "$source_anchor" tests > /dev/null
+        test "$(git rev-parse --verify 'HEAD^{commit}')" = "$source_head"
+        test -z "$(git status --porcelain --untracked-files=no)"
+        printf 'Frozen SOURCE history: %s; checked-out head: %s\n' "$source_anchor" "$source_head"
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
@@ -494,6 +509,20 @@ jobs:
         test ! -e tests/examples && test ! -L tests/examples
 
         # Render only the tracked profile's declared values and existing slots.
+        # Explicit SOURCE diagnostics require the frozen original tests archive.
+        # Keep the existing STANDARD/support/join preparation unchanged.
+        if [[ "$CANDIDATE_LANE" == extra ]]; then
+          source_anchor=ccc861b0dff5042958a267addc43b622a4b61d49
+          source_head="$(git rev-parse --verify 'HEAD^{commit}')"
+          test "$source_head" = "$EXPECTED_CHECKOUT_SHA"
+          git fetch --no-tags --depth=1 origin "$source_anchor"
+          test "$(git rev-parse --verify 'ccc861b0^{commit}')" = "$source_anchor"
+          git archive "$source_anchor" tests > /dev/null
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "$source_head"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          printf 'Frozen SOURCE history: %s; checked-out head: %s\n' "$source_anchor" "$source_head"
+        fi
+
         # Genuine absence, original plugin autoload and TF transitions matter.
         python -B - <<'PY' > "$CANDIDATE_DIR/profile.env"
         import json
@@ -615,7 +644,7 @@ jobs:
           export JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1
           export JAX2ONNX_ONNXRUNTIME_WEB_RUNNER=node
         fi
-        if [[ "$CANDIDATE_ID" == locked311 || "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
+        if [[ "$CANDIDATE_ID" == locked311 || "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b || "$CANDIDATE_ID" == locked314 ]]; then
           render_args+=(--collection-scope main-owners)
         fi
         if [[ -n "$CANDIDATE_PART" ]]; then

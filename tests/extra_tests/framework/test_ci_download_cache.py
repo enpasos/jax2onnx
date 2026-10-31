@@ -4,6 +4,7 @@
 
 from copy import deepcopy
 from importlib.util import module_from_spec, spec_from_file_location
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -183,6 +184,179 @@ def test_cache_report_preserves_existing_receipts_archive_root():
     )
     assert cache["with"]["name"] != receipts["with"]["name"]
     assert cache["uses"] == receipts["uses"]
+
+
+def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp_path):
+    workflow = _workflow()
+    steps = workflow["jobs"]["test"]["steps"]
+    history = next(
+        step
+        for step in steps
+        if step.get("name") == "Fetch frozen original SOURCE history"
+    )
+    position = steps.index(history)
+    assert steps[position - 1]["name"] == "Verify checked-out commit"
+    assert steps[position + 1]["uses"].startswith("actions/setup-python@")
+    assert history["env"]["EXPECTED_CHECKOUT_SHA"] == (
+        "${{ github.event.pull_request.head.sha || github.sha }}"
+    )
+    assert workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"] == [
+        "3.11",
+        "3.12",
+        "3.13",
+        "3.14",
+    ]
+    assert "continue-on-error" not in history
+    script = history["run"]
+    anchor = "ccc861b0dff5042958a267addc43b622a4b61d49"
+    fetch = 'git fetch --no-tags --depth=1 origin "$source_anchor"'
+    assert script.splitlines()[0] == "set -euo pipefail"
+    assert script.count("source_anchor=" + anchor) == script.count(fetch) == 1
+    assert (
+        'test "$(git rev-parse --verify \'ccc861b0^{commit}\')" = "$source_anchor"'
+        in script
+    )
+    assert 'git archive "$source_anchor" tests > /dev/null' in script
+    assert (
+        'test "$(git rev-parse --verify \'HEAD^{commit}\')" = "$source_head"' in script
+    )
+    assert 'test -z "$(git status --porcelain --untracked-files=no)"' in script
+    candidate = workflow["jobs"]["candidate-standard"]
+    work = next(step["run"] for step in candidate["steps"] if step.get("id") == "work")
+    body = "\n".join("  " + line for line in script.splitlines()[1:])
+    guarded = 'if [[ "$CANDIDATE_LANE" == extra ]]; then\n' + body + "\nfi"
+    assert work.count(guarded) == 1
+    assert (
+        work.index("bash -euo pipefail - <<'BASH'")
+        < work.index('test "$actual_commit" = "$expected_commit"')
+        < work.index(guarded)
+        < work.index('source "$CANDIDATE_DIR/profile.env"')
+        < work.index("python scripts/generate_tests.py")
+        < work.index("python -B scripts/run_pytest_batches.py")
+    )
+    for name, job in workflow["jobs"].items():
+        if name not in {"test", "candidate-standard"}:
+            assert all(
+                "source_anchor=" not in step.get("run", "") for step in job["steps"]
+            )
+
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name
+        not in {
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_COMMON_DIR",
+            "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        }
+    }
+    environment.update(GIT_OPTIONAL_LOCKS="0", GIT_ALLOW_PROTOCOL="file")
+
+    def git(directory, *arguments, check=True):
+        result = subprocess.run(
+            ["git", "-c", "core.filemode=false", "-C", str(directory), *arguments],
+            env=environment,
+            capture_output=True,
+            timeout=30,
+        )
+        if check:
+            assert result.returncode == 0, result.stderr.decode(errors="replace")
+        return result
+
+    head = git(ROOT, "rev-parse", "--verify", "HEAD^{commit}").stdout.decode().strip()
+    git(ROOT, "cat-file", "-e", anchor + "^{commit}")
+    original_archive = hashlib.sha256(
+        git(ROOT, "archive", anchor, "tests").stdout
+    ).digest()
+    objects = ROOT / (
+        git(ROOT, "rev-parse", "--git-path", "objects").stdout.decode().strip()
+    )
+
+    def bare_origin(name, object_directory, refs):
+        origin = tmp_path / name
+        origin.mkdir()
+        git(origin, "init", "--bare", "--quiet")
+        # Only temporary repositories receive alternates/refs. ROOT objects are
+        # served read-only; no clone, copied pack or ROOT configuration is needed.
+        (origin / "objects/info/alternates").write_text(str(object_directory) + "\n")
+        for ref, commit in refs.items():
+            git(origin, "update-ref", "refs/heads/" + ref, commit)
+        return origin
+
+    origin = bare_origin(
+        "origin", objects.resolve(), {"current": head, "anchor": anchor}
+    )
+    checkout = tmp_path / "shallow"
+    checkout.mkdir()
+    git(checkout, "init", "--quiet")
+    git(checkout, "remote", "add", "origin", origin.as_uri())
+    git(checkout, "fetch", "--no-tags", "--depth=1", "origin", head)
+    # History is the real current HEAD, with one checked-out file to bound the
+    # fixture's retained bytes; sparse checkout does not make the anchor present.
+    git(checkout, "config", "core.sparseCheckout", "true")
+    (checkout / ".git/info/sparse-checkout").write_text("/README.md\n")
+    git(checkout, "checkout", "--quiet", "--detach", "FETCH_HEAD")
+    assert git(checkout, "rev-parse", "--is-shallow-repository").stdout == b"true\n"
+    assert git(checkout, "cat-file", "-e", anchor + "^{commit}", check=False).returncode
+    untracked = checkout / "preserved-untracked.txt"
+    untracked.write_bytes(b"original untracked bytes\x00")
+
+    def snapshot():
+        return (
+            git(checkout, "rev-parse", "--verify", "HEAD^{commit}").stdout,
+            git(checkout, "ls-files", "--stage", "-z").stdout,
+            git(checkout, "status", "--porcelain", "--untracked-files=all").stdout,
+            (checkout / "README.md").read_bytes(),
+            untracked.read_bytes(),
+        )
+
+    before = snapshot()
+    missing = bare_origin("missing", checkout / ".git/objects", {"current": head})
+    (missing / "shallow").write_text(head + "\n")
+    assert git(missing, "cat-file", "-e", anchor + "^{commit}", check=False).returncode
+    wrong_fetch = fetch.replace('"$source_anchor"', '"$source_head"')
+    for name, remote, commands in (
+        ("missing", missing, script),
+        ("wrong-object", origin, script.replace(fetch, wrong_fetch)),
+        ("valid", origin, script),
+    ):
+        git(checkout, "remote", "set-url", "origin", remote.as_uri())
+        marker = tmp_path / (name + "-pytest-body")
+        result = subprocess.run(
+            ["bash", "-c", commands + '\nprintf reached > "$PROVISION_MARKER"\n'],
+            cwd=checkout,
+            env={
+                **environment,
+                "EXPECTED_CHECKOUT_SHA": head,
+                "PROVISION_MARKER": str(marker),
+            },
+            capture_output=True,
+            timeout=30,
+        )
+        assert snapshot() == before
+        if name == "valid":
+            assert result.returncode == 0, result.stderr.decode(errors="replace")
+            assert marker.read_text() == "reached"
+        else:
+            assert result.returncode != 0 and not marker.exists()
+            assert git(
+                checkout, "cat-file", "-e", anchor + "^{commit}", check=False
+            ).returncode
+    assert (
+        git(checkout, "rev-parse", "--verify", "ccc861b0^{commit}").stdout
+        == (anchor + "\n").encode()
+    )
+    fetched_archive = hashlib.sha256(
+        git(checkout, "archive", anchor, "tests").stdout
+    ).digest()
+    assert fetched_archive == original_archive
+    assert hashlib.sha256(git(ROOT, "archive", anchor, "tests").stdout).digest() == (
+        original_archive
+    )
+    assert snapshot() == before
 
 
 @pytest.mark.parametrize(

@@ -1,29 +1,34 @@
 # Private STANDARD and support provisioning
 
-## Current scoped result and proposed EXTRA declarations
+## Current repair and literal EXTRA declarations
 
-Published `2d273e23` has all nine STANDARD compute jobs plus the strict 3.12 join
-successful in CI585: 84.92 actual job-minutes, maximum 1,061 seconds, and all 19
-successful uploads totaling 65,308,579 bytes. Original pinned all-files hooks run
-once per locked cohort (3.12 part a owns them). This qualifies native STANDARD
-outcomes/hooks/controlled resources only; scientific B–F and EXTRA remain open.
-The original four full jobs remain separately observed, without cancellation.
+Published `3d7e5317` has four focused EXTRA failures from a missing immutable
+original-history Git object and a separate STANDARD 3.14 deadline/cancellation.
+The repair provisions the exact object before relevant execution and changes
+only STANDARD `py314.json` to existing Main-owner collection over 188 complete
+modules and unchanged S=4,573. `py314-extra.json` remains GLOBAL. Local affected
+metadata/Git controls pass 8 cases each on 3.11/3.13 and one unchanged 3.12 case
+exclusively. Current full-S timing, clean 3.14 C/O and full timed F remain pending;
+see [the CI586 repair record](../ci_execution_plan.md#current-ci586-repair-checkpoint).
+CI585's 84.92-minute/65,308,579-byte scoped STANDARD result remains historical.
 
-`py311-extra.json` through `py314-extra.json` preserve their GLOBAL STANDARD
-baseline, packages/plugins, complete generated bindings and optional-source
+`py311-extra.json` through `py314-extra.json` preserve their corresponding
+original baseline, packages/plugins, complete generated bindings and optional-source
 contracts. Only the explicit EXTRA flags/projection/applicability declarations
 and provenance differ. Both `JAX2ONNX_TEST_CI_LANE_XDIST=1` and
 `JAX2ONNX_RUN_FIXED_PARTS_SMOKE=1` bind all three context boundaries.
 
-| Proposed global profile | Observed C | Original S | A | F | R |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `py311-extra.json` | 20,667 | 4,571 | 16,096 | 1,505 | 14,591 |
-| `py312-extra.json` | 20,721 | 4,621 | 16,100 | 1,505 | 14,595 |
-| `py313-extra.json` | 20,672 | 4,573 | 16,099 | 1,505 | 14,594 |
-| `py314-extra.json` | 20,669 | 4,573 | 16,096 | 1,505 | 14,591 |
+| Proposed global profile | Historical observed C | Projected C only | Original S | Projected A | Literal F | R |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `py311-extra.json` | 20,667 | 20,668 | 4,571 | 16,097 | 1,506 | 14,591 |
+| `py312-extra.json` | 20,721 | 20,722 | 4,621 | 16,101 | 1,506 | 14,595 |
+| `py313-extra.json` | 20,672 | 20,673 | 4,573 | 16,100 | 1,506 | 14,594 |
+| `py314-extra.json` | 20,669 | 20,670 | 4,573 | 16,097 | 1,506 | 14,591 |
 
-The table records the final genuine combined **working-tree observations**,
-not native full-F qualification. Counts are observations,
+The original full-C receipts retain their actual source epoch. A genuine
+99-item owner observation preserves all previous 98 IDs and adds one Git control;
+C+1/A+1 and literal F=1,506 are an explicit projection, not another observed
+global collection. R is unchanged. These data are not native full-F qualification. Counts are observations,
 never limits. F includes the complete current 134-case metadata owner, critical
 ownership/extrema/callback controls, all six xdist controls, both fixed-part
 controls, the four declaration cases, all 112 actual workflow/resource controls and
@@ -36,7 +41,7 @@ finite controls, including all six xdist cases per cohort. The initial local
 uses the immutable original C/manifest and explicitly external UNVERIFIED model
 transport. Full timed F and scientific acceptance remain pending. The new
 workflow/policy controls and the Node repair controls are included in final
-F=1,505. The Node correction changes only an existing function body; the retained
+F=1,505; the new Git control then extends literal F to 1,506. The Node correction changes only an existing function body; the retained
 C source epoch stays explicit through the unchanged collection-declaration AST
 bridge and actual 3.12 positive/3.11/3.13 rejection controls. Supported 3.12 and
 unsupported-cohort Node parameter IDs differ, so their ordered F hashes differ. That updated

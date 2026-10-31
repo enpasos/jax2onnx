@@ -477,7 +477,7 @@
       "sha256": "6b5bfa9d0b6a1b45fe4bf24d436b7cbda94c6a1982fa36c866ac81a6a655164c"
     },
     "focused_extra_projection": {
-      "status": "C_IDENTITY_PROJECTION_WITH_REVIEWED_SINGLE_TEST_BODY_REPAIR; CLEAN_HEAD_ADMISSION_AND_TIMED_F_UNQUALIFIED",
+      "status": "ADDITIVE_CONTROL_FROM_GENUINE_OWNER_COLLECTION; ORIGINAL_GLOBAL_C_EPOCH_RETAINED; CLEAN_HEAD_GLOBAL_ADMISSION_AND_TIMED_F_UNQUALIFIED",
       "base_commit": "895225ac7a2d75a40d27e653949bd5a130dc46f9",
       "working_python_sources": {
         "scripts/_ci_standard_execution.py": "03b3e1769c47e6f3df382ba265ef3e0d925b7fdb23111782be48a9de7bc3044a",
@@ -501,7 +501,7 @@
       "A_count_observed": 16096,
       "F_count_observed": 1505,
       "R_count_observed": 14591,
-      "F_ordered_sha256": "cf69680d46b64581a6bc9ab966ebabd53dfb2acb3418d6e992d562e4bac7b024",
+      "F_ordered_sha256": "c927995252dd8b8689bb1121f2bb05206c71e9cff70896fe1171338bff2f0766",
       "R_ordered_sha256": "629209b7ce01f405d3c00ae20cca7994b1975f3a69676b1a36c45df98ad414cf",
       "metadata_owner_observed_cases": 134,
       "seed_reference": {
@@ -605,6 +605,25 @@
             "sha256": "a735a6c6b3fbe28eb5b5bfce0010a98606c712450f490846218ca37a1840d9d4"
           }
         }
+      },
+      "F_count_literal": 1506,
+      "history_provision_control": {
+        "literal_id": "tests/extra_tests/framework/test_ci_download_cache.py::test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest",
+        "owner_collection": {
+          "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-source-history-3d7e-xzebp81k/controls314-1/execution/ordered-owner-C.json",
+          "sha256": "75e52fdf3dcd02cb22c229d4554de4f584437e15198f1091ae71581feaae5be9",
+          "scope": "Genuine 99-item single-owner observation; functional observation only; original resource epoch EXCLUSIVITYFAIL"
+        },
+        "original_GLOBAL_C": {
+          "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-focused-workflow-895225-0Y1n8QvO/final-C314/execution/ordered-C.json",
+          "sha256": "163ae95ab94d91e9ff9aa5a771f33780fb29e93c60f131042f0032e127476125",
+          "count": 20669
+        },
+        "projected_C_count": 20670,
+        "projected_C_ordered_sha256": "29e3ad6ee19c1f604ae280cce535a35ee61bae78f13a871ccab03dfba340a65c",
+        "projection_is_new_global_collection": false,
+        "scope": "One new scalar plus standard hashlib import; old98 owner IDs unchanged. No original/scientific cases removed; complete R unchanged. Genuine new global collection is NOT claimed.",
+        "exclusive_clean_GLOBAL_C_and_O": "PENDING after clean commit; diagnostic owner observation establishes no resource qualification"
       }
     },
     "extra_ownership": {
@@ -1830,6 +1849,7 @@
     "tests/extra_tests/converter/test_source_state_preparation.py::test_native_linen_unknown_descriptors_and_hash_are_not_executed[parent-descriptor]",
     "tests/extra_tests/converter/test_source_state_preparation.py::test_native_linen_unknown_descriptors_and_hash_are_not_executed[custom-hash]",
     "tests/extra_tests/converter/test_source_state_preparation.py::test_bound_native_linen_declaration_requires_an_explicit_adapter",
+    "tests/extra_tests/framework/test_ci_download_cache.py::test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest",
     "tests/extra_tests/framework/test_ci_download_cache.py::test_normal_five_gib_limits_apply_only_to_fixed_locked312_parts[locked311-]",
     "tests/extra_tests/framework/test_ci_download_cache.py::test_normal_five_gib_limits_apply_only_to_fixed_locked312_parts[locked312-a-a]",
     "tests/extra_tests/framework/test_ci_download_cache.py::test_normal_five_gib_limits_apply_only_to_fixed_locked312_parts[locked312-b-b]",

@@ -1,6 +1,45 @@
 # Precision migration CI execution plan
 
-## Current CI585 STANDARD result and EXTRA profile data
+## Current CI586 repair checkpoint
+
+Published `3d7e5317` runs [CI586](https://github.com/enpasos/jax2onnx/actions/runs/41237801158).
+The four focused EXTRA jobs fail before their selected metadata diagnostics can
+execute: shallow checkouts lack immutable original-history object
+`ccc861b0dff5042958a267addc43b622a4b61d49`, so the strict inventory archive
+check fails. The repair fetches only that object, checks exact identity and
+readable `tests` archive, and preserves the checked-out HEAD and tracked state.
+It applies before original full-suite execution and inside monitored focused
+EXTRA WORK. Metadata inputs, assertions and scientific criteria are unchanged.
+The genuine shallow-Git control plus seven affected metadata cases pass on each
+official 3.11/3.13 family; the unchanged 3.12 metadata control also passes in a
+fresh exclusive stage. Earlier overlapping 3.12/3.14 resource epochs remain
+explicitly unqualified despite their functional results.
+
+STANDARD 3.14 separately hits its unchanged 1,100-second WORK deadline:
+1,105.394 seconds elapsed, 3,073,613,824-byte peak RSS, cleanup confirmed and
+no observed OOM or disk breach. Its run records 4,120 completed IDs and an
+unclosed final 453-item batch; bounded primaries contain no JUnit for independent
+phase acceptance. Packing then times out at 90 seconds and the whole job is
+cancelled after 1,225 seconds. Other STANDARD jobs and the strict 3.12 join
+succeed; this failed cohort prevents current STANDARD qualification.
+Thirteen full collections contribute 157.084 seconds of combined startup,
+collection and context overhead, not an isolated import measurement or promised
+saving. Existing `py314.json` now uses the established Main-owner schema and
+188 literal modules while retaining exactly the same 4,573 Main IDs and shared
+baseline. EXTRA 3.14 stays GLOBAL. Genuine clean-head C/O projection and the next
+hosted full-S/whole-job timing remain required; no budget or model size changes.
+
+The new Git control extends literal F from 1,505 to **1,506**. Its genuine
+single-owner collection preserves the previous 98 IDs and adds exactly one.
+Historical full C receipts keep their original source epoch: the resulting
+C+1 projection is not a newly observed global collection. R remains
+14,591 / 14,595 / 14,594 / 14,591, including all seven mandatory scientific BF16
+cases. Complete A, scientific/default-strict extrema, Native3/ORT2, 3,712 caller
+obligations, replay, models/artifacts and web contexts remain required.
+Full timed F and gate activation remain unqualified. The named reviewed SOURCE
+publication exception waives no new CI failure or scientific criterion.
+
+## Historical CI585 STANDARD result and initial EXTRA profile data
 
 Published `2d273e23` closes all nine STANDARD compute jobs and the strict 3.12
 join successfully in [CI585](https://github.com/enpasos/jax2onnx/actions/runs/41221900406).
