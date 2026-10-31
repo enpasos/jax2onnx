@@ -14,6 +14,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 from typing import Any
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -1635,15 +1636,15 @@ def pytest_runtestloop(session):
     assert not (suite / "body-ran").exists()
 
 
-def _campaign_fixture(tmp_path, *, support=False):
+def _campaign_fixture(tmp_path, *, support=False, extra_nodeids=None):
     module = _runner()
     standard = ["test_cases.py::test_base", "test_cases.py::test_other"]
-    extra = ["test_cases.py::test_extra"]
+    extra = ["test_cases.py::test_extra"] if extra_nodeids is None else extra_nodeids
     suite, manifest, environment = _suite(
         tmp_path,
         {
-            "test_cases.py": "def test_base(): pass\n"
-            "def test_other(): pass\ndef test_extra(): pass\n"
+            "test_cases.py": "def test_base(): pass\ndef test_other(): pass\n"
+            + "".join(f"def {nodeid.split('::')[-1]}(): pass\n" for nodeid in extra)
         },
         standard,
         collection_args=["test_cases.py"] if support else None,
@@ -1731,12 +1732,12 @@ def _campaign_rewrite_inventory(contract_path, inventory_path, inventory):
     contract_path.write_text(json.dumps(contract) + "\n")
 
 
-def _campaign_batch(tmp_path, inventory):
-    assigned = inventory["ci_lane"]["standard_ids"]
+def _campaign_batch(tmp_path, inventory, *, lane="standard"):
+    assigned = inventory["ci_lane"][lane + "_ids"]
     receipt = copy.deepcopy(inventory)
     receipt.update(
         kind="batch",
-        items=inventory["items"][: len(assigned)],
+        items=[item for item in inventory["items"] if item["nodeid"] in assigned],
         assigned_ids=assigned,
         selected_ids=assigned,
         completed=assigned,
@@ -1772,18 +1773,19 @@ def _campaign_junit(path, receipt):
 
 
 @pytest.mark.parametrize("support", [False, True], ids=["global", "support"])
+@pytest.mark.parametrize("chosen_lane", ["standard", "extra"])
 def test_campaign_contract_binds_relative_inputs_and_exact_projection(
-    tmp_path, support
+    tmp_path, support, chosen_lane
 ):
     module, lane, contract_path, _, inventory = _campaign_fixture(
         tmp_path, support=support
     )
-    campaign = module._CiCampaignContext(contract_path, lane)
+    campaign = module._CiCampaignContext(contract_path, lane, lane=chosen_lane)
     standard, extra = campaign.collection(inventory)
     assert standard == lane.manifest["nodeids"]
     assert extra == ["test_cases.py::test_extra"]
     assert set(standard).isdisjoint(extra)
-    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory)
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory, lane=chosen_lane)
     campaign.batch(batch, assigned, junit_path)
     campaign.recheck()
 
@@ -1929,9 +1931,12 @@ def test_campaign_collection_matches_every_fresh_global_observation(tmp_path, fa
 @pytest.mark.parametrize(
     "stage", ["startup_context", "collection_context", "final_context"]
 )
-def test_campaign_keeps_every_independently_bound_context_stage(tmp_path, stage):
+@pytest.mark.parametrize("chosen_lane", ["standard", "extra"])
+def test_campaign_keeps_every_independently_bound_context_stage(
+    tmp_path, stage, chosen_lane
+):
     module, lane, path, _, inventory = _campaign_fixture(tmp_path)
-    campaign = module._CiCampaignContext(path, lane)
+    campaign = module._CiCampaignContext(path, lane, lane=chosen_lane)
     campaign.collection(inventory)
     fresh = copy.deepcopy(inventory)
     fresh[stage]["loaded_jax_config"]["status"] = "UNVERIFIED"
@@ -2091,10 +2096,82 @@ def test_campaign_batch_rejects_unqualified_native_or_junit_outcomes(
         campaign.batch(batch, assigned, junit_path)
 
 
+@pytest.mark.parametrize("support", [False, True], ids=["global", "support"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "standard-assignment",
+        "assignment-order",
+        "skip",
+        "wasxfail-empty",
+        "wasxfail-passed",
+        "missing-phase",
+        "duplicate-phase",
+        "phase-order",
+        "completion-order",
+        "incomplete-C",
+        "junit-missing",
+        "junit-identity",
+        "junit-failure",
+    ],
+)
+def test_extra_campaign_rejects_wrong_assignment_phases_and_junit(
+    tmp_path, support, fault
+):
+    module, lane, path, _, inventory = _campaign_fixture(
+        tmp_path,
+        support=support,
+        extra_nodeids=["test_cases.py::test_extra", "test_cases.py::test_extra_second"],
+    )
+    campaign = module._CiCampaignContext(path, lane, lane="extra")
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory, lane="extra")
+    campaign.batch(batch, assigned, junit_path)
+    reports = batch["phases"][assigned[0]]
+    if fault == "standard-assignment":
+        batch, assigned, junit_path = _campaign_batch(tmp_path, inventory)
+    elif fault == "assignment-order":
+        assigned.reverse()
+    elif fault == "skip":
+        reports[1].update(
+            outcome="skipped",
+            longrepr=repr((str(lane.root / "test_cases.py"), 1, "Skipped: extra skip")),
+        )
+        _campaign_junit(junit_path, batch)
+    elif fault.startswith("wasxfail"):
+        reports[1]["wasxfail"] = "" if fault.endswith("empty") else "extra xfail"
+    elif fault == "missing-phase":
+        reports.pop()
+    elif fault == "duplicate-phase":
+        reports.append(reports[-1].copy())
+    elif fault == "phase-order":
+        reports.reverse()
+    elif fault == "completion-order":
+        batch["completed"] = list(reversed(assigned))
+    elif fault == "incomplete-C":
+        batch["full_preselection_ids"] = batch["full_preselection_ids"][:-1]
+    elif fault == "junit-missing":
+        junit_path.write_text("<testsuite/>")
+    elif fault == "junit-identity":
+        junit_path.write_text(
+            junit_path.read_text().replace('name="test_extra"', 'name="different_case"')
+        )
+    else:
+        tree = ET.parse(junit_path)
+        case = tree.find(".//testcase")
+        assert case is not None
+        ET.SubElement(case, "failure")
+        tree.write(junit_path)
+    with pytest.raises(ValueError):
+        campaign.batch(batch, assigned, junit_path)
+
+
+@pytest.mark.parametrize("chosen_lane", ["standard", "extra"])
 @pytest.mark.parametrize("target", ["contract", "inventory", "main", "source"])
-def test_campaign_rechecks_reviewed_bytes_before_final_success(tmp_path, target):
+def test_campaign_rechecks_reviewed_bytes_before_final_success(
+    tmp_path, target, chosen_lane
+):
     module, lane, path, inventory_path, inventory = _campaign_fixture(tmp_path)
-    campaign = module._CiCampaignContext(path, lane)
+    campaign = module._CiCampaignContext(path, lane, lane=chosen_lane)
     campaign.collection(inventory)
     campaign.recheck()
     changed = {
@@ -2106,6 +2183,23 @@ def test_campaign_rechecks_reviewed_bytes_before_final_success(tmp_path, target)
     changed.write_bytes(changed.read_bytes() + b"\n")
     with pytest.raises(ValueError):
         campaign.recheck()
+
+
+@pytest.mark.parametrize("chosen_lane", [None, "", "STANDARD", "other", 1])
+def test_campaign_rejects_noncanonical_lane_before_reading_contract(
+    tmp_path, chosen_lane
+):
+    module = _runner()
+    with pytest.raises(ValueError, match="canonical standard/extra lane"):
+        module._CiCampaignContext(tmp_path / "not-read.json", None, lane=chosen_lane)
+
+
+def test_campaign_context_rejects_main_owner_extra_before_loading_inventories(tmp_path):
+    module = _runner()
+    path = tmp_path / "not-complete-owner-contract.json"
+    path.write_text(json.dumps({"schema": "jax2onnx-ci-main-owner-campaign-v1"}) + "\n")
+    with pytest.raises(ValueError, match="does not execute the complete extras lane"):
+        module._CiCampaignContext(path, None, lane="extra")
 
 
 def test_campaign_requires_transition_but_generic_static_manifest_stays_valid(tmp_path):

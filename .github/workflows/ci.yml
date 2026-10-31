@@ -526,6 +526,14 @@ jobs:
         poetry --version > "$CANDIDATE_DIR/poetry-version.txt"
         poetry install --no-interaction
 
+        # Preserve Main's pinned all-files quality check at its base-lock point.
+        # Locked312 part a owns it once; part b retains the same pytest context.
+        # Setup, hooks and their failures count toward this monitored WORK/job.
+        if [[ "$CANDIDATE_ROLE" == locked && "$CANDIDATE_PART" != b ]]; then
+          poetry run python scripts/ensure_path_markers.py --fix
+          poetry run pre-commit run --all-files
+        fi
+
         if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
           mkdir "$CANDIDATE_DIR/optional-sources"
           for integration in MAXTEXT MAXDIFFUSION; do

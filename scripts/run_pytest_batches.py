@@ -2205,14 +2205,23 @@ def _main() -> int:
             "canonical CI selection requires both --ci-lane and --ci-main-baseline"
         )
     if args.ci_campaign_contract or args._ci_provision_campaign:
-        if args.ci_lane != "standard":
-            parser.error("a campaign contract requires canonical --ci-lane standard")
+        if not args.ci_lane or not args.ci_main_baseline:
+            parser.error(
+                "a campaign requires both canonical --ci-lane and --ci-main-baseline"
+            )
         try:
             manifest, _ = _context_json(
                 args.ci_main_baseline, 16 * 1024 * 1024, label="baseline manifest"
             )
             if type(manifest) is not dict:
                 raise ValueError("campaign requires a baseline manifest")
+            if (
+                args.ci_lane == "extra"
+                and manifest.get("collection_scope") == "main-owners"
+            ):
+                raise ValueError(
+                    "Main-owner campaign does not execute the complete extras lane"
+                )
             if (
                 args.ci_campaign_contract
                 and manifest.get("collection_scope") == "main-owners"
@@ -2282,6 +2291,11 @@ def _main() -> int:
         "processes": [],
         "completed": [],
     }
+    if args.ci_lane == "extra":
+        run.update(
+            numerical_acceptance="NOT_ASSERTED",
+            full_B_to_F_acceptance="UNVERIFIED",
+        )
     _write(root / "run.json", run)
     print(f"[pytest-batches] receipts: {root}", flush=True)
     transport = None
@@ -2497,7 +2511,7 @@ def _main() -> int:
 
         if args.ci_campaign_contract:
             campaign = _CiCampaignContext(
-                args.ci_campaign_contract, lane_context, run=root
+                args.ci_campaign_contract, lane_context, run=root, lane=args.ci_lane
             )
             if campaign.owner and args.ci_lane != "standard":
                 raise ValueError(
@@ -2624,7 +2638,7 @@ def _main() -> int:
             # Freeze the independently reviewed allowances before collecting;
             # bind only the untouched, closed first collection afterward.
             provision.recheck()
-            campaign = provision.campaign(collection)
+            campaign = provision.campaign(collection, lane=args.ci_lane)
             run["ci_campaign"] = {
                 "contract_path": str(campaign.path),
                 "contract_sha256": campaign.sha256,
@@ -4030,7 +4044,9 @@ class _CiCampaignProvision:
         )
         return self.global_context
 
-    def campaign(self, collection: Path) -> "_CiCampaignContext":
+    def campaign(
+        self, collection: Path, *, lane: str = "standard"
+    ) -> "_CiCampaignContext":
         support = self.data["schema"] == "jax2onnx-ci-support-cohort-v1"
         payload = {
             "schema": (
@@ -4081,7 +4097,7 @@ class _CiCampaignProvision:
         path = self.run / "ci-provisioned-campaign.json"
         with path.open("x") as stream:
             stream.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-        return _CiCampaignContext(path, self.context, run=self.run)
+        return _CiCampaignContext(path, self.context, run=self.run, lane=lane)
 
 
 def _ci_campaign_skips(skips: Any, context: _CiLaneContext) -> dict[str, Any]:
@@ -4116,8 +4132,16 @@ class _CiCampaignContext:
     """Optional strict outcomes around the existing canonical lane machinery."""
 
     def __init__(
-        self, path: Path, lane_context: _CiLaneContext, *, run: Path | None = None
+        self,
+        path: Path,
+        lane_context: _CiLaneContext,
+        *,
+        run: Path | None = None,
+        lane: str = "standard",
     ) -> None:
+        if type(lane) is not str or lane not in ("standard", "extra"):
+            raise ValueError("campaign requires a canonical standard/extra lane")
+        self.lane = lane
         self.path = path.resolve(strict=True)
         self.context = lane_context
         contract, raw = _context_json(self.path, 65536, label="campaign contract")
@@ -4130,6 +4154,10 @@ class _CiCampaignContext:
             type(contract) is dict
             and contract.get("schema") == "jax2onnx-ci-main-owner-campaign-v1"
         )
+        if self.owner and lane != "standard":
+            raise ValueError(
+                "Main-owner campaign does not execute the complete extras lane"
+            )
         self.inventory_name = (
             "owner_inventory"
             if self.owner
@@ -4458,13 +4486,18 @@ class _CiCampaignContext:
             )
         _validate(receipt, assigned, full, skips)
         assigned_set = set(assigned)
+        lane_ids = self.standard if self.lane == "standard" else self.extra
         if (
             not assigned
             or len(assigned_set) != len(assigned)
-            or [node for node in self.standard if node in assigned_set] != assigned
+            or [node for node in lane_ids if node in assigned_set] != assigned
             or receipt["completed"] != assigned
         ):
-            raise ValueError("campaign batch differs from ordered S assignment")
+            raise ValueError(
+                "campaign batch differs from ordered S assignment"
+                if self.lane == "standard"
+                else "campaign batch differs from ordered A assignment"
+            )
         expected = {}
         for nodeid in assigned:
             reports = receipt["phases"][nodeid]
@@ -4473,7 +4506,9 @@ class _CiCampaignContext:
                 raise ValueError("campaign rejects any wasxfail presence")
             allowance = None
             if phases != ["setup:passed", "call:passed", "teardown:passed"]:
-                allowance = self.allowed_skips.get(nodeid)
+                allowance = (
+                    self.allowed_skips.get(nodeid) if self.lane == "standard" else None
+                )
                 if allowance is None or phases != allowance["phases"]:
                     raise ValueError(
                         "campaign has unexpected or incomplete phases/skip"

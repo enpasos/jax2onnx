@@ -374,6 +374,145 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
         assert forbidden not in work
 
 
+def _candidate_quality_commands():
+    job = _workflow()["jobs"]["candidate-standard"]
+    work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
+    start = work.index("# Preserve Main's pinned all-files quality check")
+    end = work.index('if [[ "$CANDIDATE_ID" == locked312-a', start)
+    return job, work, work[start:end]
+
+
+def test_candidate_quality_uses_original_pins_before_optional_installs_and_generation():
+    job, work, commands = _candidate_quality_commands()
+    owner_cohorts = {
+        entry["id"]: entry["python"]
+        for entry in job["strategy"]["matrix"]["include"]
+        if entry["role"] == "locked" and entry.get("part") != "b"
+    }
+    assert owner_cohorts == {
+        "locked311": "3.11",
+        "locked312-a": "3.12",
+        "locked313": "3.13",
+        "locked314": "3.14",
+    }
+    original = (ROOT / "scripts/run_all_checks.sh").read_text()
+    for invocation in (
+        "poetry run python scripts/ensure_path_markers.py --fix",
+        "poetry run pre-commit run --all-files",
+    ):
+        assert original.count(invocation) == commands.count(invocation) == 1
+    assert (
+        work.index("bash -euo pipefail - <<'BASH'")
+        < work.index('source "$CANDIDATE_DIR/profile.env"')
+        < work.index("poetry install --no-interaction")
+        < work.index(commands)
+        < work.index('poetry install --no-interaction --with "$group"')
+        < work.index("python scripts/generate_tests.py")
+        < work.index("python -B scripts/prepare_ci_standard.py")
+    )
+    assert "--timeout-seconds 1100" in work and job["timeout-minutes"] == 20
+    assert "--all-files" in commands and "--hook-stage" not in commands
+    assert "continue-on-error" not in next(
+        step for step in job["steps"] if step.get("id") == "work"
+    )
+    assert not re.search(r"\b(?:SKIP|PRE_COMMIT_ALLOW_NO_CONFIG)\s*=", work)
+    pins = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())["repos"]
+    assert [(repo["repo"], repo.get("rev")) for repo in pins[:2]] == [
+        ("https://github.com/psf/black", "25.1.0"),
+        ("https://github.com/astral-sh/ruff-pre-commit", "v0.16.9"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "candidate,owns_quality",
+    [
+        ("locked311", True),
+        ("locked312-a", True),
+        ("locked312-b", False),
+        ("locked313", True),
+        ("locked314", True),
+        ("minimum312", False),
+        ("normalization312", False),
+        ("normalization313", False),
+        ("node312", False),
+    ],
+)
+def test_candidate_quality_runs_once_per_locked_cohort_without_support_hooks(
+    candidate, owns_quality
+):
+    job, _, commands = _candidate_quality_commands()
+    entry = next(
+        value
+        for value in job["strategy"]["matrix"]["include"]
+        if value["id"] == candidate
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-euo",
+            "pipefail",
+            "-c",
+            'poetry() { printf "%s\\n" "$*"; }\n'
+            + commands
+            + '\nprintf "%s\\n" after-quality\n',
+        ],
+        env={
+            **os.environ,
+            "CANDIDATE_ROLE": entry["role"],
+            "CANDIDATE_PART": entry.get("part", ""),
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == (
+        [
+            "run python scripts/ensure_path_markers.py --fix",
+            "run pre-commit run --all-files",
+            "after-quality",
+        ]
+        if owns_quality
+        else ["after-quality"]
+    )
+
+
+@pytest.mark.parametrize(
+    "candidate", ["locked311", "locked312-a", "locked313", "locked314"]
+)
+@pytest.mark.parametrize("failure", ["markers", "hooks"])
+def test_candidate_quality_failure_stops_work_before_optional_setup(candidate, failure):
+    job, _, commands = _candidate_quality_commands()
+    entry = next(
+        value
+        for value in job["strategy"]["matrix"]["include"]
+        if value["id"] == candidate
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-euo",
+            "pipefail",
+            "-c",
+            'poetry() {\n  printf "%s\\n" "$*"\n'
+            '  if [[ "$*" == "run python scripts/ensure_path_markers.py --fix" '
+            '&& "$QUALITY_FAILURE" == markers ]]; then return 73; fi\n'
+            '  if [[ "$*" == "run pre-commit run --all-files" ]]; then return 74; fi\n'
+            "}\n" + commands + '\nprintf "%s\\n" unexpected-optional-setup\n',
+        ],
+        env={
+            **os.environ,
+            "CANDIDATE_ROLE": entry["role"],
+            "CANDIDATE_PART": entry.get("part", ""),
+            "QUALITY_FAILURE": failure,
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == (73 if failure == "markers" else 74), result.stderr
+    assert "unexpected-optional-setup" not in result.stdout
+    assert result.stdout.count("run pre-commit run --all-files") == (failure == "hooks")
+
+
 def test_hosted_cache_preparation_stays_between_generation_and_full_checks():
     checks = (ROOT / "scripts/run_all_checks.sh").read_text()
     assert (

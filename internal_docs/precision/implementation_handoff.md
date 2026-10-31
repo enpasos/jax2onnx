@@ -1,6 +1,59 @@
 # Precision migration handoff — 2026-10-30
 
-## Current STANDARD repair handoff — qualification PENDING
+## Current STANDARD quality and EXTRA handoff — activation HOLD
+
+CI583's original Python 3.12 job at exact `6c444f3b` ended **FAILURE** at
+**2026-10-31 14:20:27 UTC**, in BF16 TopK `finite-inline`, batch 31/55
+([primary excerpt](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-6c444f3b-watch-niR5o14v/original312-terminal-bf16-topk-failure-excerpt.log)).
+Independent review confirms the documented CI549/551 official-native JAX/jaxlib
+0.10.2 failure: first fresh JIT reverses distinct positive BF16 words
+`0001`/`007f` (factor 127), before warm/eager/ONNX/ORT or later batches.
+Exact CPU/compiler cause is unproved. The case and overall CI stay **FAILED**;
+an explicitly reviewed official-runtime profile decision is required. No pins,
+inputs or criteria changed, and no custom native patch/build is authorized.
+
+At the observed [CI583](https://github.com/enpasos/jax2onnx/actions/runs/41206202756)
+checkpoint on exact `6c444f3b`, all nine candidate compute jobs and the strict
+locked312 join succeeded: maximum whole job **857 s**, aggregate **4,421 s**,
+successful artifacts **64,156,009 bytes**. This qualifies candidate native
+pytest/support/resources only. Main's pinned whole-tree hooks and complete EXTRA
+were absent. Four original supports succeeded and four original full Python
+jobs were still in progress at that earlier observation. The terminal failure
+above precludes overall CI acceptance; all original jobs remain enabled.
+
+This repair admits strict global/support EXTRA **A=C−S** through
+the existing full-collection, source/context, phase/JUnit and final-byte checks.
+Both authority routes require lane and baseline; Main-owner-only EXTRA rejects,
+and EXTRA skips/xfail/incomplete phases cannot pass. Reports say numerical
+acceptance **NOT_ASSERTED**, full B–F **UNVERIFIED**. The three changed complete
+CI control owners closed **610 PASS / six unchanged opt-in xdist skips** on each
+approved official 3.11/3.13 family (616 IDs each, 615 shared). Real strict EXTRA
+controls include an expected-rejection body and empty A without execution.
+Actual official Python 3.12.9 source-root and fixed-parts join controls closed
+**two PASS / zero skips** ([local closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-extra-quality-source-IQcm5H/controls-closure.json)).
+Synthetic Actions observations are unit controls, not hosted 3.12.15 timing,
+complete cohort A, numerical equivalence or full B–F acceptance.
+
+The original pinned `poetry run pre-commit run --all-files` and preceding marker
+fix now run inside candidate monitored WORK at the base-lock point before
+optional installs/generation, once per locked Python cohort. Locked312 part a
+owns it and part b avoids duplicate hooks; support roles gain no unrelated hooks.
+Failures stop WORK. Fresh exact-head hosted qualification must include this cost
+within 1,100-second WORK/1,200-second whole-job and existing aggregate/artifact
+budgets; CI583's pytest-only timing does not establish that fit.
+
+Activation remains **HOLD** pending executable ownership for original minimum311
+coverage, minimum312 **A=140** via strict support EXTRA, literal focused EXTRA
+IDs for extrema/ownership/mutable-static and consumers, all remaining complete A
+at supported-cohort milestone/final, and nightly Web's original contexts with
+eventual exact active-branch SHA wiring. Retain original jobs until exact-head
+replacement qualification and independently accepted STANDARD/EXTRA ownership
+close; routine CI may transition then. This repair does not invent missing
+verifiers. Preserve historical failures below. Separate full B–F/milestone/final
+obligations and known FAILED/UNVERIFIED science gates remain open; public LEGACY
+remains unchanged.
+
+## Historical CI582 admission handoff — qualification was PENDING
 
 The two-part controller is published at `1ff4c9c6`. **Final hosted qualification is PENDING**;
 no numerical conclusion or B–F completion is asserted.

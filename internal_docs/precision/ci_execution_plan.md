@@ -1,6 +1,67 @@
 # Precision migration CI execution plan
 
-## Current STANDARD repair plan — qualification PENDING
+## Current STANDARD quality and EXTRA repair — activation HOLD
+
+At exact `6c444f3b`, CI583's original Python 3.12 job ended **FAILURE** at
+**2026-10-31 14:20:27 UTC** in BF16 TopK `finite-inline`, batch 31/55
+([primary excerpt](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-6c444f3b-watch-niR5o14v/original312-terminal-bf16-topk-failure-excerpt.log)).
+Independent review classifies this as the documented CI549/551 official-native
+JAX/jaxlib 0.10.2 failure: first fresh JIT returns positive BF16 words
+`0001, 007f` instead of descending `007f, 0001`. They differ by a factor of
+127, so this is not a tie or oracle defect. Warm/eager/ONNX/ORT and later
+batches were not reached. Exact CPU/compiler cause remains unproved. The case
+and overall CI remain **FAILED**; resolving it requires an explicitly reviewed
+official-runtime profile decision. Pins, inputs and criteria remain unchanged;
+no custom native patch/build is authorized.
+
+At the observed [CI583](https://github.com/enpasos/jax2onnx/actions/runs/41206202756)
+checkpoint on exact `6c444f3b`, all nine candidate compute jobs and the strict
+locked312 join succeeded: maximum whole job **857 s**, aggregate **4,421 s**,
+successful artifacts **64,156,009 bytes**. This qualifies that candidate
+native-pytest/support/resource scope. It omits Main's whole-tree pinned hooks
+and complete EXTRA execution. Four original support jobs succeeded; the four
+original full Python jobs were still in progress at that earlier observation.
+The terminal failure above precludes overall CI acceptance. Their authoritative
+coverage remains required; replacement activation stays **HOLD**.
+
+The current repair extends the existing strict campaign to canonical
+global and support **EXTRA A = C − S**, preserving complete ordered collection,
+source/context checks, genuine phases/JUnit and final byte audits. Both supplied
+and provisioned campaigns require explicit lane and baseline. Main-owner-only
+EXTRA rejects because it omits outside-owner extras; extra skips, xfail and
+incomplete phases cannot establish PASS. Reports retain numerical acceptance
+**NOT_ASSERTED** and full B–F **UNVERIFIED**. The three changed complete CI
+control owners closed **610 PASS / six unchanged opt-in xdist skips** on each
+approved official Python 3.11/3.13 family, with 616 accounted IDs per family
+and 615 shared literal IDs. Real strict EXTRA controls include a passing
+expected-rejection body and empty A with complete collection and no execution.
+The actual official Python 3.12.9 source-root and real fixed-parts join controls
+closed **two PASS / zero skips** ([local closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-extra-quality-source-IQcm5H/controls-closure.json)).
+Their synthetic Actions data do not qualify hosted Python 3.12.15 timing,
+complete cohort A, numerical equivalence or B–F completion.
+
+Candidate monitored WORK now includes the original pinned
+`poetry run pre-commit run --all-files`, preceded by the original marker fix,
+once per locked Python cohort at the base-lock point before optional dependency
+installation and generation. Locked312 part a owns it; part b avoids duplicate
+hooks. Support jobs retain their original responsibilities. Hook failures fail
+WORK, and all quality costs count toward the unchanged 1,100-second WORK and
+1,200-second whole-job budgets. CI583's timings cannot qualify this added work:
+fresh exact-head hosted quality-inclusive qualification is still required.
+
+Before any activation, retain the original minimum-dependency Python 3.11 job
+as additional required coverage; execute minimum312 **A=140** through strict
+support EXTRA; assign literal focused EXTRA IDs for extrema, ownership,
+mutable-static rejection and their consumers; assign all remaining complete A
+to milestone/final execution across supported cohorts; and preserve nightly Web's original
+contexts plus eventual exact active-branch SHA wiring. These executable owners
+and missing migration verifiers are not supplied by this repair. Keep the
+original jobs enabled until exact-head replacement qualification and independently
+accepted STANDARD/EXTRA ownership close. Routine CI may transition at that point;
+separate milestone/final full B–F obligations and known FAILED/UNVERIFIED science
+gates remain open. Public LEGACY remains unchanged.
+
+## Historical CI582 admission repair — qualification was PENDING
 
 The two-part controller is published at `1ff4c9c6`; **hosted qualification is PENDING**.
 

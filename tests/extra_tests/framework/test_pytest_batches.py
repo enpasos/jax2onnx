@@ -2764,7 +2764,7 @@ def test_installed_native_manifest_rejects_foreign_protocols(
 
 
 def _prepare_campaign_suite(
-    tmp_path, monkeypatch, mode, *, xml_controls=False, support=False
+    tmp_path, monkeypatch, mode, *, xml_controls=False, support=False, extra_source=None
 ):
     reason = "original\x07skip\x7f" if xml_controls else "original skip"
     source = """from pathlib import Path
@@ -2784,6 +2784,10 @@ def test_extra():
             "pass": "pass",
         }[mode],
     )
+    if extra_source is not None:
+        source = source.replace(
+            "def test_extra():\n    Path('extra-ran').touch()\n", extra_source
+        )
     standard = ["test_cases.py::test_base", "test_cases.py::test_original_skip"]
     files = {
         "test_cases.py": source,
@@ -3139,9 +3143,15 @@ def test_campaign_final_closure_rejects_semantically_unchanged_junit_mutation(
     )
 
 
-def _prepare_provision_suite(tmp_path, monkeypatch, *, support=False):
+def _prepare_provision_suite(
+    tmp_path, monkeypatch, *, support=False, extra_source=None
+):
     suite, manifest, environment, contract, inventory = _prepare_campaign_suite(
-        tmp_path, monkeypatch, "allowed-skip", support=support
+        tmp_path,
+        monkeypatch,
+        "allowed-skip",
+        support=support,
+        extra_source=extra_source,
     )
     payload = json.loads(manifest.read_text())
     preparation_spec = spec_from_file_location(
@@ -3430,8 +3440,289 @@ def test_real_support_campaign_preserves_original_command_universe(
         )
 
 
+@pytest.mark.parametrize("support", [False, True], ids=["global", "support"])
 @pytest.mark.parametrize(
-    "fault", ["orphan", "extra-lane", "test-path", "positional", "keyword", "addopts"]
+    "provision", [False, True], ids=["contract", "first-collection"]
+)
+def test_real_extra_campaign_executes_complete_ordered_A_with_full_collection(
+    tmp_path, monkeypatch, support, provision
+):
+    extra_source = (
+        "def test_extra():\n    Path('extra-ran').touch()\n"
+        "def test_extra_second():\n"
+        "    with pytest.raises(ValueError, match='unsupported synthetic export'):\n"
+        "        raise ValueError('unsupported synthetic export')\n"
+        "    Path('extra-second-ran').touch()\n"
+    )
+    if provision:
+        suite, manifest, environment, authority, inventory = _prepare_provision_suite(
+            tmp_path, monkeypatch, support=support, extra_source=extra_source
+        )
+        option = "--_ci-provision-campaign"
+    else:
+        suite, manifest, environment, authority, inventory = _prepare_campaign_suite(
+            tmp_path,
+            monkeypatch,
+            "allowed-skip",
+            support=support,
+            extra_source=extra_source,
+        )
+        option = "--ci-campaign-contract"
+    payload = json.loads(manifest.read_text())
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        batch_size=1,
+        runner_args=(
+            "--ci-lane",
+            "extra",
+            "--ci-main-baseline",
+            str(manifest),
+            option,
+            str(authority),
+        ),
+        test_paths=tuple(payload["collection_args"]),
+        environment=environment,
+    )
+    assert run["numerical_acceptance"] == "NOT_ASSERTED"
+    assert run["full_B_to_F_acceptance"] == "UNVERIFIED"
+    if support and provision and sys.version_info[:2] not in {(3, 12), (3, 13)}:
+        assert result.returncode != 0 and run["status"] == "FAIL"
+        assert run["failure"]["message"] == (
+            "unsupported support role/cohort or ordered selectors"
+        )
+        assert run["processes"] == run["completed"] == []
+        assert not (receipts / "collection").exists()
+        return
+    assert result.returncode == 0 and run["status"] == "PASS", (
+        result.stdout + result.stderr
+    )
+    full = inventory["full_preselection_ids"]
+    standard = payload["nodeids"]
+    extra = [nodeid for nodeid in full if nodeid not in set(standard)]
+    assert extra == ["test_cases.py::test_extra", "test_cases.py::test_extra_second"]
+    assert run["nodeids"] == full
+    assert run["lane_nodeids"] == run["completed"] == extra
+    assert run["ci_lane"]["standard_ids"] == standard
+    assert run["ci_lane"]["extra_ids"] == extra
+    assert run["batches"] == [[nodeid] for nodeid in extra]
+    assert len(run["processes"]) == 3
+    assert not (suite / "base-ran").exists()
+    assert (suite / "extra-ran").exists() and (suite / "extra-second-ran").exists()
+    for folder in ("collection", "batch-0001", "batch-0002"):
+        receipt = json.loads((receipts / folder / "receipt.json").read_text())
+        assert receipt["full_items"] == inventory["full_items"]
+        assert receipt["full_preselection_ids"] == full
+        assert receipt["collection_skips"] == inventory["collection_skips"]
+        assert receipt["collection_transition_completed"] is True
+        assert receipt["post_pytest_completed"] is True
+        if support:
+            assert receipt["collection_args"] == receipt["qualified_collection_args"]
+            assert receipt["collection_args"] == payload["collection_args"]
+        if folder.startswith("batch-"):
+            assigned = receipt["assigned_ids"]
+            assert receipt["completed"] == assigned
+            assert all(
+                [f"{phase['when']}:{phase['outcome']}" for phase in phases]
+                == ["setup:passed", "call:passed", "teardown:passed"]
+                for phases in receipt["phases"].values()
+            )
+            cases = ET.parse(receipts / folder / "junit.xml").findall(".//testcase")
+            passed_names = [
+                case.get("name") for case in cases if case.find("skipped") is None
+            ]
+            assert passed_names == [assigned[0].split("::")[-1]]
+    if provision:
+        contract = json.loads((receipts / "ci-provisioned-campaign.json").read_text())
+        name = "command_inventory" if support else "global_inventory"
+        assert (
+            contract[name]["sha256"]
+            == hashlib.sha256(
+                (receipts / "collection/receipt.json").read_bytes()
+            ).hexdigest()
+        )
+
+
+@pytest.mark.parametrize("support", [False, True], ids=["global", "support"])
+def test_real_strict_extra_empty_A_retains_full_collection_without_execution(
+    tmp_path, monkeypatch, support
+):
+    suite, manifest, environment, authority, inventory = _prepare_campaign_suite(
+        tmp_path, monkeypatch, "allowed-skip", support=support, extra_source=""
+    )
+    payload = json.loads(manifest.read_text())
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        runner_args=(
+            "--ci-lane",
+            "extra",
+            "--ci-main-baseline",
+            str(manifest),
+            "--ci-campaign-contract",
+            str(authority),
+        ),
+        test_paths=tuple(payload["collection_args"]),
+        environment=environment,
+    )
+    assert result.returncode == 0 and run["status"] == "PASS", (
+        result.stdout + result.stderr
+    )
+    assert run["nodeids"] == payload["nodeids"] == inventory["full_preselection_ids"]
+    assert run["ci_lane"]["standard_ids"] == payload["nodeids"]
+    assert run["lane_nodeids"] == run["ci_lane"]["extra_ids"] == []
+    assert run["completed"] == run["batches"] == []
+    assert len(run["processes"]) == 1
+    assert set(run["ci_lane"]["closed_workers"]) == {"collection"}
+    assert (
+        run["ci_lane"]["manifest_sha256"]
+        == hashlib.sha256(manifest.read_bytes()).hexdigest()
+    )
+    assert set(run["ci_lane"]["source_files"]) == set(payload["source_files"])
+    for relative, digest in payload["source_files"].items():
+        assert hashlib.sha256((suite / relative).read_bytes()).hexdigest() == digest
+    receipt = json.loads((receipts / "collection/receipt.json").read_text())
+    assert receipt["full_items"] == inventory["full_items"]
+    assert receipt["full_preselection_ids"] == run["nodeids"]
+    assert receipt["collection_skips"] == inventory["collection_skips"]
+    assert receipt["phases"] == receipt["phase_durations"] == {}
+    assert receipt["completed"] == []
+    assert receipt["collection_transition_completed"] is True
+    assert receipt["post_pytest_completed"] is True
+    assert not list(receipts.glob("batch-*"))
+    assert not (suite / "base-ran").exists() and not (suite / "extra-ran").exists()
+    assert run["numerical_acceptance"] == "NOT_ASSERTED"
+    assert run["full_B_to_F_acceptance"] == "UNVERIFIED"
+
+
+@pytest.mark.parametrize("support", [False, True], ids=["global", "support"])
+@pytest.mark.parametrize("outcome", ["skip", "xfail", "xpass", "failure"])
+def test_real_extra_campaign_rejects_nonpassing_native_outcomes(
+    tmp_path, monkeypatch, support, outcome
+):
+    decorator = (
+        "@pytest.mark.xfail(reason='unexpected pass', strict=False)\n"
+        if outcome == "xpass"
+        else ""
+    )
+    body = {
+        "skip": "pytest.skip('extra skip')",
+        "xfail": "pytest.xfail('extra xfail')",
+        "xpass": "pass",
+        "failure": "raise AssertionError('extra failure')",
+    }[outcome]
+    suite, manifest, environment, authority, _ = _prepare_campaign_suite(
+        tmp_path,
+        monkeypatch,
+        "allowed-skip",
+        support=support,
+        extra_source=decorator + "def test_extra():\n    " + body + "\n",
+    )
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        runner_args=(
+            "--ci-lane",
+            "extra",
+            "--ci-main-baseline",
+            str(manifest),
+            "--ci-campaign-contract",
+            str(authority),
+        ),
+        test_paths=tuple(json.loads(manifest.read_text())["collection_args"]),
+        environment=environment,
+    )
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert run["numerical_acceptance"] == "NOT_ASSERTED"
+    assert run["full_B_to_F_acceptance"] == "UNVERIFIED"
+    assert not (suite / "base-ran").exists()
+    batch = json.loads((receipts / "batch-0001/receipt.json").read_text())
+    assert batch["assigned_ids"] == ["test_cases.py::test_extra"]
+    reports = batch["phases"]["test_cases.py::test_extra"]
+    if outcome in {"xfail", "xpass"}:
+        assert any("wasxfail" in phase for phase in reports)
+        assert "wasxfail" in run["failure"]["message"]
+    elif outcome == "skip":
+        assert any(phase["outcome"] == "skipped" for phase in reports)
+        assert "phases/skip" in run["failure"]["message"]
+    else:
+        assert any(phase["outcome"] == "failed" for phase in reports)
+
+
+@pytest.mark.parametrize(
+    "authority", ["--ci-campaign-contract", "--_ci-provision-campaign"]
+)
+@pytest.mark.parametrize("missing", ["both", "lane", "baseline"])
+def test_campaign_requires_explicit_lane_and_baseline_before_any_read_or_output(
+    tmp_path, monkeypatch, capsys, authority, missing
+):
+    module = _runner()
+    output = tmp_path / "not-created"
+    arguments = [str(_RUNNER), "--output-dir", str(output), authority, "not-read.json"]
+    if missing == "baseline":
+        arguments.extend(("--ci-lane", "extra"))
+    elif missing == "lane":
+        arguments.extend(("--ci-main-baseline", "not-read-baseline.json"))
+    monkeypatch.setattr(module.sys, "argv", arguments)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("missing canonical arguments reached a read or child")
+
+    monkeypatch.setattr(module, "_context_json", forbidden)
+    monkeypatch.setattr(module, "_child", forbidden)
+    with pytest.raises(SystemExit) as error:
+        module._main()
+    assert error.value.code == 2
+    expected = (
+        "a campaign requires both canonical --ci-lane and --ci-main-baseline"
+        if missing == "both"
+        else "canonical CI selection requires both --ci-lane and --ci-main-baseline"
+    )
+    assert expected in capsys.readouterr().err
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "authority", ["--ci-campaign-contract", "--_ci-provision-campaign"]
+)
+def test_main_owner_extra_is_rejected_before_contract_output_or_children(
+    tmp_path, monkeypatch, capsys, authority
+):
+    module = _runner()
+    manifest = tmp_path / "owner-baseline.json"
+    manifest.write_text(json.dumps({"collection_scope": "main-owners"}) + "\n")
+    output = tmp_path / "not-created"
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            str(_RUNNER),
+            "--output-dir",
+            str(output),
+            "--ci-lane",
+            "extra",
+            "--ci-main-baseline",
+            str(manifest),
+            authority,
+            "not-read-contract.json",
+        ],
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Main-owner EXTRA reached a campaign or child")
+
+    monkeypatch.setattr(module, "_child", forbidden)
+    monkeypatch.setattr(module, "_CiCampaignContext", forbidden)
+    monkeypatch.setattr(module, "_CiCampaignProvision", forbidden)
+    with pytest.raises(SystemExit) as error:
+        module._main()
+    assert error.value.code == 2
+    assert "does not execute the complete extras lane" in capsys.readouterr().err
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "fault", ["orphan", "test-path", "positional", "keyword", "addopts"]
 )
 def test_campaign_admission_rejects_prefilters_before_any_child(
     tmp_path, monkeypatch, capsys, fault
@@ -3457,7 +3748,7 @@ def test_campaign_admission_rejects_prefilters_before_any_child(
         arguments.extend(
             (
                 "--ci-lane",
-                "extra" if fault == "extra-lane" else "standard",
+                "standard",
                 "--ci-main-baseline",
                 str(manifest),
             )
