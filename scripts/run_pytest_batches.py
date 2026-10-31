@@ -33,6 +33,10 @@ import xml.etree.ElementTree as ET
 
 _MAX_BATCH_SIZE = 500
 _ISOLATED_OWNER = "test_source_model_native_bindings_exports.py"
+_MAXTEXT_OMNI_NODE = (
+    "tests/examples/test_maxtext.py::Test_MaxText_qwen3_omni_30b_a3b::"
+    "test_maxtext_qwen3_omni_30b_a3b"
+)
 _CAST_OBSERVER_NODE = (
     "tests/extra_tests/converter/test_source_conversion_semantics.py::"
     "test_floating_conversion_rounding_and_strict_special_value_gates"
@@ -479,7 +483,7 @@ def _plan(
     *,
     isolated_owners: frozenset[str] = frozenset(),
 ) -> list[list[str]]:
-    """Pack consecutive classes; keep isolated owners in their own batches."""
+    """Pack classes; isolate reviewed owners and Omni without changing order."""
     groups: list[tuple[list[str], bool]] = []
     isolated_seen: set[str] = set()
     index = 0
@@ -497,7 +501,21 @@ def _plan(
             if len(segment) > limit:
                 raise ValueError("isolated whole owner exceeds the batch bound")
             isolated_seen.add(module)
-            groups.append(([item["nodeid"] for item in segment], True))
+            # Give Omni's original audio initialization a fresh process.
+            # Keep the full owner collection and all predecessor cases in order;
+            # only their process boundary changes for the reviewed STANDARD lane.
+            owner_nodeids = [item["nodeid"] for item in segment]
+            if _MAXTEXT_OMNI_NODE in owner_nodeids:
+                split = owner_nodeids.index(_MAXTEXT_OMNI_NODE)
+                for group in (
+                    owner_nodeids[:split],
+                    owner_nodeids[split : split + 1],
+                    owner_nodeids[split + 1 :],
+                ):
+                    if group:
+                        groups.append((group, True))
+            else:
+                groups.append((owner_nodeids, True))
         else:
             offset = 0
             while offset < len(segment):

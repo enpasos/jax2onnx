@@ -23,7 +23,37 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-At published `b39e8662`, [CI 575](https://github.com/enpasos/jax2onnx/actions/runs/41154521659)
+Checkpoint update — 2026-10-31: published `22a7b4d0` in
+[CI 576](https://github.com/enpasos/jax2onnx/actions/runs/41158051464) has seven
+successful candidates and a locked312 owned-RSS failure. All four authoritative
+support jobs succeeded; all four authoritative full-suite jobs were still
+running at the **02:21:45 UTC** observation. Locked311 closes all **4,571
+original S cases** (4,559 PASS, 12 original SKIPs) in an **806-second whole job**
+([finite qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked311-success-7ddyjp6h/finite-locked311-qualification.json),
+`4633f91e…`). Locked312 instead reaches
+**4,499,320,832 bytes / 4,290.887 MiB** owned RSS above the unchanged 4-GiB cap;
+44 MaxText cases have passed phases, but the original Omni case and worker/
+cleanup closure remain incomplete. Five original MaxDiffusion cases passed.
+The guard, not a pytest assertion or timeout, stops the work interval at
+581.058 seconds; OOM cause remains unverified
+([accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/locked312-actual-failure-accounting.json),
+[resources](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/ci-candidate-locked312-work-resources__summary.json)).
+
+The independently reviewed repair splits the existing MaxText packet into its
+44 predecessors and a fresh original-Omni singleton, preserving their order,
+the complete owner collection, **all 45+5 optional cases**, original parameters/
+inputs/RNG 42/criteria and **S=4,621**. Twelve official311 planner controls pass
+([closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-isolation-planner311-retry-__sq33rd/closure.json));
+the earlier wrapper AST comparison failure stopped before pytest and remains
+[recorded](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-isolation-planner311-rissw2h3/stage-failure-closure.json).
+Omni memory fit and the extra worker's cost are **UNQUALIFIED**. A callbackless
+canonical singleton must use fresh complete owner O at a real clean repair
+commit; that finite diagnostic omits global C and cannot replace the complete
+exact-head campaign. All-eight STANDARD, full B–F, numerical and final-cohort
+acceptance remain open. The 1,200-second, 4-GiB, 160-job-minute and 100-MiB limits
+and public LEGACY/gate **HOLD** remain unchanged.
+
+Previous checkpoint: published `b39e8662`, [CI 575](https://github.com/enpasos/jax2onnx/actions/runs/41154521659),
 has terminal candidate outcomes of **six SUCCESS, locked312 FAILURE from the
 owned-RSS guard, and locked311 CANCELLED after work/pack deadlines**. The four
 authoritative support jobs succeeded; the four authoritative full-suite jobs

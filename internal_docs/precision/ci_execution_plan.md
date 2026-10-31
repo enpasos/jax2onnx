@@ -1,6 +1,42 @@
 # Precision migration CI execution plan
 
-At published `b39e8662`, [CI 575](https://github.com/enpasos/jax2onnx/actions/runs/41154521659)
+At published `22a7b4d0`, [CI 576](https://github.com/enpasos/jax2onnx/actions/runs/41158051464)
+has seven successful candidates and a locked312 owned-RSS failure. The four
+authoritative support jobs succeeded; the four authoritative full-suite jobs
+were still running at the **02:21:45 UTC** observation. Locked311 closes its
+original **4,571 S cases** (4,559 PASS, 12 original SKIPs) in an
+**806-second whole job**
+([finite qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked311-success-7ddyjp6h/finite-locked311-qualification.json),
+`4633f91e…`). This finite cohort success
+does not qualify all eight candidates or activate the proposed gates.
+
+Locked312 reaches **4,499,320,832 bytes / 4,290.887 MiB > 4,096 MiB** sampled
+aggregate owned RSS. Its work interval ends after **581.058 seconds**, with
+103 S cases in closed batches, five original MaxDiffusion cases passed and
+44 MaxText cases with passed phase triplets. The original Omni case is
+unfinished; worker and cleanup closure are incomplete. Host/cgroup OOM counters
+do not establish an OOM cause
+([actual accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/locked312-actual-failure-accounting.json),
+[resource receipt](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/ci-candidate-locked312-work-resources__summary.json)).
+All-eight STANDARD qualification remains **FAILED**.
+
+The reviewed repair gives the exact original Omni case a fresh execution worker
+after its 44 predecessors. The existing batcher preserves their order, the full
+190-owner collection/context, all **45 MaxText + five MaxDiffusion cases** and
+literal **S=4,621**. It adds one process boundary without changing model
+parameters, inputs, RNG seed 42, numerical criteria or skip rules. Twelve
+planner controls pass on official Python 3.11; they establish scheduling and
+inventory preservation, not Omni memory fit
+([focused closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-isolation-planner311-retry-__sq33rd/closure.json)).
+Callbackless canonical Omni execution and complete exact-head cohort validation
+remain required. The finite next diagnostic collects fresh complete owner O,
+then runs the singleton against the same O and context. Omitting global C from
+that finite diagnostic does not qualify the campaign partition or full S.
+The **1,200-second whole-job / 4-GiB / 160-job-minute / 100-MiB** limits remain
+unchanged; the extra worker's actual cost and all original 50 outcomes must be
+measured before acceptance. Public LEGACY and gate activation remain **HOLD**.
+
+Previous published snapshot: `b39e8662`, [CI 575](https://github.com/enpasos/jax2onnx/actions/runs/41154521659),
 has terminal candidate outcomes of **six SUCCESS, locked312 FAILURE from the
 owned-RSS guard, and locked311 CANCELLED after work/pack deadlines**. The four
 authoritative support jobs succeeded; the four authoritative full-suite jobs

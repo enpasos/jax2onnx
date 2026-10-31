@@ -1661,8 +1661,25 @@ def test_lane_batch_plan_isolates_all_original_optional_models(
         assert preserved_cases and preserved_cases in batches
     original_cases = [nodeid for nodeid in standard if nodeid.startswith(owner + "::")]
     assert len(original_cases) == count
-    assert [batch for batch in batches if any(n in original_cases for n in batch)] == [
-        original_cases
+    expected = [original_cases]
+    if owner == "tests/examples/test_maxtext.py":
+        assert original_cases[-1] == module._MAXTEXT_OMNI_NODE
+        expected = [original_cases[:-1], original_cases[-1:]]
+    assert [
+        batch for batch in batches if any(n in original_cases for n in batch)
+    ] == expected
+
+
+def test_omni_process_boundary_requires_isolated_owner_and_keeps_both_neighbors() -> (
+    None
+):
+    module = _runner()
+    owner = "tests/examples/test_maxtext.py"
+    ordered = [f"{owner}::before", module._MAXTEXT_OMNI_NODE, f"{owner}::after"]
+    items = [{"nodeid": nodeid, "module": owner, "class": None} for nodeid in ordered]
+    assert module._plan(items, 500) == [ordered]
+    assert module._plan(items, 500, isolated_owners=module._CI_STANDARD_OWNERS) == [
+        [nodeid] for nodeid in ordered
     ]
 
 
@@ -1719,11 +1736,16 @@ def test_lane_batch_plan_fills_original_tail_without_splitting_classes(
     assert [nodeid for batch in batches for nodeid in batch] == standard
     assert all(1 <= len(batch) <= 500 for batch in batches)
     assert [len(batch) for batch in batches[-2:]] == tail
-    assert len(batches) == (16 if minor == "312" else 13)
+    assert len(batches) == (17 if minor == "312" else 13)
     for owner in module._CI_STANDARD_OWNERS:
         original = [item["nodeid"] for item in items if item["module"] == owner]
         if original:
-            assert original in batches
+            if module._MAXTEXT_OMNI_NODE in original:
+                assert original[-1] == module._MAXTEXT_OMNI_NODE
+                assert original[:-1] in batches
+                assert original[-1:] in batches
+            else:
+                assert original in batches
     positions = {
         nodeid: index for index, batch in enumerate(batches) for nodeid in batch
     }
