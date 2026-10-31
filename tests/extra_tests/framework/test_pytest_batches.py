@@ -3804,6 +3804,13 @@ def test_main_owner_campaign_releases_inventories_before_children_and_rechecks_b
     original_json, original_closed = module._context_json, module._ci_lane_closed
     original_child, original_batch = module._child, module._CiCampaignContext.batch
     probes, launches, mutations = [], [], []
+    original_loads = module.json.loads
+    active_payloads, native_decodes = [], []
+
+    def loads(value, *args, **kwargs):
+        if active_payloads and value == active_payloads[-1][0]:
+            active_payloads[-1][1].append(kwargs.get("object_pairs_hook"))
+        return original_loads(value, *args, **kwargs)
 
     class InventoryProbe:
         def __init__(self, path):
@@ -3832,8 +3839,17 @@ def test_main_owner_campaign_releases_inventories_before_children_and_rechecks_b
             value = observe_inventory(value, path)
         return value, payload
 
-    def closed(folder, request, context):
-        value = original_closed(folder, request, context)
+    def closed(folder, request, context, **kwargs):
+        checked = kwargs.get("expected_receipt_sha256") is not None
+        if checked:
+            active_payloads.append(((folder / "receipt.json").read_bytes(), []))
+        try:
+            value = original_closed(folder, request, context, **kwargs)
+        finally:
+            if checked:
+                _, decodes = active_payloads.pop()
+                assert len(decodes) == 1 and callable(decodes[0])
+                native_decodes.append(folder.name)
         return observe_inventory(value, folder / "receipt.json")
 
     def child(folder, request, *args, **kwargs):
@@ -3852,6 +3868,7 @@ def test_main_owner_campaign_releases_inventories_before_children_and_rechecks_b
 
     monkeypatch.setattr(module, "_context_json", context_json)
     monkeypatch.setattr(module, "_ci_lane_closed", closed)
+    monkeypatch.setattr(module.json, "loads", loads)
     monkeypatch.setattr(module, "_child", child)
     monkeypatch.setattr(module._CiCampaignContext, "batch", validate_then_mutate)
     monkeypatch.chdir(suite)
@@ -3874,6 +3891,7 @@ def test_main_owner_campaign_releases_inventories_before_children_and_rechecks_b
     assert len(standard) == 2 and run["completed"] == standard
     assert run["status"] == ("PASS" if tamper is None else "FAIL")
     assert launches == ["batch-0001", "batch-0002"] and len(run["processes"]) == 4
+    assert set(native_decodes) == {"global-collection", "collection"}
     assert run["global_extra_nodeids"] == [
         "test_cases.py::test_extra",
         "test_z_outside.py::test_outside_extra",
@@ -3899,6 +3917,140 @@ def test_main_owner_campaign_releases_inventories_before_children_and_rechecks_b
             else "closed canonical lane evidence changed"
         )
         assert expected in run["failure"]["message"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "duplicate-key",
+        "newline",
+        "coherent-receipt",
+        "request",
+        "manifest",
+        "context",
+        "source",
+        "phase",
+    ],
+)
+def test_main_owner_native_inventory_uses_one_strict_decode_and_keeps_all_audits(
+    tmp_path, monkeypatch, fault
+):
+    module = _runner()
+    suite, manifest, environment, cohort, selectors = (
+        _prepare_main_owner_provision_suite(tmp_path, monkeypatch)
+    )
+    output = tmp_path / "receipts"
+    monkeypatch.chdir(suite)
+    monkeypatch.setattr(module.os, "environ", environment)
+    argv = [
+        str(_RUNNER),
+        "--output-dir",
+        str(output),
+        "--batch-size=1",
+        "--ci-lane=standard",
+        f"--ci-main-baseline={manifest}",
+        f"--_ci-provision-campaign={cohort}",
+    ]
+    for selector in selectors:
+        argv.extend(("--test-path", selector))
+    monkeypatch.setattr(module.sys, "argv", [*argv, "--", "-q"])
+    assert module._main() == 0
+    run = json.loads((output / "run.json").read_text())
+    assert run["status"] == "PASS" and len(run["processes"]) == 4
+
+    # Use the genuine Main-owner authority and closed O from the real C/O plus
+    # two-batch execution, without minting a replacement receipt or campaign.
+    contract = json.loads((output / "ci-provisioned-campaign.json").read_text())
+    main = (output / contract["main_manifest"]["path"]).resolve()
+    context = module._CiLaneContext(
+        main,
+        suite,
+        environment=json.loads(main.read_text())["environment"],
+        expected_sha256=contract["main_manifest"]["sha256"],
+    )
+    folder = output / "collection"
+    receipt_path, terminal_path = folder / "receipt.json", folder / "lane-terminal.json"
+    payload = receipt_path.read_bytes()
+    original_digest = contract["owner_inventory"]["sha256"]
+    assert hashlib.sha256(payload).hexdigest() == original_digest
+    request = json.loads((folder / "request.json").read_text())
+    receipt, terminal = json.loads(payload), json.loads(terminal_path.read_text())
+    expected_digest = original_digest
+    message = None
+    if fault == "duplicate-key":
+        payload = b'{"kind":"collection",' + payload.lstrip()[1:]
+        message = "duplicate campaign native receipt key"
+    elif fault == "newline":
+        payload += b"\n"
+        message = "inventory SHA differs from original reference"
+    elif fault == "coherent-receipt":
+        receipt["finished"] = "coherently-altered"
+        message = "inventory SHA differs from original reference"
+    elif fault == "request":
+        path = folder / "request.json"
+        path.write_bytes(path.read_bytes() + b"\n")
+        message = "receipt/request binding differs"
+    elif fault == "manifest":
+        terminal["manifest_sha256"] = "0" * 64
+        message = "receipt/request binding differs"
+    elif fault == "context":
+        receipt["startup_context"]["environment"]["OMP_NUM_THREADS"] = "2"
+        message = "collection-transition environment differs"
+    elif fault == "source":
+        first = next(iter(receipt["ci_lane"]["source_files"]))
+        receipt["ci_lane"]["source_files"][first]["sha256"] = "0" * 64
+        message = "terminal audit is incomplete"
+    elif fault == "phase":
+        receipt["phases"] = {"unexpected": [{"when": "call", "outcome": "passed"}]}
+        message = "collection recorded test execution"
+    if fault in {"coherent-receipt", "context", "source", "phase"}:
+        payload = (json.dumps(receipt, indent=2, ensure_ascii=False) + "\n").encode()
+    if fault in {
+        "duplicate-key",
+        "newline",
+        "coherent-receipt",
+        "context",
+        "source",
+        "phase",
+    }:
+        receipt_path.write_bytes(payload)
+        terminal["receipt_sha256"] = hashlib.sha256(payload).hexdigest()
+    if fault is not None:
+        module._write(terminal_path, terminal)
+    if fault in {"context", "source", "phase"}:
+        # Isolate the unchanged native checks after both byte bindings match.
+        # This direct rejection test is not a replacement campaign authority.
+        expected_digest = hashlib.sha256(payload).hexdigest()
+
+    original_loads = module.json.loads
+    decodes = []
+
+    def loads(value, *args, **kwargs):
+        if value == payload:
+            decodes.append(kwargs.get("object_pairs_hook"))
+        return original_loads(value, *args, **kwargs)
+
+    monkeypatch.setattr(module.json, "loads", loads)
+    if fault is None:
+        assert (
+            module._ci_lane_closed(
+                folder,
+                request,
+                context,
+                expected_receipt_sha256=expected_digest,
+            )
+            == receipt
+        )
+    else:
+        with pytest.raises(ValueError, match=message):
+            module._ci_lane_closed(
+                folder,
+                request,
+                context,
+                expected_receipt_sha256=expected_digest,
+            )
+    assert len(decodes) == 1 and callable(decodes[0])
 
 
 @pytest.mark.parametrize(

@@ -3515,7 +3515,6 @@ class _CiCampaignContext:
             ("owner_inventory", self.context),
         ):
             folder = self.references[name][0].parent
-            expected = self._load_inventory(name)
             request, _raw = _context_json(
                 folder / "request.json",
                 16 * 1024 * 1024,
@@ -3525,12 +3524,15 @@ class _CiCampaignContext:
                 raise ValueError(
                     "Main-owner inventory is not a native collection worker"
                 )
-            closed = _ci_lane_closed(folder, request, context)
-            if closed != expected:
-                raise ValueError(
-                    "Main-owner inventory differs from closed native worker bytes"
-                )
-            del expected, closed, request, _raw
+            # The original byte binding and strict decode validate the same
+            # receipt as the native closure audit, without a second object graph.
+            _ci_lane_closed(
+                folder,
+                request,
+                context,
+                expected_receipt_sha256=self.references[name][1],
+            )
+            del request, _raw
 
     def _inventory(
         self,
@@ -3837,9 +3839,22 @@ def _ci_lane_phase_free(receipt: dict[str, Any]) -> bool:
 
 
 def _ci_lane_closed(
-    folder: Path, request: dict[str, Any], context: _CiLaneContext
+    folder: Path,
+    request: dict[str, Any],
+    context: _CiLaneContext,
+    *,
+    expected_receipt_sha256: str | None = None,
 ) -> dict[str, Any]:
-    payload = (folder / "receipt.json").read_bytes()
+    if expected_receipt_sha256 is None:
+        payload = (folder / "receipt.json").read_bytes()
+    else:
+        receipt, payload = _context_json(
+            folder / "receipt.json",
+            16 * 1024 * 1024,
+            label="campaign native receipt",
+        )
+        if hashlib.sha256(payload).hexdigest() != expected_receipt_sha256:
+            raise ValueError("campaign inventory SHA differs from original reference")
     terminal = json.loads((folder / "lane-terminal.json").read_text())
     request_payload = (
         json.dumps(request, indent=2, ensure_ascii=False) + "\n"
@@ -3855,7 +3870,8 @@ def _ci_lane_closed(
         or (folder / "request.json").read_bytes() != request_payload
     ):
         raise ValueError("closed canonical lane receipt/request binding differs")
-    receipt = json.loads(payload)
+    if expected_receipt_sha256 is None:
+        receipt = json.loads(payload)
     selectors = context.manifest.get("collection_args", [])
     if context.owner:
         _ci_owner_reports(receipt, selectors)

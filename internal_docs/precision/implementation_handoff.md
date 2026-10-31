@@ -21,7 +21,42 @@ The [30 October temporary transition amendment](ci_execution_plan.md#temporary-t
 permits one bounded candidate qualification alongside the authoritative old eight
 jobs; it does not activate a gate.
 
-## Current checkpoint — 2026-10-30
+## Current CI578 repair status — 2026-10-31
+
+Published `8578c47a` / [CI578](https://github.com/enpasos/jax2onnx/actions/runs/41173158463)
+has **seven STANDARD successes / locked312 FAILURE**. Locked311/313/314 whole
+jobs succeed in **1,061/993/1,049 seconds**, each below 1,200 seconds
+([job API snapshot](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-8578c47a-watch-uJvj63pA/jobs-20261031T073238Z.json)).
+Locked312 first crosses 4 GiB during WORK at **4,303,532,032 bytes**; its later
+cleanup peak is **4,310,863,872 bytes**. Original Omni has setup PASS only;
+**147 S cases close / 4,474 remain unclosed**. Cleanup is confirmed; OOM cause
+remains unverified. All 50 original optional IDs are assigned: 44 MaxText and
+five MaxDiffusion cases close, while Omni remains incomplete
+([primary accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-8578c47a-watch-uJvj63pA/locked312-failure-trigger-phase-accounting.json)).
+
+The strict single-decode C/O repair (`33ce072f` runner /
+`b58b6ae9` tests) removes a duplicate temporary decoded graph while preserving
+all native, original-byte, phase and context checks. The **complete controller
+test file has 212 PASS / zero failures, errors or skips on each official311/313
+family**, retaining all previous 203 controls plus nine new cases
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci578-single-decode-controls311-ff3661a0bd/qualification-closure.json),
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci578-single-decode-controls313-04444304f1/qualification-closure.json)).
+There are **211 shared literal IDs**; one existing provisioning-role case differs
+by cohort. Both resource, PID and protected-source/artifact closures pass.
+This establishes local validation semantics; **hosted RSS savings and exact-head
+full campaign acceptance remain PENDING**. Earlier bound-`e6f1120c`
+[preparation](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci578-actual-preparation-probe-ahuxa5wk/preparation-diagnostic-closure.json) and
+[context replay](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci578-genuine-context-replay-5rtvil1_/replay-diagnostic-closure.json)
+diagnose allocation overlap, not this candidate's acceptance.
+
+Preserve Main **S=4,621**, all 50 original optional IDs, original inputs/RNG42,
+criteria, cohorts, 4-GiB and 1,200-second budgets, and all audits. Next run ordinary
+quality and strict docs, make one normal seven-hook repair commit, then qualify
+**one full hosted campaign on that exact head**. No extra 500-second local
+recollection or A/B run is needed. All-eight acceptance remains FAILED; full
+B–F remains open and public LEGACY/gate activation stays HOLD.
+
+## Earlier CI577 checkpoint — 2026-10-30
 
 Published `506903cc` / [CI 577](https://github.com/enpasos/jax2onnx/actions/runs/41169144281)
 remains all-eight **FAILED**: seven STANDARD candidates succeed; locked312
