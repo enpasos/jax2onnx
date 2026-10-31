@@ -57,9 +57,9 @@ below 4 GiB
 ([failure closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-peak-attribution-d02cec65-it219t20/peak-attribution-failure-closure.json),
 `6ae33866…`).
 
-The next local candidate waits for each original MaxText `DenseGeneral`
-constructor only inside `get_maxtext_model`'s `from_config` scope. It calls the
-original constructor once, then uses public `nnx.state` and
+The initial local checkpoint `b6ce1fba` waits for the resolved MaxText
+`DenseGeneral` constructor only inside `get_maxtext_model`'s `from_config`
+scope. It calls the original constructor once, then uses public `nnx.state` and
 `jax.block_until_ready`; any tracer leaf bypasses the whole wait. The exact
 constructor is restored on normal, exceptional and nested exits. Initializer
 math, parameter values/dtypes/shapes, arguments, inputs and RNG consumption are
@@ -72,9 +72,31 @@ All **36 controls PASS on official311**
 **PASSES on the unchanged full optional312 profile with zero skips**
 ([closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/maxtext-ready-real312-kpgomylk/qualification-closure.json),
 `a27dc0c4…`). These are finite byte/dtype/shape/signed-zero, RNG, identity,
-tracing and restoration checks. Actual asynchronous backlog and RSS benefit
-remain unproven; **full-model resource qualification is PENDING**. Any next
-canonical run requires a real clean checkpoint and fresh source-bound manifest.
+tracing and restoration checks.
+
+Before any canonical model run at `b6ce1fba`, the pinned-source audit found that
+its uppercase-first resolver did not establish binding to AudioEncoder's
+lowercase `maxtext` imports. Case-varied paths on D share filesystem identities;
+distinct Python classes were possible, not measured. The correction prefers
+`maxtext.layers.linears.DenseGeneral` with the existing uppercase fallback,
+without rewriting package aliases. The audio constructor builds all **32
+layers**, with **1,280 model / 5,120 FFN dimensions** unchanged; its direct
+projections, attention and MLP use this class. Layer norms and three convolutions
+remain outside the candidate's boundary
+([source finding](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/maxtext-ready-canonical-class-source-x5mzyw1y/source-finding.json),
+`8eb934d9…`). All **37 controls PASS on official311/313**, including the
+distinct-module/class regression
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/maxtext-canonical-class-controls311-idwoc675/qualification-closure.json),
+`a4f1dc62…`;
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/maxtext-canonical-class-controls313-crnbehx3/qualification-closure.json),
+`2e4a89ae…`). The strengthened real312 probe **PASSES with zero skips**, binding
+the selected class and wrapped constructor to the actual audio, attention and
+MLP references, plus the original initializer/state/parameter/RNG assertions
+([closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/maxtext-canonical-class-real312-35qqbudv/qualification-closure.json),
+`b65ae1bd…`). Actual asynchronous backlog and RSS benefit remain unproven;
+**full-model resource qualification is PENDING**. No canonical model ran at
+`b6ce1fba`. The next run requires a real clean corrected checkpoint and fresh
+source-bound manifest.
 The **1,200-second whole-job / 4-GiB / 160-job-minute / 100-MiB** limits remain
 unchanged, as do the original profiles, coverage and all 50 optional-case
 obligations. Complete exact-head cohort validation remains required. Public

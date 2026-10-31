@@ -1512,8 +1512,8 @@ def _maxtext_construction_readiness() -> Iterator[None]:
         type[nnx.Module],
         _import_first_available(
             (
-                ("MaxText.layers.linears", "DenseGeneral"),
                 ("maxtext.layers.linears", "DenseGeneral"),
+                ("MaxText.layers.linears", "DenseGeneral"),
             )
         ),
     )

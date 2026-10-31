@@ -495,6 +495,51 @@ def test_model_builder_limits_dense_readiness_to_from_config(
     assert len(waits) == 1 and Dense.__init__ is original
 
 
+def test_dense_readiness_prefers_canonical_class_over_distinct_legacy_module(
+    monkeypatch,
+):
+    module = importlib.import_module("jax2onnx.plugins.examples.maxtext.maxtext_models")
+    calls, states, waits, imports = [], [], [], []
+
+    class CanonicalDense:
+        def __init__(self):
+            calls.append(self)
+
+    class LegacyDense:
+        def __init__(self):
+            calls.append(self)
+
+    native_import = module.importlib.import_module
+
+    def import_module(name, package=None):
+        if name == "maxtext.layers.linears":
+            imports.append(name)
+            return SimpleNamespace(DenseGeneral=CanonicalDense)
+        if name == "MaxText.layers.linears":
+            imports.append(name)
+            return SimpleNamespace(DenseGeneral=LegacyDense)
+        return native_import(name, package)
+
+    def state(instance):
+        states.append(instance)
+        return {}
+
+    monkeypatch.setattr(module.importlib, "import_module", import_module)
+    monkeypatch.setattr(module.nnx, "state", state)
+    monkeypatch.setattr(
+        module.jax, "block_until_ready", lambda state: waits.append(state)
+    )
+    canonical_init, legacy_init = CanonicalDense.__init__, LegacyDense.__init__
+    with module._maxtext_construction_readiness():
+        assert CanonicalDense.__init__ is not canonical_init
+        assert LegacyDense.__init__ is legacy_init
+        canonical, legacy = CanonicalDense(), LegacyDense()
+    assert calls == [canonical, legacy] and states == [canonical] and waits == [{}]
+    assert imports == ["maxtext.layers.linears"]
+    assert CanonicalDense.__init__ is canonical_init
+    assert LegacyDense.__init__ is legacy_init
+
+
 def test_real_maxtext_dense_readiness_parameter_parity():
     import jax
     import jax.numpy as jnp
@@ -506,16 +551,27 @@ def test_real_maxtext_dense_readiness_parameter_parity():
         pytest.skip("the optional MaxText source is unavailable")
     dense_general = module._import_first_available(
         (
-            ("MaxText.layers.linears", "DenseGeneral"),
             ("maxtext.layers.linears", "DenseGeneral"),
+            ("MaxText.layers.linears", "DenseGeneral"),
         )
     )
-    native_initializer = module._import_first_available(
+    # The pinned audio encoder and its attention/MLP layers import this class.
+    qwen3 = importlib.import_module("maxtext.models.qwen3")
+    audio_dense_classes = (
+        qwen3.DenseGeneral,
+        qwen3.Attention.init_query_w.__globals__["DenseGeneral"],
+        qwen3.MlpBlock.__init__.__globals__["DenseGeneral"],
+    )
+    assert all(cls is dense_general for cls in audio_dense_classes)
+    initializer_factory = module._import_first_available(
         (
-            ("MaxText.layers.initializers", "nd_dense_init"),
             ("maxtext.layers.initializers", "nd_dense_init"),
+            ("MaxText.layers.initializers", "nd_dense_init"),
         )
-    )(1.0, "fan_in", "uniform")
+    )
+    assert initializer_factory is qwen3.nd_dense_init
+    assert initializer_factory is qwen3.max_initializers.nd_dense_init
+    native_initializer = initializer_factory(1.0, "fan_in", "uniform")
 
     def query_initializer(*args):
         return native_initializer(*args) / jnp.asarray(2.0, dtype=args[2])
@@ -531,6 +587,10 @@ def test_real_maxtext_dense_readiness_parameter_parity():
             )
             with context:
                 assert (dense_general.__init__ is not original) is ready
+                assert all(
+                    cls.__init__ is dense_general.__init__
+                    for cls in audio_dense_classes
+                )
                 model = dense_general(
                     in_features_shape=2,
                     out_features_shape=3,
