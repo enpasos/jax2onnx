@@ -2,40 +2,37 @@
 
 ## Current published CI and local repair
 
-Published `62276cd8` runs CI587. All four focused EXTRA campaigns close at the
-recorded F=1,506: 6,021 PASS and three original cohort-applicability skips.
-STANDARD 3.14 closes its unchanged 4,573 assignments (4,562 PASS / 11 original
-skips) in 1,075 seconds for the whole job. STANDARD 3.11 and 3.13 instead hit
-the unchanged 1,100-second WORK deadline and are cancelled after 1,228 / 1,224
-seconds. Their final 453-case assignments remain unaccepted. The four original
-full jobs were still running at the last retained observation. These outcomes
-remain separate; overall STANDARD and gate activation are not qualified.
+Published `76564657` runs CI588. All eleven STANDARD compute jobs and three
+strict union jobs have terminal success at the retained 23:23:44 UTC observation.
+Four original full-suite jobs remain live. Complete STANDARD phase/source/resource
+proof and all compressed-upload accounting remain to be qualified; green job
+checks alone do not complete that review.
 
-The local repair uses the existing fixed serial-parts/join protocol for 3.11
-and 3.13, preserving full S and its order: 1,658 + 2,913 / 2,915, respectively.
-The existing 3.12 cut and sole 5-GiB exception remain unchanged; ordinary parts
-retain 4 GiB, 1,100-second WORK and 1,200-second whole-job limits. Local focused
-controls close 113 + one genuine tiny a/b/join per official 3.11/3.13 family,
-three actual 3.12 controls and one actual 3.14 rejection control. A new negative
-control's first message-order failure is preserved; its cohort-exact correction
-does not change production criteria. Literal F becomes 1567 through genuine
-changed-owner collections; original full-C epochs and complete R stay explicit.
-Next-head full-S timing and aggregate 160-job-minute / 100-MiB STANDARD budgets
-remain to be measured. See [the execution plan](ci_execution_plan.md#current-ci587-repair-checkpoint).
+All four focused EXTRA jobs fail at the same existing hook-failure control:
+it looks up the retired `locked311` matrix row instead of current quality owner
+`locked311-a`. The local test-only repair maps the 3.11/3.13 values to actual
+part-a rows while preserving the historical pytest IDs. Direct lookup and all
+marker/hook failure-before-optional-setup assertions remain strict, with explicit
+role/lane/part ownership checks. The entire affected owner passes all 115 cases
+on each official 3.11/3.13 family; genuine collections preserve exactly the old
+ordered 115 IDs. Workflow, runner, profiles, F=1,567, inputs, pins, skips and
+scientific criteria are unchanged. The four failed hosted outcomes remain failed;
+a fresh exact-head focused campaign is still required.
 
-The reviewed SOURCE publication exception from 2026-10-31 16:02:41 UTC does not
-waive new CI failures or scientific criteria. Historical BF16 failures remain
-failed where observed; the seven ordinary BF16 cases passed in CI585 without
-establishing an upstream repair. Native3/ORT2, 3,712 caller obligations,
-default-strict extrema, replay, models/artifacts and Node/Chrome work remain open.
+At predecessor `62276cd8`, CI587's four F=1,506 campaigns and STANDARD 3.14 were
+independently qualified in their narrow native-pytest scope. The retained 3.11/
+3.13 deadline failures led to the current fixed-parts layout; neither those old
+successes nor this local fixture repair qualify the current replacement.
+See [the execution plan](ci_execution_plan.md#current-ci588-repair-checkpoint).
 
-Current code still exposes LEGACY behavior. Development instructions retain a
-LEGACY bridge only where a concrete CI or reference comparison needs it, with
-its removal purpose recorded. Reviewed implementation in this unmerged branch
-need not wait for the entire contract to be qualified, and incompleteness alone
-creates no extra approval requirement. The complete compatibility, scientific
-and B–F contract remains required before merge; this CI repair changes no default
-or public API.
+Current LEGACY behavior is a fact, not a blanket restriction on development.
+Keep a LEGACY bridge only for a demonstrated CI/reference comparison, with its
+removal purpose recorded. Reviewed work in the unmerged branch needs no extra
+approval solely because the complete contract is unfinished. Full compatibility,
+numerical validation and independent B–F acceptance remain required before merge.
+Native3/ORT2, 3,712 caller obligations, default-strict extrema, complete A/R,
+replay, models/artifacts and Node/Chrome remain independently owned; current
+F-only outcomes do not assert scientific equivalence.
 
 ## Strict metadata accounting checkpoint — local implementation qualification
 

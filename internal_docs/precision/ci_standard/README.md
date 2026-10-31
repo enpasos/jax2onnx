@@ -2,14 +2,16 @@
 
 ## Current profiles and bounded repair
 
-Published `62276cd8` closes all four focused F=1,506 campaigns and STANDARD 3.14
-in CI587. STANDARD 3.11/3.13 hit the unchanged WORK and whole-job limits. The
-local successor applies the existing strict fixed-parts protocol to those two
-Main-owner profiles: 1,658 + 2,913 / 2,915 original S IDs, complete C/O per part,
-original hooks once in part a, and a strict same-head/attempt union. Existing
-3.12 parts/5-GiB exception, 3.14 and GLOBAL EXTRA profiles retain their roles.
-Next-head timing and all campaign budgets still require actual qualification.
-See [current evidence and limits](../ci_execution_plan.md#current-ci587-repair-checkpoint).
+Published `76564657` is qualifying the existing fixed-parts layout in CI588.
+All eleven compute jobs and three strict unions have terminal success at the
+retained 23:23:44 UTC observation; complete raw-receipt and aggregate compressed
+artifact verification remain pending. Four focused jobs
+fail in one stale hook-owner fixture. Its local test-only correction targets
+actual part-a rows while preserving every old pytest ID and strict failure
+assertion. The complete affected owner passes 115 cases per official 3.11/3.13
+family, with exact ordered owner collections. Workflow, runner and literal
+F=1,567 are unchanged. Fresh hosted F and complete STANDARD budgets are pending.
+See [current evidence and limits](../ci_execution_plan.md#current-ci588-repair-checkpoint).
 
 | Global profile | Original observed C | Projected C | Original S | Projected A | Literal F | R |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |

@@ -902,7 +902,13 @@ def test_candidate_quality_runs_once_per_locked_cohort_without_support_hooks(
 
 
 @pytest.mark.parametrize(
-    "candidate", ["locked311", "locked312-a", "locked313", "locked314"]
+    "candidate",
+    [
+        pytest.param("locked311-a", id="locked311"),
+        "locked312-a",
+        pytest.param("locked313-a", id="locked313"),
+        "locked314",
+    ],
 )
 @pytest.mark.parametrize("failure", ["markers", "hooks"])
 def test_candidate_quality_failure_stops_work_before_optional_setup(candidate, failure):
@@ -912,6 +918,9 @@ def test_candidate_quality_failure_stops_work_before_optional_setup(candidate, f
         for value in job["strategy"]["matrix"]["include"]
         if value["id"] == candidate
     )
+    assert entry["role"] == "locked"
+    assert entry.get("lane", "standard") == "standard"
+    assert entry.get("part") == (None if candidate == "locked314" else "a")
     result = subprocess.run(
         [
             "bash",

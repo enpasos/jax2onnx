@@ -1,68 +1,62 @@
 # Precision migration CI execution plan
 
-## Current CI587 repair checkpoint
+## Current CI588 repair checkpoint
 
-Published `62276cd8` runs [CI587](https://github.com/enpasos/jax2onnx/actions/runs/41243854804).
-The exact original-history object is now provisioned before the affected metadata
-work. All four complete focused campaigns at F=1,506 pass their native controls:
-6,021 PASS and three original applicability skips. Their whole-job spans total
-38.68 minutes and eight successful uploads total 37,972,019 bytes. This is
-F-only native execution, numerically NOT_ASSERTED and B–F UNVERIFIED; full A/R
-and the independent scientific gates remain required.
+Published `76564657` runs [CI588](https://github.com/enpasos/jax2onnx/actions/runs/41250900672).
+At the retained 23:23:44 UTC observation, all eleven STANDARD compute jobs and
+three strict union jobs have terminal success, including 3.14 at 1,076 whole-job
+seconds. The four original full suites are still running. Original raw receipts,
+exact-union/source/resource and complete compressed-upload accounting still
+require independent verification; green job checks alone do not qualify them.
 
-STANDARD 3.14 completes exactly S=4,573, with 4,562 PASS and 11 original skips.
-Its WORK is 1,063.071 seconds and whole job 1,075 seconds. Actual C=20,670 and
-O=4,808, all 188 complete modules, contexts/phases/JUnit and controlled resource
-closure were checked. No local or hosted speedup is inferred from this result.
+All four focused EXTRA jobs fail at the same existing workflow control,
+`test_candidate_quality_failure_stops_work_before_optional_setup`: its direct
+lookup still names retired matrix row `locked311`. This is a fixture regression,
+not a converter or numerical counterexample. The same adjacent consumer was
+already in the older literal F and was missed by the previous focused subset.
+The minimal correction supplies actual `locked311-a` / `locked313-a` values
+with explicit historical pytest IDs. It still performs a direct current-row
+lookup, proves locked/STANDARD/part-a ownership (3.14 remains unsplit), and
+requires exact marker73/hooks74 failure before optional setup. No fallback row,
+weaker failure expectation, skip or production change is introduced.
 
-STANDARD 3.11 and 3.13 fail the unchanged 1,100-second controlled deadline:
-1,103.667 / 1,105.378 seconds, cleanup confirmed, with no observed OOM or disk
-breach. Their run records cover 4,118 / 4,120 assignments; the final 453-case
-batch in each is wholly unaccepted. Whole-job cancellation at 1,228 / 1,224
-seconds also exceeds the 1,200-second requirement. Four original full jobs were
-still live at the last retained observation. Successful cohorts do not qualify
-these failed campaigns.
+The complete affected workflow owner passes 115 cases without skips on each
+official 3.11/3.13 family. Fresh phase-free owner collections preserve exactly
+the retained ordered 115 IDs. Decorator values changed; collection-declaration
+AST identity is not claimed. Global collection receipts keep their actual
+source epoch. No new global collection, F-data update, serial-parts/model rerun
+or scientific acceptance follows from these local controls. Literal F remains
+1,567 and all unmatched A remains R, including the seven scientific BF16 cases.
 
-The bounded successor extends the existing fixed serial-parts protocol to
-`py311-owners.json` and `py313-owners.json`, cutting after original batch seven.
-It preserves exact full S: 1,658 + 2,913 and 1,658 + 2,915. Each part performs
-genuine complete C/O and retains all original assignments, skips and numeric
-criteria. Strict joins validate same head/attempt/cohort, source/runtime/context,
-phases/JUnit, resource/cleanup and disjoint ordered reconstruction. Part a owns
-the original all-files hooks once per cohort. Existing 3.12 parts/5-GiB binding,
-3.14 and four EXTRA rows remain unchanged.
+The existing layout has eleven STANDARD compute jobs and three strict joins.
+Exact full S is reconstructed from 1,658 + 2,913 / 2,915 on 3.11/3.13 and the
+unchanged 216 + 4,405 on 3.12. Each part retains genuine complete C/O, original
+within-case behavior and skip/numerical criteria; part a owns all-files hooks
+once. The reviewed layout supersedes the historical 2026-10-30 eight-candidate /
+"Do not shard" scheduling amendment below. All parts and joins are one STANDARD
+campaign: report their complete actual whole-job spans and all compressed
+uploads against 160 job-minutes / 100 MiB, with every whole job at most 1,200
+seconds and WORK at most 1,100 seconds. Per-part timings alone do not qualify it.
+Ordinary parts stay at 4 GiB; the sole 3.12 profile-bound exception stays at 5 GiB.
+EXTRA retains its separate 2,000-second WORK / 35-minute whole / 4-GiB and
+160-minute / 100-MiB campaign limits. No limits or model inputs are reduced or
+raised by this fixture repair.
 
-Local controls pass 113 selected cases plus one real tiny a/b/join on each
-official 3.11/3.13 family; three actual 3.12 controls and one actual 3.14 rejection
-also pass. The first new 3.12 negative expectation failed at a stricter earlier
-guard; its raw failure is retained, and only the cohort-specific message was
-corrected. All completed positive branches and collection declarations remain
-bound to their actual source epochs. Genuine changed-owner collections extend
-literal F to 1567; this is a projection over retained original full C, not a new
-global observation or qualification of the expanded F.
+Historical CI587 at `62276cd8` qualified four complete F=1,506 native campaigns:
+6,021 PASS / three original applicability skips, 38.68 whole-job minutes and
+37,972,019 compressed bytes. STANDARD 3.14 closed 4,573 assignments with 4,562
+PASS / 11 original skips, WORK 1,063.071 seconds and whole job 1,075 seconds.
+The 3.11/3.13 deadline and cancellation outcomes remain failed; their final
+453-case assignments were unaccepted. These historical successes do not prove
+the current F=1,567 or replacement aggregate budgets. Earlier local O discovery
+was slower than C, and adds initial work; no collection-speed saving is claimed.
 
-This reviewed fixed-parts layout supersedes the historical 2026-10-30
-"Do not shard" / eight-candidate scheduling amendment below. Original case
-internals remain unchanged; exact full S is reconstructed by strict union.
-All parts and joins belong to one STANDARD campaign, so their actual whole-job
-spans and complete upload total must be reported together against its aggregate
-limits; per-part timings alone do not qualify the replacement.
-
-The next hosted candidate has eleven STANDARD compute jobs and three joins.
-Each stays within 1,100-second WORK / 1,200-second whole limits; ordinary
-3.11/3.13 parts stay at 4 GiB and the sole 3.12 exception stays at 5 GiB. Added
-setup, C/O, joins and all uploads must fit the unchanged 160-job-minute /
-100-MiB STANDARD campaign budgets. These costs and next-head full S remain
-unqualified. EXTRA keeps its separate 2,000-second WORK / 35-minute whole /
-4-GiB limits and 160-minute / 100-MiB budgets. No gate activation follows from
-the local repair.
-
-All unmatched A remains in complete R. Seven scientific BF16 cases,
-default-strict extrema, Native3/ORT2, 3,712 caller obligations, frozen replay,
-models/artifacts and Node/Chrome remain independently owned. The reviewed SOURCE
-publication exception waives no new CI regression. Temporary LEGACY bridges
-serve identified CI/reference comparisons; the complete contract is a merge
-gate, not a blanket prohibition on reviewed work inside this unmerged branch.
+Complete A/R, default-strict extrema, Native3/ORT2, current 3,712 caller
+obligations, frozen replay, models/artifacts and Node/Chrome remain required.
+The named SOURCE publication exception waives no new CI regression or scientific
+criterion. Temporary LEGACY bridges serve demonstrated CI/reference needs;
+the complete contract is a merge gate, not a blanket barrier to reviewed work
+inside this unmerged branch. Gate activation remains unqualified.
 
 ## Historical CI585 STANDARD result and initial EXTRA profile data
 
