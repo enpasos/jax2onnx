@@ -2412,8 +2412,10 @@ def test_main_owner_campaign_preserves_complete_C_and_inside_outside_extras(tmp_
         "test_a_owner.py::test_inside_extra",
         "test_z_extra.py::test_outside_extra",
     ]
-    assert campaign.inventory["full_items"] == owner["full_items"]
-    assert campaign.global_inventory == global_receipt
+    assert (
+        campaign._load_inventory("owner_inventory")["full_items"] == owner["full_items"]
+    )
+    assert campaign._load_inventory("global_inventory") == global_receipt
     assert campaign.collection(copy.deepcopy(owner)) == (
         campaign.standard,
         campaign.extra,
@@ -2421,6 +2423,8 @@ def test_main_owner_campaign_preserves_complete_C_and_inside_outside_extras(tmp_
     batch, assigned, junit = _campaign_batch(tmp_path, owner)
     campaign.batch(batch, assigned, junit)
     campaign.recheck()
+    assert "inventory" not in vars(campaign)
+    assert "global_inventory" not in vars(campaign)
 
 
 @pytest.mark.parametrize(
