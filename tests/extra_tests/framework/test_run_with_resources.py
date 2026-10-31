@@ -57,7 +57,7 @@ def _command(tmp_path, code, *, options=(), arguments=(), environment=None):
     return result, summary, output
 
 
-def _injected_command(tmp_path, patch, child_code):
+def _injected_command(tmp_path, patch, child_code, *, options=()):
     cwd = tmp_path / "cwd"
     cwd.mkdir()
     output = tmp_path / "resources"
@@ -65,7 +65,7 @@ def _injected_command(tmp_path, patch, child_code):
 spec=importlib.util.spec_from_file_location('resource_observer',{str(_SCRIPT)!r})
 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 {patch}
-sys.argv=['observer','--output-dir',{str(output)!r},'--timeout-seconds','10','--',sys.executable,'-B','-c',{child_code!r}]
+sys.argv=['observer','--output-dir',{str(output)!r},'--timeout-seconds','10',*{list(options)!r},'--',sys.executable,'-B','-c',{child_code!r}]
 raise SystemExit(module._main())
 """
     result = subprocess.run(
@@ -97,6 +97,8 @@ def test_ordinary_command_preserves_argv_environment_cwd_and_streams(tmp_path):
     ]
     assert result.stderr == "child stderr\n"
     assert summary["qualification"] == "PASS" and summary["child_returncode"] == 0
+    assert summary["limits"]["rss_mib"] == 4096
+    assert "diagnostic_only" not in summary
     assert summary["cleanup_confirmed"] and summary["remaining_descendants"] == []
     rows = [
         json.loads(line) for line in (output / "samples.jsonl").read_text().splitlines()
@@ -140,6 +142,114 @@ def test_nonzero_child_status_is_preserved_separately_from_observation(tmp_path,
     assert result.returncode == code == summary["child_returncode"]
     assert summary["status"] == "COMPLETE"
     assert summary["qualification"] == "FAIL_OR_INCOMPLETE"
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ("--max-rss-mib", "5120", "--min-available-mib", "8192"),
+        ("--diagnostic-only", "--max-rss-mib", "5121", "--min-available-mib", "8192"),
+        (
+            "--diagnostic-only",
+            "--max-rss-mib",
+            "5120",
+            "--min-available-mib",
+            "8192",
+            "--timeout-seconds",
+            "1101",
+        ),
+        ("--diagnostic-only", "--max-rss-mib", "5120", "--min-available-mib", "8191"),
+        (
+            "--diagnostic-only",
+            "--max-rss-mib",
+            "5120",
+            "--min-available-mib",
+            "8192",
+            "--min-disk-free-mib",
+            "4095",
+        ),
+        ("--diagnostic-only", "--max-rss-mib", "4096", "--min-available-mib", "8192"),
+    ],
+    ids=[
+        "missing-opt-in",
+        "rss-above5120",
+        "work-above1100",
+        "live-below8192",
+        "disk-below4096",
+        "diagnostic-cap-not5120",
+    ],
+)
+def test_diagnostic_cli_rejects_invalid_limits_before_child(tmp_path, options):
+    marker = tmp_path / "must-not-run"
+    result, summary, output = _command(
+        tmp_path,
+        f"from pathlib import Path;Path({str(marker)!r}).touch()",
+        options=options,
+    )
+    assert result.returncode == 2 and "bounded STANDARD" in result.stderr
+    assert summary is None and not output.exists() and not marker.exists()
+
+
+def _diagnostic_capacity_patch(available_kib):
+    return f"""original_kernel=module._kernel
+def kernel_with_mock_capacity():
+    value=original_kernel()
+    value['memory']['MemAvailable']={available_kib}
+    return value
+module._kernel=kernel_with_mock_capacity
+"""
+
+
+@pytest.mark.parametrize("code", [0, 7])
+def test_diagnostic_cli_keeps_child_status_unqualified_with_mock_capacity(
+    tmp_path, code
+):
+    result, summary, _ = _injected_command(
+        tmp_path,
+        _diagnostic_capacity_patch(12288 * 1024),
+        f"print('diagnostic child');raise SystemExit({code})",
+        options=(
+            "--diagnostic-only",
+            "--max-rss-mib",
+            "5120",
+            "--min-available-mib",
+            "8192",
+        ),
+    )
+    assert result.returncode == (125 if code == 0 else code)
+    assert result.stdout == "diagnostic child\n"
+    assert summary["status"] == "COMPLETE" and summary["child_returncode"] == code
+    assert summary["qualification"] == summary["standard_acceptance"] == "UNQUALIFIED"
+    assert summary["standard_acceptance_rss_mib"] == 4096
+    assert summary["limits"]["rss_mib"] == 5120
+    assert summary["limits"]["host_available_mib"] == 8192
+    assert summary["limits"]["initial_host_available_mib"] == 12288
+    assert summary["initial_host_available_bytes"] == 12288 * 1024**2
+    assert summary["cleanup_confirmed"] and not summary["errors"]
+
+
+def test_diagnostic_initial_capacity_rejection_precedes_child(tmp_path):
+    marker = tmp_path / "must-not-run"
+    result, summary, _ = _injected_command(
+        tmp_path,
+        _diagnostic_capacity_patch(12288 * 1024 - 1),
+        f"from pathlib import Path;Path({str(marker)!r}).touch()",
+        options=(
+            "--diagnostic-only",
+            "--max-rss-mib",
+            "5120",
+            "--min-available-mib",
+            "8192",
+        ),
+    )
+    assert result.returncode == 125 and summary["child_returncode"] is None
+    assert not marker.exists()
+    assert summary["qualification"] == "UNQUALIFIED"
+    assert (
+        "ObservationError: diagnostic initial 12 GiB availability floor"
+        in summary["errors"]
+    )
+    assert summary["cleanup_confirmed"]
 
 
 def test_process_vectors_do_not_bypass_the_sample_evidence_bound(tmp_path):

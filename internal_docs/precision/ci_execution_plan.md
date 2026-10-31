@@ -1,5 +1,25 @@
 # Precision migration CI execution plan
 
+## CI580 admission correction — no model observation yet
+
+At exact `027d92eb`, [CI580](https://github.com/enpasos/jax2onnx/actions/runs/41188009953)
+stopped locked312 after 14 seconds: the initial 12-GiB capacity check passed,
+but the observer's unchanged CLI ceiling rejected 5,120 MiB before setup/C/O
+or any model execution ([primary packet](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-027d92eb-watch-zMeCkRQP/locked312-early-admission-failure.json)).
+There has been **no complete 5-GiB model observation**. The existing observer
+now requires explicit diagnostic opt-in, enforces 12-GiB initial/8-GiB live
+availability, a 4-GiB disk floor and at most 1,100 seconds, and records the
+actual 5,120-MiB execution limit. It remains **UNQUALIFIED** and exits nonzero
+even for child success. Default STANDARD admission stays at 4,096 MiB and
+1,200 seconds. The workflow passes this opt-in only to locked312; original
+inputs, C/O/S, all batches, criteria and one-observation scope are unchanged.
+
+The complete observer test file and eight affected workflow branches have
+**46 PASS / zero skips** ([focused closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci580-observer-cli-focused311-xdo5sp0l/qualification-closure.json)).
+A separate unmodified official312 CLI probe completed a trivial child with
+raw 5,120-MiB limits, child exit zero, observer exit 125 and UNQUALIFIED status.
+This verifies admission and closure only; full Omni/hosted RSS acceptance remains open.
+
 ## CI579 follow-up: unchanged acceptance, one observational execution
 
 Published `a612d5e4` / [CI579](https://github.com/enpasos/jax2onnx/actions/runs/41182937914)

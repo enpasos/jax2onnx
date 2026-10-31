@@ -205,17 +205,25 @@ def test_execution_limits_change_only_for_locked312(candidate):
             "-c",
             'python() { printf "capacity probe stub\\n"; }\n'
             + prelude
-            + '\nprintf "%s %s\\n" "$execution_rss_mib" "$live_available_mib"',
+            + '\nprintf "%s %s %s\\n" "$execution_rss_mib" "$live_available_mib" "${diagnostic_args[*]}"',
         ],
         env={**os.environ, "CANDIDATE_ID": candidate},
         text=True,
         capture_output=True,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[-1] == (
-        "5120 8192" if candidate == "locked312" else "4096 2048"
+    assert result.stdout.splitlines()[-1].split() == (
+        ["5120", "8192", "--diagnostic-only"]
+        if candidate == "locked312"
+        else ["4096", "2048"]
     )
     assert result.stdout.count("capacity probe stub") == (candidate == "locked312")
+    assert (
+        '"${diagnostic_args[@]}"'
+        in work.split("python -B scripts/run_with_resources.py", 1)[1].split(
+            "--output-dir", 1
+        )[0]
+    )
 
 
 @pytest.mark.parametrize("available_kib", [12288 * 1024 - 1, 12288 * 1024])

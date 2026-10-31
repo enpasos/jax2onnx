@@ -480,7 +480,11 @@ def _commit_summary(
                 pending = signal.sigpending() & watched
             if requested:
                 summary["status"] = "INCOMPLETE"
-                summary["qualification"] = "FAIL_OR_INCOMPLETE"
+                summary["qualification"] = (
+                    "UNQUALIFIED"
+                    if summary.get("diagnostic_only")
+                    else "FAIL_OR_INCOMPLETE"
+                )
                 if "observer interrupted" not in summary["errors"]:
                     summary["errors"].append("observer interrupted")
                 result = 125
@@ -531,6 +535,13 @@ def _run(args: Any, output: Path) -> tuple[int, int | None]:
         "cgroup_before": _cgroup(),
         "cgroup_after": None,
     }
+    if args.diagnostic_only:
+        summary.update(
+            diagnostic_only=True,
+            standard_acceptance="UNQUALIFIED",
+            standard_acceptance_rss_mib=4096,
+        )
+        summary["limits"]["initial_host_available_mib"] = 12288
     tree = None
     leader = None
     prior_subreaper = None
@@ -557,6 +568,12 @@ def _run(args: Any, output: Path) -> tuple[int, int | None]:
             raise ObservationError("Linux subreaper admission failed")
         baseline = _kernel()
         summary["kernel_before"] = baseline
+        if args.diagnostic_only:
+            summary["initial_host_available_bytes"] = (
+                baseline["memory"]["MemAvailable"] * 1024
+            )
+            if summary["initial_host_available_bytes"] < 12288 * 1024**2:
+                raise ObservationError("diagnostic initial 12 GiB availability floor")
 
         def interrupted(signum: int, frame: Any) -> None:
             if not requested_signal:
@@ -760,10 +777,16 @@ def _run(args: Any, output: Path) -> tuple[int, int | None]:
             "PASS" if summary["child_returncode"] == 0 else "FAIL_OR_NOT_STARTED"
         )
         summary["qualification"] = (
-            "PASS"
-            if summary["status"] == "COMPLETE" and summary["child_returncode"] == 0
-            else "FAIL_OR_INCOMPLETE"
+            "UNQUALIFIED"
+            if args.diagnostic_only
+            else (
+                "PASS"
+                if summary["status"] == "COMPLETE" and summary["child_returncode"] == 0
+                else "FAIL_OR_INCOMPLETE"
+            )
         )
+        if args.diagnostic_only and result == 0:
+            result = 125
         result, observed_signal = _commit_summary(
             output, summary, requested_signal, result, handlers
         )
@@ -775,6 +798,11 @@ def _main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=float, required=True)
     parser.add_argument("--max-rss-mib", type=int, default=4096)
+    parser.add_argument(
+        "--diagnostic-only",
+        action="store_true",
+        help="Explicit 5 GiB observation only; never STANDARD acceptance or exit zero",
+    )
     parser.add_argument("--min-available-mib", type=int, default=2048)
     parser.add_argument("--min-disk-free-mib", type=int, default=4096)
     parser.add_argument("--disk-path", type=Path, action="append", default=[])
@@ -784,13 +812,18 @@ def _main() -> int:
         args.command = args.command[1:]
     if (
         not args.command
-        or not 0 < args.timeout_seconds <= 1200
-        or not 0 < args.max_rss_mib <= 4096
-        or args.min_available_mib < 2048
+        or not 0 < args.timeout_seconds <= (1100 if args.diagnostic_only else 1200)
+        or not (
+            args.max_rss_mib == 5120
+            if args.diagnostic_only
+            else 0 < args.max_rss_mib <= 4096
+        )
+        or args.min_available_mib < (8192 if args.diagnostic_only else 2048)
         or args.min_disk_free_mib < 4096
     ):
         parser.error(
-            "command and bounded 1200s/4GiB/2GiB-headroom/4GiB-disk limits required"
+            "command and bounded STANDARD 1200s/4GiB/2GiB-headroom/4GiB-disk "
+            "or explicit diagnostic 1100s/5GiB/8GiB-headroom/4GiB-disk limits required"
         )
     if os.path.lexists(args.output_dir):
         parser.error("resource evidence destination must be fresh")
