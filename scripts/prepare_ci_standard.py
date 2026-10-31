@@ -139,6 +139,7 @@ def _cohort(
         | ({"support_role", "collection_args"} if support else set())
         | ({"node_runtime"} if node else set())
         | ({"collection_args"} if owner else set())
+        | ({"standard_parts"} if owner and "standard_parts" in data else set())
         or data["schema"]
         not in {
             "jax2onnx-ci-standard-cohort-v1",
@@ -343,6 +344,7 @@ def _manifest(
     node_prefix: Path | None = None,
     *,
     collection_scope: str | None = None,
+    standard_part: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     runner = _runner()
     root = root.resolve(strict=True)
@@ -364,6 +366,39 @@ def _manifest(
     ):
         raise ValueError("only an approved Main-owner cohort has two collection scopes")
     owner_rendering = owner and collection_scope != "global"
+    part_marker = None
+    if "standard_parts" in data:
+        if (
+            not owner
+            or data["python_minor"] != "3.12"
+            or standard_part not in {"a", "b"}
+        ):
+            raise ValueError(
+                "reviewed split cohort requires exactly one fixed STANDARD part"
+            )
+        parts = runner._ci_standard_parts(baseline["nodeids"], data["standard_parts"])
+        run_id, attempt = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get(
+            "GITHUB_RUN_ATTEMPT", ""
+        )
+        if any(
+            re.fullmatch("[1-9][0-9]*", value) is None for value in (run_id, attempt)
+        ):
+            raise ValueError(
+                "STANDARD part needs the actual hosted run/attempt identity"
+            )
+        part_marker = {
+            "id": standard_part,
+            "profile": path.relative_to(root).as_posix(),
+            "profile_sha256": read_bindings[path],
+            "split_after": data["standard_parts"]["split_after"],
+            "full_s_sha256": runner._ci_standard_ids_digest(baseline["nodeids"]),
+            "assigned_sha256": runner._ci_standard_ids_digest(parts[standard_part]),
+            "checkout": event_sha,
+            "run_id": run_id,
+            "run_attempt": attempt,
+        }
+    elif standard_part is not None:
+        raise ValueError("unsplit cohort cannot accept a STANDARD part")
     if any(
         sources.get(read_path.relative_to(root).as_posix()) != digest
         for read_path, digest in read_bindings.items()
@@ -420,6 +455,7 @@ def _manifest(
         runner._ci_node_check(root, node, reference, full=True)
     return {
         "schema": "jax2onnx-ci-baseline-v1",
+        **({"standard_part": part_marker} if part_marker is not None else {}),
         "baseline_commit": data["baseline_commit"],
         "python_minor": data["python_minor"],
         "nodeids": baseline["nodeids"],
@@ -449,6 +485,7 @@ def _main() -> int:
     parser.add_argument("--maxdiffusion-source", type=Path)
     parser.add_argument("--node-prefix", type=Path)
     parser.add_argument("--collection-scope", choices=("main-owners", "global"))
+    parser.add_argument("--ci-standard-part", choices=("a", "b"))
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if os.path.lexists(args.output):
@@ -472,6 +509,7 @@ def _main() -> int:
         optional,
         args.node_prefix,
         collection_scope=args.collection_scope,
+        standard_part=args.ci_standard_part,
     )
     with output.open("x") as stream:
         stream.write(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")

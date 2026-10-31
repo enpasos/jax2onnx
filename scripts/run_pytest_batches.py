@@ -12,7 +12,7 @@ No retry or resource-limit change can turn an incomplete run into success.
 import argparse
 import ast
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -110,6 +110,9 @@ _CI_VOLATILE_ENV_NAMES = frozenset(
 )
 _WORKER_SOURCE_FILES = (
     "scripts/run_pytest_batches.py",
+    "scripts/_ci_standard_execution.py",
+    "scripts/run_with_resources.py",
+    "scripts/prepare_ci_standard.py",
     "scripts/_source_cast_observer.py",
     "scripts/_source_cast_postmortem.py",
     "tests/extra_tests/converter/test_source_conversion_semantics.py",
@@ -639,6 +642,16 @@ def _worker(request_path: Path) -> int:
             raise ValueError(
                 "Main-owner workers execute only their assigned STANDARD counterparts"
             )
+        if request["kind"] == "batch" and "standard_part" in lane_context.manifest:
+            assigned = request.get("assigned", [])
+            if assigned != [
+                nodeid
+                for nodeid in lane_context.standard_ids
+                if nodeid in set(assigned)
+            ]:
+                raise ValueError(
+                    "worker assignment is outside its ordered STANDARD part"
+                )
         lane_context.observe_node(startup_context)
         lane_context.check_snapshot(startup_context, stage="startup")
     # Import pytest only inside disposable collection/execution children.
@@ -1403,6 +1416,45 @@ def _worker(request_path: Path) -> int:
     return result
 
 
+def _primary_results(root: Path, run: dict[str, Any]) -> None:
+    """Retain small original files before the workflow packs bulk failure data."""
+    selected = []
+    for index, assigned in enumerate(run.get("batches", []), 1):
+        if _MAXTEXT_OMNI_NODE in assigned:
+            selected.append(f"batch-{index:04d}")
+    if run["processes"]:
+        selected.append(run["processes"][-1]["folder"])
+    target = root / "primary"
+    target.mkdir(exist_ok=True)
+    index = {
+        "scope": "bounded copies; original run files remain authoritative",
+        "files": [],
+    }
+    remaining = 32 * 1024**2
+    for folder in dict.fromkeys(selected):
+        for name in ("request.json", "receipt.json", "lane-terminal.json", "junit.xml"):
+            source = root / folder / name
+            if not source.is_file():
+                continue
+            size = source.stat().st_size
+            record = {"path": f"{folder}/{name}", "bytes": size}
+            if size > min(16 * 1024**2, remaining):
+                record["status"] = "OMITTED_FROM_BOUNDED_COPY; original retained"
+            else:
+                payload = source.read_bytes()
+                if len(payload) != size:
+                    raise ValueError("primary evidence changed while copying")
+                destination = target / folder
+                destination.mkdir(exist_ok=True)
+                (destination / name).write_bytes(payload)
+                record.update(
+                    status="COPIED", sha256=hashlib.sha256(payload).hexdigest()
+                )
+                remaining -= size
+            index["files"].append(record)
+    _write(target / "index.json", index)
+
+
 def _child(
     folder: Path,
     request: dict[str, Any],
@@ -1562,8 +1614,543 @@ def _child(
     return result
 
 
+def _ci_worker_source_files() -> tuple[Path, dict[str, Any]]:
+    """Use the actual recorder's root and one read for each length/digest pair."""
+    root = Path(__file__).resolve(strict=True).parents[1]
+    bindings = {}
+    for relative in _WORKER_SOURCE_FILES:
+        path = (root / relative).resolve(strict=True)
+        payload = _context_read(path)
+        bindings[relative] = {
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+    return root, bindings
+
+
+def _ci_standard_batch_size(profile: str, batch_size: int) -> None:
+    if (
+        profile == "internal_docs/precision/ci_standard/py312-owners.json"
+        and batch_size != 500
+    ):
+        raise ValueError("hosted STANDARD parts require original 500-case batching")
+
+
+def _ci_standard_resource(summary: Any) -> None:
+    """Accept closed ordinary work, including its cleanup and real capacity."""
+    limits = summary.get("limits", {})
+    if (
+        summary.get("status") != "COMPLETE"
+        or summary.get("qualification") != "PASS"
+        or summary.get("command_status") != "PASS"
+        or summary.get("child_returncode") != 0
+        or summary.get("guard_result_code") != 0
+        or summary.get("errors") != []
+        or summary.get("cleanup_confirmed") is not True
+        or summary.get("remaining_descendants") != []
+        or summary.get("diagnostic_only", False) is not False
+        or not 0 < limits.get("timeout_seconds", 0) <= 1100
+        or not 0 < limits.get("rss_mib", 0) <= 5120
+        or limits.get("host_available_mib", 0) < 8192
+        or limits.get("disk_free_mib", 0) < 4096
+        or not 0 <= summary.get("elapsed_seconds", -1) <= 1100
+        or not 0 < summary.get("peak_owned_rss_bytes", 0) <= limits["rss_mib"] * 1024**2
+        or summary.get(
+            "initial_host_available_bytes",
+            summary.get("kernel_before", {}).get("memory", {}).get("MemAvailable", 0)
+            * 1024,
+        )
+        < 12288 * 1024**2
+        or summary.get("minimum_host_available_bytes", 0) < 8192 * 1024**2
+        or not summary.get("disk_free_minima")
+        or min(summary["disk_free_minima"].values()) < 4096 * 1024**2
+        or summary.get("sample_interval_seconds") != 0.2
+    ):
+        raise ValueError(
+            "STANDARD part resource/cleanup/capacity closure is incomplete"
+        )
+    host = summary.get("host_vmstat_deltas", {})
+    if set(host) != {"pswpin", "pswpout", "oom_kill"}:
+        raise ValueError("STANDARD part host observations are incomplete")
+    for value in host.values():
+        if value.get("status") != "OBSERVED" or value.get("value") != 0:
+            raise ValueError("STANDARD part shared-host swap/OOM observation changed")
+    cgroup = summary.get("cgroup_deltas", {})
+    if (
+        cgroup.get("status") != "OBSERVED_SHARED"
+        or cgroup.get("swap_growth") is not False
+    ):
+        raise ValueError("STANDARD part cgroup observation is incomplete")
+    for key in ("memory.events", "memory.events.local"):
+        events = cgroup.get(key, {})
+        if any(
+            events.get(name) != {"status": "OBSERVED", "value": 0}
+            for name in ("oom", "oom_kill", "oom_group_kill")
+        ):
+            raise ValueError("STANDARD part observed an OOM event")
+
+
+def _ci_standard_job_times(observations: Any, marker: dict[str, Any]) -> dict[str, Any]:
+    jobs = observations.get("jobs")
+    if (
+        type(jobs) is not list
+        or observations.get("total_count") != len(jobs)
+        or len(jobs) > 100
+    ):
+        raise ValueError(
+            "complete current-attempt Actions jobs observation is required"
+        )
+    result = {}
+    for part in ("a", "b"):
+        name = f"candidate STANDARD (locked312 serial part {part} (5GiB))"
+        matches = [job for job in jobs if job.get("name") == name]
+        if len(matches) != 1:
+            raise ValueError("Actions part job is missing or duplicated")
+        job = matches[0]
+        if type(job.get("id")) is not int or job["id"] <= 0:
+            raise ValueError("Actions part job ID must be positive")
+        if (
+            str(job.get("run_id")) != marker["run_id"]
+            or str(job.get("run_attempt")) != marker["run_attempt"]
+            or job.get("head_sha") != marker["checkout"]
+            or job.get("status") != "completed"
+            or job.get("conclusion") != "success"
+        ):
+            raise ValueError("Actions part job head/attempt/status differs")
+        start = datetime.fromisoformat(job["started_at"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(job["completed_at"].replace("Z", "+00:00"))
+        elapsed = (end - start).total_seconds()
+        if start.tzinfo is None or end.tzinfo is None or not 0 < elapsed <= 1200:
+            raise ValueError("Actions part whole-job 1200 second bound failed")
+        result[part] = {
+            "id": job["id"],
+            "started_at": job["started_at"],
+            "completed_at": job["completed_at"],
+            "elapsed_seconds": elapsed,
+        }
+    if result["a"]["id"] == result["b"]["id"]:
+        raise ValueError("Actions part job IDs must be distinct")
+    return result
+
+
+def _ci_join_standard_parts(
+    inputs: list[Path], profile: Path, output: Path, *, job_observations: Path | None
+) -> int:
+    """Recheck two closed native campaigns; counts alone never qualify their union."""
+    checkout = Path.cwd().resolve()
+    if os.path.lexists(output) or output.resolve().is_relative_to(checkout):
+        raise ValueError("STANDARD join output must be fresh and external")
+    output.mkdir(parents=True)
+    result: dict[str, Any] = {
+        "status": "FAIL",
+        "started": _now(),
+        "scope": "two fixed STANDARD parts; native pytest outcomes only",
+        "numerical_acceptance": "NOT_ASSERTED",
+        "full_B_to_F_acceptance": "UNVERIFIED",
+        "campaign_160_job_minutes_and_100_MiB": "UNVERIFIED until whole Actions run closes",
+        "inputs": [],
+    }
+    bindings: dict[Path, str] = {}
+
+    def read(path: Path, limit: int = 16 * 1024**2) -> Any:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("STANDARD join input must be a regular original file")
+        data, payload = _context_json(path, limit, label="STANDARD join evidence")
+        path = path.resolve(strict=True)
+        digest = hashlib.sha256(payload).hexdigest()
+        if path in bindings and bindings[path] != digest:
+            raise ValueError("STANDARD join evidence changed during verification")
+        bindings[path] = digest
+        return data
+
+    def held(path: Path, proof: Any) -> None:
+        if (
+            type(proof) is not dict
+            or proof.get("errors") != []
+            or proof.get("before") != proof.get("after")
+            or not _ci_node_digest(proof.get("sha256"))
+        ):
+            raise ValueError("native transport file was not held at original closure")
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("native transport original file is not regular")
+        payload = _context_read(path, 64 * 1024**2)
+        if hashlib.sha256(payload).hexdigest() != proof["sha256"]:
+            raise ValueError("native transport original file bytes differ")
+        bindings[path.resolve(strict=True)] = proof["sha256"]
+
+    try:
+        if "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR" in os.environ:
+            raise ValueError("join never creates native model transport authority")
+        profile = profile.resolve(strict=True)
+        data = read(profile, 4 * 1024**2)
+        roots = [path.resolve(strict=True) for path in inputs]
+        if len(roots) != 2 or len(set(roots)) != 2:
+            raise ValueError("join needs two distinct original RUN roots")
+        head = subprocess.check_output(
+            ["git", "--no-optional-locks", "rev-parse", "HEAD"], cwd=checkout, text=True
+        ).strip()
+        observations = read(job_observations, 2 * 1024**2) if job_observations else None
+        common = None
+        all_ids: list[str] = []
+        full_s: list[str] | None = None
+        observed_parts = []
+        for root in roots:
+            if root.is_relative_to(checkout) or root.is_symlink():
+                raise ValueError("join requires original external RUNs")
+            run = read(root / "run.json")
+            marker = run.get("standard_part")
+            if type(marker) is not dict or marker.get("id") not in {"a", "b"}:
+                raise ValueError("RUN has no explicit fixed part identity")
+            part = marker["id"]
+            observed_parts.append(part)
+            if (
+                run.get("status") != "PASS"
+                or run.get("checked_out_commit") != head
+                or marker.get("checkout") != head
+                or marker.get("profile") != profile.relative_to(checkout).as_posix()
+                or marker.get("profile_sha256") != bindings[profile]
+                or run.get("standard_part_acceptance") != "PART_ONLY_JOIN_REQUIRED"
+                or run.get("numerical_acceptance") != "NOT_ASSERTED"
+                or run.get("full_B_to_F_acceptance") != "UNVERIFIED"
+                or any(
+                    run.get(key)
+                    for key in (
+                        "native_model_transport_errors",
+                        "native_model_transport_resource_errors",
+                    )
+                )
+            ):
+                raise ValueError("STANDARD part RUN/source/status binding differs")
+            if marker.get("run_id") != os.environ.get("GITHUB_RUN_ID") or marker.get(
+                "run_attempt"
+            ) != os.environ.get("GITHUB_RUN_ATTEMPT"):
+                raise ValueError("STANDARD part belongs to another run or attempt")
+            manifest_path = Path(run["ci_lane"]["manifest_path"])
+            manifest = read(manifest_path)
+            if manifest.get("standard_part") != marker:
+                raise ValueError("RUN part marker differs from its closed authority")
+            context = _CiLaneContext(
+                manifest_path,
+                checkout,
+                environment=manifest["environment"],
+                expected_sha256=run["ci_lane"]["manifest_sha256"],
+            )
+            context.recheck(environment=manifest["environment"])
+            provision = _CiCampaignProvision(profile, context, root)
+            if (
+                run["ci_campaign"].get("provision_source") != str(profile)
+                or run["ci_campaign"].get("provision_sha256") != provision.sha256
+            ):
+                raise ValueError(
+                    "STANDARD part provision source differs from the supplied profile"
+                )
+            _ci_standard_batch_size(marker["profile"], run["batch_size"])
+            if not context.owner or run["ci_lane"].get("lane") != "standard":
+                raise ValueError("STANDARD parts require Main-owner authority")
+            assigned = context.standard_ids
+            parts = _ci_standard_parts(
+                context.manifest["nodeids"], data["standard_parts"]
+            )
+            if (
+                assigned != parts[part]
+                or run.get("part_nodeids") != assigned
+                or run.get("completed") != assigned
+                or run.get("lane_nodeids") != context.manifest["nodeids"]
+            ):
+                raise ValueError(
+                    "STANDARD part completion differs from full-S authority"
+                )
+            contract = Path(run["ci_campaign"]["contract_path"])
+            read(contract, 65536)
+            campaign = _CiCampaignContext(contract, context, run=root)
+            if campaign.sha256 != run["ci_campaign"]["contract_sha256"]:
+                raise ValueError("STANDARD part campaign contract changed")
+            owner = read(root / "collection/receipt.json")
+            campaign.collection(owner)
+            global_receipt = read(root / "global-collection/receipt.json")
+            for path, _digest in campaign.references.values():
+                read(path)
+            # Original C/O records may have different PIDs/paths/times, but their
+            # complete inventories and within-worker collector order must agree.
+            inventory = {
+                name: {
+                    key: receipt[key]
+                    for key in (
+                        "full_preselection_ids",
+                        "full_items",
+                        "items",
+                        "selected_ids",
+                        "collection_skips",
+                    )
+                }
+                for name, receipt in (("C", global_receipt), ("O", owner))
+            }
+            inventory["O"]["collection_reports"] = owner["collection_reports"]
+            comparable = {
+                "marker": {
+                    key: value
+                    for key, value in marker.items()
+                    if key not in {"id", "assigned_sha256"}
+                },
+                "source_files": context.sources,
+                "packages": manifest["packages"],
+                "full_s": manifest["nodeids"],
+                "inventory": inventory,
+            }
+            if common is not None and comparable != common:
+                raise ValueError(
+                    "STANDARD parts have different C/O/source/runtime/full-S authority"
+                )
+            common = comparable
+            full_s = manifest["nodeids"]
+            planned = _plan(
+                [item for item in owner["items"] if item["nodeid"] in set(full_s)],
+                run["batch_size"],
+                isolated_owners=_CI_STANDARD_OWNERS,
+            )
+            indexes = [
+                index
+                for index, batch in enumerate(planned, 1)
+                if any(node in set(assigned) for node in batch)
+            ]
+            if (
+                run.get("batches") != planned
+                or run.get("part_batch_indexes") != indexes
+                or [node for index in indexes for node in planned[index - 1]]
+                != assigned
+            ):
+                raise ValueError(
+                    "STANDARD part changed original 500-case serial batching"
+                )
+            folders = [
+                "global-collection",
+                "collection",
+                *[f"batch-{index:04d}" for index in indexes],
+            ]
+            if set(run["ci_lane"]["closed_workers"]) != set(folders):
+                raise ValueError("STANDARD part closed worker membership differs")
+            processes = run.get("processes", [])
+            if [event.get("folder") for event in processes] != folders:
+                raise ValueError("STANDARD part native process order differs")
+            runtime = None
+            previous_end = datetime.fromisoformat(run["started"])
+            run_end = datetime.fromisoformat(run["finished"])
+            worker_root, worker_sources = _ci_worker_source_files()
+            if (
+                marker["profile"]
+                == "internal_docs/precision/ci_standard/py312-owners.json"
+                and worker_root != checkout
+            ):
+                raise ValueError(
+                    "hosted STANDARD worker controller is outside its checkout"
+                )
+            for folder_name, event in zip(folders, processes, strict=True):
+                folder = root / folder_name
+                if (
+                    event.get("returncode") != 0
+                    or event.get("output_complete") is not True
+                    or not event.get("finished")
+                ):
+                    raise ValueError("STANDARD part process did not close")
+                event_start = datetime.fromisoformat(event["started"])
+                event_end = datetime.fromisoformat(event["finished"])
+                if (
+                    any(
+                        value.tzinfo is None
+                        for value in (previous_end, event_start, event_end, run_end)
+                    )
+                    or not previous_end <= event_start <= event_end <= run_end
+                ):
+                    raise ValueError(
+                        "STANDARD native child events overlap or escape their serial RUN"
+                    )
+                previous_end = event_end
+                request = read(folder / "request.json")
+                for name, digest in run["ci_lane"]["closed_workers"][
+                    folder_name
+                ].items():
+                    payload = _context_read(folder / name, 16 * 1024**2)
+                    if hashlib.sha256(payload).hexdigest() != digest:
+                        raise ValueError("STANDARD part closed evidence changed")
+                    bindings[(folder / name).resolve(strict=True)] = digest
+                active = (
+                    campaign.global_context
+                    if folder_name == "global-collection"
+                    else context
+                )
+                receipt = _ci_lane_closed(folder, request, active)
+                if any(
+                    receipt[name].get("source_files") != worker_sources
+                    for name in (
+                        "startup_context",
+                        "collection_context",
+                        "final_context",
+                    )
+                ):
+                    raise ValueError(
+                        "STANDARD actual worker controller source snapshots differ"
+                    )
+                snapshot = receipt["startup_context"]
+                if snapshot.get("checkout", {}).get("head") != head:
+                    raise ValueError("STANDARD part actual worker checkout differs")
+                identity = {
+                    key: snapshot[key] for key in ("python", "soabi", "byteorder")
+                }
+                if runtime is not None and runtime != identity:
+                    raise ValueError("STANDARD part interpreter runtime changed")
+                runtime = identity
+                if request["kind"] == "batch":
+                    index = int(folder_name.removeprefix("batch-"))
+                    if request.get("assigned") != planned[index - 1]:
+                        raise ValueError("STANDARD part request relabelled a batch")
+                    _validate(
+                        receipt,
+                        request["assigned"],
+                        run["nodeids"],
+                        owner["collection_skips"],
+                    )
+                    campaign.batch(receipt, request["assigned"], folder / "junit.xml")
+            if result["inputs"] and runtime != result["inputs"][0]["runtime"]:
+                raise ValueError("STANDARD parts use different interpreter runtimes")
+            native = read(root / run["native_model_artifact_transport"])
+            if (
+                native.get("schema") != "native-model-artifact-transport-v1"
+                or native.get("status") != "SUBSET_TRANSPORT_ONLY"
+                or native.get("environment_mode") != "RUN_OWNED"
+                or native.get("checkout") != head
+                or native.get("errors") != []
+                or native.get("source_owner_held") is not True
+                or native.get("original_run_status") != "PASS"
+                or native.get("expected_owner_ids") != []
+                or native.get("cases") != {}
+                or native.get("full_collection_ids") != run["nodeids"]
+                or [worker.get("folder") for worker in native.get("workers", [])]
+                != folders
+            ):
+                raise ValueError("STANDARD part native transport closure is incomplete")
+            for path, proof in native["source_files_before"].items():
+                held(Path(path), proof)
+                held(Path(path), native["source_files_end"][path])
+            for worker in native["workers"]:
+                if worker.get("errors") != [] or worker.get("original_returncode") != 0:
+                    raise ValueError("STANDARD part native worker transport failed")
+                for name, proof in worker["files"].items():
+                    held(root / worker["folder"] / name, proof)
+            resource_path = Path(str(root.parent) + "-work-resources") / "summary.json"
+            resource = read(resource_path)
+            _ci_standard_resource(resource)
+            interval_start = datetime.fromisoformat(resource["started_utc"])
+            run_start = datetime.fromisoformat(run["started"])
+            run_end = datetime.fromisoformat(run["finished"])
+            if (
+                resource.get("cwd") != str(checkout)
+                or interval_start.tzinfo is None
+                or run_start.tzinfo is None
+                or run_end.tzinfo is None
+                or not 0
+                <= (run_start - interval_start).total_seconds()
+                <= (run_end - interval_start).total_seconds()
+                <= resource["elapsed_seconds"]
+                or not {event["pid"] for event in processes}.issubset(
+                    {pid for pid, _start in resource.get("owned_pid_start_ledger", [])}
+                )
+            ):
+                raise ValueError(
+                    "STANDARD resource interval does not cover its native RUN/workers"
+                )
+            locked_profile = "internal_docs/precision/ci_standard/py312-owners.json"
+            if marker["profile"] == locked_profile:
+                execution_binding = {"checkout": head, "profile": locked_profile}
+                for name in (
+                    locked_profile,
+                    "scripts/_ci_standard_execution.py",
+                    "scripts/run_with_resources.py",
+                    "scripts/run_pytest_batches.py",
+                    ".github/workflows/ci.yml",
+                ):
+                    execution_binding[name] = context.sources[name]["sha256"]
+                if (
+                    resource["limits"]["rss_mib"] != 5120
+                    or resource.get("standard_execution_profile") != execution_binding
+                ):
+                    raise ValueError(
+                        "hosted part resource cap/source/profile binding differs"
+                    )
+            if observations is None:
+                raise ValueError(
+                    "actual current-attempt Actions whole-job observations are required"
+                )
+            result["whole_job_times"] = _ci_standard_job_times(observations, marker)
+            job = result["whole_job_times"][part]
+            job_start = datetime.fromisoformat(job["started_at"].replace("Z", "+00:00"))
+            job_end = datetime.fromisoformat(job["completed_at"].replace("Z", "+00:00"))
+            # Actions timestamps are second-resolution; tolerate only that
+            # quantization, never another job's resource interval.
+            resource_end = interval_start + timedelta(
+                seconds=resource["elapsed_seconds"]
+            )
+            if (
+                not job_start - timedelta(seconds=1)
+                <= interval_start
+                <= resource_end
+                <= job_end + timedelta(seconds=1)
+            ):
+                raise ValueError(
+                    "STANDARD resource interval escapes its actual Actions part job"
+                )
+            campaign.recheck()
+            provision.recheck()
+            context.recheck(environment=manifest["environment"])
+            result["inputs"].append(
+                {
+                    "part": part,
+                    "run": str(root),
+                    "runtime": runtime,
+                    "assigned_count": len(assigned),
+                    "resource": str(resource_path),
+                }
+            )
+            all_ids.extend(assigned)
+        if (
+            observed_parts != ["a", "b"]
+            or len(set(all_ids)) != len(all_ids)
+            or all_ids != full_s
+        ):
+            raise ValueError(
+                "STANDARD join needs exactly ordered disjoint a+b == full S"
+            )
+        for path, digest in bindings.items():
+            if hashlib.sha256(_context_read(path, 64 * 1024**2)).hexdigest() != digest:
+                raise ValueError(
+                    "STANDARD join original evidence changed at final audit"
+                )
+        result.update(
+            status="PASS",
+            full_standard_ids=full_s,
+            completed_ids=all_ids,
+            standard_acceptance="FULL_312_STANDARD_NATIVE_PYTEST_ONLY",
+        )
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        subprocess.SubprocessError,
+    ) as error:
+        result["failure"] = {"type": type(error).__name__, "message": str(error)}
+    result["finished"] = _now()
+    result["evidence_sha256"] = {str(path): digest for path, digest in bindings.items()}
+    _write(output / "run.json", result)
+    print(f"[pytest-batches] STANDARD fixed-parts join {result['status']}", flush=True)
+    return 0 if result["status"] == "PASS" else 1
+
+
 def _main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ci-standard-part", choices=("a", "b"))
+    parser.add_argument("--ci-join-standard-parts", nargs=2, type=Path)
+    parser.add_argument("--ci-standard-profile", type=Path)
+    parser.add_argument("--ci-job-observations", type=Path)
     parser.add_argument("--batch-size", type=int, default=_MAX_BATCH_SIZE)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--test-path", action="append", default=[])
@@ -1581,6 +2168,33 @@ def _main() -> int:
     )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.ci_join_standard_parts:
+        if (
+            not args.output_dir
+            or not args.ci_standard_profile
+            or args.ci_standard_part
+            or args.ci_lane
+            or args.ci_main_baseline
+            or args.ci_campaign_contract
+            or args._ci_provision_campaign
+            or args.pytest_args
+            or args.test_path
+        ):
+            parser.error(
+                "part join needs only two RUNs, profile, observations and output"
+            )
+        return _ci_join_standard_parts(
+            args.ci_join_standard_parts,
+            args.ci_standard_profile,
+            args.output_dir,
+            job_observations=args.ci_job_observations,
+        )
+    if args.ci_standard_profile or args.ci_job_observations:
+        parser.error("join-only arguments cannot start a campaign")
+    if args.ci_standard_part and (
+        args.ci_lane != "standard" or not args._ci_provision_campaign
+    ):
+        parser.error("a fixed STANDARD part requires its provisioned owner campaign")
     if not 1 <= args.batch_size <= _MAX_BATCH_SIZE:
         parser.error("--batch-size must be between 1 and 500")
     options = args.pytest_args
@@ -1607,6 +2221,14 @@ def _main() -> int:
                     "Main-owner execution requires --_ci-provision-campaign; "
                     "supplied owner contracts cannot start a new RUN"
                 )
+            _ci_standard_batch_size(
+                (
+                    manifest.get("standard_part")
+                    if type(manifest.get("standard_part")) is dict
+                    else {}
+                ).get("profile", ""),
+                args.batch_size,
+            )
             _ci_campaign_arguments(
                 args.test_path, options, manifest.get("collection_args", [])
             )
@@ -1826,6 +2448,25 @@ def _main() -> int:
                 Path.cwd().resolve(),
                 environment=lane_environment,
             )
+            marker = lane_context.manifest.get("standard_part")
+            if (marker is None) != (args.ci_standard_part is None) or (
+                marker is not None
+                and (
+                    not lane_context.owner
+                    or marker["id"] != args.ci_standard_part
+                    or marker["checkout"] != checked_out_commit
+                    or marker["run_id"] != os.environ.get("GITHUB_RUN_ID")
+                    or marker["run_attempt"] != os.environ.get("GITHUB_RUN_ATTEMPT")
+                )
+            ):
+                raise ValueError(
+                    "campaign part/current checkout/attempt authority differs"
+                )
+            if marker is not None:
+                run["standard_part"] = marker
+                run["standard_part_acceptance"] = "PART_ONLY_JOIN_REQUIRED"
+                run["numerical_acceptance"] = "NOT_ASSERTED"
+                run["full_B_to_F_acceptance"] = "UNVERIFIED"
             worker_options.extend(
                 f"{name}={value}"
                 for name, value in zip(
@@ -2026,6 +2667,27 @@ def _main() -> int:
         del baseline, items
         run["nodeids"] = nodeids
         run["batches"] = batches
+        batch_indexes = list(range(1, len(batches) + 1))
+        if args.ci_standard_part:
+            assigned_ids = lane_context.standard_ids
+            selected = set(assigned_ids)
+            batch_indexes = [
+                index
+                for index, batch in enumerate(batches, 1)
+                if any(nodeid in selected for nodeid in batch)
+            ]
+            if any(
+                any(nodeid not in selected for nodeid in batches[index - 1])
+                for index in batch_indexes
+            ):
+                raise ValueError("fixed part boundary splits an original serial batch")
+            if [
+                nodeid for index in batch_indexes for nodeid in batches[index - 1]
+            ] != assigned_ids:
+                raise ValueError("fixed part batches differ from ordered assignment")
+            lane_ids = assigned_ids
+            run["part_nodeids"] = assigned_ids
+            run["part_batch_indexes"] = batch_indexes
         _write(root / "run.json", run)
         if transport is not None:
             try:
@@ -2037,7 +2699,8 @@ def _main() -> int:
                 run.setdefault("native_model_transport_errors", []).append(
                     {"stage": "collection", "type": type(error).__name__}
                 )
-        for index, assigned in enumerate(batches, 1):
+        for index in batch_indexes:
+            assigned = batches[index - 1]
             folder = root / f"batch-{index:04d}"
             print(
                 f"[pytest-batches] batch {index}/{len(batches)}: {len(assigned)} items",
@@ -2139,6 +2802,11 @@ def _main() -> int:
         setup_failure["completed_ids"] = list(run["completed"])
         write_setup_failure()
     run["finished"] = _now()
+    try:
+        _primary_results(root, run)
+    except (OSError, ValueError) as error:
+        run["status"] = "FAIL"
+        run["failure"] = {"type": type(error).__name__, "message": str(error)}
     _write(root / "run.json", run)
     if run["status"] == "PASS":
         scope = (
@@ -2642,6 +3310,7 @@ def _ci_lane_manifest(
             "collection_transition",
             "support_role",
             "node_runtime",
+            "standard_part",
         }
         or manifest["schema"] != "jax2onnx-ci-baseline-v1"
     ):
@@ -2893,6 +3562,94 @@ def _ci_lane_qualify(
             )
 
 
+def _ci_standard_ids_digest(ids: list[str]) -> str:
+    return hashlib.sha256(json.dumps(ids, separators=(",", ":")).encode()).hexdigest()
+
+
+def _ci_standard_parts(ids: list[str], declaration: Any) -> dict[str, list[str]]:
+    """The reviewed fixed cut partitions full S; collection never defines a cut."""
+    if (
+        type(declaration) is not dict
+        or set(declaration) != {"split_after"}
+        or type(declaration["split_after"]) is not str
+        or len(set(ids)) != len(ids)
+        or declaration["split_after"] not in ids
+    ):
+        raise ValueError("STANDARD parts need one exact declared full-S boundary")
+    cut = ids.index(declaration["split_after"]) + 1
+    if not 0 < cut < len(ids):
+        raise ValueError("STANDARD parts must both be nonempty")
+    return {"a": ids[:cut], "b": ids[cut:]}
+
+
+def _ci_standard_part_ids(manifest: dict[str, Any], root: Path) -> list[str]:
+    marker = manifest.get("standard_part")
+    if marker is None:
+        return manifest["nodeids"]
+    if (
+        type(marker) is not dict
+        or set(marker)
+        != {
+            "id",
+            "profile",
+            "profile_sha256",
+            "split_after",
+            "full_s_sha256",
+            "assigned_sha256",
+            "checkout",
+            "run_id",
+            "run_attempt",
+        }
+        or marker["id"] not in {"a", "b"}
+        or manifest["python_minor"] != "3.12"
+        or any(
+            not _ci_node_digest(marker[key])
+            for key in (
+                "profile_sha256",
+                "full_s_sha256",
+                "assigned_sha256",
+            )
+        )
+        or re.fullmatch("[0-9a-f]{40}", str(marker["checkout"])) is None
+        or any(
+            re.fullmatch("[1-9][0-9]*", str(marker[key])) is None
+            for key in ("run_id", "run_attempt")
+        )
+        or manifest["source_files"].get(marker["profile"]) != marker["profile_sha256"]
+    ):
+        raise ValueError("unsupported STANDARD part authority")
+    relative = _ci_node_relative(marker["profile"])
+    profile, payload = _context_json(root / relative, 4 * 1024**2, label="part profile")
+    if (
+        hashlib.sha256(payload).hexdigest() != marker["profile_sha256"]
+        or profile.get("schema") != "jax2onnx-ci-main-owner-cohort-v1"
+        or profile.get("python_minor") != "3.12"
+        or profile.get("baseline_commit") != manifest["baseline_commit"]
+        or profile.get("standard_parts") != {"split_after": marker["split_after"]}
+    ):
+        raise ValueError("STANDARD part differs from its source-bound profile")
+    baseline = profile.get("baseline")
+    if type(baseline) is dict and set(baseline) == {"path", "sha256"}:
+        shared = (root / relative).parent / baseline["path"]
+        shared_relative = shared.resolve(strict=True).relative_to(root).as_posix()
+        baseline, raw = _context_json(shared, 4 * 1024**2, label="part baseline")
+        if (
+            hashlib.sha256(raw).hexdigest() != profile["baseline"]["sha256"]
+            or manifest["source_files"].get(shared_relative)
+            != profile["baseline"]["sha256"]
+        ):
+            raise ValueError("STANDARD part full-S baseline binding differs")
+    if type(baseline) is not dict or baseline.get("nodeids") != manifest["nodeids"]:
+        raise ValueError("STANDARD part must preserve the complete original S")
+    parts = _ci_standard_parts(manifest["nodeids"], profile["standard_parts"])
+    assigned = parts[marker["id"]]
+    if marker["full_s_sha256"] != _ci_standard_ids_digest(
+        manifest["nodeids"]
+    ) or marker["assigned_sha256"] != _ci_standard_ids_digest(assigned):
+        raise ValueError("STANDARD part ordered assignment differs")
+    return assigned
+
+
 def _ci_lane_partition(
     full: list[str], manifest: dict[str, Any]
 ) -> tuple[list[str], list[str]]:
@@ -2930,6 +3687,7 @@ class _CiLaneContext:
         if expected_sha256 is not None and self.sha256 != expected_sha256:
             raise ValueError("baseline manifest SHA changed")
         self.sources = _ci_lane_sources(root, self.manifest["source_files"])
+        self.standard_ids = _ci_standard_part_ids(self.manifest, root)
         self.node_authority = self.manifest.get("node_runtime")
         self.node_reference = (
             _ci_node_load(root, self.node_authority, self.manifest["source_files"])
@@ -3178,6 +3936,16 @@ class _CiCampaignProvision:
         )
         self.sha256 = self.bindings[self.path]
         self.owner = self.data["schema"] == "jax2onnx-ci-main-owner-cohort-v1"
+        marker = context.manifest.get("standard_part")
+        if ("standard_parts" in self.data) != (marker is not None) or (
+            marker is not None
+            and (
+                marker["profile"] != self.path.relative_to(context.root).as_posix()
+                or marker["profile_sha256"] != self.sha256
+                or self.data["standard_parts"] != {"split_after": marker["split_after"]}
+            )
+        ):
+            raise ValueError("provisioned fixed part/profile marker differs")
         if self.owner != context.owner:
             raise ValueError("provisioned Main-owner profile and scope marker differ")
         self.global_context = None
@@ -3872,6 +4640,12 @@ def _ci_lane_closed(
         raise ValueError("closed canonical lane receipt/request binding differs")
     if expected_receipt_sha256 is None:
         receipt = json.loads(payload)
+    if request["kind"] == "batch" and "standard_part" in context.manifest:
+        assigned = request.get("assigned", [])
+        if not assigned or assigned != [
+            nodeid for nodeid in context.standard_ids if nodeid in set(assigned)
+        ]:
+            raise ValueError("closed worker assignment differs from its STANDARD part")
     selectors = context.manifest.get("collection_args", [])
     if context.owner:
         _ci_owner_reports(receipt, selectors)

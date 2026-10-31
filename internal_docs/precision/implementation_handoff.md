@@ -1,6 +1,47 @@
 # Precision migration handoff — 2026-10-30
 
-## Active Linux STANDARD timing — 2026-10-30
+## Current STANDARD repair handoff — qualification PENDING
+
+The coherent repair remains unpublished. **Final hosted qualification is PENDING**;
+no numerical conclusion or B–F completion is asserted.
+Initial controls closed 100 PASS and one explicit 3.12-only skip. The actual
+official Python 3.12.9 control closed 2 PASS (`8642f73a`), covering two tiny
+serial native campaigns, strict join and semantic/source/profile/resource/time
+rejections. Its synthetic Actions observations are unit controls, not hosted
+timing proof; hosted Python 3.12.15 remains separate. Earlier local disk and
+join-source-root failures are retained. The seven complete CI test files closed
+805 PASS and 7 explicit skips per official 3.11/3.13 family, with 811 shared
+JUnit IDs and one existing cohort-dependent provisioning role. Stale-assertion checkpoint `858bf548` already closed 25 PASS on each
+3.11/3.13/3.14 family.
+
+CI581 at exact `8f113ea8` [locked312 job](https://github.com/enpasos/jax2onnx/actions/runs/41189302941) ended CANCELLED after 1,252 seconds whole-job.
+WORK was 1,105.4059 seconds; packing reached its 90-second deadline.
+The observed aggregate peak was 4,429,303,808 bytes, with an observed worker
+peak of 4,308,254,720 bytes. All 50 original optional cases, including Omni,
+closed genuine three-phase PASS and JUnit accounting, but only 1,708/4,621
+Main S cases closed. This establishes neither full STANDARD nor whole-job
+acceptance.
+
+Proceed only with the approved two fixed SERIAL locked312 parts: 216/4,405
+cases, original full C/O per part and original 500-case batching.
+Preserve original inputs and criteria. Each part has normal 5-GiB RSS,
+fresh available RAM >=12 GiB, live available RAM >=8 GiB and free disk >=4 GiB.
+Other candidate profiles remain serial at 4 GiB.
+A strict same-head/attempt/runtime/source/context join must verify genuine
+phases/JUnit and a disjoint ordered union equal to full original S.
+A part PASS alone cannot qualify locked312.
+
+The nine compute candidates and small fixed join retain 1,100-second WORK,
+1,200-second whole-job, 160-job-minute aggregate and 100-MiB successful-upload
+budgets. Keep the original eight authoritative jobs until actual qualification.
+Forecast WORK is 750.049/902.935 seconds plus ten untimed Python 3.12 Web cases;
+this is not measured fit. The rejected 250-case/8-GiB parallel draft stays
+private and creates no published infrastructure obligation.
+
+Retain the historical failure links and evidence below. Update this checkpoint
+only from closed controls and actual whole-job/complete-join evidence.
+
+## Historical Linux STANDARD timing — 2026-10-30
 
 Each successful Linux STANDARD job must finish within **1,200 seconds
 (20 minutes)** from actual job start through checkout, setup, generation,
@@ -21,7 +62,7 @@ The [30 October temporary transition amendment](ci_execution_plan.md#temporary-t
 permits one bounded candidate qualification alongside the authoritative old eight
 jobs; it does not activate a gate.
 
-## Current CI578 repair status — 2026-10-31
+## Historical CI578 repair status — 2026-10-31
 
 Published `8578c47a` / [CI578](https://github.com/enpasos/jax2onnx/actions/runs/41173158463)
 has **seven STANDARD successes / locked312 FAILURE**. Locked311/313/314 whole

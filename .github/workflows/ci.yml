@@ -368,7 +368,7 @@ jobs:
 
 
   # One PR qualification milestone only. The eight jobs above remain authoritative.
-  # This explicit matrix adds eight fixed roles; no shard or dispatch controller.
+  # Nine fixed compute roles; locked312 closes only through the fixed join below.
   candidate-standard:
     name: candidate STANDARD (${{ matrix.label || matrix.id }})
     if: github.event_name == 'pull_request' && github.event.pull_request.number == 277
@@ -379,7 +379,8 @@ jobs:
       matrix:
         include:
         - {id: locked311, python: '3.11', cohort: py311-owners, role: locked, label: 'locked311 Main-owner qualification'}
-        - {id: locked312, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 one-shot DIAGNOSTIC (4GiB UNQUALIFIED)'}
+        - {id: locked312-a, part: a, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 serial part a (5GiB)'}
+        - {id: locked312-b, part: b, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 serial part b (5GiB)'}
         - {id: locked313, python: '3.13', cohort: py313, role: locked}
         - {id: locked314, python: '3.14', cohort: py314, role: locked}
         - {id: minimum312, python: '3.12', cohort: minimum312, role: minimum}
@@ -389,6 +390,7 @@ jobs:
     env:
       EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CANDIDATE_ID: ${{ matrix.id }}
+      CANDIDATE_PART: ${{ matrix.part || '' }}
       CANDIDATE_ROLE: ${{ matrix.role }}
       CANDIDATE_COHORT: internal_docs/precision/ci_standard/${{ matrix.cohort }}.json
 
@@ -414,19 +416,20 @@ jobs:
         set -euo pipefail
         execution_rss_mib=4096
         live_available_mib=2048
-        diagnostic_args=()
-        if [[ "$CANDIDATE_ID" == locked312 ]]; then
-          # One observational execution; STANDARD acceptance stays at 4096 MiB.
-          python -B -c 'from pathlib import Path; import sys; available = next(int(line.split()[1]) * 1024 for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemAvailable:")); print("diagnostic initial available bytes:", available); sys.exit(0 if available >= 12288 * 1024 * 1024 else "one-shot diagnostic needs 12 GiB initially available")'
+        execution_profile_args=()
+        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
+          # Each serial part uses the approved hosted locked312 envelope.
+          test "$CANDIDATE_ID" = "locked312-$CANDIDATE_PART"
+          python -B -c 'from pathlib import Path; import sys; available = next(int(line.split()[1]) * 1024 for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemAvailable:")); print("locked312 initial available bytes:", available); sys.exit(0 if available >= 12288 * 1024 * 1024 else "locked312 needs 12 GiB initially available")'
           execution_rss_mib=5120
           live_available_mib=8192
-          diagnostic_args=(--diagnostic-only)
-          set +e
+          execution_profile_args=(--locked312-standard-profile "$CANDIDATE_COHORT")
         fi
         python -B scripts/run_with_resources.py \
-          "${diagnostic_args[@]}" \
+          "${execution_profile_args[@]}" \
           --output-dir "${CANDIDATE_DIR}-work-resources" --timeout-seconds 1100 \
           --max-rss-mib "$execution_rss_mib" --min-available-mib "$live_available_mib" \
+          --min-disk-free-mib 4096 \
           --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
           bash -euo pipefail - <<'BASH'
         mkdir "$CANDIDATE_DIR"
@@ -449,7 +452,9 @@ jobs:
             # Canonical source/context closure precedes successful cleanup.
             # Model outputs, private TMPDIR and receipts are never removed here.
             rm -rf -- "$CANDIDATE_TOOLS" "$CANDIDATE_VENV" \
-              "$CANDIDATE_NODE_PARENT" "$CANDIDATE_DIR/optional-sources" || retained=$?
+              "$CANDIDATE_NODE_PARENT" || retained=$?
+            # Retain original optional sources through uploads: a later primary,
+            # packing, or upload failure must still preserve their complete bytes.
           fi
           printf '%s\n' "$retained" > "$CANDIDATE_DIR/setup-diagnostics/retention-exit-code.txt"
           if [[ "$result" == 0 && "$retained" != 0 ]]; then result=$retained; fi
@@ -521,7 +526,7 @@ jobs:
         poetry --version > "$CANDIDATE_DIR/poetry-version.txt"
         poetry install --no-interaction
 
-        if [[ "$CANDIDATE_ID" == locked312 ]]; then
+        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
           mkdir "$CANDIDATE_DIR/optional-sources"
           for integration in MAXTEXT MAXDIFFUSION; do
             source_name="JAX2ONNX_${integration}_SRC"
@@ -553,7 +558,7 @@ jobs:
         fi
 
         render_args=()
-        if [[ "$CANDIDATE_ID" == locked312 ]]; then
+        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
           render_args+=(--maxtext-source "$JAX2ONNX_MAXTEXT_SRC" \
             --maxdiffusion-source "$JAX2ONNX_MAXDIFFUSION_SRC")
         fi
@@ -587,8 +592,11 @@ jobs:
           export JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1
           export JAX2ONNX_ONNXRUNTIME_WEB_RUNNER=node
         fi
-        if [[ "$CANDIDATE_ID" == locked311 || "$CANDIDATE_ID" == locked312 ]]; then
+        if [[ "$CANDIDATE_ID" == locked311 || "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
           render_args+=(--collection-scope main-owners)
+        fi
+        if [[ -n "$CANDIDATE_PART" ]]; then
+          render_args+=(--ci-standard-part "$CANDIDATE_PART")
         fi
         python -B scripts/prepare_ci_standard.py \
           --cohort "$CANDIDATE_COHORT" --event-sha "$EXPECTED_CHECKOUT_SHA" \
@@ -608,7 +616,7 @@ jobs:
         for selector in "${selectors[@]}"; do
           selection_args+=(--test-path "$selector")
         done
-        if [[ "$CANDIDATE_ID" == locked312 ]]; then
+        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
           python -B - <<'PY_CAPACITY'
         import json
         import os
@@ -616,12 +624,16 @@ jobs:
 
         available = next(int(line.split()[1]) * 1024 for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemAvailable:"))
         required = 12288 * 1024 * 1024
-        Path(os.environ["CANDIDATE_DIR"], "diagnostic-start-capacity.json").write_text(json.dumps({"available_bytes": available, "required_bytes": required, "execution_rss_mib": 5120, "standard_acceptance_rss_mib": 4096}) + "\n")
+        Path(os.environ["CANDIDATE_DIR"], "standard-start-capacity.json").write_text(json.dumps({"available_bytes": available, "required_bytes": required, "execution_rss_mib": 5120, "standard_acceptance_rss_mib": 5120, "part": os.environ["CANDIDATE_PART"]}) + "\n")
         if available < required:
-            raise SystemExit("one-shot diagnostic requires at least 12 GiB available before work")
+            raise SystemExit("locked312 requires at least 12 GiB available before work")
         PY_CAPACITY
         fi
-        python -B scripts/run_pytest_batches.py \
+        part_args=()
+        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
+          part_args=(--ci-standard-part "$CANDIDATE_PART")
+        fi
+        python -B scripts/run_pytest_batches.py "${part_args[@]}" \
           --batch-size 500 --output-dir "$CANDIDATE_DIR/run" \
           --ci-lane standard --ci-main-baseline "$CANDIDATE_DIR/main.json" \
           --_ci-provision-campaign "$CANDIDATE_COHORT" "${selection_args[@]}" \
@@ -631,33 +643,21 @@ jobs:
           test ! -e tests/examples && test ! -L tests/examples
         fi
         BASH
-        actual_work_exit=$?
-        if [[ "$CANDIDATE_ID" == locked312 ]]; then
-          set -e
-          export CANDIDATE_ACTUAL_WORK_EXIT="$actual_work_exit"
-          python -B - <<'PY_DIAGNOSTIC'
-        import json
-        import os
-        from pathlib import Path
 
-        evidence = Path(os.environ["CANDIDATE_DIR"])
-        evidence.mkdir(exist_ok=True)
-        summary = Path(str(evidence) + "-work-resources", "summary.json")
-        observed = json.loads(summary.read_text()) if summary.exists() else None
-        (evidence / "diagnostic-execution-policy.json").write_text(json.dumps({
-            "diagnostic_only": True,
-            "standard_acceptance": "UNQUALIFIED",
-            "execution_rss_mib": 5120,
-            "standard_acceptance_rss_mib": 4096,
-            "actual_work_exit": int(os.environ["CANDIDATE_ACTUAL_WORK_EXIT"]),
-            "raw_work_summary": observed,
-            "scope": "one unchanged full canonical campaign; never STANDARD acceptance from an extended execution limit",
-        }, indent=2) + "\n")
-        PY_DIAGNOSTIC
-          if (( actual_work_exit != 0 )); then exit "$actual_work_exit"; fi
-          echo "::error::One-shot locked312 diagnostic completed; STANDARD acceptance remains UNQUALIFIED at 4096 MiB"
-          exit 125
-        fi
+    - name: Upload primary canonical results before bulk packing
+      id: primary
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-primary-${{ matrix.id }}-${{ job.status }}
+        path: |
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-work-resources/summary.json
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/standard-start-capacity.json
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/run/run.json
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/run/primary/
+        retention-days: ${{ job.status == 'success' && 7 || 14 }}
+        compression-level: 6
+        if-no-files-found: warn
 
     - name: Observe output inventory and evidence compression
       id: pack
@@ -669,6 +669,7 @@ jobs:
         CANDIDATE_NODE_PARENT: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-node
         CANDIDATE_TMP: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tmp
         CANDIDATE_PRIOR_STATUS: ${{ job.status }}
+        CANDIDATE_PRIMARY_OUTCOME: ${{ steps.primary.outcome }}
       run: |
         set -euo pipefail
         python -B scripts/run_with_resources.py \
@@ -726,12 +727,15 @@ jobs:
             paths+=("$(basename "$path")")
           fi
         done
-        tar -czf "${CANDIDATE_DIR}.tar.gz" -C "$RUNNER_TEMP" "${paths[@]}"
-        if [[ "$CANDIDATE_PRIOR_STATUS" != success ]]; then
+        # Keep complete optional-source originals in failure evidence, while the
+        # routine receipt archive contains their pinned identities and receipts.
+        tar --exclude="$(basename "$CANDIDATE_DIR")/optional-sources" \
+          -czf "${CANDIDATE_DIR}.tar.gz" -C "$RUNNER_TEMP" "${paths[@]}"
+        if [[ "$CANDIDATE_PRIOR_STATUS" != success || "$CANDIDATE_PRIMARY_OUTCOME" != success ]]; then
           # Failure payloads have their own artifact and accounting, with no size
           # truncation. A failed/incomplete pack instead triggers the raw fallback.
           payloads=()
-          for path in "$GITHUB_WORKSPACE/onnx" "$CANDIDATE_TMP" \
+          for path in "$GITHUB_WORKSPACE/onnx" "$CANDIDATE_TMP" "$CANDIDATE_DIR/optional-sources" \
             "$CANDIDATE_DIR/setup-diagnostics" \
             "$CANDIDATE_NODE_PARENT/npm-cache/_logs" "$CANDIDATE_NODE_PARENT/config"; do
             if [[ -e "$path" || -L "$path" ]]; then
@@ -751,17 +755,17 @@ jobs:
             "candidate": os.environ["CANDIDATE_ID"],
             "expected_head": os.environ["EXPECTED_CHECKOUT_SHA"],
             "prior_job_status": os.environ["CANDIDATE_PRIOR_STATUS"],
+            "primary_upload_outcome": os.environ["CANDIDATE_PRIMARY_OUTCOME"],
             "compressed_receipts_bytes": archive.stat().st_size,
             "compressed_failure_payload_bytes": failure.stat().st_size if failure.exists() else None,
             "managed_actions_resource_intervals": "UNOBSERVED: checkout, setup-python, upload, post hooks",
             "whole_job_timing": "UNVERIFIED until actual Actions started_at/completed_at including post hooks",
-            "campaign_budgets": "All eight successful spans <=1200s; aggregate <=9600s; successful uploaded artifacts <=104857600 bytes",
+            "campaign_budgets": "All nine compute spans and the fixed join <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
             "failure_evidence": "Complete retained model/temp/setup payloads counted separately; raw fallback on pack/upload failure; missing/interrupted evidence cannot qualify",
         }
-        if os.environ["CANDIDATE_ID"] == "locked312":
-            accounting.update(diagnostic_only=True, standard_acceptance="UNQUALIFIED", execution_rss_mib=5120, standard_acceptance_rss_mib=4096)
-            diagnostic = Path(os.environ["CANDIDATE_DIR"], "diagnostic-execution-policy.json")
-            accounting["diagnostic_execution_policy"] = json.loads(diagnostic.read_text()) if diagnostic.exists() else None
+        accounting["execution_rss_mib"] = 5120 if os.environ["CANDIDATE_ID"] in {"locked312-a", "locked312-b"} else 4096
+        accounting["standard_acceptance_rss_mib"] = accounting["execution_rss_mib"]
+        accounting["standard_part"] = os.environ.get("CANDIDATE_PART") or None
         Path(os.environ["CANDIDATE_DIR"] + "-accounting.json").write_text(json.dumps(accounting, indent=2) + "\n")
         PY
         BASH
@@ -782,7 +786,7 @@ jobs:
 
     - name: Upload complete retained failure models and temporary outputs
       id: failure_payloads
-      if: always() && steps.work.outcome != 'success' && steps.pack.outcome == 'success'
+      if: always() && (steps.work.outcome != 'success' || steps.primary.outcome != 'success') && steps.pack.outcome == 'success'
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: candidate-standard-${{ matrix.id }}-failure-payloads
@@ -792,7 +796,7 @@ jobs:
         if-no-files-found: error
 
     - name: Upload raw failure evidence when packing or upload is incomplete
-      if: always() && (steps.pack.outcome != 'success' || steps.receipts.outcome != 'success' || (steps.work.outcome != 'success' && steps.failure_payloads.outcome != 'success'))
+      if: always() && (steps.pack.outcome != 'success' || steps.receipts.outcome != 'success' || ((steps.work.outcome != 'success' || steps.primary.outcome != 'success') && steps.failure_payloads.outcome != 'success'))
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: candidate-standard-${{ matrix.id }}-raw-failure-evidence
@@ -809,3 +813,327 @@ jobs:
         include-hidden-files: true
         compression-level: 0
         if-no-files-found: error
+
+  candidate-standard-locked312-join:
+    name: candidate STANDARD locked312 complete union
+    needs: candidate-standard
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.number == 277
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    env:
+      EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_ID: locked312-join
+      CANDIDATE_COHORT: internal_docs/precision/ci_standard/py312-owners.json
+      CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-locked312-join
+      CANDIDATE_TOOLS: ${{ runner.temp }}/ci-candidate-locked312-join-tools
+      CANDIDATE_VENV: ${{ runner.temp }}/ci-candidate-locked312-join-venv
+      CANDIDATE_TMP: ${{ runner.temp }}/ci-candidate-locked312-join-tmp
+      CANDIDATE_DOWNLOADS: ${{ runner.temp }}/ci-standard-part-downloads
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: '3.12'
+
+    - name: Download complete locked312 part a receipts
+      if: always()
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      with:
+        name: candidate-standard-locked312-a-success
+        path: ${{ runner.temp }}/ci-standard-part-downloads/a
+
+    - name: Download complete locked312 part b receipts
+      if: always()
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      with:
+        name: candidate-standard-locked312-b-success
+        path: ${{ runner.temp }}/ci-standard-part-downloads/b
+
+    - name: Observe complete locked312 receipt join
+      id: join
+      if: always()
+      env:
+        CANDIDATE_JOBS_API_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        python -B scripts/run_with_resources.py \
+          --output-dir "${CANDIDATE_DIR}-work-resources" --timeout-seconds 1100 \
+          --max-rss-mib 4096 --min-available-mib 2048 --min-disk-free-mib 4096 \
+          --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
+          bash -euo pipefail - <<'BASH'
+        mkdir "$CANDIDATE_DIR"
+        exec > >(tee "$CANDIDATE_DIR/controlled.log") 2>&1
+        jobs_api_token="${CANDIDATE_JOBS_API_TOKEN:?missing current-run read token}"
+        unset CANDIDATE_JOBS_API_TOKEN
+        mkdir -m 700 "$CANDIDATE_TMP"
+        export TMPDIR="$CANDIDATE_TMP"
+        expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
+        test "$(git rev-parse --verify 'HEAD^{commit}')" = "$expected_commit"
+
+        # Artifacts retain their original authority paths. Validate every member
+        # before extracting, reject links/special files, and bound all inputs.
+        python -B - <<'PY_RESTORE_PARTS'
+        import hashlib
+        import json
+        import os
+        from pathlib import Path, PurePosixPath
+        import stat
+        import tarfile
+
+        temporary = Path(os.environ["RUNNER_TEMP"])
+        downloads = Path(os.environ["CANDIDATE_DOWNLOADS"])
+        restored = []
+        for part in ("a", "b"):
+            name = "ci-candidate-locked312-" + part
+            incoming = downloads / part
+            archive = incoming / (name + ".tar.gz")
+            expected_inputs = {archive.name, name + "-accounting.json", name + "-pack-resources"}
+            if incoming.is_symlink() or not incoming.is_dir() or {p.name for p in incoming.iterdir()} != expected_inputs:
+                raise ValueError("missing or unexpected complete part artifact layout: " + part)
+            if not stat.S_ISREG(archive.lstat().st_mode) or archive.stat().st_size > 100 * 1024**2:
+                raise ValueError("part archive is not a bounded regular file")
+            roots = {name, name + "-work-resources", name + "-accounting.json", name + "-pack-resources"}
+            if any(os.path.lexists(temporary / root) for root in roots):
+                raise ValueError("original part destination already exists")
+            members = []
+            seen = set()
+            expanded = 0
+            with tarfile.open(archive, "r:gz") as stream:
+                for member in stream:
+                    path = PurePosixPath(member.name)
+                    if len(members) >= 50000 or path.is_absolute() or not path.parts or ".." in path.parts or member.name.rstrip("/") != path.as_posix():
+                        raise ValueError("noncanonical or excessive archive members")
+                    if path.parts[0] not in {name, name + "-work-resources"} or path.as_posix() in seen:
+                        raise ValueError("unexpected or duplicate archive destination")
+                    if not (member.isdir() or member.isfile()) or member.size < 0 or member.size > 64 * 1024**2:
+                        raise ValueError("archive links, special files, or excessive member size")
+                    seen.add(path.as_posix())
+                    expanded += member.size
+                    if expanded > 512 * 1024**2:
+                        raise ValueError("expanded part archive exceeds bound")
+                    members.append((member, path))
+                for member, path in members:
+                    target = temporary.joinpath(*path.parts)
+                    if member.isdir():
+                        target.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        source = stream.extractfile(member)
+                        if source is None:
+                            raise ValueError("regular archive member has no payload")
+                        with source, target.open("xb") as output:
+                            while chunk := source.read(1024 * 1024):
+                                output.write(chunk)
+            # The upload also contains accounting and pack-resource sidecars.
+            pending = [incoming / (name + "-accounting.json"), incoming / (name + "-pack-resources")]
+            sidecar_entries = 0
+            while pending:
+                source = pending.pop()
+                sidecar_entries += 1
+                if sidecar_entries > 10000:
+                    raise ValueError("part sidecars exceed member bound")
+                relative = source.relative_to(incoming)
+                target = temporary / relative
+                mode = source.lstat().st_mode
+                if stat.S_ISDIR(mode):
+                    target.mkdir(parents=True, exist_ok=True)
+                    pending.extend(source.iterdir())
+                elif stat.S_ISREG(mode):
+                    expanded += source.stat().st_size
+                    if source.stat().st_size > 16 * 1024**2 or expanded > 512 * 1024**2:
+                        raise ValueError("part sidecars exceed bounds")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with source.open("rb") as original, target.open("xb") as output:
+                        while chunk := original.read(1024 * 1024):
+                            output.write(chunk)
+                else:
+                    raise ValueError("part sidecar is a link or special file")
+            if not (temporary / name / "run/run.json").is_file():
+                raise ValueError("part has no original canonical run")
+            digest = hashlib.sha256()
+            with archive.open("rb") as source:
+                while chunk := source.read(1024 * 1024):
+                    digest.update(chunk)
+            restored.append({"part": part, "archive_sha256": digest.hexdigest(), "archive_bytes": archive.stat().st_size, "expanded_bytes": expanded, "members": len(members), "original_root": str(temporary / name)})
+        (Path(os.environ["CANDIDATE_DIR"]) / "receipt-transport.json").write_text(json.dumps(restored, indent=2) + "\n")
+        PY_RESTORE_PARTS
+
+        # Recreate the same complete optional Python environment in a separate
+        # project venv, preserving both original optional-source path slots.
+        python -B - <<'PY_JOIN_ENV' > "$CANDIDATE_DIR/profile.env"
+        import json
+        import os
+        from pathlib import Path
+        import shlex
+
+        profile = json.loads(Path(os.environ["CANDIDATE_COHORT"]).read_text())
+        original_a = os.environ["RUNNER_TEMP"] + "/ci-candidate-locked312-a/optional-sources/"
+        slots = {"${CHECKOUT}": os.environ["GITHUB_WORKSPACE"], "${MAXTEXT_SOURCE}": original_a + "maxtext", "${MAXDIFFUSION_SOURCE}": original_a + "maxdiffusion"}
+        print("unset TF_CPP_MIN_LOG_LEVEL PYTEST_VERSION JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR")
+        for name, value in profile["environment"].items():
+            if name == "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR":
+                continue
+            print("unset " + name if value is None else "export " + name + "=" + shlex.quote(slots.get(value, value)))
+        print("export CANDIDATE_BOOTSTRAP_PIP=" + shlex.quote(profile["bootstrap"]["pip"]))
+        PY_JOIN_ENV
+        source "$CANDIDATE_DIR/profile.env"
+        python -m venv "$CANDIDATE_TOOLS"
+        "$CANDIDATE_TOOLS/bin/python" -m pip install 'poetry>=2.0,<3.0'
+        python -m venv --without-pip "$CANDIDATE_VENV"
+        "$CANDIDATE_TOOLS/bin/python" -m pip --python "$CANDIDATE_VENV/bin/python" \
+          install "pip==$CANDIDATE_BOOTSTRAP_PIP"
+        export VIRTUAL_ENV="$CANDIDATE_VENV"
+        export PATH="$CANDIDATE_VENV/bin:$CANDIDATE_TOOLS/bin:$PATH"
+        export POETRY_VIRTUALENVS_CREATE=false
+        poetry --version > "$CANDIDATE_DIR/poetry-version.txt"
+        poetry install --no-interaction
+        for part in a b; do
+          original_root="$RUNNER_TEMP/ci-candidate-locked312-$part"
+          mkdir "$original_root/optional-sources"
+          for integration in MAXTEXT MAXDIFFUSION; do
+            ref_name="JAX2ONNX_${integration}_REF"
+            if [[ "$integration" == MAXTEXT ]]; then
+              remote=https://github.com/AI-Hypercomputer/maxtext.git
+              group=maxtext
+            else
+              remote=https://github.com/google/maxdiffusion.git
+              group=maxdiffusion
+            fi
+            source_dir="$original_root/optional-sources/$group"
+            git init "$source_dir"
+            git -C "$source_dir" remote add origin "$remote"
+            git -C "$source_dir" fetch --depth 1 origin "${!ref_name}"
+            git -C "$source_dir" checkout --detach FETCH_HEAD
+            test "$(git -C "$source_dir" rev-parse HEAD)" = "${!ref_name}"
+            test -z "$(git -C "$source_dir" status --porcelain)"
+            if [[ "$part" == a ]]; then poetry install --no-interaction --with "$group"; fi
+          done
+        done
+        python -m pip list --format=json > "$CANDIDATE_DIR/installed-packages.json"
+        # Source regeneration only: no pytest C/O collection, cases, or models.
+        python scripts/generate_tests.py
+        # One bounded, current-attempt API snapshot records the actual completed
+        # part jobs, including their post hooks. Never log or redirect the token.
+        CANDIDATE_JOBS_API_TOKEN="$jobs_api_token" python -B - <<'PY_JOB_OBSERVATIONS'
+        import json
+        import os
+        from pathlib import Path
+        import re
+        import urllib.error
+        import urllib.request
+
+        class RejectRedirects(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, request, fp, code, message, headers, url):
+                raise ValueError("jobs observation redirects are forbidden")
+
+        repository = os.environ["GITHUB_REPOSITORY"]
+        run_id = os.environ["GITHUB_RUN_ID"]
+        attempt = os.environ["GITHUB_RUN_ATTEMPT"]
+        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None or not run_id.isdecimal() or not attempt.isdecimal():
+            raise SystemExit("invalid current-run jobs observation identity")
+        endpoint = "https://api.github.com/repos/" + repository + "/actions/runs/" + run_id + "/attempts/" + attempt + "/jobs?per_page=100"
+        request = urllib.request.Request(endpoint, headers={
+            "Authorization": "Bearer " + os.environ["CANDIDATE_JOBS_API_TOKEN"],
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        })
+        try:
+            with urllib.request.build_opener(RejectRedirects()).open(request, timeout=20) as response:
+                if response.status != 200 or response.headers.get("Link"):
+                    raise ValueError("jobs snapshot is not one complete bounded page")
+                payload = response.read(2 * 1024**2 + 1)
+            if len(payload) > 2 * 1024**2:
+                raise ValueError("jobs snapshot exceeds byte bound")
+            document = json.loads(payload)
+            if type(document) is not dict or type(document.get("total_count")) is not int or not 0 < document["total_count"] <= 100 or type(document.get("jobs")) is not list or len(document["jobs"]) != document["total_count"]:
+                raise ValueError("jobs snapshot is incomplete or malformed")
+        except (OSError, ValueError, urllib.error.URLError):
+            raise SystemExit("current-attempt jobs observation could not be captured") from None
+        (Path(os.environ["CANDIDATE_DIR"]) / "job-observations.json").write_bytes(payload)
+        PY_JOB_OBSERVATIONS
+        unset jobs_api_token
+        python -B scripts/run_pytest_batches.py \
+          --ci-join-standard-parts \
+            "$RUNNER_TEMP/ci-candidate-locked312-a/run" \
+            "$RUNNER_TEMP/ci-candidate-locked312-b/run" \
+          --ci-standard-profile "$CANDIDATE_COHORT" \
+          --ci-job-observations "$CANDIDATE_DIR/job-observations.json" \
+          --output-dir "$CANDIDATE_DIR/run"
+        BASH
+
+    - name: Record join evidence accounting
+      if: always()
+      run: |
+        python -B - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+        import stat
+
+        evidence = Path(os.environ["CANDIDATE_DIR"])
+        evidence.mkdir(exist_ok=True)
+        total = 0
+        files = 0
+        for root in (evidence, Path(str(evidence) + "-work-resources")):
+            if root.exists():
+                for path in root.rglob("*"):
+                    mode = path.lstat().st_mode
+                    if stat.S_ISREG(mode):
+                        total += path.stat().st_size
+                        files += 1
+                    elif not stat.S_ISDIR(mode):
+                        raise ValueError("join output contains a link or special file")
+        if total > 100 * 1024**2 or files > 50000:
+            raise ValueError("join receipts exceed bounded upload input")
+        (evidence / "accounting.json").write_text(json.dumps({
+            "candidate": "locked312-join",
+            "expected_head": os.environ["EXPECTED_CHECKOUT_SHA"],
+            "uncompressed_receipt_bytes_before_accounting": total,
+            "execution_rss_mib": 4096,
+            "standard_acceptance_rss_mib": 4096,
+            "managed_actions_resource_intervals": "UNOBSERVED: checkout, setup-python, downloads, uploads, post hooks",
+            "whole_job_timing": "UNVERIFIED until actual Actions started_at/completed_at including post hooks",
+            "campaign_budgets": "All nine compute spans and the fixed join <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
+        }, indent=2) + "\n")
+        PY
+
+    - name: Upload complete locked312 join result
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-standard-locked312-join-${{ job.status }}
+        path: |
+          ${{ runner.temp }}/ci-candidate-locked312-join/
+          ${{ runner.temp }}/ci-candidate-locked312-join-work-resources/
+        retention-days: ${{ job.status == 'success' && 7 || 14 }}
+        compression-level: 6
+        if-no-files-found: error
+
+    - name: Preserve complete failed join inputs and optional sources
+      if: failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-standard-locked312-join-failure-inputs
+        path: |
+          ${{ runner.temp }}/ci-standard-part-downloads/
+          ${{ runner.temp }}/ci-candidate-locked312-a/
+          ${{ runner.temp }}/ci-candidate-locked312-a-work-resources/
+          ${{ runner.temp }}/ci-candidate-locked312-a-pack-resources/
+          ${{ runner.temp }}/ci-candidate-locked312-a-accounting.json
+          ${{ runner.temp }}/ci-candidate-locked312-b/
+          ${{ runner.temp }}/ci-candidate-locked312-b-work-resources/
+          ${{ runner.temp }}/ci-candidate-locked312-b-pack-resources/
+          ${{ runner.temp }}/ci-candidate-locked312-b-accounting.json
+          ${{ runner.temp }}/ci-candidate-locked312-join-tmp/
+        retention-days: 14
+        include-hidden-files: true
+        compression-level: 0
+        if-no-files-found: warn

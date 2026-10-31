@@ -1,6 +1,48 @@
 # Precision migration CI execution plan
 
-## CI580 admission correction — no model observation yet
+## Current STANDARD repair plan — qualification PENDING
+
+The coherent candidate remains unpublished; **hosted qualification is PENDING**.
+CI581 at exact `8f113ea8` [locked312 job](https://github.com/enpasos/jax2onnx/actions/runs/41189302941) ended CANCELLED after 1,252 seconds whole-job:
+WORK was 1,105.4059 seconds and packing reached its 90-second deadline.
+Its observed aggregate peak was 4,429,303,808 bytes; the observed worker
+peak was 4,308,254,720 bytes. All 50 original optional cases, including Omni,
+closed genuine setup/call/teardown PASS with JUnit accounting.
+Only 1,708/4,621 Main S cases closed. Full STANDARD and whole-job acceptance
+were not established.
+
+The approved plan uses two fixed SERIAL locked312 parts, 216/4,405 cases.
+Each repeats original full C/O and keeps original 500-case batching, inputs
+and criteria. Their normal envelope is 5 GiB RSS, fresh available RAM >=12 GiB,
+live available RAM >=8 GiB and free disk >=4 GiB.
+Other candidate profiles retain their serial 4-GiB envelope.
+The strict join requires the same head/attempt, runtime, sources and context,
+genuine phases/JUnit, and a disjoint ordered union equal to full original S.
+An individual part PASS cannot qualify locked312.
+
+Nine compute candidates plus one small fixed join retain 1,100-second WORK,
+1,200-second whole-job, 160-job-minute aggregate and 100-MiB successful-upload
+budgets. The original eight authoritative jobs remain enabled until candidate
+qualification.
+Forecast WORK is 750.049/902.935 seconds plus ten untimed Python 3.12 Web cases.
+These are forecasts, not measured fit.
+The 250-case/8-GiB parallel draft was rejected and remains private; it creates
+no published infrastructure obligation.
+
+The stale-assertion checkpoint `858bf548` closed 25 PASS on each official
+Python 3.11/3.13/3.14 family. Initial policy controls closed 100 PASS and one
+explicit 3.12-only skip. The actual official Python 3.12.9 control then closed
+2 PASS (`8642f73a`): two tiny serial native campaigns, their strict join,
+and semantic/source/profile/resource/time/assignment rejection controls.
+Its Actions observations are synthetic unit controls, not hosted timing proof;
+hosted Python 3.12.15 remains separately qualified. Earlier disk-censored and
+join-source-root failures remain retained. The seven complete adjacent CI test
+files closed 805 PASS and 7 explicit skips on each official 3.11/3.13 family
+(811 shared JUnit IDs; one existing cohort-dependent provisioning role).
+No full hosted acceptance, numerical conclusion or B–F completion is asserted.
+Historical failed runs and their evidence remain below.
+
+## Historical CI580 admission correction — superseded diagnostic policy
 
 At exact `027d92eb`, [CI580](https://github.com/enpasos/jax2onnx/actions/runs/41188009953)
 stopped locked312 after 14 seconds: the initial 12-GiB capacity check passed,

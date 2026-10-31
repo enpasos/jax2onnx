@@ -148,9 +148,17 @@ def test_nonzero_child_status_is_preserved_separately_from_observation(tmp_path,
     "options",
     [
         ("--max-rss-mib", "5120", "--min-available-mib", "8192"),
-        ("--diagnostic-only", "--max-rss-mib", "5121", "--min-available-mib", "8192"),
         (
-            "--diagnostic-only",
+            "--locked312-standard-profile",
+            "profile.json",
+            "--max-rss-mib",
+            "5121",
+            "--min-available-mib",
+            "8192",
+        ),
+        (
+            "--locked312-standard-profile",
+            "profile.json",
             "--max-rss-mib",
             "5120",
             "--min-available-mib",
@@ -158,9 +166,17 @@ def test_nonzero_child_status_is_preserved_separately_from_observation(tmp_path,
             "--timeout-seconds",
             "1101",
         ),
-        ("--diagnostic-only", "--max-rss-mib", "5120", "--min-available-mib", "8191"),
         (
-            "--diagnostic-only",
+            "--locked312-standard-profile",
+            "profile.json",
+            "--max-rss-mib",
+            "5120",
+            "--min-available-mib",
+            "8191",
+        ),
+        (
+            "--locked312-standard-profile",
+            "profile.json",
             "--max-rss-mib",
             "5120",
             "--min-available-mib",
@@ -168,59 +184,107 @@ def test_nonzero_child_status_is_preserved_separately_from_observation(tmp_path,
             "--min-disk-free-mib",
             "4095",
         ),
-        ("--diagnostic-only", "--max-rss-mib", "4096", "--min-available-mib", "8192"),
+        (
+            "--locked312-standard-profile",
+            "profile.json",
+            "--max-rss-mib",
+            "4096",
+            "--min-available-mib",
+            "8192",
+        ),
     ],
     ids=[
-        "missing-opt-in",
+        "missing-profile",
         "rss-above5120",
         "work-above1100",
         "live-below8192",
         "disk-below4096",
-        "diagnostic-cap-not5120",
+        "profile-cap-not5120",
     ],
 )
-def test_diagnostic_cli_rejects_invalid_limits_before_child(tmp_path, options):
+def test_standard_profile_cli_rejects_invalid_limits_before_child(
+    tmp_path, monkeypatch, options
+):
+    module = _observer()
+    marker = tmp_path / "must-not-run"
+    output = tmp_path / "resources"
+    monkeypatch.setattr(
+        module,
+        "_locked312_binding",
+        lambda profile: {"scope": "unit control; no hosted authority"},
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "observer",
+            "--output-dir",
+            str(output),
+            "--timeout-seconds",
+            "10",
+            *options,
+            "--",
+            sys.executable,
+            "-c",
+            f"from pathlib import Path;Path({str(marker)!r}).touch()",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        module._main()
+    assert error.value.code == 2
+    assert not output.exists() and not marker.exists()
+
+
+def test_spent_diagnostic_cli_flag_is_rejected_before_child(tmp_path):
     marker = tmp_path / "must-not-run"
     result, summary, output = _command(
         tmp_path,
         f"from pathlib import Path;Path({str(marker)!r}).touch()",
-        options=options,
+        options=("--diagnostic-only",),
     )
-    assert result.returncode == 2 and "bounded STANDARD" in result.stderr
+    assert (
+        result.returncode == 2
+        and "unrecognized arguments: --diagnostic-only" in result.stderr
+    )
     assert summary is None and not output.exists() and not marker.exists()
 
 
-def _diagnostic_capacity_patch(available_kib):
+def _standard_capacity_patch(available_kib):
     return f"""original_kernel=module._kernel
 def kernel_with_mock_capacity():
     value=original_kernel()
     value['memory']['MemAvailable']={available_kib}
     return value
 module._kernel=kernel_with_mock_capacity
+module._locked312_binding=lambda profile: {{'scope':'unit control; no hosted authority'}}
 """
 
 
 @pytest.mark.parametrize("code", [0, 7])
-def test_diagnostic_cli_keeps_child_status_unqualified_with_mock_capacity(
+def test_standard_profile_preserves_child_status_with_mock_admission_and_capacity(
     tmp_path, code
 ):
     result, summary, _ = _injected_command(
         tmp_path,
-        _diagnostic_capacity_patch(12288 * 1024),
-        f"print('diagnostic child');raise SystemExit({code})",
+        _standard_capacity_patch(12288 * 1024),
+        f"print('profile child');raise SystemExit({code})",
         options=(
-            "--diagnostic-only",
+            "--locked312-standard-profile",
+            "profile.json",
             "--max-rss-mib",
             "5120",
             "--min-available-mib",
             "8192",
         ),
     )
-    assert result.returncode == (125 if code == 0 else code)
-    assert result.stdout == "diagnostic child\n"
+    assert result.returncode == code
+    assert result.stdout == "profile child\n"
     assert summary["status"] == "COMPLETE" and summary["child_returncode"] == code
-    assert summary["qualification"] == summary["standard_acceptance"] == "UNQUALIFIED"
-    assert summary["standard_acceptance_rss_mib"] == 4096
+    assert summary["qualification"] == ("PASS" if code == 0 else "FAIL_OR_INCOMPLETE")
+    assert "diagnostic_only" not in summary and "standard_acceptance" not in summary
+    assert summary["standard_execution_profile"] == {
+        "scope": "unit control; no hosted authority"
+    }
     assert summary["limits"]["rss_mib"] == 5120
     assert summary["limits"]["host_available_mib"] == 8192
     assert summary["limits"]["initial_host_available_mib"] == 12288
@@ -228,14 +292,15 @@ def test_diagnostic_cli_keeps_child_status_unqualified_with_mock_capacity(
     assert summary["cleanup_confirmed"] and not summary["errors"]
 
 
-def test_diagnostic_initial_capacity_rejection_precedes_child(tmp_path):
+def test_standard_profile_initial_capacity_rejection_precedes_child(tmp_path):
     marker = tmp_path / "must-not-run"
     result, summary, _ = _injected_command(
         tmp_path,
-        _diagnostic_capacity_patch(12288 * 1024 - 1),
+        _standard_capacity_patch(12288 * 1024 - 1),
         f"from pathlib import Path;Path({str(marker)!r}).touch()",
         options=(
-            "--diagnostic-only",
+            "--locked312-standard-profile",
+            "profile.json",
             "--max-rss-mib",
             "5120",
             "--min-available-mib",
@@ -243,10 +308,9 @@ def test_diagnostic_initial_capacity_rejection_precedes_child(tmp_path):
         ),
     )
     assert result.returncode == 125 and summary["child_returncode"] is None
-    assert not marker.exists()
-    assert summary["qualification"] == "UNQUALIFIED"
+    assert not marker.exists() and summary["qualification"] == "FAIL_OR_INCOMPLETE"
     assert (
-        "ObservationError: diagnostic initial 12 GiB availability floor"
+        "ObservationError: locked312 initial 12 GiB availability floor"
         in summary["errors"]
     )
     assert summary["cleanup_confirmed"]
@@ -775,3 +839,129 @@ module._subreaper=restore_failure
     assert result.returncode == 125 and summary["child_returncode"] == 0
     assert summary["qualification"] == "FAIL_OR_INCOMPLETE"
     assert any("restoration failure" in value for value in summary["errors"])
+
+
+def _locked312_policy_fixture(tmp_path, monkeypatch, *, part="a"):
+    script = _SCRIPT.with_name("_ci_standard_execution.py")
+    spec = spec_from_file_location("_locked312_policy_under_test", script)
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    root = tmp_path / "checkout"
+    root.mkdir()
+    profile = root / module.LOCKED312_PROFILE
+    profile.parent.mkdir(parents=True)
+    profile.write_text(
+        json.dumps(
+            {
+                "schema": "jax2onnx-ci-main-owner-cohort-v1",
+                "python_minor": "3.12",
+                "baseline_commit": "81ad6ca2592635c8d2ced6dbd77292c487f0351b",
+            }
+        )
+    )
+    files = {module.LOCKED312_PROFILE: profile.read_bytes()}
+    for relative in (
+        "scripts/_ci_standard_execution.py",
+        "scripts/run_with_resources.py",
+        "scripts/run_pytest_batches.py",
+        ".github/workflows/ci.yml",
+    ):
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(relative.encode())
+        files[relative] = path.read_bytes()
+    monkeypatch.chdir(root)
+    for key, value in {
+        "GITHUB_ACTIONS": "true",
+        "RUNNER_OS": "Linux",
+        "CANDIDATE_ID": "locked312-" + part,
+        "CANDIDATE_PART": part,
+        "CANDIDATE_ROLE": "locked",
+        "CANDIDATE_COHORT": module.LOCKED312_PROFILE,
+        "GITHUB_WORKSPACE": str(root),
+        "EXPECTED_CHECKOUT_SHA": "1" * 40,
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(module, "sys", SimpleNamespace(version_info=(3, 12)))
+
+    def git(command, **kwargs):
+        assert command[:2] == ["git", "--no-optional-locks"]
+        assert kwargs["cwd"] == root
+        if command[2:] == ["rev-parse", "HEAD"]:
+            return b"1" * 40 + b"\n"
+        assert command[2] == "show" and command[3].startswith("HEAD:")
+        return files[command[3][5:]]
+
+    monkeypatch.setattr(module.subprocess, "check_output", git)
+    return module, root, profile
+
+
+@pytest.mark.parametrize("part", ["a", "b"])
+def test_locked312_standard_envelope_binds_the_current_tracked_hosted_profile(
+    tmp_path, monkeypatch, part
+):
+    module, root, profile = _locked312_policy_fixture(tmp_path, monkeypatch, part=part)
+    binding = module.locked312_execution(profile)
+    assert binding["checkout"] == "1" * 40
+    assert binding["profile"] == module.LOCKED312_PROFILE
+    assert len(binding) == 7
+    assert (
+        binding[module.LOCKED312_PROFILE]
+        == __import__("hashlib").sha256(profile.read_bytes()).hexdigest()
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "non-hosted",
+        "wrong-cohort",
+        "old-candidate",
+        "wrong-part",
+        "missing-part",
+        "wrong-python",
+        "foreign-head",
+        "source-tamper",
+        "profile-tamper",
+    ],
+)
+def test_locked312_standard_envelope_rejects_unbound_contexts(
+    tmp_path, monkeypatch, fault
+):
+    module, root, profile = _locked312_policy_fixture(tmp_path, monkeypatch)
+    if fault == "non-hosted":
+        monkeypatch.setenv("GITHUB_ACTIONS", "false")
+    elif fault == "wrong-cohort":
+        monkeypatch.setenv("CANDIDATE_ID", "locked313")
+    elif fault == "old-candidate":
+        monkeypatch.setenv("CANDIDATE_ID", "locked312")
+    elif fault == "wrong-part":
+        monkeypatch.setenv("CANDIDATE_PART", "b")
+    elif fault == "missing-part":
+        monkeypatch.delenv("CANDIDATE_PART")
+    elif fault == "wrong-python":
+        monkeypatch.setattr(module, "sys", SimpleNamespace(version_info=(3, 13)))
+    elif fault == "foreign-head":
+        monkeypatch.setenv("EXPECTED_CHECKOUT_SHA", "2" * 40)
+    elif fault == "source-tamper":
+        (root / "scripts/run_pytest_batches.py").write_text("changed")
+    else:
+        profile.write_text(profile.read_text() + "\n")
+    with pytest.raises(ValueError):
+        module.locked312_execution(profile)
+
+
+def test_unbound_standard_5gib_cli_rejects_before_child(tmp_path):
+    sentinel = tmp_path / "child-started"
+    result, summary, output = _command(
+        tmp_path,
+        "from pathlib import Path; Path(" + repr(str(sentinel)) + ").touch()",
+        options=(
+            "--max-rss-mib",
+            "5120",
+            "--locked312-standard-profile",
+            str(tmp_path / "foreign.json"),
+        ),
+    )
+    assert result.returncode == 2
+    assert summary is None and not sentinel.exists()

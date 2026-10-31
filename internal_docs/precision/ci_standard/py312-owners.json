@@ -5376,5 +5376,8 @@
     "tests/primitives/test_nnx.py",
     "tests/primitives/test_random.py",
     "tests/test_gpt_oss_components.py"
-  ]
+  ],
+  "standard_parts": {
+    "split_after": "tests/examples/test_nnx_dino.py::Test_NnxDinoPatchEmbed::test_nnx_patch_embed"
+  }
 }

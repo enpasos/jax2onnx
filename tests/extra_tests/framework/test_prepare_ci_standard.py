@@ -740,6 +740,115 @@ def test_owner_renderer_binds_only_its_two_declared_scope_materializations(
         assert manifest["collection_args"] == data["collection_args"]
 
 
+def _split_authority(authority, monkeypatch):
+    module, root, path, _event, run, original, _distributions = authority
+    data = deepcopy(original)
+    data.update(
+        schema="jax2onnx-ci-main-owner-cohort-v1",
+        python_minor="3.12",
+        collection_args=["tests/test_base.py", "tests/primitives/test_generated.py"],
+        standard_parts={"split_after": "tests/test_base.py::test_base"},
+    )
+    data["baseline"]["nodeids"].append(
+        "tests/primitives/test_generated.py::test_generated"
+    )
+    # Only the declared cohort interpreter is synthetic; keep official 3.11/3.13
+    # controls able to exercise this 3.12 manifest branch without a runtime probe.
+    monkeypatch.setattr(
+        module, "sys", SimpleNamespace(version_info=SimpleNamespace(major=3, minor=12))
+    )
+    module.os.environ.update(GITHUB_RUN_ID="123456", GITHUB_RUN_ATTEMPT="2")
+    _write_json(path, data)
+    module._git(root, "add", ".")
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "reviewed split owner fixture",
+    )
+    event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    return module, root, path, event, run, data
+
+
+@pytest.mark.parametrize("part", ["a", "b"])
+def test_split_owner_renderer_keeps_full_authority_and_binds_exact_part(
+    authority, monkeypatch, part
+):
+    module, root, path, event, run, data = _split_authority(authority, monkeypatch)
+    manifest, observed = module._manifest(path, root, event, run, standard_part=part)
+    full = data["baseline"]["nodeids"]
+    assigned = full[:1] if part == "a" else full[1:]
+
+    def digest(ids):
+        return hashlib.sha256(
+            json.dumps(ids, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    profile_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert observed == data
+    assert manifest["nodeids"] == full
+    assert manifest["collection_args"] == data["collection_args"]
+    assert manifest["collection_scope"] == "main-owners"
+    assert manifest["source_files"] == {
+        **module._tracked(root, event),
+        **data["baseline"]["generated"],
+    }
+    assert manifest["source_files"]["cohort.json"] == profile_sha
+    assert manifest["standard_part"] == {
+        "id": part,
+        "profile": "cohort.json",
+        "profile_sha256": profile_sha,
+        "split_after": data["standard_parts"]["split_after"],
+        "full_s_sha256": digest(full),
+        "assigned_sha256": digest(assigned),
+        "checkout": event,
+        "run_id": "123456",
+        "run_attempt": "2",
+    }
+    assert not run.exists()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("GITHUB_RUN_ID", None),
+        ("GITHUB_RUN_ID", "0"),
+        ("GITHUB_RUN_ID", "01"),
+        ("GITHUB_RUN_ATTEMPT", None),
+        ("GITHUB_RUN_ATTEMPT", "0"),
+        ("GITHUB_RUN_ATTEMPT", "01"),
+        ("GITHUB_RUN_ATTEMPT", "unverified"),
+    ],
+)
+def test_split_owner_renderer_rejects_missing_or_invalid_hosted_identity(
+    authority, monkeypatch, key, value
+):
+    module, root, path, event, run, _data = _split_authority(authority, monkeypatch)
+    if value is None:
+        module.os.environ.pop(key)
+    else:
+        module.os.environ[key] = value
+    with pytest.raises(ValueError, match="actual hosted run/attempt identity"):
+        module._manifest(path, root, event, run, standard_part="a")
+
+
+def test_split_owner_renderer_requires_an_explicit_part(authority, monkeypatch):
+    module, root, path, event, run, _data = _split_authority(authority, monkeypatch)
+    with pytest.raises(ValueError, match="exactly one fixed STANDARD part"):
+        module._manifest(path, root, event, run)
+
+
+@pytest.mark.parametrize("part", ["a", "b"])
+def test_unsplit_renderer_rejects_part_authority(authority, part):
+    module, root, path, event, run, _data, _distributions = authority
+    with pytest.raises(ValueError, match="unsplit cohort"):
+        module._manifest(path, root, event, run, standard_part=part)
+
+
 @pytest.mark.parametrize("scope", ["main-owners", "global", "unknown"])
 def test_existing_global_renderer_does_not_authorize_owner_scope_controls(
     authority, scope
