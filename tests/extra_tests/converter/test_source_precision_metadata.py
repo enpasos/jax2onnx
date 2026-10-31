@@ -8,6 +8,8 @@ import copy
 from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import types
 from importlib import import_module
@@ -90,6 +92,274 @@ for _descriptor in _DESCRIPTORS:
     _method.__module__ = __name__
     setattr(TestRegisteredSourceMetadata, _descriptor.selector, _method)
 del _descriptor, _method
+
+
+def freeze_source_metadata_acceptance(state):
+    """Freeze the full current denominator before any selected-case admission."""
+    payload = inventory_owner.CURRENT_BASELINE.read_bytes()
+    inventory = json.loads(payload)
+    plan = probe.build_probe_plan(
+        inventory, baseline_sha256=hashlib.sha256(payload).hexdigest()
+    )
+    epoch = t_generator.source_metadata_epoch()
+    observation_error = None
+    try:
+        observed = inventory_owner.collect_inventory()
+    except Exception as exc:
+        observed = None
+        observation_error = f"{type(exc).__name__}: {exc}"
+    try:
+        ledger = inventory_owner.reconcile_source_metadata(
+            inventory,
+            observed,
+            plan,
+            baseline_sha256=plan.baseline_sha256,
+            epoch=asdict(epoch),
+            planned=(),
+            retain_inventory_errors=True,
+            unavailable=inventory_owner.unavailable_registrations(),
+        )
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        observation_error = (
+            f"Unusable genuine inventory observation: {type(exc).__name__}: {exc}"
+        )
+        observed = None
+        ledger = inventory_owner.reconcile_source_metadata(
+            inventory,
+            None,
+            plan,
+            baseline_sha256=plan.baseline_sha256,
+            epoch=asdict(epoch),
+            planned=(),
+            retain_inventory_errors=True,
+            unavailable=inventory_owner.unavailable_registrations(),
+        )
+    if observation_error:
+        ledger["inventory_errors"].append(observation_error)
+    ledger["inventory_observation_phase"] = "before-selection-admission"
+    state.update(
+        inventory=inventory,
+        observed_inventory=observed,
+        plan=plan,
+        epoch=epoch,
+        frozen_ledger=ledger,
+        baseline_payload=payload,
+        baseline_sha256=plan.baseline_sha256,
+        descriptors=(),
+        identities=(),
+        input_bindings={
+            str(inventory_owner.CURRENT_BASELINE.resolve()): plan.baseline_sha256
+        },
+    )
+
+
+def configure_source_metadata_acceptance(config, owner, state):
+    """Install only explicit raw cells in this existing pytest collection owner."""
+    if state["configured"]:
+        return
+    evidence_directory = state["report"].parent / (state["report"].name + ".evidence")
+    if evidence_directory.exists():
+        raise ValueError("SOURCE acceptance evidence directory already exists")
+    baseline = Path(
+        config.getoption("source_metadata_baseline") or inventory_owner.CURRENT_BASELINE
+    )
+    payload = baseline.read_bytes()
+    if payload != state["baseline_payload"]:
+        raise ValueError(
+            "SOURCE acceptance baseline must have exact CURRENT_BASELINE bytes"
+        )
+    state["input_bindings"][str(baseline.resolve())] = hashlib.sha256(
+        payload
+    ).hexdigest()
+    selection = []
+    for choice in config.getoption("source_metadata_case"):
+        try:
+            origin, ordinal, scenario = choice.rsplit("::", 2)
+            identity = (origin, int(ordinal), scenario)
+        except (ValueError, TypeError) as exc:
+            raise pytest.UsageError(
+                "SOURCE case must be origin::ordinal::scenario"
+            ) from exc
+        if (
+            not origin
+            or str(identity[1]) != ordinal
+            or scenario not in {"raw-x64-off", "raw-x64-on"}
+        ):
+            raise pytest.UsageError(
+                "SOURCE case needs an exact raw identity and caller context"
+            )
+        selection.append(identity)
+    registrations, _ = inventory_owner.raw_registrations()
+    if selection:
+        inventory_owner.source_metadata_selection_preflight(
+            state["inventory"],
+            state["observed_inventory"],
+            state["plan"],
+            registrations,
+            selection,
+        )
+    adapters = {}
+    if selection:
+        adapter_path = Path(
+            config.getoption("source_metadata_adapters")
+            or probe.REPOSITORY_ROOT
+            / "internal_docs/precision/source_replay_adapters.json"
+        )
+        adapter_payload = adapter_path.read_bytes()
+        adapters = json.loads(adapter_payload)
+        state["input_bindings"][str(adapter_path.resolve())] = hashlib.sha256(
+            adapter_payload
+        ).hexdigest()
+    descriptors = (
+        t_generator.source_metadata_cases(
+            state["plan"],
+            state["inventory"],
+            registrations,
+            selection=selection,
+            epoch=state["epoch"],
+            adapters=adapters,
+        )
+        if selection
+        else ()
+    )
+    for name, value in list(vars(owner).items()):
+        if getattr(value, "_source_metadata_case", None) is not None:
+            delattr(owner, name)
+    for descriptor in descriptors:
+        method = t_generator.make_source_test_function(
+            descriptor,
+            state["plan"],
+            registrations,
+            adapters=adapters,
+            evidence_directory=evidence_directory,
+            stage="product",
+            runtime_optimization="all",
+            expected_statuses={
+                "source_reference": "validated",
+                "schema": "validated",
+                "artifact": "validated",
+                "lowering_audit": "validated",
+                "structure": "validated",
+                "raw_callback": "validated",
+            },
+        )
+        method.__module__ = __name__
+        setattr(owner, descriptor.selector, method)
+    state.update(configured=True, descriptors=descriptors, identities=tuple(selection))
+
+
+def finish_source_metadata_acceptance(session, state, exitstatus):
+    """Keep the frozen ledger even when actual admission/collection is invalid."""
+    collected, outcomes, evidence, report = (), [], [], None
+    try:
+        if not state["configured"]:
+            raise ValueError(
+                state.get(
+                    "admission_error", "Metadata owner admission did not complete"
+                )
+            )
+        collected = t_generator.source_metadata_collection_records(state["items"])
+        for item in state["items"]:
+            outcome = getattr(item.obj, "_source_outcome", None)
+            cell = getattr(item.obj, "_source_cell", None)
+            if outcome is not None:
+                outcomes.append({**outcome, "nodeid": item.nodeid})
+                evidence.append(cell.history[-1])
+        if t_generator.source_metadata_epoch() != state["epoch"]:
+            raise ValueError("SOURCE acceptance source/environment epoch changed")
+        if any(
+            hashlib.sha256(Path(path).read_bytes()).hexdigest() != digest
+            for path, digest in state["input_bindings"].items()
+        ):
+            raise ValueError("SOURCE acceptance baseline/adapter input bytes changed")
+        terminal = inventory_owner.source_metadata_pytest_statuses(
+            collected, state["reports"]
+        )
+        expected = set(state["identities"])
+        actual = {tuple(record["identity"]) for record in collected}
+        collection_ok = (
+            state["collection_finished"]
+            and all(report.passed for report in state["collection_reports"])
+            and expected == actual
+            and len(collected) == len(expected)
+        )
+        run_finished = exitstatus in {
+            pytest.ExitCode.OK,
+            pytest.ExitCode.TESTS_FAILED,
+            pytest.ExitCode.NO_TESTS_COLLECTED,
+        }
+        outcomes_ok = (
+            collection_ok
+            and run_finished
+            and all(
+                terminal.get(record["nodeid"], {}).get("terminal", False)
+                for record in collected
+            )
+        )
+        report = inventory_owner.reconcile_source_metadata(
+            state["inventory"],
+            inventory_owner.collect_inventory(),
+            state["plan"],
+            baseline_sha256=state["baseline_sha256"],
+            epoch=asdict(state["epoch"]),
+            planned=[descriptor.record() for descriptor in state["descriptors"]],
+            collected=collected,
+            outcomes=outcomes,
+            stage_evidence=evidence,
+            pytest_reports=state["reports"],
+            collection_complete=collection_ok,
+            outcomes_complete=outcomes_ok,
+            unavailable=inventory_owner.unavailable_registrations(),
+            retain_inventory_errors=True,
+        )
+        initial_errors = state["frozen_ledger"]["inventory_errors"]
+        report["inventory_errors"] = list(
+            dict.fromkeys([*initial_errors, *report["inventory_errors"]])
+        )
+        report["initial_observed_inventory_sha256"] = state["frozen_ledger"][
+            "inventory_mismatch_evidence"
+        ]["observed_snapshot_sha256"]
+        if report["inventory_errors"]:
+            report["complete_migration_acceptance"] = "error"
+            report["required_exit_status"] = 1
+        if not collection_ok:
+            raise ValueError(
+                "Actual SOURCE collection failed or omitted selected identities"
+            )
+    except Exception as exc:
+        report = copy.deepcopy(report if report is not None else state["frozen_ledger"])
+        report["complete_migration_acceptance"] = "error"
+        report["required_exit_status"] = 1
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        report["unreconciled_actual_collection"] = list(collected)
+        report["unreconciled_stage_outcomes"] = outcomes
+    report["pytest_collection_owner"] = state["collection_owner"]
+    report["requested_pytest_args"] = state["requested_pytest_args"]
+    report["requested_case_choices"] = list(
+        session.config.getoption("source_metadata_case")
+    )
+    report["actual_collection_reports"] = [
+        {
+            "nodeid": item.nodeid,
+            "outcome": item.outcome,
+            "longrepr": str(item.longrepr) if item.failed else None,
+        }
+        for item in state["collection_reports"]
+    ]
+    report["actual_pytest_reports"] = [
+        {"nodeid": item.nodeid, "when": item.when, "outcome": item.outcome}
+        for item in state["reports"]
+    ]
+    report["original_pytest_exitstatus"] = int(exitstatus)
+    state["report"].parent.mkdir(parents=True, exist_ok=True)
+    with state["report"].open("x") as stream:
+        json.dump(report, stream, sort_keys=True, separators=(",", ":"))
+        stream.write("\n")
+    if report["required_exit_status"] and exitstatus in {
+        pytest.ExitCode.OK,
+        pytest.ExitCode.NO_TESTS_COLLECTED,
+    }:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @pytest.fixture(scope="module")
@@ -260,6 +530,428 @@ def test_actual_collected_ids_are_read_from_pytest_items(request, original_scope
     assert report["counts"]["actual_source_collected_pytest_ids"] == len(selected)
     assert report["counts"]["terminal_source_stage_outcomes"] == 0
     assert report["counts"]["validated_raw_metadata_capabilities"] == 0
+
+
+def test_acceptance_keeps_complete_current_denominator_with_two_selected_cells():
+    payload = inventory_owner.CURRENT_BASELINE.read_bytes()
+    inventory = json.loads(payload)
+    scope = (
+        inventory,
+        probe.build_probe_plan(
+            inventory, baseline_sha256=hashlib.sha256(payload).hexdigest()
+        ),
+        _ORIGINAL[2],
+    )
+    descriptors = _descriptors(scope, selection=_SELECTED)
+    report = _account(scope, descriptors, collection_complete=False)
+    assert report["counts"]["raw_rows"] == 1856
+    assert report["counts"]["raw_caller_cells"] == 3712
+    assert report["counts"]["criterion_unresolved_raw_rows"] == 1838
+    assert report["counts"]["planned_source_selectors"] == 2
+    raw = [item for item in report["obligations"] if item["kind"] == "raw-cell"]
+    assert len(raw) == 3712
+    assert all(item["numerical_acceptance"] == "unverified" for item in raw)
+    assert {item["kind"] for item in report["obligations"]} >= {
+        "raw-cell",
+        "metadata-free",
+        "original-manual",
+        "legacy-preparation",
+    }
+    assert report["raw_metadata_acceptance"] == "unverified"
+    assert report["complete_migration_acceptance"] == "unverified"
+    assert report["required_exit_status"] == 1
+
+
+def test_criteria_pass_does_not_invent_missing_scientific_checks():
+    scope = _synthetic(
+        {
+            "testcase": "criterion",
+            "callable": lambda x: x,
+            "input_shapes": [(1,)],
+            "rtol": 0.0,
+            "atol": 0.0,
+        }
+    )
+    evidence = {
+        "source_reference": "validated",
+        "numerics": "validated",
+        "detail": "criteria passed",
+        "artifact_sha256": "a" * 64,
+        "replay_capture": {
+            "metadata_runtime": {
+                "optimization": "all",
+                "status": "validated",
+                "binding_status": "validated",
+                "artifact_sha256": "a" * 64,
+                "target": {"optimization": "ORT_ENABLE_ALL"},
+                "samples": [
+                    {
+                        "references": [{"dtype": "float32", "shape": [1]}],
+                        "outputs": [{"dtype": "float32", "shape": [1]}],
+                        "checks": [
+                            {"category": "runtime-execution", "status": "validated"}
+                        ],
+                    }
+                ],
+            }
+        },
+    }
+    checks = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], evidence
+    )
+    assert checks["declared_criteria_pair"]["status"] == "validated"
+    assert checks["reviewed_criteria"]["status"] == "unverified"
+    assert checks["criteria_comparison"]["status"] == "validated"
+    assert checks["dtype_shape_output_count"]["status"] == "validated"
+    assert checks["ort_all"]["status"] == "validated"
+    for name in (
+        "native_three_role_agreement",
+        "ort_disabled",
+        "same_artifact_and_feeds_both_modes",
+        "component_nan_masks",
+        "zero_signs",
+        "operation_rounding",
+        "required_internal_fp64",
+    ):
+        assert checks[name]["status"] == "unverified"
+    crossed = copy.deepcopy(evidence)
+    crossed["replay_capture"]["metadata_runtime"]["artifact_sha256"] = "b" * 64
+    with pytest.raises(ValueError, match="artifact binding"):
+        inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], crossed)
+    absent = copy.deepcopy(evidence)
+    absent["replay_capture"]["metadata_runtime"]["samples"][0]["checks"] = []
+    assert (
+        inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], absent)[
+            "dtype_shape_output_count"
+        ]["status"]
+        == "unverified"
+    )
+
+
+def _acceptance_subprocess(tmp_path, *, case=None, phase=None, admission=None):
+    """A real pytest subprocess, never a direct-call collection/outcome claim."""
+    root = Path(__file__).resolve().parents[3]
+    report = tmp_path / "acceptance.json"
+    forbidden = tmp_path / "test_must_not_run.py"
+    forbidden.write_text("raise AssertionError('non-owner model module collected')\n")
+    args = [
+        sys.executable,
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        str(Path(__file__).resolve()),
+        str(forbidden),
+        "--source-metadata-acceptance=" + str(report),
+        "-o",
+        "cache_dir=" + str(tmp_path / "pytest-cache"),
+        "--basetemp=" + str(tmp_path / "pytest"),
+    ]
+    if case is not None:
+        args.append("--source-metadata-case=" + case)
+        if admission == "historical-adapters":
+            adapter_path = root / "internal_docs/precision/source_replay_adapters.json"
+        else:
+            adapter_path = tmp_path / "adapters.json"
+            adapter_path.write_text(
+                json.dumps(
+                    {
+                        "inventory_sha256": hashlib.sha256(
+                            inventory_owner.CURRENT_BASELINE.read_bytes()
+                        ).hexdigest(),
+                        "rows": {},
+                    }
+                )
+            )
+        args.append("--source-metadata-adapters=" + str(adapter_path))
+    if admission == "historical-baseline":
+        args.append(
+            "--source-metadata-baseline=" + str(inventory_owner.HISTORICAL_BASELINE)
+        )
+    elif admission == "existing-evidence":
+        (tmp_path / "acceptance.json.evidence").mkdir()
+    if phase == "deselected":
+        args += ["-k", "no_such_selected_source_case"]
+    elif phase == "collection":
+        plugin = tmp_path / "metadata_phase_failure.py"
+        plugin.write_text(
+            "def pytest_pycollect_makeitem(collector, name, obj):\n"
+            "    if name == 'TestRegisteredSourceMetadata':\n"
+            "        raise RuntimeError('genuine selected collection failure')\n"
+        )
+        args += ["-p", "metadata_phase_failure"]
+    elif phase is not None:
+        plugin = tmp_path / "metadata_phase_failure.py"
+        plugin.write_text(
+            "def pytest_runtest_" + phase + "(item):\n"
+            "    if getattr(getattr(item, 'obj', None), '_source_metadata_case', None) is not None:\n"
+            "        raise RuntimeError('genuine selected " + phase + " failure')\n"
+        )
+        args += ["-p", "metadata_phase_failure"]
+    env = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPATH": os.pathsep.join((str(tmp_path), str(root))),
+    }
+    result = subprocess.run(
+        args, cwd=root, env=env, capture_output=True, text=True, timeout=120
+    )
+    (tmp_path / "pytest-output.txt").write_text(result.stdout + result.stderr)
+    return result, json.loads(report.read_text())
+
+
+def test_optin_no_explicit_cases_accounts_only_and_executes_no_items(tmp_path):
+    result, report = _acceptance_subprocess(tmp_path)
+    assert result.returncode == 1
+    assert "non-owner model module collected" not in result.stdout + result.stderr
+    assert Path(report["pytest_collection_owner"]).resolve() == Path(__file__).resolve()
+    assert report["counts"]["raw_caller_cells"] == 3712
+    assert report["counts"]["planned_source_selectors"] == 0
+    assert report["counts"]["actual_source_collected_pytest_ids"] == 0
+    assert report["counts"]["observed_source_stage_bodies"] == 0
+    assert report["raw_metadata_acceptance"] == "unverified"
+    assert report["complete_migration_acceptance"] == (
+        "error" if report["inventory_errors"] else "unverified"
+    )
+    assert report["original_pytest_exitstatus"] == 5
+    assert not (tmp_path / "acceptance.json.evidence").exists()
+
+
+@pytest.mark.parametrize("phase", [None, "setup", "teardown"])
+def test_optin_real_pytest_phases_cannot_become_complete_acceptance(tmp_path, phase):
+    result, report = _acceptance_subprocess(
+        tmp_path, case="plugin::jax.numpy.add::0::raw-x64-off", phase=phase
+    )
+    assert result.returncode == 1
+    assert report["counts"]["raw_caller_cells"] == 3712
+    assert report["counts"]["actual_source_collected_pytest_ids"] == 1
+    assert report["counts"]["actual_source_pytest_terminal_outcomes"] == 1
+    raw = next(
+        item
+        for item in report["obligations"]
+        if item.get("identity") == ["plugin::jax.numpy.add", 0, "raw-x64-off"]
+    )
+    if phase is None:
+        assert raw["pytest_outcome"] == "passed"
+        assert raw["stage_contract_passed"] is True
+        assert raw["numerical_acceptance"] == "unverified"
+    else:
+        assert raw["pytest_outcome"] == "failed"
+        assert raw["numerical_acceptance"] == "failed"
+    assert report["complete_migration_acceptance"] != "validated"
+
+
+def test_optin_historical_adapter_error_keeps_the_full_current_ledger(tmp_path):
+    result, report = _acceptance_subprocess(
+        tmp_path,
+        case="plugin::jax.numpy.add::0::raw-x64-off",
+        admission="historical-adapters",
+    )
+    assert result.returncode != 0
+    assert report["complete_migration_acceptance"] == "error"
+    assert report["counts"]["raw_caller_cells"] == 3712
+    assert (
+        len([item for item in report["obligations"] if item["kind"] == "raw-cell"])
+        == 3712
+    )
+    assert {item["kind"] for item in report["obligations"]} >= {
+        "original-manual",
+        "legacy-preparation",
+        "metadata-free",
+    }
+    assert report["original_pytest_exitstatus"] == result.returncode
+
+
+@pytest.mark.parametrize("admission", ["historical-baseline", "existing-evidence"])
+def test_optin_admission_requires_current_bytes_and_fresh_evidence(tmp_path, admission):
+    options = {"source_metadata_baseline": None, "source_metadata_case": []}
+    if admission == "historical-baseline":
+        options["source_metadata_baseline"] = str(inventory_owner.HISTORICAL_BASELINE)
+    else:
+        (tmp_path / "acceptance.json.evidence").mkdir()
+    state = {
+        "configured": False,
+        "frozen_ledger": {"inventory_errors": []},
+        "report": tmp_path / "acceptance.json",
+        "input_bindings": {},
+        "baseline_payload": inventory_owner.CURRENT_BASELINE.read_bytes(),
+    }
+    config = types.SimpleNamespace(getoption=lambda name: options.get(name))
+    with pytest.raises(ValueError, match="CURRENT_BASELINE|evidence directory"):
+        configure_source_metadata_acceptance(config, type("EmptyOwner", (), {}), state)
+    assert state["configured"] is False
+
+
+def test_error_ledger_retains_denominator_without_a_fabricated_observation():
+    scope = _synthetic(
+        {"testcase": "retained", "callable": lambda x: x, "input_shapes": [(1,)]},
+        without=[("no_metadata", "owner")],
+        manual=[("tests/original.py", ["test_original"])],
+    )
+    drifted = copy.deepcopy(scope[0])
+    drifted["cases"] = []
+    drifted["manual"] = []
+    for observed in (None, drifted):
+        report = _account(
+            scope, [], observed_inventory=observed, retain_inventory_errors=True
+        )
+        assert report["counts"]["raw_caller_cells"] == 2
+        assert report["counts"]["original_manual_anchors"] == 1
+        assert report["inventory_errors"]
+        assert report["current_inventory_observed"] is (observed is not None)
+        assert report["required_exit_status"] == 1
+        assert (
+            len([item for item in report["obligations"] if item["kind"] == "raw-cell"])
+            == 2
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "owner",
+        "context",
+        "component",
+        "feature",
+        "opset",
+        "contract",
+        "live-owner",
+        "live-contract",
+        "unobserved",
+        "malformed",
+        "header",
+    ],
+)
+def test_selected_diagnostic_preflight_rejects_drift_before_native(
+    mutation, monkeypatch
+):
+    def factory():
+        pytest.fail("Selected preflight invoked the original factory")
+
+    scope = _synthetic(
+        {
+            "testcase": "bound",
+            "callable": construct_and_call(factory),
+            "input_shapes": [(1,)],
+        }
+    )
+    inventory, plan, registrations = scope
+    observed = copy.deepcopy(inventory)
+    registrations = [
+        (
+            origin,
+            owner,
+            {**metadata, "testcases": [dict(case) for case in metadata["testcases"]]},
+        )
+        for origin, owner, metadata in registrations
+    ]
+    if mutation in {"owner", "context", "component"}:
+        row = list(observed["registrations"][0])
+        row[{"owner": 1, "context": 2, "component": 3}[mutation]] = "changed"
+        observed["registrations"][0] = row
+    elif mutation in {"feature", "opset"}:
+        row = list(observed["cases"][0])
+        row[3 if mutation == "feature" else 4] += 1
+        observed["cases"][0] = row
+    elif mutation == "contract":
+        observed["contracts"][0]["input_shapes"] = [{"tuple": [2]}]
+    elif mutation == "live-owner":
+        origin, _, metadata = registrations[0]
+        registrations[0] = (origin, "changed", metadata)
+    elif mutation == "live-contract":
+        registrations[0][2]["testcases"][0]["input_shapes"] = [(2,)]
+    elif mutation == "unobserved":
+        observed = None
+    elif mutation == "header":
+        observed["schema_version"] = 2
+    else:
+        observed = {"registrations": [], "cases": []}
+    _forbid_legacy_and_native(monkeypatch)
+    with pytest.raises(ValueError):
+        inventory_owner.source_metadata_selection_preflight(
+            inventory, observed, plan, registrations, [plan.cells[0].identity]
+        )
+
+
+def test_unrelated_drift_keeps_global_error_but_not_selected_diagnostic_block(
+    monkeypatch,
+):
+    scope = _synthetic(
+        {"testcase": "bound", "callable": lambda x: x, "input_shapes": [(1,)]},
+        aliases=("plugin::selected", "plugin::unrelated"),
+    )
+    inventory, plan, registrations = scope
+    observed = copy.deepcopy(inventory)
+    changed = list(observed["cases"][1])
+    observed["contracts"].append(
+        {**observed["contracts"][changed[5]], "input_shapes": [{"tuple": [2]}]}
+    )
+    changed[5] = len(observed["contracts"]) - 1
+    observed["cases"][1] = changed
+    identity = ("plugin::selected", 0, "raw-x64-off")
+    _forbid_legacy_and_native(monkeypatch)
+    inventory_owner.source_metadata_selection_preflight(
+        inventory, observed, plan, registrations, [identity]
+    )
+    report = _account(
+        scope,
+        _descriptors(scope, selection=[identity]),
+        observed_inventory=observed,
+        retain_inventory_errors=True,
+    )
+    assert report["inventory_errors"]
+    assert report["complete_migration_acceptance"] == "error"
+    assert report["counts"]["raw_caller_cells"] == 4
+    mismatch = report["inventory_mismatch_evidence"]
+    assert mismatch["observed_snapshot_sha256"] == t_generator._source_metadata_digest(
+        observed
+    )
+    row = mismatch["row_mismatches"][0]
+    assert row["identity"] == ("plugin::unrelated", 0)
+    assert row["expected"]["contract"] == inventory["contracts"][0]
+    assert row["observed"]["contract"] == observed["contracts"][-1]
+
+
+def test_selected_optional_source_drift_stops_before_native(monkeypatch):
+    scope = _synthetic(
+        {"testcase": "bound", "callable": lambda x: x, "input_shapes": [(1,)]}
+    )
+    inventory, plan, registrations = scope
+    identity = plan.cells[0].identity
+    inventory["optional"] = {
+        "maxtext": {
+            "baseline": {
+                "members": [identity[:2]],
+                "registration_source_sha256": "a" * 64,
+            }
+        }
+    }
+    observed = copy.deepcopy(inventory)
+    observed["optional"]["maxtext"]["registration_source_sha256"] = "b" * 64
+    _forbid_legacy_and_native(monkeypatch)
+    with pytest.raises(ValueError, match="optional registration source"):
+        inventory_owner.source_metadata_selection_preflight(
+            inventory, observed, plan, registrations, [identity]
+        )
+
+
+@pytest.mark.parametrize("phase", ["deselected", "collection"])
+def test_optin_missing_items_and_genuine_collection_errors_keep_the_ledger(
+    tmp_path, phase
+):
+    result, report = _acceptance_subprocess(
+        tmp_path, case="plugin::jax.numpy.add::0::raw-x64-off", phase=phase
+    )
+    assert result.returncode != 0
+    assert report["counts"]["raw_caller_cells"] == 3712
+    assert report["collection_complete"] is False
+    assert report["outcomes_complete"] is False
+    assert report["complete_migration_acceptance"] == "error"
+    if phase == "collection":
+        assert report["original_pytest_exitstatus"] == result.returncode == 2
+        assert any(
+            item["outcome"] == "failed" for item in report["actual_collection_reports"]
+        )
 
 
 def test_direct_raw_replay_and_metadata_path_have_same_real_evidence(
@@ -645,6 +1337,24 @@ def test_complete_explicit_criterion_uses_same_artifact_and_retained_target(tmp_
     assert len(runtime["samples"]) == 2
     assert runtime["target"]["providers"] == ("CPUExecutionProvider",)
     assert outcome["capability_status"] == "validated"
+    scientific = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(function._source_cell.history[-1])
+    )
+    assert scientific["declared_criteria_pair"]["status"] == "validated"
+    assert scientific["reviewed_criteria"]["status"] == "unverified"
+    assert scientific["ort_disabled"]["status"] == "validated"
+    assert scientific["dtype_shape_output_count"]["status"] == "validated"
+    assert scientific["criteria_comparison"]["status"] == "validated"
+    for name in (
+        "native_three_role_agreement",
+        "ort_all",
+        "same_artifact_and_feeds_both_modes",
+        "component_nan_masks",
+        "zero_signs",
+        "operation_rounding",
+        "required_internal_fp64",
+    ):
+        assert scientific[name]["status"] == "unverified"
 
 
 @pytest.mark.parametrize(
@@ -1177,6 +1887,8 @@ def test_metadata_source_epoch_changes_with_checker_bytes_only(monkeypatch, tmp_
         "scripts/source_precision_probe.py",
         "scripts/source_precision_inventory.py",
         "tests/t_generator.py",
+        "tests/conftest.py",
+        "tests/extra_tests/converter/test_source_precision_metadata.py",
         "tests/extra_tests/converter/source_precision_support.py",
         "tests/extra_tests/converter/source_precision_raw_replay.py",
         "tests/extra_tests/converter/source_precision_diagnostics.py",

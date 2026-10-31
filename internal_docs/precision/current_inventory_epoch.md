@@ -77,3 +77,36 @@ Public LEGACY defaults, original inputs/criteria, broader
 symbols/options/opsets, original22/B=5 resource work, complete model/numerical
 qualification and the coordinated public transition remain open. This inventory
 repair neither completes nor reduces B–F scope.
+
+## Strict opt-in metadata accounting
+
+The existing metadata pytest owner can write a strict accounting report with
+`--source-metadata-acceptance=REPORT`. Collection is confined to that owner.
+Without repeatable `--source-metadata-case=origin::ordinal::scenario` choices,
+no generated model item runs: the report still retains all **1,856 rows / 3,712
+caller cells**, manual anchors, metadata-free registrations and prepared LEGACY
+obligations. Ordinary non-opt-in generated selection keeps its existing behavior.
+
+Explicit selections require the exact current baseline bytes (an alternate
+`--source-metadata-baseline` path may contain the same bytes) and a reviewed
+CURRENT-bound `--source-metadata-adapters` mapping. Historical adapters are not
+reheadered. Snapshot and live owner/context/component, ordinal, feature/opset,
+contract and display checks precede method installation and native execution;
+selected optional rows also require their actual source/config provenance.
+Unrelated inventory drift may coexist with exactly bound diagnostic execution,
+but remains **ERROR** in the complete report and keeps the gate nonzero. Actual
+pytest Items, collection and setup/call/teardown reports govern completion.
+Admission errors preserve the full frozen ledger and original pytest error codes.
+
+Raw metadata acceptance is distinct from complete migration acceptance. A
+successful diagnostic stage does not close either. The **18 declared tolerance
+pairs** and **1,838 missing pairs** remain factual counts; a declaration is not
+independent scientific review. Missing warm-JIT/Native3 agreement, both ORT modes
+on the same artifact/feeds, component NaN masks, signed zeros, operation rounding
+and required internal FP64 stay explicit. No float default, public SampleCriteria
+change, manifest refresh or acceptance of manual/LEGACY counterparts follows.
+
+Current discovery also retains actual snapshot digests, changed raw contracts
+and optional-source provenance. The committed MaxText recipe changes and older
+checkpoint-closure difference remain unresolved global mismatches; observations
+do not normalize them or transfer model/numerical acceptance.

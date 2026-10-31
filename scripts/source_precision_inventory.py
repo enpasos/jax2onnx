@@ -1324,6 +1324,109 @@ def source_metadata_pytest_statuses(
     return result
 
 
+def source_metadata_numerical_checks(
+    row: Any, evidence: Mapping[str, Any] | None
+) -> dict[str, dict[str, str]]:
+    """Account for scientific proof without upgrading the replay's evidence.
+
+    The current replay records only eager/fresh-JIT and one target mode. Its
+    tolerance result cannot prove warm-JIT agreement, component NaN masks,
+    signed zeros, deliberate rounding or required internal accumulation. There
+    is deliberately no caller-supplied verdict or generic proof override here.
+    """
+    missing = {
+        "native_three_role_agreement": "No retained eager/first/warm numerical agreement",
+        "ort_disabled": "No bound disabled-optimization target sample",
+        "ort_all": "No bound all-optimization target sample",
+        "same_artifact_and_feeds_both_modes": "No two-mode comparison of the same artifact and feed identities",
+        "dtype_shape_output_count": "No actual target/reference tensor comparison",
+        "criteria_comparison": "No actual comparison against the frozen criterion",
+        "component_nan_masks": "No explicit component NaN-mask proof",
+        "zero_signs": "No applicable signed-zero proof",
+        "operation_rounding": "No operation-specific rounding applicability/proof",
+        "required_internal_fp64": "No internal-accumulation applicability/proof",
+    }
+    checks = {
+        name: {"status": "unverified", "detail": detail}
+        for name, detail in missing.items()
+    }
+    checks["declared_criteria_pair"] = {
+        "status": "validated" if row.criteria is not None else "unverified",
+        "detail": (
+            "The frozen row declares both explicit tolerance values; this is not scientific review"
+            if row.criteria is not None
+            else "The frozen raw contract has no complete declared criterion pair"
+        ),
+    }
+    checks["reviewed_criteria"] = {
+        "status": "unverified",
+        "detail": "A declared criterion pair alone is not independent scientific review",
+    }
+    if evidence is None:
+        return checks
+    if evidence["source_reference"] == "failed":
+        checks["native_three_role_agreement"] = {
+            "status": "failed",
+            "detail": evidence["detail"],
+        }
+    checks["criteria_comparison"] = {
+        "status": evidence["numerics"],
+        "detail": evidence["detail"],
+    }
+    runtime = (evidence.get("replay_capture") or {}).get("metadata_runtime", {})
+    mode = runtime.get("optimization")
+    if mode not in {"disabled", "all"}:
+        return checks
+    status = runtime.get("status", "unverified")
+    if status not in {"validated", "unverified", "failed"}:
+        raise ValueError("Unknown retained SOURCE runtime numerical status")
+    if runtime.get("artifact_sha256") != evidence["artifact_sha256"]:
+        if status != "unverified":
+            raise ValueError("SOURCE numerical runtime artifact binding differs")
+        return checks
+    if runtime.get("binding_status") != "validated":
+        return checks
+    samples = runtime.get("samples", ())
+    target = runtime.get("target") or {}
+    expected_optimization = {"disabled": "ORT_DISABLE_ALL", "all": "ORT_ENABLE_ALL"}[
+        mode
+    ]
+    if target.get("optimization") != expected_optimization or not samples:
+        if status != "unverified":
+            raise ValueError("SOURCE numerical runtime target/sample binding missing")
+        return checks
+    checks["ort_" + mode] = {
+        "status": status,
+        "detail": "Actual retained target samples in this optimization mode only",
+    }
+    if not all(
+        any(
+            check.get("category") == "runtime-execution"
+            and check.get("status") == "validated"
+            for check in sample.get("checks", ())
+        )
+        for sample in samples
+    ):
+        return checks
+    tensor_pairs = [
+        (sample.get("references", ()), sample.get("outputs", ())) for sample in samples
+    ]
+    tensor_match = all(
+        len(references) == len(outputs)
+        and all(
+            reference["dtype"] == output["dtype"]
+            and reference["shape"] == output["shape"]
+            for reference, output in zip(references, outputs, strict=True)
+        )
+        for references, outputs in tensor_pairs
+    )
+    checks["dtype_shape_output_count"] = {
+        "status": "validated" if tensor_match else "failed",
+        "detail": "Actual retained reference/output tensor descriptors compared",
+    }
+    return checks
+
+
 def _canonical_container(value: Any) -> list[Any] | None:
     if isinstance(value, list):
         return value
@@ -1451,9 +1554,228 @@ def legacy_preparation_obligations(
     return obligations
 
 
+def source_metadata_selection_preflight(
+    inventory: Mapping[str, Any],
+    observed: Mapping[str, Any] | None,
+    plan: Any,
+    registrations: Sequence[tuple[str, str, Mapping[str, Any]]],
+    selection: Sequence[tuple[str, int, str]],
+) -> None:
+    """Bind bounded diagnostics exactly, without clearing global inventory drift."""
+    from scripts.source_precision_probe import SourceProvenance, preflight_cases
+
+    if observed is None:
+        raise ValueError(
+            "Selected SOURCE diagnostics require a genuine observed inventory"
+        )
+    try:
+        if (
+            type(observed["schema_version"]) is not int
+            or observed["schema_version"] != 1
+            or any(
+                observed[key] != inventory[key]
+                for key in ("registration_columns", "case_columns", "feature_bits")
+            )
+        ):
+            raise ValueError("Malformed selected SOURCE inventory schema")
+        frozen_reg = {row[0]: tuple(row) for row in inventory["registrations"]}
+        actual_reg = {row[0]: tuple(row) for row in observed["registrations"]}
+        raw_reg = {
+            origin: (owner, metadata) for origin, owner, metadata in registrations
+        }
+        frozen = {
+            (inventory["registrations"][row[0]][0], row[1]): row
+            for row in inventory["cases"]
+        }
+        actual = {
+            (observed["registrations"][row[0]][0], row[1]): row
+            for row in observed["cases"]
+        }
+        if (
+            len(frozen_reg) != len(inventory["registrations"])
+            or len(frozen) != len(inventory["cases"])
+            or len(actual_reg) != len(observed["registrations"])
+            or len(raw_reg) != len(registrations)
+            or len(actual) != len(observed["cases"])
+        ):
+            raise ValueError("Duplicate selected-scope inventory identities")
+        for origin, ordinal, scenario in selection:
+            if (
+                type(ordinal) is not int
+                or ordinal < 0
+                or scenario not in {"raw-x64-off", "raw-x64-on"}
+            ):
+                raise ValueError("Invalid selected SOURCE caller identity")
+            key = (origin, ordinal)
+            before, after = frozen[key], actual[key]
+            owner, metadata = raw_reg[origin]
+            live_registration = (
+                origin,
+                owner,
+                str(metadata.get("context", "default")),
+                str(metadata.get("component", "default")),
+            )
+            if (
+                frozen_reg[origin] != actual_reg[origin]
+                or live_registration != frozen_reg[origin]
+            ):
+                raise ValueError(
+                    "Selected SOURCE registration owner/context/component differs"
+                )
+            if tuple(before[1:5]) != tuple(after[1:5]) or _contract_hash(
+                inventory["contracts"][before[5]]
+            ) != _contract_hash(observed["contracts"][after[5]]):
+                raise ValueError(
+                    "Selected SOURCE row feature/opset/contract/display differs"
+                )
+            raw = metadata["testcases"][ordinal]
+            if (
+                _features(raw) != before[3]
+                or int(raw.get("opset_version", 23)) != before[4]
+            ):
+                raise ValueError("Selected live SOURCE feature/opset differs")
+            for family, expected_family in inventory.get("optional", {}).items():
+                if key not in set(
+                    map(tuple, expected_family.get("baseline", {}).get("members", ()))
+                ):
+                    continue
+                actual_family = observed.get("optional", {}).get(family, {})
+                if expected_family["baseline"].get(
+                    "registration_source_sha256"
+                ) != actual_family.get("registration_source_sha256"):
+                    raise ValueError("Selected optional registration source differs")
+                scoped = {**inventory, "optional": {family: expected_family}}
+                left = json.loads(json.dumps(_identity_view(scoped)))
+                right = json.loads(json.dumps(_identity_view(observed)))
+                differences, _ = _compare_optional(scoped, observed, left, right)
+                if (
+                    differences
+                    or actual_family.get("import_error")
+                    or actual_family.get("provenance_error")
+                    or not actual_family.get("registration_available")
+                ):
+                    raise ValueError(
+                        "Selected optional source/config/provenance differs: "
+                        + "; ".join(differences)
+                    )
+        preflight_cases(
+            plan,
+            registrations,
+            frozenset(
+                SourceProvenance(origin, ordinal) for origin, ordinal, _ in selection
+            ),
+        )
+    except (KeyError, TypeError, IndexError) as exc:
+        raise ValueError(
+            "Malformed or missing selected SOURCE inventory binding"
+        ) from exc
+
+
+def source_metadata_inventory_evidence(
+    inventory: Mapping[str, Any],
+    observed: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Compact actual mismatch values; never rebind a frozen row or recipe."""
+    if observed is None:
+        return {"observed_snapshot_sha256": None, "row_mismatches": [], "optional": {}}
+    before_reg = {row[0]: tuple(row) for row in inventory["registrations"]}
+    after_reg = {row[0]: tuple(row) for row in observed["registrations"]}
+
+    def rows(snapshot):
+        return {
+            (snapshot["registrations"][row[0]][0], row[1]): {
+                "registration": tuple(snapshot["registrations"][row[0]]),
+                "row_fields": tuple(row[1:5]),
+                "contract": json.loads(json.dumps(snapshot["contracts"][row[5]])),
+            }
+            for row in snapshot["cases"]
+        }
+
+    before, after = rows(inventory), rows(observed)
+
+    def compact_missing(row):
+        if row is None:
+            return None
+        return {
+            "registration": row["registration"],
+            "row_fields": row["row_fields"],
+            "contract_sha256": _contract_hash(row["contract"]),
+        }
+
+    changed = [
+        {
+            "identity": key,
+            "expected": (
+                before[key]
+                if key in after and key in before
+                else compact_missing(before.get(key))
+            ),
+            "observed": (
+                after[key]
+                if key in before and key in after
+                else compact_missing(after.get(key))
+            ),
+        }
+        for key in sorted(set(before) | set(after))
+        if before.get(key) != after.get(key)
+    ]
+
+    def optional(record):
+        baseline = record.get("baseline", {})
+        return {
+            **{
+                key: record.get(key)
+                for key in (
+                    "registration_source_sha256",
+                    "source_environment_configured",
+                    "registration_available",
+                    "resolved_checkout",
+                    "resolved_config_directory",
+                    "import_error",
+                    "provenance_error",
+                )
+            },
+            "baseline": {
+                key: baseline.get(key)
+                for key in (
+                    "repository",
+                    "ref",
+                    "registration_source_sha256",
+                    "config_directory",
+                    "provenance_gaps",
+                    "errors",
+                )
+            },
+            "config_tree_sha256": _contract_hash(baseline.get("config_tree")),
+        }
+
+    return {
+        "observed_snapshot_sha256": _contract_hash(observed),
+        "row_mismatches": changed,
+        "registration_mismatches": [
+            {
+                "origin": key,
+                "expected": before_reg.get(key),
+                "observed": after_reg.get(key),
+            }
+            for key in sorted(set(before_reg) | set(after_reg))
+            if before_reg.get(key) != after_reg.get(key)
+        ],
+        "optional": {
+            family: {
+                "expected": optional(inventory.get("optional", {}).get(family, {})),
+                "observed": optional(observed.get("optional", {}).get(family, {})),
+            }
+            for family in sorted(
+                set(inventory.get("optional", {})) | set(observed.get("optional", {}))
+            )
+        },
+    }
+
+
 def reconcile_source_metadata(
     inventory: Mapping[str, Any],
-    observed_inventory: Mapping[str, Any],
+    observed_inventory: Mapping[str, Any] | None,
     plan: Any,
     *,
     baseline_sha256: str,
@@ -1467,6 +1789,7 @@ def reconcile_source_metadata(
     original_capabilities: Sequence[Mapping[str, Any]] = (),
     stage_evidence: Sequence[Any] = (),
     pytest_reports: Sequence[Any] = (),
+    retain_inventory_errors: bool = False,
 ) -> dict[str, Any]:
     """Reconcile the complete frozen denominator with actual bounded receipts.
 
@@ -1485,12 +1808,19 @@ def reconcile_source_metadata(
         raise ValueError(
             "SOURCE accounting needs exact source/environment epoch hashes"
         )
-    differences, observations = compare_inventories(
-        inventory,
-        observed_inventory,
-        unavailable=unavailable,
-    )
-    retained = retained_missing_cells(inventory, observed_inventory)
+    inventory_errors = []
+    if observed_inventory is None:
+        if not retain_inventory_errors:
+            raise ValueError("SOURCE current inventory was not observed")
+        differences, observations, retained = [], [], set()
+        inventory_errors.append("Current inventory collection was not observed")
+    else:
+        differences, observations = compare_inventories(
+            inventory,
+            observed_inventory,
+            unavailable=unavailable,
+        )
+        retained = retained_missing_cells(inventory, observed_inventory)
     # Added migration tests stay separate. No addition or reclassification can
     # hide an absent original manual anchor from this frozen baseline.
     additions = {
@@ -1506,11 +1836,14 @@ def reconcile_source_metadata(
     } - additions
     actual_manual = {
         (path, function)
-        for path, functions in observed_inventory["manual"]
+        for path, functions in (observed_inventory or {}).get("manual", ())
         for function in functions
     }
-    if anchors - actual_manual:
-        raise ValueError("Original manual anchors disappeared from SOURCE accounting")
+    if observed_inventory is not None and anchors - actual_manual:
+        message = "Original manual anchors disappeared from SOURCE accounting"
+        if not retain_inventory_errors:
+            raise ValueError(message)
+        inventory_errors.append(message)
     manual_differences = [
         item
         for item in differences
@@ -1524,7 +1857,10 @@ def reconcile_source_metadata(
     ]
     differences = [item for item in differences if item not in manual_differences]
     if differences:
-        raise ValueError("SOURCE inventory drift: " + "; ".join(differences))
+        message = "SOURCE inventory drift: " + "; ".join(differences)
+        if not retain_inventory_errors:
+            raise ValueError(message)
+        inventory_errors.append(message)
     observations.extend(manual_differences)
 
     registrations = {item[0]: item for item in inventory["registrations"]}
@@ -1785,7 +2121,9 @@ def reconcile_source_metadata(
             raise ValueError("SOURCE outcome lacks its exact source scenario identity")
 
     obligations = []
-    observed_origins = {item[0] for item in observed_inventory["registrations"]}
+    observed_origins = {
+        item[0] for item in (observed_inventory or {}).get("registrations", ())
+    }
     opaque = {index for index, _ in inventory.get("unresolved_recipes", ())}
     optional_members = {
         tuple(item)
@@ -1810,9 +2148,13 @@ def reconcile_source_metadata(
             ),
             "nodeid": actual[identity]["nodeid"] if identity in actual else None,
             "availability": (
-                "available"
-                if identity[0] in observed_origins
-                else "unavailable-retained"
+                "unobserved"
+                if observed_inventory is None
+                else (
+                    "available"
+                    if identity[0] in observed_origins
+                    else "unavailable-retained"
+                )
             ),
             "optional": identity[:2] in optional_members,
             "unresolved_recipes": row.unresolved_recipes,
@@ -1902,6 +2244,23 @@ def reconcile_source_metadata(
             ),
         }
         obligations.append(record)
+        scientific = source_metadata_numerical_checks(
+            row, retained_evidence[result["evidence_sha256"]] if result else None
+        )
+        record["required_numerical_checks"] = scientific
+        statuses = [item["status"] for item in scientific.values()]
+        record["numerical_acceptance"] = (
+            "failed"
+            if "failed" in statuses or record["pytest_outcome"] == "failed"
+            else (
+                "validated"
+                if statuses
+                and all(status == "validated" for status in statuses)
+                and record["capability_status"] == "validated"
+                and record["pytest_outcome"] == "passed"
+                else "unverified"
+            )
+        )
     for origin, module in inventory["registry_without_metadata"]:
         obligations.append(
             {
@@ -1952,18 +2311,70 @@ def reconcile_source_metadata(
         by_id[identity]["baseline_classification"] = classification
         by_id[identity]["original_evidence"] = capability.get("original_evidence")
         classified.add(identity)
+    raw = [item for item in obligations if item["kind"] == "raw-cell"]
+    exact_raw_scope = (
+        set(selected) == set(cells)
+        and set(actual) == set(cells)
+        and set(results) == set(cells)
+        and collection_complete
+        and outcomes_complete
+        and not retained
+        and not inventory_errors
+    )
+    raw_status = (
+        "failed"
+        if any(item["numerical_acceptance"] == "failed" for item in raw)
+        else (
+            "validated"
+            if raw
+            and exact_raw_scope
+            and all(item["numerical_acceptance"] == "validated" for item in raw)
+            else "unverified"
+        )
+    )
+    side_obligations = [item for item in obligations if item["kind"] != "raw-cell"]
+    migration_status = (
+        "error"
+        if inventory_errors
+        else (
+            "failed"
+            if raw_status == "failed"
+            else (
+                "validated"
+                if raw_status == "validated"
+                and not manual_differences
+                and all(item.get("status") == "validated" for item in side_obligations)
+                else "unverified"
+            )
+        )
+    )
     return {
         "schema_version": 1,
         "baseline_sha256": baseline_sha256,
         "epoch": dict(epoch),
         "scope": "Complete frozen obligations with bounded actual SOURCE receipts; no public cutover or full capability closure",
         "inventory_observations": observations,
+        "inventory_errors": inventory_errors,
+        "current_inventory_observed": observed_inventory is not None,
+        "inventory_mismatch_evidence": source_metadata_inventory_evidence(
+            inventory, observed_inventory
+        ),
         "retained_missing_cells": sorted(retained),
         "collection_complete": collection_complete,
         "outcomes_complete": outcomes_complete,
+        "raw_metadata_acceptance": raw_status,
+        "complete_migration_acceptance": migration_status,
+        "required_exit_status": 0 if migration_status == "validated" else 1,
+        "exact_raw_scope_complete": exact_raw_scope,
         "counts": {
             "raw_rows": len(frozen_rows),
             "raw_caller_cells": len(cells),
+            "criterion_unresolved_raw_rows": sum(
+                row.criteria is None for row in rows.values()
+            ),
+            "numerically_accepted_raw_cells": sum(
+                item["numerical_acceptance"] == "validated" for item in raw
+            ),
             "metadata_free_registrations": len(inventory["registry_without_metadata"]),
             "opaque_raw_rows": len(opaque),
             "optional_raw_rows": len(optional_members),

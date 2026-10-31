@@ -1622,6 +1622,8 @@ def source_metadata_epoch() -> SourceMetadataEpoch:
             "scripts/source_precision_inventory.py",
             "scripts/_source_inventory_epoch.py",
             "tests/t_generator.py",
+            "tests/conftest.py",
+            "tests/extra_tests/converter/test_source_precision_metadata.py",
             "tests/extra_tests/converter/source_precision_support.py",
             "tests/extra_tests/converter/source_precision_raw_replay.py",
             "tests/extra_tests/converter/source_precision_diagnostics.py",

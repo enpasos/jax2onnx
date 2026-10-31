@@ -1,5 +1,34 @@
 # Precision migration handoff — 2026-10-31
 
+## Strict metadata accounting checkpoint — local implementation qualification
+
+The existing reconciler, generator and pytest owner retain the full **1,856 rows /
+3,712 caller cells** and manual, metadata-free and prepared LEGACY obligations.
+The unchanged four Python changes passed the complete metadata test file on both
+official families: **134 PASS each, identical ordered IDs**, in the isolated
+`676a7c40` context ([311 primary](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-metadata-acceptance-676a-9efjtpyn/continuation311-closure.json),
+[313 primary](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-metadata-acceptance-676a-9efjtpyn/continuation313-closure.json)).
+These are accounting/error-path controls, not scientific acceptance: all fourteen
+full reports retain **global ERROR and zero accepted scientific cells**. The first
+**7 PASS / 1 FAIL** remains retained; its correction allows zero-item accounting
+and exactly bound diagnostics while keeping genuine global inventory drift.
+
+The checkpoint is rebased onto published `2d273e23` without changing those four
+Python sources before formatting. Their four parent blobs are identical between
+`676a7c40` and `2d273e23`; the latter preserves accepted SOURCE Select and CI
+repairs. Five unchanged integration cases on this current base pass on each official
+family ([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-metadata-acceptance-676a-9efjtpyn/integration311-closure.json),
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-metadata-acceptance-676a-9efjtpyn/integration313-closure.json)),
+including one real selected-row/full-ledger report each. These additional reports
+also keep global ERROR and zero scientific acceptance. Normal quality is recorded
+separately; the
+historical full-owner results retain their original source context. See
+[the accounting contract](current_inventory_epoch.md#strict-opt-in-metadata-accounting).
+Native3/ORT2, component NaN masks, signed zeros, reviewed criteria, operation
+rounding and required internal FP64 remain unproved by this accounting work.
+No baseline/adapter refresh, full B–F acceptance or public transition follows.
+
+
 ## CI584 native-receipt capacity repair
 
 At published `7fcfa114`, CI584's five locked compute jobs failed during campaign
