@@ -23,18 +23,65 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-Published `a0debb7f` in [CI 574](https://github.com/enpasos/jax2onnx/actions/runs/41101017340) is terminal with **11 SUCCESS and five FAILURE** ([final record](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/final-terminal-205648/closed-final-ci574.json)). Locked311/313/314 succeed in **1,041 / 988 / 1,096 s**; locked312 breaches sampled owned **4,298.11 MiB > 4,096 MiB**, leaving the original Omni case and worker/cleanup closure incomplete ([actual failure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/locked312-cause-9za14t2h/closed-cause-review.json), `e61337f8…`). The eight candidate spans total **4,611 s / 76.85 job-minutes**; seven successful archives total **42,692,635 bytes**. All-eight qualification remains **FAILED**; the four old full-job failures and earlier snapshots remain retained evidence.
+At published `b39e8662`, [CI 575](https://github.com/enpasos/jax2onnx/actions/runs/41154521659)
+has terminal candidate outcomes of **six SUCCESS, locked312 FAILURE from the
+owned-RSS guard, and locked311 CANCELLED after work/pack deadlines**. The four
+authoritative support jobs succeeded; the four authoritative full-suite jobs
+remain pending in this snapshot. All-eight STANDARD qualification is **FAILED**.
 
-The separate local full-global locked312 campaign at private `b63ee7f4`
-**FAILED/incomplete at the 1,200-second deadline**. Its genuine C=19,474 and
-S=4,621 produced **98 closed PASS and 4,523 unexecuted cases**; all original
-**45 MaxText + five MaxDiffusion cases were unexecuted**
-([closed campaign](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard-b63-locked312-sourceplan-7yx7JTF1/closed-canonical-standard312.json)).
-This is neither a hosted result nor memory/numerical qualification. Its inventory
-is historical after subsequent source changes.
+Locked312 reached **4,326.086 MiB > 4,096 MiB** owned RSS; only 103 S cases closed.
+Its MaxText worker retains 44 passed phase triplets and Omni setup only, with
+incomplete worker/cleanup closure and OOM cause unverified
+([retained evidence](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci575-b39-observation-95edj9mj/locked312-extracted-evidence-summary.json)).
+Locked311 instead hit the work and pack deadlines at 1,105.465 / 90.260 seconds;
+its **1,227-second whole job** exceeded the limit despite peak RSS of
+3,848.602 MiB and confirmed resource cleanup. Twelve console summaries account
+for 4,106 PASS and 12 original SKIPs; the remaining 453-case batch has no terminal
+acceptance, including its 279 printed passes
+([retained evidence](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci575-b39-observation-95edj9mj/locked311-actual-failure.json)).
+
+This repair revision configures only locked311/312 as named, temporary Main-owner
+qualification candidates through the existing provisioning route: 188/190 whole
+modules, literal Main S=4,571/4,621, genuine global C once, ordinary O per worker
+and complete A=C−S. The eight authoritative jobs, other six candidates, original
+45+5 optional cases, inputs, skip rules, numerical/context checks, artifact duties
+and 1,200-second/4-GiB limits remain unchanged. The aggregate 160 candidate
+job-minute and 100-MiB successful-evidence limits also remain. This is a new
+qualification attempt, with no demonstrated savings, Omni fit, owner acceptance
+or authoritative/public SOURCE activation.
+
+Previous published snapshot: `a0debb7f` in [CI 574](https://github.com/enpasos/jax2onnx/actions/runs/41101017340) is terminal with **11 SUCCESS and five FAILURE** ([final record](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/final-terminal-205648/closed-final-ci574.json)). Locked311/313/314 succeed in **1,041 / 988 / 1,096 s**; locked312 breaches sampled owned **4,298.11 MiB > 4,096 MiB**, leaving the original Omni case and worker/cleanup closure incomplete ([actual failure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/locked312-cause-9za14t2h/closed-cause-review.json), `e61337f8…`). The eight candidate spans total **4,611 s / 76.85 job-minutes**; seven successful archives total **42,692,635 bytes**. All-eight qualification remains **FAILED**; the four old full-job failures and earlier snapshots remain retained evidence.
+
+Checkpoint update — 2026-10-31: the Main-owner tooling and three documentation
+files are published at `b39e8662`, with strict public-docs build and all seven installed
+hooks passing through one normal commit
+([quality closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-owner-normal-commit12-sourceplan-si0nqiw8/quality/commit-closed-stage.json)).
+At that checkpoint, Root and the private CI checkout were clean at the commit.
+Those finite local quality results do not qualify hosted jobs or activate a gate.
+
+Its complete local locked312 owner attempt **FAILED/incomplete at the
+1,100-second work deadline**, with exit 1 after **1,136.576 s** for the entire
+launcher. Actual inventories are **C=19,533 / O=4,850 / S=4,621 / A=14,912**.
+Only **10 S cases closed PASS**. The interrupted next worker retains eight
+passed phase triplets, a ninth setup and partial shutdown JUnit, without a
+terminal worker receipt; these are not additional campaign passes. **4,611 S
+cases lack closed completion**, including all original **45 MaxText + five
+MaxDiffusion cases**, which have no recorded phases
+([closed attempt](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-owner312-final-08w09nhf/external-launcher-closure.json)).
+All recorded processes closed and protected source/input fences held. All retained raw roots total
+206,871,477 bytes; the separate 13,600,959-byte
+receipt ledger does not qualify a failed run. The recorded incidental read-only
+D: search is retained as context, with no time subtraction or causal claim.
+C/O process costs were 227.29/274.69 s. Sampled p9 waits support an I/O hypothesis,
+not a hosted-time diagnosis, measured savings or Omni memory-fit claim.
+
+The earlier full-global `b63ee7f4` attempt remains a distinct 1,200-second failure:
+**98 closed PASS, 4,523 unexecuted and all original 45+5 unexecuted**
+([earlier closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard-b63-locked312-sourceplan-7yx7JTF1/closed-canonical-standard312.json)).
+Its inventory is historical after subsequent source changes.
 
 The [reviewed Main-owner amendment](ci_execution_plan.md#reviewed-main-owner-collection-amendment)
-is now a private nine-path prototype on b63, with pinned formatting complete.
+remains under qualification at that committed source.
 It retains genuine C, literal complete S, ordinary owner O and full A=C−S through
 the existing provisioning-only route. **59 new protocol controls PASS on
 official Python 3.11, with zero failures/errors/skips**
@@ -83,7 +130,7 @@ whole-tree quality and measured STANDARD budgets remain required. No memory
 saving, Omni fit or completed SOURCE transition follows. **Activation remains
 HOLD**, and public LEGACY and the authoritative checks remain unchanged.
 
-The unpublished coordinator cleanup releases completed decoded collection/batch objects after their required checks, retaining campaign inventory and final durable audits. **24 controller cases PASS on each official 3.11/3.13 family** ([closed qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/coordinator-lifetime-source-qmrp_dyv/closed-focused-qualification.json), `beda37ac…`), including release before the next real child and rejection of later receipt-byte tampering. The approximately **35 MiB** census measures reachable Python objects, not demonstrated RSS savings or an Omni memory repair. Full-model, numerical and B–F acceptance remain open.
+The coordinator cleanup, included in published `b39e8662`, releases completed decoded collection/batch objects after their required checks, retaining campaign inventory and final durable audits. **24 controller cases PASS on each official 3.11/3.13 family** ([closed qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/coordinator-lifetime-source-qmrp_dyv/closed-focused-qualification.json), `beda37ac…`), including release before the next real child and rejection of later receipt-byte tampering. The approximately **35 MiB** census measures reachable Python objects, not demonstrated RSS savings or an Omni memory repair. Full-model, numerical and B–F acceptance remain open.
 
 Predecessor snapshot: published `c5d60d4c` in [CI 573](https://github.com/enpasos/jax2onnx/actions/runs/41076579765) records **10 SUCCESS, three FAILURE, one CANCELLED and two old full jobs in progress** in the [frozen job snapshot](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci573-c5d60-aw64dezy/jobs-final-repair-prep.json) (`3856753b…`). Old 3.13/3.14 fail the same stale raw-replay contradiction injection; old 3.11/3.12 are still running. Locked311 spans **1,227 s > 1,200 s**; its work deadline leaves 3,993 of 4,571 cases in closed workers and 211 more with complete phases in the interrupted worker. Locked312 exceeds sampled owned **4,345.49 MiB > 4,096 MiB** after Diffusion 5 and MaxText 44; the final Omni case is unfinished. All-eight STANDARD qualification remains failed. CI 572's ten successes, five failures and one cancellation remain historical; `c5d60d4c` contains the owner-isolation and stale-reader-test repairs, without changing their criteria.
 

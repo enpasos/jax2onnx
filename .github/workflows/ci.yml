@@ -362,7 +362,7 @@ jobs:
   # One PR qualification milestone only. The eight jobs above remain authoritative.
   # This explicit matrix adds eight fixed roles; no shard or dispatch controller.
   candidate-standard:
-    name: candidate STANDARD (${{ matrix.id }})
+    name: candidate STANDARD (${{ matrix.label || matrix.id }})
     if: github.event_name == 'pull_request' && github.event.pull_request.number == 277
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -370,8 +370,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - {id: locked311, python: '3.11', cohort: py311, role: locked}
-        - {id: locked312, python: '3.12', cohort: py312, role: locked}
+        - {id: locked311, python: '3.11', cohort: py311-owners, role: locked, label: 'locked311 Main-owner qualification'}
+        - {id: locked312, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 Main-owner qualification'}
         - {id: locked313, python: '3.13', cohort: py313, role: locked}
         - {id: locked314, python: '3.14', cohort: py314, role: locked}
         - {id: minimum312, python: '3.12', cohort: minimum312, role: minimum}
@@ -565,6 +565,9 @@ jobs:
         if [[ "$CANDIDATE_ROLE" == node-smoke ]]; then
           export JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1
           export JAX2ONNX_ONNXRUNTIME_WEB_RUNNER=node
+        fi
+        if [[ "$CANDIDATE_ID" == locked311 || "$CANDIDATE_ID" == locked312 ]]; then
+          render_args+=(--collection-scope main-owners)
         fi
         python -B scripts/prepare_ci_standard.py \
           --cohort "$CANDIDATE_COHORT" --event-sha "$EXPECTED_CHECKOUT_SHA" \

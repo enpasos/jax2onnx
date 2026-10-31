@@ -5,10 +5,23 @@ workflow. Real rendering requires a committed source tree whose HEAD and every
 tracked file match an independently supplied event SHA. These inputs do not
 qualify a hosted job against the complete 1,200-second budget.
 
-The reviewed Main-owner extension below is private source under qualification;
-**activation remains HOLD**. Current hosted/local outcomes and pending gates are
-recorded in the [handoff](../implementation_handoff.md#current-checkpoint-2026-10-30).
-The original full-global and support routes remain available and unchanged.
+The Main-owner tooling was published at `b39e8662`. Its local locked312 attempt
+failed at the work deadline after 10 closed S passes. At that head,
+[CI 575](https://github.com/enpasos/jax2onnx/actions/runs/41154521659) has six successful
+candidates, locked312 RSS FAILURE and locked311 deadline CANCELLED. Four
+authoritative support jobs passed; four authoritative full jobs remain pending
+in this snapshot. All-eight qualification failed.
+
+This repair revision uses `py311-owners.json` / `py312-owners.json` only for the
+explicitly named temporary locked311/312 Main-owner qualification candidates.
+Both render `--collection-scope main-owners` and provision with all 188/190 literal
+module paths, retaining Main S=4,571/4,621 and the complete C/S/O/A contract below.
+The eight authoritative jobs, other six candidates, original 45+5 optional cases,
+inputs, skip rules and all budgets remain unchanged. The original full-global
+and support routes remain available. Owner acceptance and authoritative/public
+SOURCE activation stay **HOLD**, with no measured saving or memory-fit claim.
+The [handoff](../implementation_handoff.md#current-checkpoint-2026-10-30) separates
+these failed campaigns from accepted finite protocol/quality checks.
 
 Historical checkpoint: at `56c6a24f`, [CI 571](https://github.com/enpasos/jax2onnx/actions/runs/41060058197)
 passes all four candidate support jobs. All four global candidates fail:
