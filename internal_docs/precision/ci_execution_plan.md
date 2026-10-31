@@ -45,9 +45,36 @@ PID/start/parent/RSS/state vector and the vector/time/stage at the aggregate
 peak. Sampling, limits, the 16-MiB sample-evidence cap and cleanup are unchanged.
 All **29 observer-owner cases PASS** on official Python 3.11
 ([qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/resource-process-vector-observer311-sw63cksp/qualification-closure.json),
-`ff9e4dbc…`). This qualifies diagnostic serialization, not an RSS repair or
-peak attribution for the failed predecessor. Any next canonical measurement
-requires a real clean diagnostic commit and fresh source-bound manifest.
+`ff9e4dbc…`). This qualifies diagnostic serialization, not an RSS repair.
+The subsequent canonical attribution at clean local `d02cec65` also
+**FAILED/censored**: fresh **O=4,850** closed, but the original Omni case had
+only setup PASS. At the simultaneous aggregate peak of **4,103.277 MiB**, the
+worker held **4,043.445 MiB** and the observer/driver held **59.832 MiB**.
+Observer cleanup remains **UNCONFIRMED**; passive owned PID/start identities
+were later absent and source/output restoration held. The censored trace does
+not establish the complete model peak or that the worker alone would finish
+below 4 GiB
+([failure closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-peak-attribution-d02cec65-it219t20/peak-attribution-failure-closure.json),
+`6ae33866…`).
+
+The next local candidate waits for each original MaxText `DenseGeneral`
+constructor only inside `get_maxtext_model`'s `from_config` scope. It calls the
+original constructor once, then uses public `nnx.state` and
+`jax.block_until_ready`; any tracer leaf bypasses the whole wait. The exact
+constructor is restored on normal, exceptional and nested exits. Initializer
+math, parameter values/dtypes/shapes, arguments, inputs and RNG consumption are
+unchanged; no state is retained and forward tracing gains no readiness barrier.
+All **36 controls PASS on official311**
+([closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/maxtext-ready-controls311-hilb8lnz/qualification-closure.json),
+`b824b815…`) and **36 PASS on official313**
+([closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/maxtext-ready-controls313-1_6f_w2z/qualification-closure.json),
+`8b328bcb…`). The mandatory tiny real `DenseGeneral`/initializer probe also
+**PASSES on the unchanged full optional312 profile with zero skips**
+([closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/maxtext-ready-real312-kpgomylk/qualification-closure.json),
+`a27dc0c4…`). These are finite byte/dtype/shape/signed-zero, RNG, identity,
+tracing and restoration checks. Actual asynchronous backlog and RSS benefit
+remain unproven; **full-model resource qualification is PENDING**. Any next
+canonical run requires a real clean checkpoint and fresh source-bound manifest.
 The **1,200-second whole-job / 4-GiB / 160-job-minute / 100-MiB** limits remain
 unchanged, as do the original profiles, coverage and all 50 optional-case
 obligations. Complete exact-head cohort validation remains required. Public

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from functools import wraps
+
 import copy
 import glob
 import importlib
@@ -13,7 +16,7 @@ import shutil
 import sys
 import types
 from pathlib import Path
-from typing import Iterable, cast
+from typing import Any, Callable, Iterable, Iterator, cast
 
 import jax
 import jax.numpy as jnp
@@ -1502,6 +1505,38 @@ class MaxTextWrapper:
         return self.model(input_tokens)
 
 
+@contextmanager
+def _maxtext_construction_readiness() -> Iterator[None]:
+    """Finish each original dense initialization before constructing the next."""
+    dense_general = cast(
+        type[nnx.Module],
+        _import_first_available(
+            (
+                ("MaxText.layers.linears", "DenseGeneral"),
+                ("maxtext.layers.linears", "DenseGeneral"),
+            )
+        ),
+    )
+    original_init: Callable[..., Any] = dense_general.__init__
+
+    @wraps(original_init)
+    def ready_init(instance: nnx.Module, *args: Any, **kwargs: Any) -> Any:
+        result = original_init(instance, *args, **kwargs)
+        state = nnx.state(instance)
+        if not any(
+            isinstance(leaf, jax_compat.Tracer)
+            for leaf in jax.tree_util.tree_leaves(state)
+        ):
+            jax.block_until_ready(state)
+        return result
+
+    setattr(dense_general, "__init__", ready_init)
+    try:
+        yield
+    finally:
+        setattr(dense_general, "__init__", original_init)
+
+
 def get_maxtext_model(
     config_path: str,
     *,
@@ -1552,11 +1587,12 @@ def get_maxtext_model(
         # uniforms bitcast their random bits, which ONNX supports only from opset 26.
         restore_random = _patch_random_initializers()
         try:
-            model = model_creation_utils.from_config(
-                config,
-                model_mode=MODEL_MODE_TRAIN,
-                rngs=rngs,
-            )
+            with _maxtext_construction_readiness():
+                model = model_creation_utils.from_config(
+                    config,
+                    model_mode=MODEL_MODE_TRAIN,
+                    rngs=rngs,
+                )
         except Exception as exc:
             raise RuntimeError(
                 f"MaxText model init failed for {config_path_obj.name}: {exc}"
