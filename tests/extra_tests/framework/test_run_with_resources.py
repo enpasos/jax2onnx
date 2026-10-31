@@ -109,6 +109,29 @@ def test_ordinary_command_preserves_argv_environment_cwd_and_streams(tmp_path):
         >= max(row["owned_rss_bytes"] for row in rows)
         > 0
     )
+    observer = summary["observer_identity"]
+    ledger = {tuple(identity) for identity in summary["owned_pid_start_ledger"]}
+    for row in rows:
+        vector = row["owned_process_vector"]
+        identities = {(item["pid"], item["start"]) for item in vector}
+        assert len(vector) == len(identities) == row["owned_processes"]
+        assert identities <= ledger
+        assert (observer["pid"], observer["start"]) in identities
+        assert sum(item["rss"] for item in vector) == row["owned_rss_bytes"]
+        assert all(
+            set(item) == {"pid", "parent", "start", "rss", "state"} for item in vector
+        )
+        assert all(item["parent"] >= 0 and len(item["state"]) == 1 for item in vector)
+    peak = summary["peak_owned_rss_sample"]
+    assert set(peak) == {
+        "stage",
+        "elapsed_seconds",
+        "owned_rss_bytes",
+        "owned_processes",
+        "owned_process_vector",
+    }
+    peak_row = max(rows, key=lambda row: row["owned_rss_bytes"])
+    assert peak == {name: peak_row[name] for name in peak}
 
 
 @pytest.mark.parametrize("code", [7, 23])
@@ -117,6 +140,17 @@ def test_nonzero_child_status_is_preserved_separately_from_observation(tmp_path,
     assert result.returncode == code == summary["child_returncode"]
     assert summary["status"] == "COMPLETE"
     assert summary["qualification"] == "FAIL_OR_INCOMPLETE"
+
+
+def test_process_vectors_do_not_bypass_the_sample_evidence_bound(tmp_path):
+    result, summary, output = _injected_command(
+        tmp_path, "module._MAX_SAMPLES_BYTES=1", "raise AssertionError('must not run')"
+    )
+    assert result.returncode == 125
+    assert summary["child_returncode"] is None
+    assert summary["qualification"] == "FAIL_OR_INCOMPLETE"
+    assert any("sample evidence exceeds" in error for error in summary["errors"])
+    assert (output / "samples.jsonl").read_bytes() == b""
 
 
 def test_child_signal_is_preserved_as_an_actual_signal_exit(tmp_path):
@@ -153,6 +187,13 @@ os._exit(0)
     ]
     assert max(row["owned_processes"] for row in rows) >= 2
     assert summary["elapsed_seconds"] >= 0.5
+    assert any(
+        item["pid"] == child["pid"]
+        and item["start"] == identities[child["pid"]]
+        and item["parent"] == child["parent"]
+        for row in rows
+        for item in row["owned_process_vector"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -251,6 +292,16 @@ def test_observer_SIGTERM_uses_bounded_TERM_KILL_cleanup_and_preserves_signal(tm
         assert cleanup_peak >= command_peak + 8 * 1024**2
         assert summary["peak_owned_rss_bytes"] == max(
             row["owned_rss_bytes"] for row in rows
+        )
+        peak = summary["peak_owned_rss_sample"]
+        assert peak["stage"] == "cleanup"
+        assert peak == {
+            name: max(rows, key=lambda row: row["owned_rss_bytes"])[name]
+            for name in peak
+        }
+        assert any(
+            item["pid"] == int(ready.read_text()) and item["rss"] >= 16 * 1024**2
+            for item in peak["owned_process_vector"]
         )
     finally:
         if process.poll() is None:

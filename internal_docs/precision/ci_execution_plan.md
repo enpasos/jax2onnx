@@ -20,21 +20,39 @@ do not establish an OOM cause
 [resource receipt](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci576-locked312-failure-8eop7iow/ci-candidate-locked312-work-resources__summary.json)).
 All-eight STANDARD qualification remains **FAILED**.
 
-The reviewed repair gives the exact original Omni case a fresh execution worker
-after its 44 predecessors. The existing batcher preserves their order, the full
+The reviewed local scheduler checkpoint `7b528095` gives the exact original Omni
+case a fresh execution worker after its 44 predecessors. The batcher preserves
+their order, the full
 190-owner collection/context, all **45 MaxText + five MaxDiffusion cases** and
 literal **S=4,621**. It adds one process boundary without changing model
 parameters, inputs, RNG seed 42, numerical criteria or skip rules. Twelve
 planner controls pass on official Python 3.11; they establish scheduling and
 inventory preservation, not Omni memory fit
 ([focused closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-isolation-planner311-retry-__sq33rd/closure.json)).
-Callbackless canonical Omni execution and complete exact-head cohort validation
-remain required. The finite next diagnostic collects fresh complete owner O,
-then runs the singleton against the same O and context. Omitting global C from
-that finite diagnostic does not qualify the campaign partition or full S.
+Its callbackless canonical singleton diagnostic **FAILED**: a fresh complete
+**O=4,850** closed, and the singleton validated the same owner collection, but
+only Omni setup passed. Sampled aggregate owned RSS reached
+**4,230.984375 MiB > 4,096 MiB**. The measured command entry through postflight
+was **554.060 seconds**; worker/JUnit closure is incomplete and observer cleanup
+is **UNCONFIRMED**. A later passive PID/start check found no live owned process;
+that does not upgrade the failed cleanup receipt
+([failure closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/omni-isolation-canonical7b528-g_k84sts/primary-finite-failure-closure.json),
+`5d7af940…`). Singleton isolation remains **UNQUALIFIED**. The finite diagnostic
+omitted global C and establishes neither the campaign partition nor full S.
+
+The additive observer update retains each already sampled process's
+PID/start/parent/RSS/state vector and the vector/time/stage at the aggregate
+peak. Sampling, limits, the 16-MiB sample-evidence cap and cleanup are unchanged.
+All **29 observer-owner cases PASS** on official Python 3.11
+([qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/resource-process-vector-observer311-sw63cksp/qualification-closure.json),
+`ff9e4dbc…`). This qualifies diagnostic serialization, not an RSS repair or
+peak attribution for the failed predecessor. Any next canonical measurement
+requires a real clean diagnostic commit and fresh source-bound manifest.
 The **1,200-second whole-job / 4-GiB / 160-job-minute / 100-MiB** limits remain
-unchanged; the extra worker's actual cost and all original 50 outcomes must be
-measured before acceptance. Public LEGACY and gate activation remain **HOLD**.
+unchanged, as do the original profiles, coverage and all 50 optional-case
+obligations. Complete exact-head cohort validation remains required. Public
+LEGACY and gate activation remain **HOLD**; this checkpoint is not a qualified
+CI repair and has not been pushed.
 
 Previous published snapshot: `b39e8662`, [CI 575](https://github.com/enpasos/jax2onnx/actions/runs/41154521659),
 has terminal candidate outcomes of **six SUCCESS, locked312 FAILURE from the

@@ -525,6 +525,7 @@ def _run(args: Any, output: Path) -> tuple[int, int | None]:
         "sample_count": 0,
         "max_sample_gap_seconds": 0.0,
         "peak_owned_rss_bytes": 0,
+        "peak_owned_rss_sample": None,
         "minimum_host_available_bytes": None,
         "disk_free_minima": {},
         "cgroup_before": _cgroup(),
@@ -596,7 +597,6 @@ def _run(args: Any, output: Path) -> tuple[int, int | None]:
                 str(path): os.statvfs(path).f_bavail * os.statvfs(path).f_frsize
                 for path in disks
             }
-            summary["peak_owned_rss_bytes"] = max(summary["peak_owned_rss_bytes"], rss)
             minimum = summary["minimum_host_available_bytes"]
             summary["minimum_host_available_bytes"] = (
                 available if minimum is None else min(minimum, available)
@@ -615,10 +615,26 @@ def _run(args: Any, output: Path) -> tuple[int, int | None]:
                 "elapsed_seconds": now - started,
                 "owned_rss_bytes": rss,
                 "owned_processes": len(active),
+                "owned_process_vector": [item._asdict() for item in active],
                 "host": current,
                 "disk_free_bytes": free,
                 "capture_seconds": capture_seconds,
             }
+            if (
+                summary["peak_owned_rss_sample"] is None
+                or rss > summary["peak_owned_rss_bytes"]
+            ):
+                summary["peak_owned_rss_bytes"] = rss
+                summary["peak_owned_rss_sample"] = {
+                    name: sample[name]
+                    for name in (
+                        "stage",
+                        "elapsed_seconds",
+                        "owned_rss_bytes",
+                        "owned_processes",
+                        "owned_process_vector",
+                    )
+                }
             line = json.dumps(sample) + "\n"
             samples_bytes += len(line.encode())
             if samples_bytes > _MAX_SAMPLES_BYTES:
