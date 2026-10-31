@@ -534,6 +534,8 @@ def _run(args: Any, output: Path) -> tuple[int, int | None]:
     if getattr(args, "locked312_standard_binding", None) is not None:
         summary["standard_execution_profile"] = args.locked312_standard_binding
         summary["limits"]["initial_host_available_mib"] = 12288
+    if getattr(args, "focused_extra_binding", None) is not None:
+        summary["focused_extra_execution_profile"] = args.focused_extra_binding
     tree = None
     leader = None
     prior_subreaper = None
@@ -792,12 +794,28 @@ def _locked312_binding(profile: Path) -> dict[str, str]:
     return policy.locked312_execution(profile)
 
 
+def _focused_extra_binding(profile: Path) -> dict[str, str]:
+    from importlib.util import module_from_spec, spec_from_file_location
+
+    spec = spec_from_file_location(
+        "_focused_extra_execution",
+        Path(__file__).with_name("_ci_standard_execution.py"),
+    )
+    if spec is None or spec.loader is None:
+        raise ValueError("focused EXTRA execution policy is unavailable")
+    policy = module_from_spec(spec)
+    spec.loader.exec_module(policy)
+    return policy.focused_extra_execution(profile)
+
+
 def _main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=float, required=True)
     parser.add_argument("--max-rss-mib", type=int, default=4096)
-    parser.add_argument("--locked312-standard-profile", type=Path)
+    profile = parser.add_mutually_exclusive_group()
+    profile.add_argument("--locked312-standard-profile", type=Path)
+    profile.add_argument("--focused-extra-profile", type=Path)
     parser.add_argument("--min-available-mib", type=int, default=2048)
     parser.add_argument("--min-disk-free-mib", type=int, default=4096)
     parser.add_argument("--disk-path", type=Path, action="append", default=[])
@@ -806,6 +824,7 @@ def _main() -> int:
     if args.command[:1] == ["--"]:
         args.command = args.command[1:]
     locked312 = args.locked312_standard_profile is not None
+    focused_extra = args.focused_extra_profile is not None
     if locked312:
         try:
             args.locked312_standard_binding = _locked312_binding(
@@ -813,16 +832,25 @@ def _main() -> int:
             )
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             parser.error(str(error))
+    if focused_extra:
+        try:
+            args.focused_extra_binding = _focused_extra_binding(
+                args.focused_extra_profile
+            )
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            parser.error(str(error))
+    timeout_limit = 1100 if locked312 else 2000 if focused_extra else 1200
     if (
         not args.command
-        or not 0 < args.timeout_seconds <= (1100 if locked312 else 1200)
+        or not 0 < args.timeout_seconds <= timeout_limit
         or not (args.max_rss_mib == 5120 if locked312 else 0 < args.max_rss_mib <= 4096)
         or args.min_available_mib < (8192 if locked312 else 2048)
         or args.min_disk_free_mib < 4096
     ):
         parser.error(
             "command and bounded STANDARD 1200s/4GiB/2GiB-headroom/4GiB-disk "
-            "or source-bound locked312 1100s/5GiB/8GiB-headroom/4GiB-disk limits required"
+            "or source-bound locked312 1100s/5GiB/8GiB-headroom/4GiB-disk "
+            "or focused EXTRA 2000s/4GiB/2GiB-headroom/4GiB-disk limits required"
         )
     if os.path.lexists(args.output_dir):
         parser.error("resource evidence destination must be fresh")

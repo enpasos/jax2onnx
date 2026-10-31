@@ -1,6 +1,6 @@
 # tests/extra_tests/framework/test_ci_download_cache.py
 
-"""Hosted cache safety and fixed serial STANDARD part transport."""
+"""Hosted cache safety and separate STANDARD/focused EXTRA transport."""
 
 from copy import deepcopy
 from importlib.util import module_from_spec, spec_from_file_location
@@ -198,13 +198,20 @@ def test_cache_report_preserves_existing_receipts_archive_root():
         ("normalization313", ""),
         ("node312", ""),
         ("locked312", ""),
+        ("focused311", ""),
+        ("focused312", ""),
+        ("focused313", ""),
+        ("focused314", ""),
     ],
 )
 def test_normal_five_gib_limits_apply_only_to_fixed_locked312_parts(candidate, part):
     job = _workflow()["jobs"]["candidate-standard"]
     work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
     prelude = work.split("python -B scripts/run_with_resources.py", 1)[0]
-    profile = "internal_docs/precision/ci_standard/py312-owners.json"
+    focused = candidate.startswith("focused")
+    profile = "internal_docs/precision/ci_standard/" + (
+        f"py{candidate[-3:]}-extra.json" if focused else "py312-owners.json"
+    )
     result = subprocess.run(
         [
             "bash",
@@ -212,13 +219,16 @@ def test_normal_five_gib_limits_apply_only_to_fixed_locked312_parts(candidate, p
             'python() { printf "capacity probe stub\\n"; }\n'
             + prelude
             + '\nprintf "%s\\n" "$execution_rss_mib" "$live_available_mib" '
-            '"${execution_profile_args[@]}"',
+            '"$execution_work_seconds" "${execution_profile_args[@]}"',
         ],
         env={
             **os.environ,
             "CANDIDATE_ID": candidate,
             "CANDIDATE_PART": part,
             "CANDIDATE_COHORT": profile,
+            "CANDIDATE_ROLE": "locked",
+            "CANDIDATE_LANE": "extra" if focused else "standard",
+            "CANDIDATE_SCOPE": "focused" if focused else "",
         },
         text=True,
         capture_output=True,
@@ -227,11 +237,12 @@ def test_normal_five_gib_limits_apply_only_to_fixed_locked312_parts(candidate, p
     observed = [
         line for line in result.stdout.splitlines() if line != "capacity probe stub"
     ]
-    assert observed == (
-        ["5120", "8192", "--locked312-standard-profile", profile]
-        if part
-        else ["4096", "2048"]
-    )
+    expected = ["4096", "2048", "1100"]
+    if part:
+        expected = ["5120", "8192", "1100", "--locked312-standard-profile", profile]
+    elif focused:
+        expected = ["4096", "2048", "2000", "--focused-extra-profile", profile]
+    assert observed == expected
     assert result.stdout.count("capacity probe stub") == bool(part)
     assert (
         '"${execution_profile_args[@]}"'
@@ -324,7 +335,11 @@ def test_normal_part_preserves_the_resource_observer_exit(tmp_path, work_exit):
 
 def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
     job = _workflow()["jobs"]["candidate-standard"]
-    matrix = job["strategy"]["matrix"]["include"]
+    matrix = [
+        entry
+        for entry in job["strategy"]["matrix"]["include"]
+        if entry.get("lane", "standard") == "standard"
+    ]
     assert len(matrix) == 9
     assert {entry["id"] for entry in matrix} == {
         "locked311",
@@ -353,9 +368,11 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
     assert "live_available_mib=2048" in work and "live_available_mib=8192" in work
     assert (
         '--min-available-mib "$live_available_mib"' in work
-        and "--timeout-seconds 1100" in work
+        and '--timeout-seconds "$execution_work_seconds"' in work
+        and "execution_work_seconds=1100" in work
     )
-    assert "required = 12288 * 1024 * 1024" in work and job["timeout-minutes"] == 20
+    assert "required = 12288 * 1024 * 1024" in work
+    assert job["timeout-minutes"] == "${{ matrix.lane == 'extra' && 35 || 20 }}"
     assert '--_ci-provision-campaign "$CANDIDATE_COHORT" "${selection_args[@]}"' in work
     assert 'render_args+=(--ci-standard-part "$CANDIDATE_PART")' in work
     assert 'part_args=(--ci-standard-part "$CANDIDATE_PART")' in work
@@ -374,6 +391,205 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
         assert forbidden not in work
 
 
+def test_focused_extra_rows_add_four_global_cohorts_with_separate_job_limits():
+    job = _workflow()["jobs"]["candidate-standard"]
+    matrix = job["strategy"]["matrix"]["include"]
+    assert len(matrix) == 13 and job["strategy"]["fail-fast"] is False
+    focused = [entry for entry in matrix if entry.get("lane") == "extra"]
+    assert focused == [
+        {
+            "id": "focused" + minor,
+            "python": "3." + minor[1:],
+            "cohort": "py" + minor + "-extra",
+            "role": "locked",
+            "lane": "extra",
+            "scope": "focused",
+        }
+        for minor in ("311", "312", "313", "314")
+    ]
+    for entry in focused:
+        profile_path = (
+            ROOT / "internal_docs/precision/ci_standard" / (entry["cohort"] + ".json")
+        )
+        profile = json.loads(profile_path.read_text())
+        assert profile.get("collection_args", []) == []
+        assert "standard_parts" not in profile
+    assert job["env"]["CANDIDATE_LANE"] == "${{ matrix.lane || 'standard' }}"
+    assert job["env"]["CANDIDATE_SCOPE"] == "${{ matrix.scope || '' }}"
+    assert job["timeout-minutes"] == "${{ matrix.lane == 'extra' && 35 || 20 }}"
+    assert job["name"] == (
+        "candidate ${{ matrix.lane == 'extra' && 'focused EXTRA' || 'STANDARD' }} "
+        "(${{ matrix.label || matrix.id }})"
+    )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("CANDIDATE_ROLE", "minimum"),
+        ("CANDIDATE_LANE", "standard"),
+        ("CANDIDATE_SCOPE", "all"),
+        ("CANDIDATE_PART", "a"),
+    ],
+)
+def test_focused_resource_extension_requires_its_exact_lane_role_scope_and_no_part(
+    key, value
+):
+    job = _workflow()["jobs"]["candidate-standard"]
+    work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
+    prelude = work.split("python -B scripts/run_with_resources.py", 1)[0]
+    environment = {
+        **os.environ,
+        "CANDIDATE_ID": "focused312",
+        "CANDIDATE_ROLE": "locked",
+        "CANDIDATE_LANE": "extra",
+        "CANDIDATE_SCOPE": "focused",
+        "CANDIDATE_PART": "",
+        "CANDIDATE_COHORT": "internal_docs/precision/ci_standard/py312-extra.json",
+    }
+    environment[key] = value
+    result = subprocess.run(
+        ["bash", "-c", prelude + '\nprintf "unexpected-admission\\n"'],
+        env=environment,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0 and "unexpected-admission" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        "locked311",
+        "locked312-a",
+        "locked312-b",
+        "locked313",
+        "locked314",
+        "minimum312",
+        "normalization312",
+        "normalization313",
+        "node312",
+        "focused311",
+        "focused312",
+        "focused313",
+        "focused314",
+    ],
+)
+def test_canonical_dispatch_preserves_standard_parts_and_explicit_focused_scope(
+    candidate,
+):
+    job = _workflow()["jobs"]["candidate-standard"]
+    entry = next(
+        item for item in job["strategy"]["matrix"]["include"] if item["id"] == candidate
+    )
+    work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
+    dispatch = (
+        "part_args=()"
+        + work.split("part_args=()", 1)[1].split(
+            "python -B scripts/run_pytest_batches.py", 1
+        )[0]
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-euo",
+            "pipefail",
+            "-c",
+            dispatch + '\nprintf "%s\\n" "${part_args[@]}" "${lane_args[@]}"',
+        ],
+        env={
+            **os.environ,
+            "CANDIDATE_ID": candidate,
+            "CANDIDATE_PART": entry.get("part", ""),
+            "CANDIDATE_LANE": entry.get("lane", "standard"),
+            "CANDIDATE_SCOPE": entry.get("scope", ""),
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = ["--ci-lane", entry.get("lane", "standard")]
+    if entry.get("part"):
+        expected = ["--ci-standard-part", entry["part"], *expected]
+    if entry.get("lane") == "extra":
+        expected += ["--ci-extra-scope", "focused"]
+    assert result.stdout.splitlines() == expected
+    assert '"${lane_args[@]}" --ci-main-baseline "$CANDIDATE_DIR/main.json"' in work
+    assert '--_ci-provision-campaign "$CANDIDATE_COHORT"' in work
+
+
+@pytest.mark.parametrize(
+    "candidate,needs_optional",
+    [
+        ("locked311", False),
+        ("locked312-a", True),
+        ("locked312-b", True),
+        ("focused311", False),
+        ("focused312", True),
+        ("focused313", False),
+        ("focused314", False),
+    ],
+)
+def test_global_focused312_retains_both_optional_installs_and_renderer_sources(
+    tmp_path, candidate, needs_optional
+):
+    job = _workflow()["jobs"]["candidate-standard"]
+    work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
+    marker = work.index('mkdir "$CANDIDATE_DIR/optional-sources"')
+    start = work.rindex("if [[", 0, marker)
+    setup = work[start : work.index('if [[ "$CANDIDATE_ROLE" == minimum', marker)]
+    render = (
+        "render_args=()"
+        + work.split("render_args=()", 1)[1].split(
+            'if [[ "$CANDIDATE_ROLE" == node-smoke', 1
+        )[0]
+    )
+    evidence = tmp_path / candidate
+    evidence.mkdir()
+    result = subprocess.run(
+        [
+            "bash",
+            "-euo",
+            "pipefail",
+            "-c",
+            'git() { if [[ "${3:-}" == rev-parse ]]; then '
+            'printf "reviewed-ref\\n"; fi; return 0; }\n'
+            'poetry() { printf "%s\\n" "$*"; }\n'
+            + setup
+            + render
+            + "\nif (( ${#render_args[@]} )); then "
+            'printf "%s\\n" "${render_args[@]}"; fi',
+        ],
+        env={
+            **os.environ,
+            "CANDIDATE_ID": candidate,
+            "CANDIDATE_DIR": str(evidence),
+            "JAX2ONNX_MAXTEXT_SRC": str(evidence / "optional-sources/maxtext"),
+            "JAX2ONNX_MAXDIFFUSION_SRC": str(
+                evidence / "optional-sources/maxdiffusion"
+            ),
+            "JAX2ONNX_MAXTEXT_REF": "reviewed-ref",
+            "JAX2ONNX_MAXDIFFUSION_REF": "reviewed-ref",
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == (
+        [
+            "install --no-interaction --with maxtext",
+            "install --no-interaction --with maxdiffusion",
+            "--maxtext-source",
+            str(evidence / "optional-sources/maxtext"),
+            "--maxdiffusion-source",
+            str(evidence / "optional-sources/maxdiffusion"),
+        ]
+        if needs_optional
+        else []
+    )
+    assert (evidence / "optional-sources").exists() == needs_optional
+
+
 def _candidate_quality_commands():
     job = _workflow()["jobs"]["candidate-standard"]
     work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
@@ -387,7 +603,9 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
     owner_cohorts = {
         entry["id"]: entry["python"]
         for entry in job["strategy"]["matrix"]["include"]
-        if entry["role"] == "locked" and entry.get("part") != "b"
+        if entry.get("lane", "standard") == "standard"
+        and entry["role"] == "locked"
+        and entry.get("part") != "b"
     }
     assert owner_cohorts == {
         "locked311": "3.11",
@@ -410,7 +628,8 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
         < work.index("python scripts/generate_tests.py")
         < work.index("python -B scripts/prepare_ci_standard.py")
     )
-    assert "--timeout-seconds 1100" in work and job["timeout-minutes"] == 20
+    assert "execution_work_seconds=1100" in work
+    assert job["timeout-minutes"] == "${{ matrix.lane == 'extra' && 35 || 20 }}"
     assert "--all-files" in commands and "--hook-stage" not in commands
     assert "continue-on-error" not in next(
         step for step in job["steps"] if step.get("id") == "work"
@@ -435,6 +654,10 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
         ("normalization312", False),
         ("normalization313", False),
         ("node312", False),
+        ("focused311", False),
+        ("focused312", False),
+        ("focused313", False),
+        ("focused314", False),
     ],
 )
 def test_candidate_quality_runs_once_per_locked_cohort_without_support_hooks(
@@ -460,6 +683,7 @@ def test_candidate_quality_runs_once_per_locked_cohort_without_support_hooks(
             **os.environ,
             "CANDIDATE_ROLE": entry["role"],
             "CANDIDATE_PART": entry.get("part", ""),
+            "CANDIDATE_LANE": entry.get("lane", "standard"),
         },
         text=True,
         capture_output=True,
@@ -503,6 +727,7 @@ def test_candidate_quality_failure_stops_work_before_optional_setup(candidate, f
             **os.environ,
             "CANDIDATE_ROLE": entry["role"],
             "CANDIDATE_PART": entry.get("part", ""),
+            "CANDIDATE_LANE": entry.get("lane", "standard"),
             "QUALITY_FAILURE": failure,
         },
         text=True,
@@ -534,7 +759,9 @@ def test_primary_results_precede_bulk_receipts_without_changing_archive_layout()
     assert steps.index(primary) < steps.index(pack) < steps.index(receipts)
     assert primary["if"] == "always()"
     assert primary["with"]["name"] == (
-        "candidate-primary-${{ matrix.id }}-${{ job.status }}"
+        "${{ matrix.lane == 'extra' && 'candidate-extra-primary' "
+        "|| 'candidate-primary' }}"
+        "-${{ matrix.id }}-${{ job.status }}"
     )
     assert primary["with"]["path"].splitlines() == [
         "${{ runner.temp }}/ci-candidate-${{ matrix.id }}-work-resources/summary.json",
@@ -543,7 +770,8 @@ def test_primary_results_precede_bulk_receipts_without_changing_archive_layout()
         "${{ runner.temp }}/ci-candidate-${{ matrix.id }}/run/primary/",
     ]
     assert receipts["with"]["name"] == (
-        "candidate-standard-${{ matrix.id }}-${{ job.status }}"
+        "${{ matrix.lane == 'extra' && 'candidate-extra' || 'candidate-standard' }}"
+        "-${{ matrix.id }}-${{ job.status }}"
     )
     assert receipts["with"]["path"].splitlines() == [
         "${{ runner.temp }}/ci-candidate-${{ matrix.id }}.tar.gz",
@@ -592,8 +820,9 @@ def test_cleanup_retains_optional_source_originals_for_later_failures(
         ("failure", "success", True),
     ],
 )
+@pytest.mark.parametrize("candidate", ["locked312-a", "focused312"])
 def test_bulk_pack_separates_routine_sources_and_preserves_full_failure_payload(
-    tmp_path, prior_status, primary_outcome, has_failure
+    tmp_path, prior_status, primary_outcome, has_failure, candidate
 ):
     steps = _workflow()["jobs"]["candidate-standard"]["steps"]
     pack = next(step for step in steps if step.get("id") == "pack")
@@ -601,7 +830,7 @@ def test_bulk_pack_separates_routine_sources_and_preserves_full_failure_payload(
         "paths=()"
         + pack["run"].split("paths=()", 1)[1].split("python -B - <<'PY'", 1)[0]
     )
-    evidence = tmp_path / "ci-candidate-locked312-a"
+    evidence = tmp_path / ("ci-candidate-" + candidate)
     originals = {
         evidence / "run/run.json": b"original canonical receipt",
         evidence / "optional-sources/maxtext/original.py": b"complete pinned source",
@@ -628,7 +857,7 @@ def test_bulk_pack_separates_routine_sources_and_preserves_full_failure_payload(
     )
     assert result.returncode == 0, result.stderr
     with tarfile.open(str(evidence) + ".tar.gz") as archive:
-        assert "ci-candidate-locked312-a/run/run.json" in archive.getnames()
+        assert evidence.name + "/run/run.json" in archive.getnames()
         assert not any("optional-sources" in name for name in archive.getnames())
     failure = Path(str(evidence) + "-failure-payloads.tar.gz")
     assert failure.exists() == has_failure
@@ -650,6 +879,56 @@ def test_bulk_pack_separates_routine_sources_and_preserves_full_failure_payload(
     )
     assert "steps.primary.outcome != 'success'" in failure_upload["if"]
     assert "steps.primary.outcome != 'success'" in raw_upload["if"]
+
+
+@pytest.mark.parametrize("candidate", ["locked312-a", "focused312"])
+def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
+    tmp_path, candidate
+):
+    job = _workflow()["jobs"]["candidate-standard"]
+    pack = next(step for step in job["steps"] if step.get("id") == "pack")
+    code = pack["run"].rsplit("python -B - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    evidence = tmp_path / ("ci-candidate-" + candidate)
+    Path(str(evidence) + ".tar.gz").write_bytes(b"bounded receipt archive")
+    focused = candidate == "focused312"
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", code],
+        env={
+            **os.environ,
+            "CANDIDATE_DIR": str(evidence),
+            "CANDIDATE_ID": candidate,
+            "CANDIDATE_LANE": "extra" if focused else "standard",
+            "CANDIDATE_SCOPE": "focused" if focused else "",
+            "CANDIDATE_PART": "" if focused else "a",
+            "EXPECTED_CHECKOUT_SHA": "a" * 40,
+            "CANDIDATE_PRIOR_STATUS": "success",
+            "CANDIDATE_PRIMARY_OUTCOME": "success",
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    accounting = json.loads(Path(str(evidence) + "-accounting.json").read_text())
+    assert accounting["campaign_family"] == ("EXTRA" if focused else "STANDARD")
+    assert accounting["ci_extra_scope"] == ("focused" if focused else None)
+    assert accounting["work_timeout_seconds"] == (2000 if focused else 1100)
+    assert accounting["whole_job_timeout_seconds"] == (2100 if focused else 1200)
+    assert accounting["execution_rss_mib"] == (4096 if focused else 5120)
+    assert accounting["standard_part"] == (None if focused else "a")
+    assert "<=9600s (160 job-minutes)" in accounting["campaign_budgets"]
+    assert "<=104857600 bytes" in accounting["campaign_budgets"]
+    if focused:
+        assert "Four focused EXTRA spans <=2100s each; separate aggregate" in (
+            accounting["campaign_budgets"]
+        )
+        assert accounting["extra_acceptance_rss_mib"] == 4096
+        assert "standard_acceptance_rss_mib" not in accounting
+    else:
+        assert "nine compute spans and the fixed join <=1200s each" in (
+            accounting["campaign_budgets"]
+        )
+        assert accounting["standard_acceptance_rss_mib"] == 5120
+        assert "extra_acceptance_rss_mib" not in accounting
 
 
 def test_fixed_join_requires_both_complete_parts_and_original_authority_paths():

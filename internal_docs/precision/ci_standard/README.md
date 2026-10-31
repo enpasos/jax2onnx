@@ -17,19 +17,30 @@ and provenance differ. Both `JAX2ONNX_TEST_CI_LANE_XDIST=1` and
 
 | Proposed global profile | Observed C | Original S | A | F | R |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `py311-extra.json` | 20,602 | 4,571 | 16,031 | 1,390 | 14,641 |
-| `py312-extra.json` | 20,656 | 4,621 | 16,035 | 1,390 | 14,645 |
-| `py313-extra.json` | 20,607 | 4,573 | 16,034 | 1,390 | 14,644 |
-| `py314-extra.json` | 20,604 | 4,573 | 16,031 | 1,390 | 14,641 |
+| `py311-extra.json` | 20,667 | 4,571 | 16,096 | 1,505 | 14,591 |
+| `py312-extra.json` | 20,721 | 4,621 | 16,100 | 1,505 | 14,595 |
+| `py313-extra.json` | 20,672 | 4,573 | 16,099 | 1,505 | 14,594 |
+| `py314-extra.json` | 20,669 | 4,573 | 16,096 | 1,505 | 14,591 |
 
-These are genuine combined **working-tree observations**, not clean committed
-renderer admission or native full-F qualification. Counts are observations,
+The table records the final genuine combined **working-tree observations**,
+not native full-F qualification. Counts are observations,
 never limits. F includes the complete current 134-case metadata owner, critical
 ownership/extrema/callback controls, all six xdist controls, both fixed-part
-controls and the four new declaration cases. Every unmatched A remains R and
+controls, the four declaration cases, all 112 actual workflow/resource controls and
+three existing Node provision controls. Every unmatched A remains R and
 complete-extra owned. The sole non-3.12 harness allowance records independently
 observed exact skipped phases, JUnit, source/line/reason; 3.12 has no allowance.
-Clean committed admission/finite native controls and full timed F remain pending.
+Initial F=1,390 local clean commit `895225ac` admits all four actual profiles and closes
+finite controls, including all six xdist cases per cohort. The initial local
+3.12 deadline/raw-allocation failures remain preserved; its one-batch continuation
+uses the immutable original C/manifest and explicitly external UNVERIFIED model
+transport. Full timed F and scientific acceptance remain pending. The new
+workflow/policy controls and the Node repair controls are included in final
+F=1,505. The Node correction changes only an existing function body; the retained
+C source epoch stays explicit through the unchanged collection-declaration AST
+bridge and actual 3.12 positive/3.11/3.13 rejection controls. Supported 3.12 and
+unsupported-cohort Node parameter IDs differ, so their ordered F hashes differ. That updated
+working-tree data still requires final committed-source/hosted qualification.
 
 Focused uses the existing global command with `--ci-lane extra
 --ci-extra-scope focused` and the corresponding extra profile, without a test-path
@@ -42,7 +53,12 @@ extrema CLI or scientific/replay/model/web gates. Minimum312 support retains its
 unchanged full command and A=146; minimum311 remains independently required.
 Nightly Node/Chrome contexts and exact active-branch SHA wiring remain owned.
 The [execution plan](../ci_execution_plan.md) records the separate provisional
-EXTRA budgets, future nonreplacement wiring and activation hold.
+EXTRA budgets, prepared nonreplacement wiring and activation hold. The
+`--focused-extra-profile` observer permission is restricted to current tracked
+GLOBAL focused profiles at 2,000 seconds / 4 GiB, without changing STANDARD or
+locked312 limits. Its 112 local workflow/CLI controls pass per official 3.11/3.13 family and use
+explicit synthetic Actions fixtures. Hosted admission and complete timed-F jobs
+remain required.
 
 ## Historical provisioning observations
 

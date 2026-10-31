@@ -2,6 +2,7 @@
 
 """Finite stdlib controls for sampled, command-scoped resource accounting."""
 
+import hashlib
 import json
 from importlib.util import module_from_spec, spec_from_file_location
 import os
@@ -965,3 +966,272 @@ def test_unbound_standard_5gib_cli_rejects_before_child(tmp_path):
     )
     assert result.returncode == 2
     assert summary is None and not sentinel.exists()
+
+
+def _focused_extra_checkout(tmp_path, *, minor=None):
+    """Synthetic Actions checkout; real Git bytes and unmodified observer CLI."""
+    minor = minor or f"{sys.version_info.major}{sys.version_info.minor}"
+    original = _SCRIPT.parents[1]
+    relative = f"internal_docs/precision/ci_standard/py{minor}-extra.json"
+    root = tmp_path / "focused-checkout"
+    root.mkdir()
+    names = (
+        relative,
+        "scripts/_ci_standard_execution.py",
+        "scripts/run_with_resources.py",
+        "scripts/run_pytest_batches.py",
+        "scripts/prepare_ci_standard.py",
+        ".github/workflows/ci.yml",
+    )
+    for name in names:
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((original / name).read_bytes())
+
+    def git(*arguments):
+        return subprocess.check_output(
+            ["git", "-c", "core.filemode=false", "-C", str(root), *arguments],
+            stderr=subprocess.PIPE,
+        )
+
+    git("init", "-q")
+
+    def commit():
+        git("add", "--", *names)
+        git(
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "synthetic focused Actions source",
+        )
+        return git("rev-parse", "HEAD").decode().strip()
+
+    head = commit()
+    environment = {
+        **os.environ,
+        "GITHUB_ACTIONS": "true",
+        "RUNNER_OS": "Linux",
+        "CANDIDATE_ID": "focused" + minor,
+        "CANDIDATE_ROLE": "locked",
+        "CANDIDATE_LANE": "extra",
+        "CANDIDATE_SCOPE": "focused",
+        "CANDIDATE_PART": "",
+        "CANDIDATE_COHORT": relative,
+        "GITHUB_WORKSPACE": str(root),
+        "EXPECTED_CHECKOUT_SHA": head,
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    return root, root / relative, environment, commit
+
+
+def _focused_extra_cli(tmp_path, root, environment, *, options=(), profile=True):
+    output = tmp_path / "focused-resources"
+    sentinel = tmp_path / "focused-child-started"
+    arguments = [
+        sys.executable,
+        "-B",
+        str(root / "scripts/run_with_resources.py"),
+        "--output-dir",
+        str(output),
+        "--timeout-seconds",
+        "2000",
+    ]
+    if profile:
+        arguments.extend(("--focused-extra-profile", environment["CANDIDATE_COHORT"]))
+    arguments.extend(options)
+    arguments.extend(
+        (
+            "--",
+            sys.executable,
+            "-B",
+            "-c",
+            "from pathlib import Path; Path("
+            + repr(str(sentinel))
+            + ").write_text('real trivial child')",
+        )
+    )
+    actual = subprocess.run(
+        arguments, cwd=root, env=environment, capture_output=True, text=True, timeout=20
+    )
+    summary = (
+        json.loads((output / "summary.json").read_bytes())
+        if (output / "summary.json").is_file()
+        else None
+    )
+    return actual, summary, sentinel, output
+
+
+@pytest.mark.parametrize("minor", ("311", "312", "313", "314"))
+def test_focused_EXTRA_policy_binds_each_exact_global_cohort(
+    tmp_path, monkeypatch, minor
+):
+    root, profile, environment, _commit = _focused_extra_checkout(tmp_path, minor=minor)
+    spec = spec_from_file_location(
+        "_actual_focused_execution_policy", root / "scripts/_ci_standard_execution.py"
+    )
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.chdir(root)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        module,
+        "sys",
+        SimpleNamespace(
+            platform="linux",
+            version_info=SimpleNamespace(major=3, minor=int(minor[1:])),
+        ),
+    )
+    binding = module.focused_extra_execution(profile)
+    assert binding["candidate_id"] == "focused" + minor
+    assert binding["checkout"] == environment["EXPECTED_CHECKOUT_SHA"]
+    assert binding["lane"] == "extra" and binding["scope"] == "focused"
+    assert (
+        binding[environment["CANDIDATE_COHORT"]]
+        == hashlib.sha256(profile.read_bytes()).hexdigest()
+    )
+    for name in (
+        "scripts/_ci_standard_execution.py",
+        "scripts/run_with_resources.py",
+        "scripts/run_pytest_batches.py",
+        "scripts/prepare_ci_standard.py",
+        ".github/workflows/ci.yml",
+    ):
+        assert binding[name] == hashlib.sha256((root / name).read_bytes()).hexdigest()
+
+
+def test_focused_EXTRA_real_CLI_admits_2000s_trivial_child_with_current_sources(
+    tmp_path,
+):
+    root, _profile, environment, _commit = _focused_extra_checkout(tmp_path)
+    actual, summary, sentinel, _output = _focused_extra_cli(tmp_path, root, environment)
+    assert actual.returncode == 0, actual.stdout + actual.stderr
+    assert sentinel.read_text() == "real trivial child"
+    assert summary["status"] == "COMPLETE" and summary["qualification"] == "PASS"
+    assert summary["child_returncode"] == 0 and summary["cleanup_confirmed"]
+    assert summary["remaining_descendants"] == [] and summary["errors"] == []
+    assert summary["limits"] == {
+        "timeout_seconds": 2000.0,
+        "rss_mib": 4096,
+        "host_available_mib": 2048,
+        "disk_free_mib": 4096,
+    }
+    binding = summary["focused_extra_execution_profile"]
+    assert binding["candidate_id"] == environment["CANDIDATE_ID"]
+    assert binding["checkout"] == environment["EXPECTED_CHECKOUT_SHA"]
+    assert binding["profile"] == environment["CANDIDATE_COHORT"]
+    assert "standard_execution_profile" not in summary
+    assert "diagnostic_only" not in summary and "standard_acceptance" not in summary
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "no-profile",
+        "2001s",
+        "over-memory",
+        "low-headroom",
+        "low-disk-floor",
+        "dirty-source",
+        "dirty-profile",
+        "wrong-role",
+        "wrong-lane",
+        "wrong-scope",
+        "wrong-part",
+        "wrong-candidate",
+        "foreign-head",
+        "non-hosted",
+        "wrong-os",
+        "wrong-workspace",
+        "both-profile-flags",
+        "empty-F",
+        "duplicate-F",
+        "support-schema",
+    ),
+)
+def test_focused_EXTRA_real_CLI_rejects_unbound_or_excessive_envelopes_before_child(
+    tmp_path, fault
+):
+    root, profile, environment, commit = _focused_extra_checkout(tmp_path)
+    options = []
+    flag = fault != "no-profile"
+    if fault == "2001s":
+        options = ["--timeout-seconds", "2001"]
+    elif fault == "over-memory":
+        options = ["--max-rss-mib", "5120"]
+    elif fault == "low-headroom":
+        options = ["--min-available-mib", "2047"]
+    elif fault == "low-disk-floor":
+        options = ["--min-disk-free-mib", "4095"]
+    elif fault == "dirty-source":
+        path = root / "scripts/prepare_ci_standard.py"
+        path.write_bytes(path.read_bytes() + b"\n# Uncommitted control.\n")
+    elif fault == "dirty-profile":
+        profile.write_bytes(profile.read_bytes() + b"\n")
+    elif fault in {
+        "wrong-role",
+        "wrong-lane",
+        "wrong-scope",
+        "wrong-part",
+        "wrong-candidate",
+        "foreign-head",
+        "non-hosted",
+        "wrong-os",
+        "wrong-workspace",
+    }:
+        key, value = {
+            "wrong-role": ("CANDIDATE_ROLE", "minimum"),
+            "wrong-lane": ("CANDIDATE_LANE", "standard"),
+            "wrong-scope": ("CANDIDATE_SCOPE", "all"),
+            "wrong-part": ("CANDIDATE_PART", "a"),
+            "wrong-candidate": ("CANDIDATE_ID", "focused999"),
+            "foreign-head": ("EXPECTED_CHECKOUT_SHA", "f" * 40),
+            "non-hosted": ("GITHUB_ACTIONS", "false"),
+            "wrong-os": ("RUNNER_OS", "Windows"),
+            "wrong-workspace": ("GITHUB_WORKSPACE", str(tmp_path)),
+        }[fault]
+        environment[key] = value
+    elif fault == "both-profile-flags":
+        options = ["--locked312-standard-profile", str(profile)]
+    elif fault in {"empty-F", "duplicate-F", "support-schema"}:
+        data = json.loads(profile.read_bytes())
+        if fault == "empty-F":
+            data["focused_extra_ids"] = []
+        elif fault == "duplicate-F":
+            data["focused_extra_ids"].append(data["focused_extra_ids"][0])
+        else:
+            data["schema"] = "jax2onnx-ci-support-cohort-v1"
+        profile.write_text(json.dumps(data))
+        environment["EXPECTED_CHECKOUT_SHA"] = commit()
+    actual, summary, sentinel, output = _focused_extra_cli(
+        tmp_path, root, environment, options=options, profile=flag
+    )
+    assert actual.returncode == 2, actual.stdout + actual.stderr
+    assert summary is None and not output.exists() and not sentinel.exists()
+    if fault in {"empty-F", "duplicate-F", "support-schema"}:
+        assert (
+            "focused EXTRA execution profile has an unsupported authority"
+            in actual.stderr
+        )
+    elif fault in {"dirty-source", "dirty-profile"}:
+        assert (
+            "focused EXTRA execution sources differ from the tracked head"
+            in actual.stderr
+        )
+    elif fault == "both-profile-flags":
+        assert "not allowed with argument --focused-extra-profile" in actual.stderr
+
+
+@pytest.mark.parametrize("seconds", (1201, 2000))
+def test_ordinary_CLI_does_not_inherit_focused_EXTRA_timeout(tmp_path, seconds):
+    sentinel = tmp_path / "ordinary-child-started"
+    actual, summary, output = _command(
+        tmp_path,
+        "from pathlib import Path; Path(" + repr(str(sentinel)) + ").touch()",
+        options=("--timeout-seconds", str(seconds)),
+    )
+    assert actual.returncode == 2 and summary is None
+    assert not output.exists() and not sentinel.exists()

@@ -248,8 +248,22 @@ def test_canonical_node_provision_binds_role_reference_and_three_observations(
         json.loads((receipts / "ci-provisioned-campaign.json").read_text())["schema"]
         == "jax2onnx-ci-support-campaign-v1"
     )
-    records = list(receipts.rglob("lane-terminal.json"))
-    assert len(records) == 2
+    assert [process["folder"] for process in run["processes"]] == [
+        "collection",
+        "batch-0001",
+    ]
+    records = [
+        receipts / process["folder"] / "lane-terminal.json"
+        for process in run["processes"]
+    ]
+    assert set(receipts.rglob("lane-terminal.json")) == {
+        *records,
+        receipts / "primary/batch-0001/lane-terminal.json",
+    }
+    for name in ("request.json", "receipt.json", "lane-terminal.json", "junit.xml"):
+        assert (receipts / "primary/batch-0001" / name).read_bytes() == (
+            receipts / "batch-0001" / name
+        ).read_bytes()
     for terminal in records:
         receipt = json.loads((terminal.parent / "receipt.json").read_text())
         for name in ("startup_context", "collection_context", "final_context"):

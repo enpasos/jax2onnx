@@ -1,23 +1,39 @@
 # Precision migration handoff — 2026-10-31
 
-## Current published CI and unqualified EXTRA data
+## Current published CI and local EXTRA qualification
 
 Root/origin/PR277 is published at `2d273e23`. CI585 closes all nine STANDARD
 compute jobs plus strict 3.12 join, including original all-files hooks once per
 cohort, source/context/phases/JUnit, resources and cleanup. Whole jobs total
 84.92 minutes (maximum 1,061 seconds); all 19 success uploads total 65,308,579
 bytes. See [the current scoped result and remaining gates](ci_execution_plan.md#current-ci585-standard-result-and-extra-profile-data).
-The four original full jobs remain separately owned; their retained 18:06 UTC
-snapshot is live, and earlier failed outcomes are preserved.
+CI585 is terminal: 17 jobs succeeded and original 3.12 failed on a stale Node
+terminal-file count that included a bounded primary copy. The exact original
+process/copy repair passes all three parameters on 3.12 and all three off-cohort
+rejections on each 3.11/3.13 family. The hosted failure stays failed. The same
+retained 3.12 log reports seven ordinary BF16 TopK cases passed; earlier BF16
+failures remain preserved and no upstream-fix or full-science claim follows.
 
 Accepted local metadata implementation `e84111ed` is the base of four proposed
-GLOBAL EXTRA profiles. Genuine working-tree collections derive F=1,390 in each
-cohort, including the complete 134 metadata controls and four declaration checks;
+GLOBAL EXTRA profiles. Final genuine working-tree collections derive F=1,505 in each
+cohort, including all 134 metadata controls, four declaration checks and the
+112 checked workflow/resource controls and three existing Node controls;
 full A/R and the seven mandatory scientific BF16 cases remain retained. Actual
 non-3.12 fixed-harness skips have exact native/JUnit evidence; 3.12 must execute
-that control. These are proposal-data observations, not clean source admission,
-full timed F, scientific acceptance or activation. The following bounded profile
-checkpoint must precede separately reviewed nonreplacement workflow wiring.
+that control. Initial F=1,390 data commit `895225ac` has clean renderer/context admission
+and finite native validation on all four official runtimes, including all six
+xdist controls per cohort. The 3.12 local combined deadline/raw-retention failures
+remain failures; its successful one-batch continuation preserves the original C
+and authority. Model transport remains UNVERIFIED. Full timed F, scientific
+acceptance and gate activation remain open. Four nonreplacement focused workflow
+rows and a source-bound 2,000-second observer route are prepared separately;
+all new affected controls are included in the one final combined F=1,505 freeze. Their
+focused workflow/CLI checks pass **112 cases per official 3.11/3.13 family**,
+including real observer subprocesses under explicit synthetic Actions fixtures.
+The later Node repair changes one existing test body only; unchanged collection
+declarations bridge its separately tested source to the retained C epoch.
+Its supported 3.12 parameter IDs differ from other cohorts, so F hashes differ.
+This does not qualify hosted F timing or numerical behavior.
 
 The user's 2026-10-31 16:02:41 UTC reviewed SOURCE publication exception remains
 limited to the named BF16 failure, which stays mandatory and FAILED. It waives no

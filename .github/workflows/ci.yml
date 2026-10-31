@@ -368,12 +368,13 @@ jobs:
 
 
   # One PR qualification milestone only. The eight jobs above remain authoritative.
-  # Nine fixed compute roles; locked312 closes only through the fixed join below.
+  # Nine STANDARD roles plus four nonreplacement focused EXTRA roles.
+  # Locked312 STANDARD closes only through the fixed join below.
   candidate-standard:
-    name: candidate STANDARD (${{ matrix.label || matrix.id }})
+    name: candidate ${{ matrix.lane == 'extra' && 'focused EXTRA' || 'STANDARD' }} (${{ matrix.label || matrix.id }})
     if: github.event_name == 'pull_request' && github.event.pull_request.number == 277
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: ${{ matrix.lane == 'extra' && 35 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -387,11 +388,17 @@ jobs:
         - {id: normalization312, python: '3.12', cohort: normalization312, role: normalization}
         - {id: normalization313, python: '3.13', cohort: normalization313, role: normalization}
         - {id: node312, python: '3.12', cohort: node312, role: node-smoke}
+        - {id: focused311, python: '3.11', cohort: py311-extra, role: locked, lane: extra, scope: focused}
+        - {id: focused312, python: '3.12', cohort: py312-extra, role: locked, lane: extra, scope: focused}
+        - {id: focused313, python: '3.13', cohort: py313-extra, role: locked, lane: extra, scope: focused}
+        - {id: focused314, python: '3.14', cohort: py314-extra, role: locked, lane: extra, scope: focused}
     env:
       EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CANDIDATE_ID: ${{ matrix.id }}
       CANDIDATE_PART: ${{ matrix.part || '' }}
       CANDIDATE_ROLE: ${{ matrix.role }}
+      CANDIDATE_LANE: ${{ matrix.lane || 'standard' }}
+      CANDIDATE_SCOPE: ${{ matrix.scope || '' }}
       CANDIDATE_COHORT: internal_docs/precision/ci_standard/${{ matrix.cohort }}.json
 
     steps:
@@ -404,7 +411,7 @@ jobs:
       with:
         python-version: ${{ matrix.python }}
 
-    - name: Observe original setup and canonical STANDARD execution
+    - name: Observe original setup and canonical lane execution
       id: work
       env:
         CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}
@@ -416,6 +423,7 @@ jobs:
         set -euo pipefail
         execution_rss_mib=4096
         live_available_mib=2048
+        execution_work_seconds=1100
         execution_profile_args=()
         if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
           # Each serial part uses the approved hosted locked312 envelope.
@@ -424,10 +432,17 @@ jobs:
           execution_rss_mib=5120
           live_available_mib=8192
           execution_profile_args=(--locked312-standard-profile "$CANDIDATE_COHORT")
+        elif [[ "$CANDIDATE_ID" == focused311 || "$CANDIDATE_ID" == focused312 || "$CANDIDATE_ID" == focused313 || "$CANDIDATE_ID" == focused314 ]]; then
+          test "$CANDIDATE_ROLE" = locked
+          test "$CANDIDATE_LANE" = extra
+          test "$CANDIDATE_SCOPE" = focused
+          test -z "$CANDIDATE_PART"
+          execution_work_seconds=2000
+          execution_profile_args=(--focused-extra-profile "$CANDIDATE_COHORT")
         fi
         python -B scripts/run_with_resources.py \
           "${execution_profile_args[@]}" \
-          --output-dir "${CANDIDATE_DIR}-work-resources" --timeout-seconds 1100 \
+          --output-dir "${CANDIDATE_DIR}-work-resources" --timeout-seconds "$execution_work_seconds" \
           --max-rss-mib "$execution_rss_mib" --min-available-mib "$live_available_mib" \
           --min-disk-free-mib 4096 \
           --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
@@ -529,12 +544,12 @@ jobs:
         # Preserve Main's pinned all-files quality check at its base-lock point.
         # Locked312 part a owns it once; part b retains the same pytest context.
         # Setup, hooks and their failures count toward this monitored WORK/job.
-        if [[ "$CANDIDATE_ROLE" == locked && "$CANDIDATE_PART" != b ]]; then
+        if [[ "$CANDIDATE_LANE" == standard && "$CANDIDATE_ROLE" == locked && "$CANDIDATE_PART" != b ]]; then
           poetry run python scripts/ensure_path_markers.py --fix
           poetry run pre-commit run --all-files
         fi
 
-        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
+        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b || "$CANDIDATE_ID" == focused312 ]]; then
           mkdir "$CANDIDATE_DIR/optional-sources"
           for integration in MAXTEXT MAXDIFFUSION; do
             source_name="JAX2ONNX_${integration}_SRC"
@@ -566,7 +581,7 @@ jobs:
         fi
 
         render_args=()
-        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
+        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b || "$CANDIDATE_ID" == focused312 ]]; then
           render_args+=(--maxtext-source "$JAX2ONNX_MAXTEXT_SRC" \
             --maxdiffusion-source "$JAX2ONNX_MAXDIFFUSION_SRC")
         fi
@@ -641,9 +656,15 @@ jobs:
         if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
           part_args=(--ci-standard-part "$CANDIDATE_PART")
         fi
+        lane_args=(--ci-lane "$CANDIDATE_LANE")
+        if [[ "$CANDIDATE_LANE" == extra ]]; then
+          test "$CANDIDATE_SCOPE" = focused
+          test -z "$CANDIDATE_PART"
+          lane_args+=(--ci-extra-scope "$CANDIDATE_SCOPE")
+        fi
         python -B scripts/run_pytest_batches.py "${part_args[@]}" \
           --batch-size 500 --output-dir "$CANDIDATE_DIR/run" \
-          --ci-lane standard --ci-main-baseline "$CANDIDATE_DIR/main.json" \
+          "${lane_args[@]}" --ci-main-baseline "$CANDIDATE_DIR/main.json" \
           --_ci-provision-campaign "$CANDIDATE_COHORT" "${selection_args[@]}" \
           -- --durations=50 --durations-min=1
         if [[ "$CANDIDATE_ROLE" == normalization ]]; then
@@ -657,7 +678,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: candidate-primary-${{ matrix.id }}-${{ job.status }}
+        name: ${{ matrix.lane == 'extra' && 'candidate-extra-primary' || 'candidate-primary' }}-${{ matrix.id }}-${{ job.status }}
         path: |
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-work-resources/summary.json
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/standard-start-capacity.json
@@ -759,8 +780,12 @@ jobs:
 
         archive = Path(os.environ["CANDIDATE_DIR"] + ".tar.gz")
         failure = Path(os.environ["CANDIDATE_DIR"] + "-failure-payloads.tar.gz")
+        focused_extra = os.environ["CANDIDATE_LANE"] == "extra"
         accounting = {
             "candidate": os.environ["CANDIDATE_ID"],
+            "campaign_family": "EXTRA" if focused_extra else "STANDARD",
+            "ci_lane": os.environ["CANDIDATE_LANE"],
+            "ci_extra_scope": os.environ.get("CANDIDATE_SCOPE") or None,
             "expected_head": os.environ["EXPECTED_CHECKOUT_SHA"],
             "prior_job_status": os.environ["CANDIDATE_PRIOR_STATUS"],
             "primary_upload_outcome": os.environ["CANDIDATE_PRIMARY_OUTCOME"],
@@ -768,11 +793,17 @@ jobs:
             "compressed_failure_payload_bytes": failure.stat().st_size if failure.exists() else None,
             "managed_actions_resource_intervals": "UNOBSERVED: checkout, setup-python, upload, post hooks",
             "whole_job_timing": "UNVERIFIED until actual Actions started_at/completed_at including post hooks",
-            "campaign_budgets": "All nine compute spans and the fixed join <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
+            "campaign_budgets": (
+                "Four focused EXTRA spans <=2100s each; separate aggregate <=9600s (160 job-minutes); separate successful uploaded artifacts <=104857600 bytes"
+                if focused_extra else
+                "All nine compute spans and the fixed join <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes"
+            ),
+            "work_timeout_seconds": 2000 if focused_extra else 1100,
+            "whole_job_timeout_seconds": 2100 if focused_extra else 1200,
             "failure_evidence": "Complete retained model/temp/setup payloads counted separately; raw fallback on pack/upload failure; missing/interrupted evidence cannot qualify",
         }
         accounting["execution_rss_mib"] = 5120 if os.environ["CANDIDATE_ID"] in {"locked312-a", "locked312-b"} else 4096
-        accounting["standard_acceptance_rss_mib"] = accounting["execution_rss_mib"]
+        accounting["extra_acceptance_rss_mib" if focused_extra else "standard_acceptance_rss_mib"] = accounting["execution_rss_mib"]
         accounting["standard_part"] = os.environ.get("CANDIDATE_PART") or None
         Path(os.environ["CANDIDATE_DIR"] + "-accounting.json").write_text(json.dumps(accounting, indent=2) + "\n")
         PY
@@ -783,7 +814,7 @@ jobs:
       if: always() && steps.pack.outcome == 'success'
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: candidate-standard-${{ matrix.id }}-${{ job.status }}
+        name: ${{ matrix.lane == 'extra' && 'candidate-extra' || 'candidate-standard' }}-${{ matrix.id }}-${{ job.status }}
         path: |
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}.tar.gz
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-accounting.json
@@ -797,7 +828,7 @@ jobs:
       if: always() && (steps.work.outcome != 'success' || steps.primary.outcome != 'success') && steps.pack.outcome == 'success'
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: candidate-standard-${{ matrix.id }}-failure-payloads
+        name: ${{ matrix.lane == 'extra' && 'candidate-extra' || 'candidate-standard' }}-${{ matrix.id }}-failure-payloads
         path: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-failure-payloads.tar.gz
         retention-days: 14
         compression-level: 0
@@ -807,7 +838,7 @@ jobs:
       if: always() && (steps.pack.outcome != 'success' || steps.receipts.outcome != 'success' || ((steps.work.outcome != 'success' || steps.primary.outcome != 'success') && steps.failure_payloads.outcome != 'success'))
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: candidate-standard-${{ matrix.id }}-raw-failure-evidence
+        name: ${{ matrix.lane == 'extra' && 'candidate-extra' || 'candidate-standard' }}-${{ matrix.id }}-raw-failure-evidence
         path: |
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-work-resources/

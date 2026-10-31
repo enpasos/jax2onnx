@@ -1,6 +1,6 @@
 # scripts/_ci_standard_execution.py
 
-"""Admission for the one reviewed hosted STANDARD execution envelope."""
+"""Admission for reviewed hosted STANDARD and focused EXTRA execution envelopes."""
 
 import hashlib
 import json
@@ -63,3 +63,77 @@ def locked312_execution(profile: Path) -> dict[str, str]:
     ):
         raise ValueError("locked312 execution profile has an unsupported authority")
     return {"checkout": expected, "profile": LOCKED312_PROFILE, **bindings}
+
+
+def focused_extra_execution(profile: Path) -> dict[str, str]:
+    """Bind the finite EXTRA work envelope to a tracked global cohort profile."""
+    root = Path.cwd().resolve()
+    minor = f"{sys.version_info.major}{sys.version_info.minor}"
+    relative = f"internal_docs/precision/ci_standard/py{minor}-extra.json"
+    candidate = "focused" + minor
+    expected = os.environ.get("EXPECTED_CHECKOUT_SHA", "")
+    if (
+        sys.platform != "linux"
+        or minor not in {"311", "312", "313", "314"}
+        or os.environ.get("GITHUB_ACTIONS") != "true"
+        or os.environ.get("RUNNER_OS") != "Linux"
+        or os.environ.get("CANDIDATE_ID") != candidate
+        or os.environ.get("CANDIDATE_ROLE") != "locked"
+        or os.environ.get("CANDIDATE_LANE") != "extra"
+        or os.environ.get("CANDIDATE_SCOPE") != "focused"
+        or os.environ.get("CANDIDATE_PART")
+        or os.environ.get("CANDIDATE_COHORT") != relative
+        or Path(os.environ.get("GITHUB_WORKSPACE", "/")).resolve() != root
+        or re.fullmatch("[0-9a-f]{40}", expected) is None
+        or profile.resolve(strict=True) != root / relative
+    ):
+        raise ValueError("focused EXTRA execution requires its hosted global profile")
+
+    def git(*arguments: str) -> bytes:
+        return subprocess.check_output(
+            ["git", "--no-optional-locks", *arguments], cwd=root, stderr=subprocess.PIPE
+        )
+
+    if git("rev-parse", "HEAD").decode().strip() != expected:
+        raise ValueError("focused EXTRA checkout differs from the current event head")
+    bindings = {}
+    for name in (
+        relative,
+        "scripts/_ci_standard_execution.py",
+        "scripts/run_with_resources.py",
+        "scripts/run_pytest_batches.py",
+        "scripts/prepare_ci_standard.py",
+        ".github/workflows/ci.yml",
+    ):
+        actual = (root / name).read_bytes()
+        if actual != git("show", f"HEAD:{name}"):
+            raise ValueError(
+                "focused EXTRA execution sources differ from the tracked head"
+            )
+        bindings[name] = hashlib.sha256(actual).hexdigest()
+    data = json.loads(profile.read_bytes())
+    if type(data) is not dict:
+        raise ValueError("focused EXTRA execution profile has an unsupported authority")
+    focused = data.get("focused_extra_ids")
+    if (
+        data.get("schema") != "jax2onnx-ci-standard-cohort-v1"
+        or data.get("python_minor")
+        != f"{sys.version_info.major}.{sys.version_info.minor}"
+        or data.get("baseline_commit") != "81ad6ca2592635c8d2ced6dbd77292c487f0351b"
+        or type(focused) is not list
+        or not focused
+        or any(type(node) is not str or not node for node in focused)
+        or len(set(focused)) != len(focused)
+        or "collection_args" in data
+        or "standard_parts" in data
+        or "support_role" in data
+    ):
+        raise ValueError("focused EXTRA execution profile has an unsupported authority")
+    return {
+        "checkout": expected,
+        "profile": relative,
+        "candidate_id": candidate,
+        "lane": "extra",
+        "scope": "focused",
+        **bindings,
+    }

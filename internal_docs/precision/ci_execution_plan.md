@@ -13,26 +13,55 @@ proves disjoint 216 + 4,405 equals original S=4,621
 ([scoped closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-2d273e23-watch-IbQz2oyQ/candidate-standard-qualification-closure.json)).
 Managed Actions resource intervals outside controlled commands remain unobserved.
 This is STANDARD native-pytest/hooks/resource evidence, not EXTRA, scientific or
-B–F acceptance. The four original full jobs remained live at the retained
-2026-10-31 18:06 UTC snapshot; earlier failures remain unchanged.
+B–F acceptance. CI585 is terminal at 17 successful jobs and one failed job: original 3.11,
+3.13 and 3.14 passed; original 3.12 failed in the Node provision control because
+its recursive terminal-file count included the new bounded primary copy as a
+third worker. The original collection and batch both passed. The local repair
+checks the exact two original process paths and all four copied payloads byte
+for byte; all three parameters pass on official 3.12, with all three off-cohort
+rejections passing on 3.11/3.13. The failed hosted outcome remains failed.
+The same retained 3.12 log reports all seven ordinary BF16 TopK cases passed;
+this does not erase the earlier BF16 failure or prove an upstream repair, the
+default-strict extrema gate or complete B–F acceptance.
 
-New global `py311-extra.json` through `py314-extra.json` derive **F=1,390** from
-real combined working-tree C=20,602 / 20,656 / 20,607 / 20,604. They include the
-complete 134-case metadata owner and four new declaration controls. Remaining
-R=14,641 / 14,645 / 14,644 / 14,641 stays owned by complete EXTRA; counts are
+New global `py311-extra.json` through `py314-extra.json` derive **F=1,505** from
+real final working-tree C=20,667 / 20,721 / 20,672 / 20,669. They include the
+complete 134-case metadata owner, four declaration controls and all 112 checked
+workflow/resource control IDs and three existing cohort-specific Node controls.
+Remaining R=14,591 / 14,595 / 14,594 / 14,591
+stays owned by complete EXTRA; counts are
 observations, never ceilings. Both opt-in flags bind startup/collection/final.
 The sole non-3.12 fixed-harness allowance comes from each actual skipped
 setup/teardown and JUnit/source/line/reason record; Python 3.12 has no allowance.
-These dirty-tree observations and literal data are **unqualified** pending clean
-committed renderer admission and finite native opt-in validation. Full timed F on
-all four cohorts is additionally required before activation; the existing
-STANDARD profiles and workflow are unchanged in this data checkpoint.
+The initial F=1,390 data checkpoint `895225ac` has genuine clean renderer/context admission
+on all four existing official runtimes. All six opt-in xdist controls execute
+successfully per cohort, with full C, exact finite assignment, phase/JUnit and
+three-stage source/environment checks. The first local 3.12 combined qualifier
+failed its 600-second deadline before any control body and exceeded the raw
+retention cap; both failures remain preserved. Its closed C supported a separate
+one-batch qualification without another collect-only worker. Original model
+transport remains UNVERIFIED, including the explicitly external continuation.
+These are finite controls, not full timed F or scientific acceptance. Full timed
+F on all four cohorts is required before activation. The qualified STANDARD
+profiles remain unchanged. The final F=1,505 projection additionally binds the
+112 actual workflow/policy controls against all four complete C inventories.
+The later Node repair changes only one existing test body; the collection
+declarations, imports and signatures remain AST-identical. Its three existing
+IDs are projected from each original C without rewriting that source epoch.
+Python 3.12 uses its actual supported Node IDs; the other cohorts use their
+actual unsupported-cohort IDs, so their ordered F hashes intentionally differ;
+its final committed-source admission and full timed F remain unqualified.
 
-The next separately qualified workflow checkpoint adds four nonreplacement
+The prepared, separately qualified workflow checkpoint adds four nonreplacement
 focused rows: provisional **2,000-second WORK / 35-minute whole job / 4-GiB RSS /
 2-GiB live headroom**, with separate 160-minute / 100-MiB EXTRA budgets. Only a
-trusted tracked EXTRA-profile admission may extend the existing observer timeout;
-a YAML-only change cannot bypass its current ceiling. STANDARD limits and fixed
+trusted tracked EXTRA-profile admission may extend the existing observer timeout.
+Focused workflow/CLI controls close **112 PASS without skips** on each official
+3.11/3.13 family, including real trivial-child admission and strict pre-child
+rejections. Synthetic Actions fixtures are unit evidence, not hosted F timing;
+the explicit `--focused-extra-profile` route binds current tracked global profile,
+cohort, lane/scope and execution sources. Ordinary admission stays at 1,200
+seconds, and the locked312 route stays at 1,100 seconds / 5 GiB. STANDARD limits and fixed
 3.12 parts remain unchanged. Complete-A milestone/final campaigns replace focused
 work, and retain full support A=146, minimum311 and original nightly Node/Chrome
 contexts. No gate activation follows from preparing these data.
