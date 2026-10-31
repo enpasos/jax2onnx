@@ -161,4 +161,8 @@ if [[ -n "${ONNXRUNTIME_WEB_RUNNER}" ]]; then
 fi
 
 echo "Using fresh serial pytest processes with complete collection accounting (at most 500 items each)."
+if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
+  poetry run python -B scripts/prepare_ci_download_cache.py \
+    --report "$RUNNER_TEMP/ci-download-cache-preparation.json"
+fi
 poetry run -- python scripts/run_pytest_batches.py -- "${PYTEST_DURATION_ARGS[@]}"

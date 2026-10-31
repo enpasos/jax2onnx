@@ -358,6 +358,14 @@ jobs:
         path: ${{ runner.temp }}/jax2onnx-pytest-batches
         if-no-files-found: warn
 
+    - name: Upload hosted download-cache preparation report
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ci-download-cache-preparation-python-${{ matrix.python-version }}
+        path: ${{ runner.temp }}/ci-download-cache-preparation.json
+        if-no-files-found: ignore
+
 
   # One PR qualification milestone only. The eight jobs above remain authoritative.
   # This explicit matrix adds eight fixed roles; no shard or dispatch controller.
@@ -371,7 +379,7 @@ jobs:
       matrix:
         include:
         - {id: locked311, python: '3.11', cohort: py311-owners, role: locked, label: 'locked311 Main-owner qualification'}
-        - {id: locked312, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 Main-owner qualification'}
+        - {id: locked312, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 one-shot DIAGNOSTIC (4GiB UNQUALIFIED)'}
         - {id: locked313, python: '3.13', cohort: py313, role: locked}
         - {id: locked314, python: '3.14', cohort: py314, role: locked}
         - {id: minimum312, python: '3.12', cohort: minimum312, role: minimum}
@@ -404,8 +412,18 @@ jobs:
         CANDIDATE_TMP: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tmp
       run: |
         set -euo pipefail
+        execution_rss_mib=4096
+        live_available_mib=2048
+        if [[ "$CANDIDATE_ID" == locked312 ]]; then
+          # One observational execution; STANDARD acceptance stays at 4096 MiB.
+          python -B -c 'from pathlib import Path; import sys; available = next(int(line.split()[1]) * 1024 for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemAvailable:")); print("diagnostic initial available bytes:", available); sys.exit(0 if available >= 12288 * 1024 * 1024 else "one-shot diagnostic needs 12 GiB initially available")'
+          execution_rss_mib=5120
+          live_available_mib=8192
+          set +e
+        fi
         python -B scripts/run_with_resources.py \
           --output-dir "${CANDIDATE_DIR}-work-resources" --timeout-seconds 1100 \
+          --max-rss-mib "$execution_rss_mib" --min-available-mib "$live_available_mib" \
           --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
           bash -euo pipefail - <<'BASH'
         mkdir "$CANDIDATE_DIR"
@@ -587,6 +605,19 @@ jobs:
         for selector in "${selectors[@]}"; do
           selection_args+=(--test-path "$selector")
         done
+        if [[ "$CANDIDATE_ID" == locked312 ]]; then
+          python -B - <<'PY_CAPACITY'
+        import json
+        import os
+        from pathlib import Path
+
+        available = next(int(line.split()[1]) * 1024 for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemAvailable:"))
+        required = 12288 * 1024 * 1024
+        Path(os.environ["CANDIDATE_DIR"], "diagnostic-start-capacity.json").write_text(json.dumps({"available_bytes": available, "required_bytes": required, "execution_rss_mib": 5120, "standard_acceptance_rss_mib": 4096}) + "\n")
+        if available < required:
+            raise SystemExit("one-shot diagnostic requires at least 12 GiB available before work")
+        PY_CAPACITY
+        fi
         python -B scripts/run_pytest_batches.py \
           --batch-size 500 --output-dir "$CANDIDATE_DIR/run" \
           --ci-lane standard --ci-main-baseline "$CANDIDATE_DIR/main.json" \
@@ -597,6 +628,33 @@ jobs:
           test ! -e tests/examples && test ! -L tests/examples
         fi
         BASH
+        actual_work_exit=$?
+        if [[ "$CANDIDATE_ID" == locked312 ]]; then
+          set -e
+          export CANDIDATE_ACTUAL_WORK_EXIT="$actual_work_exit"
+          python -B - <<'PY_DIAGNOSTIC'
+        import json
+        import os
+        from pathlib import Path
+
+        evidence = Path(os.environ["CANDIDATE_DIR"])
+        evidence.mkdir(exist_ok=True)
+        summary = Path(str(evidence) + "-work-resources", "summary.json")
+        observed = json.loads(summary.read_text()) if summary.exists() else None
+        (evidence / "diagnostic-execution-policy.json").write_text(json.dumps({
+            "diagnostic_only": True,
+            "standard_acceptance": "UNQUALIFIED",
+            "execution_rss_mib": 5120,
+            "standard_acceptance_rss_mib": 4096,
+            "actual_work_exit": int(os.environ["CANDIDATE_ACTUAL_WORK_EXIT"]),
+            "raw_work_summary": observed,
+            "scope": "one unchanged full canonical campaign; never STANDARD acceptance from an extended execution limit",
+        }, indent=2) + "\n")
+        PY_DIAGNOSTIC
+          if (( actual_work_exit != 0 )); then exit "$actual_work_exit"; fi
+          echo "::error::One-shot locked312 diagnostic completed; STANDARD acceptance remains UNQUALIFIED at 4096 MiB"
+          exit 125
+        fi
 
     - name: Observe output inventory and evidence compression
       id: pack
@@ -697,6 +755,10 @@ jobs:
             "campaign_budgets": "All eight successful spans <=1200s; aggregate <=9600s; successful uploaded artifacts <=104857600 bytes",
             "failure_evidence": "Complete retained model/temp/setup payloads counted separately; raw fallback on pack/upload failure; missing/interrupted evidence cannot qualify",
         }
+        if os.environ["CANDIDATE_ID"] == "locked312":
+            accounting.update(diagnostic_only=True, standard_acceptance="UNQUALIFIED", execution_rss_mib=5120, standard_acceptance_rss_mib=4096)
+            diagnostic = Path(os.environ["CANDIDATE_DIR"], "diagnostic-execution-policy.json")
+            accounting["diagnostic_execution_policy"] = json.loads(diagnostic.read_text()) if diagnostic.exists() else None
         Path(os.environ["CANDIDATE_DIR"] + "-accounting.json").write_text(json.dumps(accounting, indent=2) + "\n")
         PY
         BASH

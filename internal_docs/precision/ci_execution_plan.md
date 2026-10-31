@@ -1,6 +1,36 @@
 # Precision migration CI execution plan
 
-## Current CI578 repair status — 2026-10-31
+## CI579 follow-up: unchanged acceptance, one observational execution
+
+Published `a612d5e4` / [CI579](https://github.com/enpasos/jax2onnx/actions/runs/41182937914)
+still fails locked312's aggregate 4-GiB criterion. First WORK crossing is
+4,297,863,168 bytes; the cleanup peak is 4,303,409,152 bytes. Original Omni
+has setup PASS only, with no retained Omni/temp ONNX under the inventoried
+roots. Its later completion/peak remains unknown. C/O/S/A is
+19,564/4,850/4,621/14,943; 147 S cases close and all 50 original optional IDs
+remain assigned ([primary packet](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-a612d5e4-watch-xi9acp2x/locked312-failure-trigger-phase-accounting.json)).
+
+The next existing locked312 job is explicitly a **one-shot DIAGNOSTIC**:
+execution limit 5,120 MiB, initial/before-work available RAM at least 12 GiB,
+live available RAM 8 GiB, disk floor 4 GiB, 1,100-second work and 1,200-second
+whole-job bounds. Its raw summary honestly records 5,120 MiB. STANDARD
+acceptance stays **4,096 MiB / UNQUALIFIED** and this job is forced non-success
+even if all original C/O/S batches finish. No new job, controller, profiler,
+case/input/parameter/RNG change, skip, or local recollection is introduced.
+After this one run, the diagnostic mode must be explicitly removed or reviewed
+again before another push; it is not a recurring qualification policy.
+
+Original Python 3.11 separately stopped before batch 12: native artifact-root
+free space was 7,286,153,216 bytes versus the unchanged necessary lower bound
+7,486,178,400 bytes, including 3,124,102,240 bytes of remaining original raw
+outputs ([primary packet](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-a612d5e4-watch-xi9acp2x/original311-disk-failure-accounting.json)).
+Hosted full-check preparation now releases only validated pip/Poetry download
+caches after all installs and generation, before pytest; it records actual
+paths, allocated/download bytes, filesystem capacity and runtime identity
+before/after. Virtualenvs, models, receipts, TMPDIR, locks and native floors
+are preserved. Local invocation performs no user-cache cleanup.
+
+## Earlier CI578 repair status — 2026-10-31
 
 Published `8578c47a` / [CI578](https://github.com/enpasos/jax2onnx/actions/runs/41173158463)
 has **seven STANDARD successes / locked312 FAILURE**. Locked311/313/314 whole
