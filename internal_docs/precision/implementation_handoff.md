@@ -1,6 +1,69 @@
 # Precision migration handoff — 2026-10-30
 
-## Current STANDARD quality and EXTRA handoff — activation HOLD
+## Focused EXTRA projection — local verifier controls
+
+The canonical runner extends local `e11918ad` with a
+`--ci-extra-scope all|focused` option. The default remains complete **A=C−S**;
+an explicit scope requires a strict EXTRA campaign. Focused execution accepts
+only full-global authority, never Main-owner or support campaigns. After the
+genuine full collection and original S/A checks, literal **F** must be nonempty,
+unique, entirely in A and in exact collection order. Missing, reordered,
+duplicated or S IDs fail; they are never intersected away. The existing serial
+planner executes F and checks its exact completion. Reports retain complete A,
+F and **R=A−F**, so newly collected unmatched IDs remain owned by complete EXTRA.
+
+A focused PASS is explicitly **F_ONLY**, with full A **UNEXECUTED**, numerical
+acceptance **NOT_ASSERTED** and full B–F **UNVERIFIED**. A passing rejection test
+does not establish numerical correctness. Complete EXTRA still executes all A,
+including the existing empty-A collection-only case. All source/context,
+phase/JUnit, wasxfail and final-byte audits remain. Optional
+`extra_allowed_skips` uses the existing exact source/line/reason/phase record,
+checked against actual A. It cannot excuse failed scientific phases, another
+case, or the real fixed-parts smoke on Python 3.12.
+
+No actual F list, cohort allowance, EXTRA profile or workflow activation is
+qualified by these controls. Freeze those only after the combined source head
+and genuine collection, including the accepted ownership integration's cases.
+Separate EXTRA profiles must bind `JAX2ONNX_TEST_CI_LANE_XDIST=1` and, where
+applicable, `JAX2ONNX_RUN_FIXED_PARTS_SMOKE=1` in startup/collection/final
+contexts. The six existing xdist controls retain their reviewed synthetic
+two-worker exception inside serial EXTRA; no xdist run occurred here.
+Qualified STANDARD profile data is unchanged.
+
+The ownership plan remains four routine focused cohorts, with four complete-A
+cohorts replacing focused work for milestone/final campaigns; preserve the
+additional complete minimum311 job, minimum312 support's full A (currently 140),
+and nightly Node/Chrome contexts with exact active-branch SHA wiring.
+Retirement requires retained original outcomes, complete ownership and exact-head
+replacement qualification with independent review; preserve still-live original
+jobs without cancellation. Old-eight SUCCESS is not a blanket precondition for
+independently reviewed CI repair publication. CI583's native BF16 TopK failure
+remains FAILED; choosing F cannot hide or resolve it. Gate activation stays HOLD.
+The explicit failure-before-feature publication constraint remains in force;
+no requested SOURCE publication exception is assumed.
+
+The complete changed runner, lane-selection and renderer files account for
+**731 IDs per official 3.11/3.13 family: 725 PASS and six unchanged opt-in xdist
+skips** ([local controls](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-focused-extra-e119-yeb98sy3/focused-extra-controls-closure.json)).
+They share 730 literal IDs; the remaining existing provisioning role is
+`unsupported-normalization-role` on 3.11 and `first-collection` on 3.13.
+The prior e119 scope included 60 unchanged cache controls; this scope instead
+includes all 100 renderer controls and 75 net additions to runner/lane coverage.
+Two old Main-owner rejection identities expand into six explicit scope controls.
+Eight genuine pytest skip controls per family cover supplied/provisioned authority,
+all/focused execution, exact setup/call/teardown and JUnit/source/line/reason,
+and wrong-allowance rejection. Expected rejects do not establish numerical PASS.
+The existing real official 3.12 source-root and serial-parts/join controls also
+closed **two PASS / zero skips**. Local 3.12.9 and synthetic Actions observations
+remain distinct from hosted 3.12.15 qualification.
+
+Initial fixture-admission and launcher failures remain in the local evidence.
+The 3.11 runner's 278 PASS execution initially retained 71,184,384 allocated
+bytes, exceeding its 64 MiB limit. Its original failure receipt is immutable;
+verified PAX preservation corrected retained storage without replaying tests.
+This is a retention correction, not a retroactive budget PASS.
+
+## Earlier complete-EXTRA repair — local e11918ad
 
 CI583's original Python 3.12 job at exact `6c444f3b` ended **FAILURE** at
 **2026-10-31 14:20:27 UTC**, in BF16 TopK `finite-inline`, batch 31/55

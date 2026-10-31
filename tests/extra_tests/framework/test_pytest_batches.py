@@ -2,6 +2,7 @@
 
 """Exercise fresh-process suite accounting with tiny, real pytest suites."""
 
+import ast
 import base64
 import builtins
 import csv
@@ -313,10 +314,12 @@ def _prepare_lane_suite(
     baseline: list[str],
     *,
     collection_args: tuple[str, ...] = (),
+    environment_overrides: dict[str, str] | None = None,
 ) -> tuple[Path, Path, dict[str, str]]:
     suite = _write_suite(tmp_path, {"pytest.ini": "[pytest]\ntestpaths = .\n", **files})
     environment = os.environ.copy()
     environment.update(PYTEST_ADDOPTS="", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+    environment.update(environment_overrides or {})
     environment.pop("JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR", None)
     child_environment = {
         **environment,
@@ -2764,7 +2767,16 @@ def test_installed_native_manifest_rejects_foreign_protocols(
 
 
 def _prepare_campaign_suite(
-    tmp_path, monkeypatch, mode, *, xml_controls=False, support=False, extra_source=None
+    tmp_path,
+    monkeypatch,
+    mode,
+    *,
+    xml_controls=False,
+    support=False,
+    extra_source=None,
+    extra=False,
+    extra_files=None,
+    extra_environment=None,
 ):
     reason = "original\x07skip\x7f" if xml_controls else "original skip"
     source = """from pathlib import Path
@@ -2794,6 +2806,7 @@ def test_extra():
         "test_collection_skip.py": "import pytest\n"
         "pytest.skip('unselected collection skip', allow_module_level=True)\n",
     }
+    files.update(extra_files or {})
     selectors = ("test_cases.py", "test_collection_skip.py") if support else ()
     if support:
         files["test_outside.py"] = "raise AssertionError('outside command imported')\n"
@@ -2824,6 +2837,7 @@ def pytest_collectreport(report):
         files,
         standard,
         collection_args=selectors,
+        environment_overrides=extra_environment,
     )
     child_environment = {
         **environment,
@@ -2876,7 +2890,7 @@ def pytest_collectreport(report):
     }
     manifest.write_text(json.dumps(payload) + "\n")
     allowed_skips = []
-    if mode in {"allowed-skip", "pass"}:
+    if mode in {"allowed-skip", "pass"} and not extra:
         allowed_skips.append(
             {
                 "nodeid": standard[1],
@@ -3144,7 +3158,14 @@ def test_campaign_final_closure_rejects_semantically_unchanged_junit_mutation(
 
 
 def _prepare_provision_suite(
-    tmp_path, monkeypatch, *, support=False, extra_source=None
+    tmp_path,
+    monkeypatch,
+    *,
+    support=False,
+    extra_source=None,
+    extra=False,
+    extra_files=None,
+    extra_environment=None,
 ):
     suite, manifest, environment, contract, inventory = _prepare_campaign_suite(
         tmp_path,
@@ -3152,6 +3173,9 @@ def _prepare_provision_suite(
         "allowed-skip",
         support=support,
         extra_source=extra_source,
+        extra=extra,
+        extra_files=extra_files,
+        extra_environment=extra_environment,
     )
     payload = json.loads(manifest.read_text())
     preparation_spec = spec_from_file_location(
@@ -3456,7 +3480,11 @@ def test_real_extra_campaign_executes_complete_ordered_A_with_full_collection(
     )
     if provision:
         suite, manifest, environment, authority, inventory = _prepare_provision_suite(
-            tmp_path, monkeypatch, support=support, extra_source=extra_source
+            tmp_path,
+            monkeypatch,
+            support=support,
+            extra_source=extra_source,
+            extra=True,
         )
         option = "--_ci-provision-campaign"
     else:
@@ -3466,6 +3494,7 @@ def test_real_extra_campaign_executes_complete_ordered_A_with_full_collection(
             "allowed-skip",
             support=support,
             extra_source=extra_source,
+            extra=True,
         )
         option = "--ci-campaign-contract"
     payload = json.loads(manifest.read_text())
@@ -3548,7 +3577,12 @@ def test_real_strict_extra_empty_A_retains_full_collection_without_execution(
     tmp_path, monkeypatch, support
 ):
     suite, manifest, environment, authority, inventory = _prepare_campaign_suite(
-        tmp_path, monkeypatch, "allowed-skip", support=support, extra_source=""
+        tmp_path,
+        monkeypatch,
+        "allowed-skip",
+        support=support,
+        extra_source="",
+        extra=True,
     )
     payload = json.loads(manifest.read_text())
     result, run, receipts = _run_prepared_suite(
@@ -3617,6 +3651,7 @@ def test_real_extra_campaign_rejects_nonpassing_native_outcomes(
         "allowed-skip",
         support=support,
         extra_source=decorator + "def test_extra():\n    " + body + "\n",
+        extra=True,
     )
     result, run, receipts = _run_prepared_suite(
         tmp_path,
@@ -3685,8 +3720,9 @@ def test_campaign_requires_explicit_lane_and_baseline_before_any_read_or_output(
 @pytest.mark.parametrize(
     "authority", ["--ci-campaign-contract", "--_ci-provision-campaign"]
 )
+@pytest.mark.parametrize("extra_scope", [None, "all", "focused"])
 def test_main_owner_extra_is_rejected_before_contract_output_or_children(
-    tmp_path, monkeypatch, capsys, authority
+    tmp_path, monkeypatch, capsys, authority, extra_scope
 ):
     module = _runner()
     manifest = tmp_path / "owner-baseline.json"
@@ -3714,11 +3750,541 @@ def test_main_owner_extra_is_rejected_before_contract_output_or_children(
     monkeypatch.setattr(module, "_child", forbidden)
     monkeypatch.setattr(module, "_CiCampaignContext", forbidden)
     monkeypatch.setattr(module, "_CiCampaignProvision", forbidden)
+    if extra_scope is not None:
+        module.sys.argv.extend(("--ci-extra-scope", extra_scope))
     with pytest.raises(SystemExit) as error:
         module._main()
     assert error.value.code == 2
     assert "does not execute the complete extras lane" in capsys.readouterr().err
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "arguments,expected",
+    [
+        (["--ci-extra-scope", "unknown"], "invalid choice"),
+        (
+            ["--ci-extra-scope", "all", "--ci-extra-scope", "focused"],
+            "duplicate CI lane authority",
+        ),
+    ],
+)
+def test_EXTRA_scope_rejects_unknown_or_duplicate_values_before_any_authority_read(
+    tmp_path, monkeypatch, capsys, arguments, expected
+):
+    module = _runner()
+    output = tmp_path / "not-created"
+    monkeypatch.setattr(
+        module.sys, "argv", [str(_RUNNER), "--output-dir", str(output), *arguments]
+    )
+    monkeypatch.setattr(
+        module,
+        "_context_json",
+        lambda *a, **kw: pytest.fail("invalid scope read authority"),
+    )
+    with pytest.raises(SystemExit) as exc:
+        module._main()
+    assert exc.value.code == 2 and expected in capsys.readouterr().err
+    assert not output.exists()
+
+
+def _prepare_focused_extra_suite(
+    tmp_path, monkeypatch, *, provision=False, outcome="pass"
+):
+    body = {
+        "pass": "Path('focus-first-ran').touch()",
+        "failure": "raise AssertionError('genuine first focused body failure')",
+        "skip": "pytest.skip('unreviewed focused skip')",
+        "xfail": "pytest.xfail('unreviewed focused xfail')",
+    }[outcome]
+    files = {
+        "test_a_focus.py": "from pathlib import Path\nimport pytest\ndef test_focus_first():\n    "
+        + body
+        + "\n",
+        "test_m_remaining.py": "from pathlib import Path\nPath('remaining-imported').touch()\ndef test_remaining():\n    Path('remaining-ran').touch()\n",
+        "test_n_new_addition.py": "from pathlib import Path\ndef test_new_addition():\n    Path('new-addition-ran').touch()\n",
+        "test_z_focus.py": "from pathlib import Path\nimport pytest\ndef test_expected_rejection():\n    with pytest.raises(ValueError, match='synthetic rejection'):\n        raise ValueError('synthetic rejection')\n    Path('focus-last-ran').touch()\n",
+    }
+    flags = {"JAX2ONNX_TEST_CI_LANE_XDIST": "1", "JAX2ONNX_RUN_FIXED_PARTS_SMOKE": "1"}
+    if provision:
+        suite, manifest, environment, authority, inventory = _prepare_provision_suite(
+            tmp_path,
+            monkeypatch,
+            extra=True,
+            extra_files=files,
+            extra_environment=flags,
+        )
+    else:
+        suite, manifest, environment, authority, inventory = _prepare_campaign_suite(
+            tmp_path,
+            monkeypatch,
+            "allowed-skip",
+            extra=True,
+            extra_files=files,
+            extra_environment=flags,
+        )
+    full = inventory["full_preselection_ids"]
+    focused = [
+        node
+        for node in full
+        if node.startswith(("test_a_focus.py::", "test_z_focus.py::"))
+    ]
+    assert focused == [
+        "test_a_focus.py::test_focus_first",
+        "test_z_focus.py::test_expected_rejection",
+    ]
+    payload = json.loads(manifest.read_text())
+    payload["focused_extra_ids"] = focused
+    if provision:
+        profile = json.loads(authority.read_text())
+        profile["focused_extra_ids"] = focused
+        profile["extra_allowed_skips"] = []
+        authority.write_text(json.dumps(profile) + "\n")
+        payload["source_files"]["cohort.json"] = hashlib.sha256(
+            authority.read_bytes()
+        ).hexdigest()
+    manifest.write_text(json.dumps(payload) + "\n")
+    if not provision:
+        contract = json.loads(authority.read_text())
+        contract["main_manifest"]["sha256"] = hashlib.sha256(
+            manifest.read_bytes()
+        ).hexdigest()
+        authority.write_text(json.dumps(contract) + "\n")
+    (suite / "remaining-imported").unlink()
+    return suite, manifest, environment, authority, inventory, focused
+
+
+@pytest.mark.parametrize("provision", [False, True], ids=["supplied", "provisioned"])
+@pytest.mark.parametrize("scope", ["all", "focused"])
+def test_real_global_EXTRA_preserves_C_S_F_R_and_executes_only_requested_scope(
+    tmp_path, monkeypatch, provision, scope
+):
+    suite, manifest, environment, authority, inventory, focused = (
+        _prepare_focused_extra_suite(tmp_path, monkeypatch, provision=provision)
+    )
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        batch_size=1,
+        runner_args=(
+            "--ci-lane",
+            "extra",
+            "--ci-extra-scope",
+            scope,
+            "--ci-main-baseline",
+            str(manifest),
+            "--_ci-provision-campaign" if provision else "--ci-campaign-contract",
+            str(authority),
+        ),
+        test_paths=(),
+        environment=environment,
+    )
+    assert result.returncode == 0 and run["status"] == "PASS", (
+        result.stdout + result.stderr
+    )
+    standard = json.loads(manifest.read_text())["nodeids"]
+    full = inventory["full_preselection_ids"]
+    extra = [node for node in full if node not in set(standard)]
+    remaining = [node for node in extra if node not in set(focused)]
+    assigned = focused if scope == "focused" else extra
+    assert run["nodeids"] == full
+    assert run["ci_lane"]["standard_ids"] == standard
+    assert run["extra_ids"] == run["ci_lane"]["extra_ids"] == extra
+    assert run["focused_extra_ids"] == run["ci_lane"]["focused_extra_ids"] == focused
+    assert (
+        run["remaining_extra_ids"] == run["ci_lane"]["remaining_extra_ids"] == remaining
+    )
+    assert "test_n_new_addition.py::test_new_addition" in remaining
+    assert run["lane_nodeids"] == run["completed"] == assigned
+    assert run["batches"] == [[node] for node in assigned]
+    assert run["extra_acceptance"] == (
+        "F_ONLY" if scope == "focused" else "ALL_A_NATIVE_PYTEST_ONLY"
+    )
+    assert run["full_extra_acceptance"] == (
+        "UNEXECUTED" if scope == "focused" else "NATIVE_PYTEST_ONLY"
+    )
+    if scope == "focused":
+        assert "F_ONLY; full A unexecuted" in result.stdout
+    assert run["numerical_acceptance"] == "NOT_ASSERTED"
+    assert run["full_B_to_F_acceptance"] == "UNVERIFIED"
+    assert (suite / "remaining-imported").exists()
+    assert (suite / "focus-first-ran").exists() and (suite / "focus-last-ran").exists()
+    assert not (suite / "base-ran").exists()
+    for marker in ("extra-ran", "remaining-ran", "new-addition-ran"):
+        assert (suite / marker).exists() is (scope == "all")
+    for process in run["processes"]:
+        receipt = json.loads(
+            (receipts / process["folder"] / "receipt.json").read_text()
+        )
+        assert receipt["full_items"] == inventory["full_items"]
+        assert receipt["full_preselection_ids"] == full
+        assert (
+            receipt["collection_transition_completed"]
+            and receipt["post_pytest_completed"]
+        )
+        for stage in ("startup_context", "collection_context", "final_context"):
+            assert receipt[stage]["environment"]["JAX2ONNX_TEST_CI_LANE_XDIST"] == "1"
+            assert (
+                receipt[stage]["environment"]["JAX2ONNX_RUN_FIXED_PARTS_SMOKE"] == "1"
+            )
+
+
+@pytest.mark.parametrize("provision", [False, True], ids=["supplied", "provisioned"])
+@pytest.mark.parametrize("scope", ["all", "focused"])
+@pytest.mark.parametrize(
+    "mismatched_allowance", [False, True], ids=["exact", "wrong-reason"]
+)
+def test_real_EXTRA_skip_allowance_preserves_actual_pytest_phases_and_junit(
+    tmp_path, monkeypatch, provision, scope, mismatched_allowance
+):
+    reason = "reviewed synthetic EXTRA cohort skip"
+    source = (
+        "import pytest\ndef test_reviewed_skip():\n    pytest.skip("
+        + repr(reason)
+        + ")\n"
+    )
+    files = {"test_a_reviewed_skip.py": source}
+    if provision:
+        suite, manifest, environment, authority, inventory = _prepare_provision_suite(
+            tmp_path, monkeypatch, extra=True, extra_files=files
+        )
+    else:
+        suite, manifest, environment, authority, inventory = _prepare_campaign_suite(
+            tmp_path, monkeypatch, "allowed-skip", extra=True, extra_files=files
+        )
+    node = "test_a_reviewed_skip.py::test_reviewed_skip"
+    allowance = {
+        "nodeid": node,
+        "phases": ["setup:passed", "call:skipped", "teardown:passed"],
+        "source": "test_a_reviewed_skip.py",
+        "line": 3,
+        "reason": "unreviewed replacement reason" if mismatched_allowance else reason,
+    }
+    payload = json.loads(manifest.read_text())
+    payload["focused_extra_ids"] = [node]
+    contract = json.loads(authority.read_text())
+    if provision:
+        contract["focused_extra_ids"] = [node]
+        contract["extra_allowed_skips"] = [allowance]
+        authority.write_text(json.dumps(contract) + "\n")
+        payload["source_files"]["cohort.json"] = hashlib.sha256(
+            authority.read_bytes()
+        ).hexdigest()
+    else:
+        contract["allowed_skips"] = [allowance]
+    manifest.write_text(json.dumps(payload) + "\n")
+    if not provision:
+        contract["main_manifest"]["sha256"] = hashlib.sha256(
+            manifest.read_bytes()
+        ).hexdigest()
+        authority.write_text(json.dumps(contract) + "\n")
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        batch_size=1,
+        runner_args=(
+            "--ci-lane",
+            "extra",
+            "--ci-extra-scope",
+            scope,
+            "--ci-main-baseline",
+            str(manifest),
+            "--_ci-provision-campaign" if provision else "--ci-campaign-contract",
+            str(authority),
+        ),
+        test_paths=(),
+        environment=environment,
+    )
+    native = json.loads((receipts / "batch-0001/receipt.json").read_text())
+    assert native["full_items"] == inventory["full_items"]
+    assert native["full_preselection_ids"] == inventory["full_preselection_ids"]
+    assert native["assigned_ids"] == native["completed"] == [node]
+    reports = native["phases"][node]
+    assert [f"{report['when']}:{report['outcome']}" for report in reports] == allowance[
+        "phases"
+    ]
+    assert all("wasxfail" not in report for report in reports)
+    skipped = next(report for report in reports if report["outcome"] == "skipped")
+    assert ast.literal_eval(skipped["longrepr"]) == (
+        str(suite / allowance["source"]),
+        3,
+        "Skipped: " + reason,
+    )
+    cases = ET.parse(receipts / "batch-0001/junit.xml").findall(".//testcase")
+    case = next(case for case in cases if case.get("name") == "test_reviewed_skip")
+    assert case.get("classname") == "test_a_reviewed_skip"
+    assert case.find("failure") is None and case.find("error") is None
+    assert len(case.findall("skipped")) == 1
+    assert case.find("skipped").get("type") == "pytest.skip"
+    assert case.find("skipped").get("message") == reason
+    assert (
+        case.find("skipped").text == str(suite / allowance["source"]) + ":3: " + reason
+    )
+    assert run["numerical_acceptance"] == "NOT_ASSERTED"
+    assert run["full_B_to_F_acceptance"] == "UNVERIFIED"
+    assert run["focused_extra_ids"] == [node]
+    if scope == "focused":
+        assert run["extra_acceptance"] == "F_ONLY"
+        assert run["full_extra_acceptance"] == "UNEXECUTED"
+    if mismatched_allowance:
+        assert result.returncode != 0 and run["status"] == "FAIL"
+        assert (
+            "campaign skipped source/line/reason differs" in run["failure"]["message"]
+        )
+        assert run["completed"] == []
+        assert not (receipts / "batch-0002").exists()
+    else:
+        assert result.returncode == 0 and run["status"] == "PASS", (
+            result.stdout + result.stderr
+        )
+        assert run["completed"] == run["lane_nodeids"]
+        assert run["completed"] == ([node] if scope == "focused" else run["extra_ids"])
+        assert run["extra_acceptance"] == (
+            "F_ONLY" if scope == "focused" else "ALL_A_NATIVE_PYTEST_ONLY"
+        )
+        assert run["full_extra_acceptance"] == (
+            "UNEXECUTED" if scope == "focused" else "NATIVE_PYTEST_ONLY"
+        )
+        if provision:
+            generated = json.loads(
+                (receipts / "ci-provisioned-campaign.json").read_text()
+            )
+            assert generated["allowed_skips"] == [allowance]
+        assert not (suite / "base-ran").exists()
+        assert (suite / "extra-ran").exists() is (scope == "all")
+
+
+def test_provisioned_focused_EXTRA_rejects_profile_manifest_F_divergence_before_child(
+    tmp_path, monkeypatch
+):
+    suite, manifest, environment, cohort, _, _ = _prepare_focused_extra_suite(
+        tmp_path, monkeypatch, provision=True
+    )
+    payload = json.loads(manifest.read_text())
+    payload["focused_extra_ids"].reverse()
+    manifest.write_text(json.dumps(payload) + "\n")
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        runner_args=(
+            "--ci-lane",
+            "extra",
+            "--ci-extra-scope",
+            "focused",
+            "--ci-main-baseline",
+            str(manifest),
+            "--_ci-provision-campaign",
+            str(cohort),
+        ),
+        test_paths=(),
+        environment=environment,
+    )
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert "provisioned cohort differs" in run["failure"]["message"]
+    assert run["processes"] == run["completed"] == []
+    assert not (receipts / "collection").exists()
+
+
+@pytest.mark.parametrize("provision", [False, True], ids=["supplied", "provisioned"])
+@pytest.mark.parametrize(
+    "fault", ["missing", "empty", "duplicate", "reordered", "standard", "foreign"]
+)
+def test_real_focused_EXTRA_never_intersects_invalid_F_into_success(
+    tmp_path, monkeypatch, provision, fault
+):
+    suite, manifest, environment, authority, _, focused = _prepare_focused_extra_suite(
+        tmp_path, monkeypatch, provision=provision
+    )
+    payload = json.loads(manifest.read_text())
+    value = {
+        "missing": None,
+        "empty": [],
+        "duplicate": [focused[0], focused[0]],
+        "reordered": list(reversed(focused)),
+        "standard": [payload["nodeids"][0]],
+        "foreign": ["uncollected.py::test_missing"],
+    }[fault]
+    if value is None:
+        del payload["focused_extra_ids"]
+    else:
+        payload["focused_extra_ids"] = value
+    if provision:
+        profile = json.loads(authority.read_text())
+        if value is None:
+            del profile["focused_extra_ids"]
+        else:
+            profile["focused_extra_ids"] = value
+        authority.write_text(json.dumps(profile) + "\n")
+        payload["source_files"]["cohort.json"] = hashlib.sha256(
+            authority.read_bytes()
+        ).hexdigest()
+    manifest.write_text(json.dumps(payload) + "\n")
+    if not provision:
+        contract = json.loads(authority.read_text())
+        contract["main_manifest"]["sha256"] = hashlib.sha256(
+            manifest.read_bytes()
+        ).hexdigest()
+        authority.write_text(json.dumps(contract) + "\n")
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        runner_args=(
+            "--ci-lane",
+            "extra",
+            "--ci-extra-scope",
+            "focused",
+            "--ci-main-baseline",
+            str(manifest),
+            "--_ci-provision-campaign" if provision else "--ci-campaign-contract",
+            str(authority),
+        ),
+        test_paths=(),
+        environment=environment,
+    )
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert "focused" in run["failure"]["message"]
+    assert run["completed"] == [] and not list(receipts.glob("batch-*"))
+    assert (
+        not (suite / "focus-first-ran").exists()
+        and not (suite / "focus-last-ran").exists()
+    )
+
+
+@pytest.mark.parametrize(
+    "fault", ["failure", "skip", "xfail", "context", "source", "completion", "junit"]
+)
+def test_real_focused_EXTRA_failure_keeps_R_and_stops_a_genuinely_planned_later_batch(
+    tmp_path, monkeypatch, fault
+):
+    outcome = fault if fault in {"failure", "skip", "xfail"} else "pass"
+    suite, manifest, environment, contract, inventory, focused = (
+        _prepare_focused_extra_suite(tmp_path, monkeypatch, outcome=outcome)
+    )
+    module = _runner()
+    original = module._child
+    started = []
+
+    def child(folder, request, *args, **kwargs):
+        started.append(folder.name)
+        code = original(folder, request, *args, **kwargs)
+        if folder.name == "batch-0001" and fault in {"context", "completion"}:
+            path = folder / "receipt.json"
+            receipt = json.loads(path.read_text())
+            if fault == "context":
+                receipt["final_context"]["environment"][
+                    "JAX2ONNX_TEST_CI_LANE_XDIST"
+                ] = "0"
+            else:
+                receipt["completed"] = []
+            path.write_text(json.dumps(receipt) + "\n")
+            terminal_path = folder / "lane-terminal.json"
+            terminal = json.loads(terminal_path.read_text())
+            terminal["receipt_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            terminal_path.write_text(json.dumps(terminal) + "\n")
+        elif folder.name == "batch-0001" and fault == "source":
+            source = suite / "test_z_focus.py"
+            source.write_bytes(source.read_bytes() + b"\n")
+        elif folder.name == "batch-0001" and fault == "junit":
+            (folder / "junit.xml").write_text("<testsuite/>")
+        return code
+
+    monkeypatch.setattr(module, "_child", child)
+    monkeypatch.chdir(suite)
+    monkeypatch.setattr(module.os, "environ", environment)
+    output = tmp_path / "receipts"
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            str(_RUNNER),
+            "--batch-size",
+            "1",
+            "--output-dir",
+            str(output),
+            "--ci-lane",
+            "extra",
+            "--ci-extra-scope",
+            "focused",
+            "--ci-main-baseline",
+            str(manifest),
+            "--ci-campaign-contract",
+            str(contract),
+            "--",
+            "-q",
+        ],
+    )
+    assert module._main() == 1
+    run = json.loads((output / "run.json").read_text())
+    assert run["status"] == "FAIL"
+    assert run["batches"] == [[node] for node in focused]
+    assert started == ["collection", "batch-0001"]
+    assert (
+        not (output / "batch-0002").exists() and not (suite / "focus-last-ran").exists()
+    )
+    assert run["completed"] == []
+    assert (
+        run["extra_acceptance"] == "F_ONLY"
+        and run["full_extra_acceptance"] == "UNEXECUTED"
+    )
+    assert (
+        run["numerical_acceptance"] == "NOT_ASSERTED"
+        and run["full_B_to_F_acceptance"] == "UNVERIFIED"
+    )
+    assert set(run["focused_extra_ids"]) | set(run["remaining_extra_ids"]) == set(
+        run["extra_ids"]
+    )
+    native = json.loads((output / "batch-0001/receipt.json").read_text())
+    if fault == "failure":
+        assert any(
+            report["outcome"] == "failed" for report in native["phases"][focused[0]]
+        )
+    elif fault == "xfail":
+        assert any("wasxfail" in report for report in native["phases"][focused[0]])
+    assert native["full_preselection_ids"] == inventory["full_preselection_ids"]
+
+
+@pytest.mark.parametrize(
+    "scope,admission",
+    [
+        ("all", "no-lane"),
+        ("focused", "no-lane"),
+        ("all", "standard"),
+        ("focused", "standard"),
+        ("all", "no-campaign"),
+        ("focused", "no-campaign"),
+        ("focused", "support-focused"),
+    ],
+)
+def test_explicit_EXTRA_scope_rejects_noncanonical_or_non_global_focused_admission_before_child(
+    tmp_path, monkeypatch, capsys, scope, admission
+):
+    module = _runner()
+    manifest = tmp_path / "baseline.json"
+    manifest.write_text(json.dumps({"collection_args": ["test_cases.py"]}) + "\n")
+    output = tmp_path / "not-created"
+    argv = [str(_RUNNER), "--output-dir", str(output), "--ci-extra-scope", scope]
+    if admission != "no-lane":
+        argv += [
+            "--ci-lane",
+            "standard" if admission == "standard" else "extra",
+            "--ci-main-baseline",
+            str(manifest),
+        ]
+    if admission != "no-campaign":
+        argv += ["--ci-campaign-contract", "not-read-contract.json"]
+    monkeypatch.setattr(module.sys, "argv", argv)
+    monkeypatch.setattr(
+        module,
+        "_child",
+        lambda *args, **kwargs: pytest.fail("invalid scope launched a child"),
+    )
+    with pytest.raises(SystemExit) as exc:
+        module._main()
+    assert exc.value.code == 2 and not output.exists()
+    message = capsys.readouterr().err
+    assert (
+        "full-global" if admission == "support-focused" else "EXTRA scope"
+    ) in message
 
 
 @pytest.mark.parametrize(

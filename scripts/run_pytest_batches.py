@@ -2155,6 +2155,9 @@ def _main() -> int:
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--test-path", action="append", default=[])
     parser.add_argument("--ci-lane", choices=("standard", "extra"), action=_CiAuthority)
+    parser.add_argument(
+        "--ci-extra-scope", choices=("all", "focused"), action=_CiAuthority
+    )
     parser.add_argument("--ci-main-baseline", type=Path, action=_CiAuthority)
     campaign_authority = parser.add_mutually_exclusive_group()
     campaign_authority.add_argument(
@@ -2174,6 +2177,7 @@ def _main() -> int:
             or not args.ci_standard_profile
             or args.ci_standard_part
             or args.ci_lane
+            or args.ci_extra_scope is not None
             or args.ci_main_baseline
             or args.ci_campaign_contract
             or args._ci_provision_campaign
@@ -2204,6 +2208,12 @@ def _main() -> int:
         parser.error(
             "canonical CI selection requires both --ci-lane and --ci-main-baseline"
         )
+    if args.ci_extra_scope is not None and (
+        args.ci_lane != "extra"
+        or not (args.ci_campaign_contract or args._ci_provision_campaign)
+    ):
+        parser.error("explicit EXTRA scope requires a strict canonical EXTRA campaign")
+    extra_scope = args.ci_extra_scope or "all"
     if args.ci_campaign_contract or args._ci_provision_campaign:
         if not args.ci_lane or not args.ci_main_baseline:
             parser.error(
@@ -2222,6 +2232,8 @@ def _main() -> int:
                 raise ValueError(
                     "Main-owner campaign does not execute the complete extras lane"
                 )
+            if extra_scope == "focused" and manifest.get("collection_args", []):
+                raise ValueError("focused extras require a full-global campaign")
             if (
                 args.ci_campaign_contract
                 and manifest.get("collection_scope") == "main-owners"
@@ -2293,6 +2305,11 @@ def _main() -> int:
     }
     if args.ci_lane == "extra":
         run.update(
+            extra_scope=extra_scope,
+            extra_acceptance="F_ONLY" if extra_scope == "focused" else "ALL_A_PENDING",
+            full_extra_acceptance=(
+                "UNEXECUTED" if extra_scope == "focused" else "UNVERIFIED"
+            ),
             numerical_acceptance="NOT_ASSERTED",
             full_B_to_F_acceptance="UNVERIFIED",
         )
@@ -2511,7 +2528,11 @@ def _main() -> int:
 
         if args.ci_campaign_contract:
             campaign = _CiCampaignContext(
-                args.ci_campaign_contract, lane_context, run=root, lane=args.ci_lane
+                args.ci_campaign_contract,
+                lane_context,
+                run=root,
+                lane=args.ci_lane,
+                extra_scope=extra_scope,
             )
             if campaign.owner and args.ci_lane != "standard":
                 raise ValueError(
@@ -2638,7 +2659,9 @@ def _main() -> int:
             # Freeze the independently reviewed allowances before collecting;
             # bind only the untouched, closed first collection afterward.
             provision.recheck()
-            campaign = provision.campaign(collection, lane=args.ci_lane)
+            campaign = provision.campaign(
+                collection, lane=args.ci_lane, extra_scope=extra_scope
+            )
             run["ci_campaign"] = {
                 "contract_path": str(campaign.path),
                 "contract_sha256": campaign.sha256,
@@ -2664,6 +2687,22 @@ def _main() -> int:
         if lane_context is not None:
             standard, extra = _ci_lane_partition(nodeids, lane_context.manifest)
             lane_ids = standard if args.ci_lane == "standard" else extra
+            if args.ci_lane == "extra":
+                focused = _ci_focused_extra_ids(
+                    extra, lane_context.manifest, required=extra_scope == "focused"
+                )
+                focused_set = set(focused)
+                remaining = [node for node in extra if node not in focused_set]
+                run.update(
+                    extra_ids=extra,
+                    focused_extra_ids=focused,
+                    remaining_extra_ids=remaining,
+                )
+                run["ci_lane"].update(
+                    focused_extra_ids=focused, remaining_extra_ids=remaining
+                )
+                if extra_scope == "focused":
+                    lane_ids = focused
             chosen = set(lane_ids)
             items = [item for item in items if item["nodeid"] in chosen]
             del chosen
@@ -2821,11 +2860,21 @@ def _main() -> int:
     except (OSError, ValueError) as error:
         run["status"] = "FAIL"
         run["failure"] = {"type": type(error).__name__, "message": str(error)}
+    if (
+        run["status"] == "PASS"
+        and args.ci_lane == "extra"
+        and extra_scope == "all"
+        and campaign is not None
+    ):
+        run["extra_acceptance"] = "ALL_A_NATIVE_PYTEST_ONLY"
+        run["full_extra_acceptance"] = "NATIVE_PYTEST_ONLY"
     _write(root / "run.json", run)
     if run["status"] == "PASS":
         scope = (
             "collected items" if lane_context is None else f"{args.ci_lane} lane items"
         )
+        if args.ci_lane == "extra" and extra_scope == "focused":
+            scope = "focused EXTRA items (F_ONLY; full A unexecuted)"
         print(
             f"[pytest-batches] PASS: all {len(run['completed'])} {scope} completed once",
             flush=True,
@@ -3325,6 +3374,7 @@ def _ci_lane_manifest(
             "support_role",
             "node_runtime",
             "standard_part",
+            "focused_extra_ids",
         }
         or manifest["schema"] != "jax2onnx-ci-baseline-v1"
     ):
@@ -3368,6 +3418,17 @@ def _ci_lane_manifest(
     ):
         raise ValueError("baseline nodeids must be nonempty, unique ordered strings")
     collection_args = manifest.get("collection_args", [])
+    if "focused_extra_ids" in manifest and (
+        collection_args
+        or "collection_scope" in manifest
+        or type(manifest["focused_extra_ids"]) is not list
+        or not manifest["focused_extra_ids"]
+        or any(
+            type(node) is not str or not node for node in manifest["focused_extra_ids"]
+        )
+        or len(set(manifest["focused_extra_ids"])) != len(manifest["focused_extra_ids"])
+    ):
+        raise ValueError("focused extras need nonempty unique full-global manifest IDs")
     if (
         type(collection_args) is not list
         or any(
@@ -3683,6 +3744,32 @@ def _ci_lane_partition(
     return standard, [nodeid for nodeid in full if nodeid not in known]
 
 
+def _ci_focused_extra_ids(
+    extra: list[str], manifest: dict[str, Any], *, required: bool = False
+) -> list[str]:
+    """Validate literal F only against a verified complete C→S/A partition."""
+    if "focused_extra_ids" not in manifest:
+        if required:
+            raise ValueError("focused EXTRA needs literal focused_extra_ids authority")
+        return []
+    focused = manifest["focused_extra_ids"]
+    if (
+        type(focused) is not list
+        or not focused
+        or any(type(node) is not str or not node for node in focused)
+        or len(set(focused)) != len(focused)
+    ):
+        raise ValueError(
+            "focused EXTRA IDs must be nonempty unique ordered members of A"
+        )
+    chosen = set(focused)
+    if [node for node in extra if node in chosen] != focused:
+        raise ValueError(
+            "focused EXTRA IDs must be nonempty unique ordered members of A"
+        )
+    return focused
+
+
 class _CiLaneContext:
     """The shared manifest/source boundary; pytest projection stays with callers."""
 
@@ -3979,6 +4066,8 @@ class _CiCampaignProvision:
             or self.data.get("collection_args", [])
             != context.manifest.get("collection_args", [])
             or expected_node != node
+            or self.data.get("focused_extra_ids")
+            != context.manifest.get("focused_extra_ids")
             or (
                 node is not None
                 and context.manifest.get("support_role") != "node-smoke"
@@ -4013,6 +4102,9 @@ class _CiCampaignProvision:
         # Validate allowance shape before C; final membership and outcome checks
         # remain the responsibility of the unchanged campaign validator.
         _ci_campaign_skips(self.data["allowed_skips"], context)
+        _ci_campaign_skips(
+            self.data.get("extra_allowed_skips", []), context, extra=True
+        )
         self.recheck()
 
     def recheck(self) -> None:
@@ -4045,7 +4137,7 @@ class _CiCampaignProvision:
         return self.global_context
 
     def campaign(
-        self, collection: Path, *, lane: str = "standard"
+        self, collection: Path, *, lane: str = "standard", extra_scope: str = "all"
     ) -> "_CiCampaignContext":
         support = self.data["schema"] == "jax2onnx-ci-support-cohort-v1"
         payload = {
@@ -4065,7 +4157,11 @@ class _CiCampaignProvision:
                     (collection / "receipt.json").read_bytes()
                 ).hexdigest(),
             },
-            "allowed_skips": self.data["allowed_skips"],
+            "allowed_skips": (
+                self.data.get("extra_allowed_skips", [])
+                if lane == "extra"
+                else self.data["allowed_skips"]
+            ),
         }
         if self.owner:
             if self.global_context is None:
@@ -4097,10 +4193,18 @@ class _CiCampaignProvision:
         path = self.run / "ci-provisioned-campaign.json"
         with path.open("x") as stream:
             stream.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-        return _CiCampaignContext(path, self.context, run=self.run, lane=lane)
+        return _CiCampaignContext(
+            path, self.context, run=self.run, lane=lane, extra_scope=extra_scope
+        )
 
 
-def _ci_campaign_skips(skips: Any, context: _CiLaneContext) -> dict[str, Any]:
+def _ci_campaign_skips(
+    skips: Any,
+    context: _CiLaneContext,
+    *,
+    extra: bool = False,
+    extra_ids: list[str] | None = None,
+) -> dict[str, Any]:
     allowed = {}
     if type(skips) is not list:
         raise ValueError("campaign allowed_skips must be a list")
@@ -4109,7 +4213,9 @@ def _ci_campaign_skips(skips: Any, context: _CiLaneContext) -> dict[str, Any]:
             type(skip) is not dict
             or set(skip) != {"nodeid", "phases", "source", "line", "reason"}
             or type(skip["nodeid"]) is not str
-            or skip["nodeid"] not in context.manifest["nodeids"]
+            or (not extra and skip["nodeid"] not in context.manifest["nodeids"])
+            or (extra and skip["nodeid"] in context.manifest["nodeids"])
+            or (extra_ids is not None and skip["nodeid"] not in extra_ids)
             or skip["nodeid"] in allowed
             or skip["phases"]
             not in (
@@ -4124,6 +4230,13 @@ def _ci_campaign_skips(skips: Any, context: _CiLaneContext) -> dict[str, Any]:
             or not skip["reason"]
         ):
             raise ValueError("campaign skip allowance is not exact/source-bound")
+        if (
+            extra
+            and context.manifest["python_minor"] == "3.12"
+            and skip["nodeid"]
+            == "tests/extra_tests/framework/test_ci_standard_parts.py::test_real_312_two_serial_main_owner_parts_join_and_fail_closed"
+        ):
+            raise ValueError("Python3.12 fixed-parts EXTRA smoke cannot be skipped")
         allowed[skip["nodeid"]] = skip
     return allowed
 
@@ -4138,10 +4251,16 @@ class _CiCampaignContext:
         *,
         run: Path | None = None,
         lane: str = "standard",
+        extra_scope: str = "all",
     ) -> None:
         if type(lane) is not str or lane not in ("standard", "extra"):
             raise ValueError("campaign requires a canonical standard/extra lane")
         self.lane = lane
+        if extra_scope not in ("all", "focused") or (
+            extra_scope == "focused" and lane != "extra"
+        ):
+            raise ValueError("focused scope requires the canonical EXTRA lane")
+        self.extra_scope = extra_scope
         self.path = path.resolve(strict=True)
         self.context = lane_context
         contract, raw = _context_json(self.path, 65536, label="campaign contract")
@@ -4158,6 +4277,8 @@ class _CiCampaignContext:
             raise ValueError(
                 "Main-owner campaign does not execute the complete extras lane"
             )
+        if extra_scope == "focused" and (self.owner or self.support):
+            raise ValueError("focused extras require a full-global campaign")
         self.inventory_name = (
             "owner_inventory"
             if self.owner
@@ -4225,7 +4346,24 @@ class _CiCampaignContext:
         del inventory
         if self.owner:
             self._owner_closed_inventories()
-        self.allowed_skips = _ci_campaign_skips(contract["allowed_skips"], lane_context)
+        self.focused_extra = _ci_focused_extra_ids(
+            self.extra, lane_context.manifest, required=extra_scope == "focused"
+        )
+        focused_set = set(self.focused_extra)
+        self.remaining_extra = (
+            [node for node in self.extra if node not in focused_set]
+            if lane == "extra"
+            else []
+        )
+        self.assigned_extra = (
+            self.focused_extra if extra_scope == "focused" else self.extra
+        )
+        self.allowed_skips = _ci_campaign_skips(
+            contract["allowed_skips"],
+            lane_context,
+            extra=lane == "extra",
+            extra_ids=self.extra if lane == "extra" else None,
+        )
         self.recheck()
 
     def _load_inventory(self, name: str) -> Any:
@@ -4486,7 +4624,7 @@ class _CiCampaignContext:
             )
         _validate(receipt, assigned, full, skips)
         assigned_set = set(assigned)
-        lane_ids = self.standard if self.lane == "standard" else self.extra
+        lane_ids = self.standard if self.lane == "standard" else self.assigned_extra
         if (
             not assigned
             or len(assigned_set) != len(assigned)
@@ -4496,7 +4634,11 @@ class _CiCampaignContext:
             raise ValueError(
                 "campaign batch differs from ordered S assignment"
                 if self.lane == "standard"
-                else "campaign batch differs from ordered A assignment"
+                else (
+                    "campaign batch differs from ordered F assignment"
+                    if self.extra_scope == "focused"
+                    else "campaign batch differs from ordered A assignment"
+                )
             )
         expected = {}
         for nodeid in assigned:
@@ -4506,9 +4648,7 @@ class _CiCampaignContext:
                 raise ValueError("campaign rejects any wasxfail presence")
             allowance = None
             if phases != ["setup:passed", "call:passed", "teardown:passed"]:
-                allowance = (
-                    self.allowed_skips.get(nodeid) if self.lane == "standard" else None
-                )
+                allowance = self.allowed_skips.get(nodeid)
                 if allowance is None or phases != allowance["phases"]:
                     raise ValueError(
                         "campaign has unexpected or incomplete phases/skip"

@@ -152,6 +152,78 @@ def test_portable_manifest_binds_full_git_generated_and_declared_context(authori
     )
 
 
+def test_global_EXTRA_renderer_preserves_literal_F_and_binds_opt_in_flags(authority):
+    module, root, path, _, run, data, _ = authority
+    data["focused_extra_ids"] = ["tests/primitives/test_generated.py::test_generated"]
+    data["extra_allowed_skips"] = []
+    flags = {"JAX2ONNX_TEST_CI_LANE_XDIST": "1", "JAX2ONNX_RUN_FIXED_PARTS_SMOKE": "1"}
+    data["environment"].update(flags)
+    for stage in ("collected_environment", "post_pytest_environment"):
+        data["collection_transition"][stage].update(flags)
+    module.os.environ.update(flags)
+    _write_json(path, data)
+    module._git(root, "add", "cohort.json")
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "synthetic EXTRA profile",
+    )
+    event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    manifest, observed = module._manifest(path, root, event, run)
+    assert manifest["nodeids"] == data["baseline"]["nodeids"]
+    assert (
+        manifest["focused_extra_ids"]
+        == observed["focused_extra_ids"]
+        == data["focused_extra_ids"]
+    )
+    for name, value in flags.items():
+        assert manifest["environment"][name] == value
+        assert manifest["collection_transition"]["collected_environment"][name] == value
+        assert (
+            manifest["collection_transition"]["post_pytest_environment"][name] == value
+        )
+    assert (
+        manifest["source_files"]["cohort.json"]
+        == hashlib.sha256(path.read_bytes()).hexdigest()
+    )
+    assert not run.exists()
+
+
+@pytest.mark.parametrize(
+    "fault", ["empty", "duplicate", "type", "support", "owner", "allowance-type"]
+)
+def test_EXTRA_renderer_rejects_malformed_F_and_non_global_profiles(authority, fault):
+    module, _, path, _, _, data, _ = authority
+    data["focused_extra_ids"] = ["test_extra.py::test_extra"]
+    if fault == "empty":
+        data["focused_extra_ids"] = []
+    elif fault == "duplicate":
+        data["focused_extra_ids"] *= 2
+    elif fault == "type":
+        data["focused_extra_ids"] = "test_extra.py::test_extra"
+    elif fault in {"support", "owner"}:
+        data.update(
+            schema=(
+                "jax2onnx-ci-support-cohort-v1"
+                if fault == "support"
+                else "jax2onnx-ci-main-owner-cohort-v1"
+            ),
+            collection_args=["tests/test_base.py"],
+        )
+        if fault == "support":
+            data["support_role"] = "normalization"
+    else:
+        data["extra_allowed_skips"] = {}
+    _write_json(path, data)
+    with pytest.raises(ValueError, match="focused extras|EXTRA cohort allowances"):
+        module._cohort(path, module._runner()._context_json)
+
+
 @pytest.mark.parametrize(
     "fault",
     [

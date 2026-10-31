@@ -1772,6 +1772,242 @@ def _campaign_junit(path, receipt):
     ET.ElementTree(suite).write(path)
 
 
+def _focused_campaign_fixture(tmp_path, focused, *, support=False):
+    module, lane, path, inventory_path, inventory = _campaign_fixture(
+        tmp_path,
+        support=support,
+        extra_nodeids=["test_cases.py::test_extra", "test_cases.py::test_extra_second"],
+    )
+    payload = json.loads(lane.path.read_text())
+    if focused is not None:
+        payload["focused_extra_ids"] = focused
+    lane.path.write_text(json.dumps(payload) + "\n")
+    contract = json.loads(path.read_text())
+    contract["main_manifest"]["sha256"] = hashlib.sha256(
+        lane.path.read_bytes()
+    ).hexdigest()
+    path.write_text(json.dumps(contract) + "\n")
+    lane = module._CiLaneContext(
+        lane.path, lane.root, environment=lane.manifest["environment"]
+    )
+    return module, lane, path, inventory_path, inventory
+
+
+@pytest.mark.parametrize(
+    "focused",
+    [
+        None,
+        [],
+        ["missing.py::test_case"],
+        ["test_cases.py::test_base"],
+        ["test_cases.py::test_extra", "test_cases.py::test_extra"],
+        ["test_cases.py::test_extra_second", "test_cases.py::test_extra"],
+    ],
+    ids=[
+        "missing-authority",
+        "empty",
+        "missing-ID",
+        "standard-ID",
+        "duplicate",
+        "reordered",
+    ],
+)
+def test_focused_extra_rejects_any_nonliteral_or_nonordered_A_projection(
+    tmp_path, focused
+):
+    with pytest.raises(ValueError, match="focused|focused EXTRA"):
+        module, lane, path, _, _ = _focused_campaign_fixture(tmp_path, focused)
+        module._CiCampaignContext(path, lane, lane="extra", extra_scope="focused")
+
+
+@pytest.mark.parametrize("scope", ["all", "focused"])
+def test_focused_projection_retains_complete_A_and_exact_R(tmp_path, scope):
+    focused = ["test_cases.py::test_extra"]
+    module, lane, path, _, inventory = _focused_campaign_fixture(tmp_path, focused)
+    campaign = module._CiCampaignContext(path, lane, lane="extra", extra_scope=scope)
+    assert campaign.extra == inventory["ci_lane"]["extra_ids"]
+    assert campaign.focused_extra == focused
+    assert campaign.remaining_extra == ["test_cases.py::test_extra_second"]
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory, lane="extra")
+    if scope == "focused":
+        with pytest.raises(ValueError, match="ordered F assignment"):
+            campaign.batch(batch, assigned, junit_path)
+        batch.update(
+            items=[item for item in batch["items"] if item["nodeid"] in focused],
+            assigned_ids=focused,
+            selected_ids=focused,
+            completed=focused,
+            phases={node: batch["phases"][node] for node in focused},
+        )
+        assigned = focused
+        _campaign_junit(junit_path, batch)
+    campaign.batch(batch, assigned, junit_path)
+    campaign.collection(inventory)
+    campaign.recheck()
+
+
+@pytest.mark.parametrize("scope", ["focused", "all"])
+@pytest.mark.parametrize(
+    "fault", ["manifest", "inventory", "context", "junit", "wasxfail"]
+)
+def test_focused_and_complete_extra_keep_native_and_final_byte_audits(
+    tmp_path, scope, fault
+):
+    focused = ["test_cases.py::test_extra", "test_cases.py::test_extra_second"]
+    module, lane, path, inventory_path, inventory = _focused_campaign_fixture(
+        tmp_path, focused
+    )
+    campaign = module._CiCampaignContext(path, lane, lane="extra", extra_scope=scope)
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory, lane="extra")
+    campaign.batch(batch, assigned, junit_path)
+    if fault in {"manifest", "inventory"}:
+        target = lane.path if fault == "manifest" else inventory_path
+        target.write_bytes(target.read_bytes() + b"\n")
+        with pytest.raises(ValueError, match="changed"):
+            campaign.recheck()
+    elif fault == "context":
+        changed = copy.deepcopy(inventory)
+        changed["final_context"]["environment"]["JAX2ONNX_TEST_CI_LANE_XDIST"] = "1"
+        with pytest.raises(ValueError, match="collection-transition"):
+            campaign.collection(changed)
+    else:
+        if fault == "junit":
+            junit_path.write_text("<testsuite/>")
+        else:
+            batch["phases"][assigned[0]][1]["wasxfail"] = ""
+        with pytest.raises(ValueError, match="JUnit|wasxfail"):
+            campaign.batch(batch, assigned, junit_path)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [None, "other-ID", "source", "line", "reason", "wasxfail", "failed", "junit"],
+)
+def test_extra_skip_allowance_is_exact_and_does_not_cover_other_outcomes(
+    tmp_path, fault
+):
+    # Synthetic records test plumbing; they do not approve any real cohort skip.
+    module, lane, path, _, inventory = _focused_campaign_fixture(
+        tmp_path, ["test_cases.py::test_extra", "test_cases.py::test_extra_second"]
+    )
+    first = inventory["ci_lane"]["extra_ids"][0]
+    payload = json.loads(path.read_text())
+    payload["allowed_skips"] = [
+        {
+            "nodeid": (
+                inventory["ci_lane"]["extra_ids"][1] if fault == "other-ID" else first
+            ),
+            "phases": ["setup:passed", "call:skipped", "teardown:passed"],
+            "source": "test_cases.py",
+            "line": 1,
+            "reason": "original skip",
+        }
+    ]
+    path.write_text(json.dumps(payload) + "\n")
+    campaign = module._CiCampaignContext(
+        path, lane, lane="extra", extra_scope="focused"
+    )
+    batch, assigned, junit_path = _campaign_batch(tmp_path, inventory, lane="extra")
+    report = batch["phases"][first][1]
+    report.update(
+        outcome="skipped",
+        longrepr=repr((str(lane.root / "test_cases.py"), 1, "Skipped: original skip")),
+    )
+    _campaign_junit(junit_path, batch)
+    if fault in {"source", "line", "reason"}:
+        location = [str(lane.root / "test_cases.py"), 1, "Skipped: original skip"]
+        location[{"source": 0, "line": 1, "reason": 2}[fault]] = {
+            "source": "/foreign/test_cases.py",
+            "line": 2,
+            "reason": "Skipped: unreviewed",
+        }[fault]
+        report["longrepr"] = repr(tuple(location))
+    elif fault == "wasxfail":
+        report["wasxfail"] = ""
+    elif fault == "failed":
+        report["outcome"] = "failed"
+    elif fault == "junit":
+        junit_path.write_text(
+            junit_path.read_text().replace('message="original skip"', 'message="other"')
+        )
+    if fault is None:
+        campaign.batch(batch, assigned, junit_path)
+    else:
+        with pytest.raises(ValueError):
+            campaign.batch(batch, assigned, junit_path)
+
+
+def test_fixed_parts_smoke_cannot_receive_a_python312_EXTRA_skip_allowance(tmp_path):
+    module = _runner()
+    node = "tests/extra_tests/framework/test_ci_standard_parts.py::test_real_312_two_serial_main_owner_parts_join_and_fail_closed"
+    record = {
+        "nodeid": node,
+        "phases": ["setup:skipped", "teardown:passed"],
+        "source": node.split("::")[0],
+        "line": 1,
+        "reason": "synthetic off-cohort control",
+    }
+    context = SimpleNamespace(
+        manifest={
+            "python_minor": "3.12",
+            "nodeids": ["standard.py::test_base"],
+            "source_files": {record["source"]: "1" * 64},
+        }
+    )
+    with pytest.raises(ValueError, match="Python3.12.*cannot be skipped"):
+        module._ci_campaign_skips([record], context, extra=True, extra_ids=[node])
+    context.manifest["python_minor"] = "3.13"
+    assert module._ci_campaign_skips(
+        [record], context, extra=True, extra_ids=[node]
+    ) == {node: record}
+    with pytest.raises(ValueError, match="exact/source-bound"):
+        module._ci_campaign_skips(
+            [record], context, extra=True, extra_ids=["other.py::test_extra"]
+        )
+
+
+def test_focused_EXTRA_rejects_empty_A_and_standard_skip_authority(tmp_path):
+    module, lane, path, _, _ = _campaign_fixture(tmp_path, extra_nodeids=[])
+    payload = json.loads(lane.path.read_text())
+    payload["focused_extra_ids"] = ["test_cases.py::test_absent"]
+    lane.path.write_text(json.dumps(payload) + "\n")
+    contract = json.loads(path.read_text())
+    contract["main_manifest"]["sha256"] = hashlib.sha256(
+        lane.path.read_bytes()
+    ).hexdigest()
+    path.write_text(json.dumps(contract) + "\n")
+    lane = module._CiLaneContext(
+        lane.path, lane.root, environment=lane.manifest["environment"]
+    )
+    with pytest.raises(ValueError, match="ordered members of A"):
+        module._CiCampaignContext(path, lane, lane="extra", extra_scope="focused")
+    record = {
+        "nodeid": lane.manifest["nodeids"][0],
+        "phases": ["setup:skipped", "teardown:passed"],
+        "source": "test_cases.py",
+        "line": 1,
+        "reason": "standard-only",
+    }
+    with pytest.raises(ValueError, match="exact/source-bound"):
+        module._ci_campaign_skips([record], lane, extra=True, extra_ids=[])
+
+
+@pytest.mark.parametrize("support", [False, True])
+def test_focused_scope_rejects_standard_and_support_before_inventory_read(
+    tmp_path, monkeypatch, support
+):
+    module, lane, path, _, _ = _campaign_fixture(tmp_path, support=support)
+    monkeypatch.setattr(
+        module._CiCampaignContext,
+        "_load_inventory",
+        lambda *a: pytest.fail("unsupported focused scope reached inventory"),
+    )
+    with pytest.raises(ValueError, match="full-global|canonical EXTRA"):
+        module._CiCampaignContext(
+            path, lane, lane="extra" if support else "standard", extra_scope="focused"
+        )
+
+
 @pytest.mark.parametrize("support", [False, True], ids=["global", "support"])
 @pytest.mark.parametrize("chosen_lane", ["standard", "extra"])
 def test_campaign_contract_binds_relative_inputs_and_exact_projection(

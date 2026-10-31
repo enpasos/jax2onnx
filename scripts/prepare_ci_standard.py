@@ -140,6 +140,8 @@ def _cohort(
         | ({"node_runtime"} if node else set())
         | ({"collection_args"} if owner else set())
         | ({"standard_parts"} if owner and "standard_parts" in data else set())
+        | ({"focused_extra_ids"} if "focused_extra_ids" in data else set())
+        | ({"extra_allowed_skips"} if "extra_allowed_skips" in data else set())
         or data["schema"]
         not in {
             "jax2onnx-ci-standard-cohort-v1",
@@ -149,6 +151,17 @@ def _cohort(
         or data["python_minor"] != f"{sys.version_info.major}.{sys.version_info.minor}"
     ):
         raise ValueError("unsupported STANDARD cohort")
+    if "focused_extra_ids" in data and (
+        owner
+        or support
+        or type(data["focused_extra_ids"]) is not list
+        or not data["focused_extra_ids"]
+        or any(type(node) is not str or not node for node in data["focused_extra_ids"])
+        or len(set(data["focused_extra_ids"])) != len(data["focused_extra_ids"])
+    ):
+        raise ValueError("focused extras need nonempty unique full-global cohort IDs")
+    if "extra_allowed_skips" in data and type(data["extra_allowed_skips"]) is not list:
+        raise ValueError("EXTRA cohort allowances must be a list")
     if support and (
         type(data["support_role"]) is not str
         or data["support_role"] not in _SUPPORT_COHORTS
@@ -459,6 +472,11 @@ def _manifest(
         "baseline_commit": data["baseline_commit"],
         "python_minor": data["python_minor"],
         "nodeids": baseline["nodeids"],
+        **(
+            {"focused_extra_ids": data["focused_extra_ids"]}
+            if "focused_extra_ids" in data
+            else {}
+        ),
         "source_files": dict(sorted(sources.items())),
         "packages": data["packages"],
         "collection_args": (
