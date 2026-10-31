@@ -1,12 +1,44 @@
-# Precision migration handoff — 2026-10-30
+# Precision migration handoff — 2026-10-31
 
-## Current combined local integration — bounded rebase qualified, publication PENDING
+## CI584 native-receipt capacity repair
 
-This private integration combines accepted CI verifier `b18dbe35` (parent
+At published `7fcfa114`, CI584's five locked compute jobs failed during campaign
+initialization with `worker context file exceeds bound`; the strict 3.12 join
+also failed. Three independently verified full-C receipts were
+16,845,963–16,883,869 bytes, exceeding 16,777,216 bytes. Their native collection workers closed successfully and
+phase-free, before any assigned scientific batch. The seven pinned all-files
+hooks passed on the three independently checked runtime profiles
+([primary accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-7fcfa114-watch-ovtbutTK/receipt-overflow-primary-accounting.json)).
+
+One finite 64 MiB native-receipt limit now matches existing transport and Actions
+restore capacity across campaign inventory/rechecks, strict closed-worker decode
+and part-join read/hash paths. Manifest, request, source, JUnit and profile bounds,
+primary-copy limits, artifact budgets, full C/O/S and resource/time/numerical
+criteria remain unchanged. All original byte/source/context/phase/JUnit checks
+remain fail-closed; overflow diagnostics include the exact path and limit.
+
+Local focused qualification closed **21 PASS / zero skips** on each approved
+official 3.11/3.13 family, including genuine global/Main-owner receipts above
+16 MiB and strict duplicate/hash/source/phase rechecks. The existing real
+3.12.9 source-root and serial-parts/join controls closed **two PASS / zero skips**,
+with all original receipt read/hash paths observed at 64 MiB
+([local controls](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci584-native-receipt-capacity-NHht46OA/receipt-capacity-controls-closure.json)).
+Synthetic Actions snapshots remain unit controls, distinct from hosted 3.12.15
+qualification.
+
+CI584 remains FAILED. Whole hosted execution, complete EXTRA profiles and
+scientific/final B–F acceptance remain separate; local controls do not qualify
+them. The mandatory native BF16 TopK failure is preserved under unchanged
+runtime, inputs and criteria.
+
+## Published combined checkpoint — 7fcfa114
+
+Published integration `7fcfa114` combines accepted CI verifier `b18dbe35` (parent
 `e11918ad`), reviewed SOURCE integration `676a7c40` and static complex selection
 `f22e0c24`. All 21 SOURCE production/test/guide paths outside this handoff retain
 exact `f22e0c24` bytes; all eight CI-only paths retain exact `b18dbe35` bytes.
-Only handoff prose is reconciled. The original ownership, broadcast,
+At that publication, only handoff prose was reconciled. The current CI-only
+receipt-capacity successor is described above. The original ownership, broadcast,
 conjugation and layout commits (`a740196f` → `ca7eee45` → `e4a3492d` → `12dd3cdc`),
 selection commit and their receipts remain intact. Earlier source-only assembly
 snapshots, indices and patches remain retained; no new implementation was needed.
@@ -21,11 +53,16 @@ This is bounded rebase evidence, not a rerun of whole SOURCE matrices, hosted
 acceptance or full B–F completion. Source and Git/context/PID checks closed at
 each stage; final code/artifact/runtime protection is recorded separately.
 
-Published Root/PR remains CI-only `6c444f3b`. The reviewed official-native
-BF16 TopK failure below remains **FAILED**, with exact CPU/compiler cause
-unproved; no official-runtime profile decision is assumed. SOURCE publication
-and the user's SOURCE-push exception remain **PENDING**. No push, workflow
-activation, actual F selections, profile data or cohort allowances are included.
+Root/origin/PR277 is published at `7fcfa114`. At **2026-10-31 16:02:41 UTC**,
+the user approved reviewed SOURCE publication despite the named mandatory
+BF16 TopK failure, which remains **FAILED** under unchanged runtime, inputs and
+criteria. This exception does not waive new CI regressions or scientific/final
+acceptance and does not approve custom runtimes, public SOURCE or a release.
+CI584 then failed five locked compute jobs at the complete-receipt byte bound;
+its join also failed. The local bounded repair closes **21/21 plus two actual
+3.12 controls**, while fresh hosted qualification remains pending
+([current CI plan](ci_execution_plan.md)). No gates, actual F selections,
+profile data or cohort allowances are activated.
 Failed indexing `6d3`, failed Mul successors, the 45-file WIP, producer WIP and
 unreviewed SOURCE metadata changes are excluded; public LEGACY is preserved.
 
@@ -45,7 +82,8 @@ consumer packets; `f22e0c24`'s 286 cases per family (234 numerical / 52 controls
 receipts do not become new combined-head execution. Full B–F, known
 FAILED/UNVERIFIED science gates, supported-cohort milestone/final suites,
 complete EXTRA ownership, fresh hosted quality-inclusive budgets and
-coordinated activation remain open. Local publication remains HOLD.
+coordinated activation remain open. Further feature publication waits for repair
+of the new CI regression; the user's BF16 exception remains narrow.
 
 ## Historical b18dbe35 focused EXTRA verifier checkpoint — local qualification
 
@@ -86,8 +124,9 @@ replacement qualification with independent review; preserve still-live original
 jobs without cancellation. Old-eight SUCCESS is not a blanket precondition for
 independently reviewed CI repair publication. CI583's native BF16 TopK failure
 remains FAILED; choosing F cannot hide or resolve it. Gate activation stays HOLD.
-The explicit failure-before-feature publication constraint remains in force;
-no requested SOURCE publication exception is assumed.
+Current publication follows the explicit reviewed SOURCE exception stated in
+the published combined checkpoint above. BF16 stays mandatory and FAILED;
+new CI regressions and scientific/final criteria are not waived.
 
 The complete changed runner, lane-selection and renderer files account for
 **731 IDs per official 3.11/3.13 family: 725 PASS and six unchanged opt-in xdist

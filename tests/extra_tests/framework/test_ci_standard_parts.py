@@ -281,6 +281,18 @@ def test_real_312_two_serial_main_owner_parts_join_and_fail_closed(
 ):
     fixture = _tiny_parts(tmp_path, monkeypatch)
     module, suite, payload, environment, cohort, selectors, head, base = fixture
+    original_read = module._context_read
+    receipt_reads = set()
+
+    def read_with_receipt_bound(path, limit=2 * 1024**2):
+        if path.name == "receipt.json":
+            assert limit == module._NATIVE_RECEIPT_LIMIT == 64 * 1024**2
+            receipt_reads.add(path.resolve())
+        return original_read(path, limit)
+
+    # Observe the real positive join's campaign/read/hash routes without changing
+    # the actual file bytes, validators or worker subprocesses.
+    monkeypatch.setattr(module, "_context_read", read_with_receipt_bound)
     a, root_a = _run_tiny_part(fixture, "a")
     assert a.returncode == 0, a.stdout + a.stderr
     b, root_b = _run_tiny_part(fixture, "b")
@@ -316,6 +328,10 @@ def test_real_312_two_serial_main_owner_parts_join_and_fail_closed(
     assert result["full_B_to_F_acceptance"] == "UNVERIFIED"
     for root, part in ((root_a, "a"), (root_b, "b")):
         run = json.loads((root / "run.json").read_bytes())
+        assert {
+            (root / event["folder"] / "receipt.json").resolve()
+            for event in run["processes"]
+        } <= receipt_reads
         assert run["standard_part_acceptance"] == "PART_ONLY_JOIN_REQUIRED"
         assert run["standard_part"]["id"] == part
         owner = json.loads((root / "collection/receipt.json").read_bytes())

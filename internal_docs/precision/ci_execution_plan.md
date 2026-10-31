@@ -1,5 +1,36 @@
 # Precision migration CI execution plan
 
+## CI584 native-receipt capacity repair
+
+At published `7fcfa114`, CI584's five locked compute jobs failed during campaign
+initialization with `worker context file exceeds bound`; the strict 3.12 join
+also failed. Three independently verified full-C receipts were
+16,845,963–16,883,869 bytes, exceeding 16,777,216 bytes. Their native collection workers closed successfully and
+phase-free, before any assigned scientific batch. The seven pinned all-files
+hooks passed on the three independently checked runtime profiles
+([primary accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-7fcfa114-watch-ovtbutTK/receipt-overflow-primary-accounting.json)).
+
+One finite 64 MiB native-receipt limit now matches existing transport and Actions
+restore capacity across campaign inventory/rechecks, strict closed-worker decode
+and part-join read/hash paths. Manifest, request, source, JUnit and profile bounds,
+primary-copy limits, artifact budgets, full C/O/S and resource/time/numerical
+criteria remain unchanged. All original byte/source/context/phase/JUnit checks
+remain fail-closed; overflow diagnostics include the exact path and limit.
+
+Local focused qualification closed **21 PASS / zero skips** on each approved
+official 3.11/3.13 family, including genuine global/Main-owner receipts above
+16 MiB and strict duplicate/hash/source/phase rechecks. The existing real
+3.12.9 source-root and serial-parts/join controls closed **two PASS / zero skips**,
+with all original receipt read/hash paths observed at 64 MiB
+([local controls](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci584-native-receipt-capacity-NHht46OA/receipt-capacity-controls-closure.json)).
+Synthetic Actions snapshots remain unit controls, distinct from hosted 3.12.15
+qualification.
+
+CI584 remains FAILED. Whole hosted execution, complete EXTRA profiles and
+scientific/final B–F acceptance remain separate; local controls do not qualify
+them. The mandatory native BF16 TopK failure is preserved under unchanged
+runtime, inputs and criteria.
+
 ## Focused EXTRA projection — local verifier controls
 
 The canonical runner extends local `e11918ad` with a
@@ -39,8 +70,10 @@ replacement qualification with independent review; preserve still-live original
 jobs without cancellation. Old-eight SUCCESS is not a blanket precondition for
 independently reviewed CI repair publication. CI583's native BF16 TopK failure
 remains FAILED; choosing F cannot hide or resolve it. Gate activation stays HOLD.
-The explicit failure-before-feature publication constraint remains in force;
-no requested SOURCE publication exception is assumed.
+At **2026-10-31 16:02:41 UTC**, the user explicitly allowed reviewed SOURCE
+publication while the named BF16 failure remains mandatory and FAILED. This
+exception does not waive new CI regressions or scientific/final acceptance and
+does not authorize custom runtimes, changed inputs or weakened criteria.
 
 The complete changed runner, lane-selection and renderer files account for
 **731 IDs per official 3.11/3.13 family: 725 PASS and six unchanged opt-in xdist

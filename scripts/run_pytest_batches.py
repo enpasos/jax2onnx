@@ -48,6 +48,9 @@ _BF16_CAPTURE_NODE = (
     "test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-inline]"
 )
 _CONTROL_SCHEMA = "source-cast-observer-off-v1"
+# Complete collection inventories grow with C, independently of the assigned S.
+# Match the existing native transport and restored receipt tar-member ceiling.
+_NATIVE_RECEIPT_LIMIT = 64 * 1024**2
 _REQUEST_FIELDS = (
     "kind",
     "assigned",
@@ -141,7 +144,7 @@ def _context_read(path: Path, limit: int = 2 * 1024 * 1024) -> bytes:
     with path.open("rb") as stream:
         payload = stream.read(limit + 1)
     if len(payload) > limit:
-        raise ValueError("worker context file exceeds bound")
+        raise ValueError(f"worker context file exceeds bound: {path} (limit={limit})")
     return payload
 
 
@@ -1865,11 +1868,20 @@ def _ci_join_standard_parts(
             campaign = _CiCampaignContext(contract, context, run=root)
             if campaign.sha256 != run["ci_campaign"]["contract_sha256"]:
                 raise ValueError("STANDARD part campaign contract changed")
-            owner = read(root / "collection/receipt.json")
+            owner = read(root / "collection/receipt.json", _NATIVE_RECEIPT_LIMIT)
             campaign.collection(owner)
-            global_receipt = read(root / "global-collection/receipt.json")
-            for path, _digest in campaign.references.values():
-                read(path)
+            global_receipt = read(
+                root / "global-collection/receipt.json", _NATIVE_RECEIPT_LIMIT
+            )
+            for name, (path, _digest) in campaign.references.items():
+                read(
+                    path,
+                    (
+                        _NATIVE_RECEIPT_LIMIT
+                        if name in {campaign.inventory_name, "global_inventory"}
+                        else 16 * 1024**2
+                    ),
+                )
             # Original C/O records may have different PIDs/paths/times, but their
             # complete inventories and within-worker collector order must agree.
             inventory = {
@@ -1969,7 +1981,14 @@ def _ci_join_standard_parts(
                 for name, digest in run["ci_lane"]["closed_workers"][
                     folder_name
                 ].items():
-                    payload = _context_read(folder / name, 16 * 1024**2)
+                    payload = _context_read(
+                        folder / name,
+                        (
+                            _NATIVE_RECEIPT_LIMIT
+                            if name == "receipt.json"
+                            else 16 * 1024**2
+                        ),
+                    )
                     if hashlib.sha256(payload).hexdigest() != digest:
                         raise ValueError("STANDARD part closed evidence changed")
                     bindings[(folder / name).resolve(strict=True)] = digest
@@ -4371,7 +4390,7 @@ class _CiCampaignContext:
         global_owner = self.owner and name == "global_inventory"
         inventory, payload = _context_json(
             path,
-            16 * 1024 * 1024,
+            _NATIVE_RECEIPT_LIMIT,
             label="global inventory" if global_owner else name,
         )
         if hashlib.sha256(payload).hexdigest() != digest:
@@ -4733,9 +4752,18 @@ class _CiCampaignContext:
     def recheck(self) -> None:
         if hashlib.sha256(_context_read(self.path, 65536)).hexdigest() != self.sha256:
             raise ValueError("campaign contract SHA changed")
-        for path, expected in self.references.values():
+        for name, (path, expected) in self.references.items():
             if (
-                hashlib.sha256(_context_read(path, 16 * 1024 * 1024)).hexdigest()
+                hashlib.sha256(
+                    _context_read(
+                        path,
+                        (
+                            _NATIVE_RECEIPT_LIMIT
+                            if name in {self.inventory_name, "global_inventory"}
+                            else 16 * 1024**2
+                        ),
+                    )
+                ).hexdigest()
                 != expected
             ):
                 raise ValueError("campaign referenced bytes changed")
@@ -4788,14 +4816,12 @@ def _ci_lane_closed(
     *,
     expected_receipt_sha256: str | None = None,
 ) -> dict[str, Any]:
-    if expected_receipt_sha256 is None:
-        payload = (folder / "receipt.json").read_bytes()
-    else:
-        receipt, payload = _context_json(
-            folder / "receipt.json",
-            16 * 1024 * 1024,
-            label="campaign native receipt",
-        )
+    receipt, payload = _context_json(
+        folder / "receipt.json",
+        _NATIVE_RECEIPT_LIMIT,
+        label="campaign native receipt",
+    )
+    if expected_receipt_sha256 is not None:
         if hashlib.sha256(payload).hexdigest() != expected_receipt_sha256:
             raise ValueError("campaign inventory SHA differs from original reference")
     terminal = json.loads((folder / "lane-terminal.json").read_text())
@@ -4813,8 +4839,6 @@ def _ci_lane_closed(
         or (folder / "request.json").read_bytes() != request_payload
     ):
         raise ValueError("closed canonical lane receipt/request binding differs")
-    if expected_receipt_sha256 is None:
-        receipt = json.loads(payload)
     if request["kind"] == "batch" and "standard_part" in context.manifest:
         assigned = request.get("assigned", [])
         if not assigned or assigned != [

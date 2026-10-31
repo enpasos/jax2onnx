@@ -5090,3 +5090,171 @@ def test_main_owner_supplied_contract_is_rejected_before_run_or_children(
     assert calls == []
     assert not output.exists()
     assert not contract.exists()
+
+
+@pytest.mark.parametrize("checked", [False, True], ids=["ordinary", "original-sha"])
+def test_native_receipt_limit_rejects_oversize_before_decode_or_context(
+    tmp_path, monkeypatch, checked
+):
+    module = _runner()
+    assert module._NATIVE_RECEIPT_LIMIT == 64 * 1024**2
+    assert module._context_read.__defaults__ == (2 * 1024**2,)
+    monkeypatch.setattr(module, "_NATIVE_RECEIPT_LIMIT", 128)
+    folder = tmp_path / "closed"
+    folder.mkdir()
+    receipt = folder / "receipt.json"
+    document = b'{"kept": ["original"]}'
+    exact = document + b" " * (128 - len(document))
+    receipt.write_bytes(exact)
+    parsed, payload = module._context_json(receipt, 128, label="boundary control")
+    assert parsed == {"kept": ["original"]} and payload == exact
+    receipt.write_bytes(exact + b" ")
+    # A small test-only ceiling exercises the real filesystem/reader before any
+    # JSON, authority, terminal or context access; no runtime profile is changed.
+    expected = f"worker context file exceeds bound: {receipt} (limit=128)"
+    with pytest.raises(ValueError) as error:
+        module._ci_lane_closed(
+            folder,
+            {"kind": "collection"},
+            None,
+            expected_receipt_sha256="a" * 64 if checked else None,
+        )
+    assert str(error.value) == expected
+
+
+def test_native_receipt_capacity_does_not_expand_manifest_or_default_source_limits(
+    tmp_path,
+):
+    module = _runner()
+    manifest = tmp_path / "baseline.json"
+    manifest.write_bytes(b" " * (16 * 1024**2 + 1))
+    with pytest.raises(ValueError) as error:
+        module._CiLaneContext(manifest, tmp_path, environment={})
+    assert str(error.value) == (
+        f"worker context file exceeds bound: {manifest} (limit={16 * 1024**2})"
+    )
+    source = tmp_path / "source.py"
+    source.write_bytes(b" " * (2 * 1024**2 + 1))
+    with pytest.raises(ValueError) as error:
+        module._context_read(source)
+    assert str(error.value) == (
+        f"worker context file exceeds bound: {source} (limit={2 * 1024**2})"
+    )
+
+
+@pytest.mark.parametrize("owner", [False, True], ids=["global", "main-owner"])
+def test_real_large_C_receipt_preserves_campaign_closure_and_rejects_late_tamper(
+    tmp_path, monkeypatch, owner
+):
+    module = _runner()
+    if owner:
+        suite, manifest, environment, cohort, selectors = (
+            _prepare_main_owner_provision_suite(tmp_path, monkeypatch)
+        )
+    else:
+        suite, manifest, environment, cohort, _ = _prepare_provision_suite(
+            tmp_path, monkeypatch
+        )
+        selectors = []
+    # Long but ordinary pytest IDs create a genuine >16MiB full-C receipt. The
+    # added A bodies are never selected, and no closed bytes/authority are forged.
+    bulk = suite / "test_z_receipt_capacity.py"
+    bulk.write_text(
+        "import pytest\n"
+        "def capacity_id(value):\n"
+        "    return str(value) + '-' + 'x' * 2048\n"
+        "@pytest.mark.parametrize('value', range(2000), ids=capacity_id)\n"
+        "def test_unselected_capacity(value):\n"
+        "    raise AssertionError('unassigned capacity body ran')\n"
+    )
+    payload = json.loads(manifest.read_bytes())
+    payload["source_files"][bulk.name] = hashlib.sha256(bulk.read_bytes()).hexdigest()
+    module._write(manifest, payload)
+    monkeypatch.chdir(suite)
+    monkeypatch.setattr(module.os, "environ", environment)
+    output = tmp_path / "receipts"
+    argv = [
+        str(_RUNNER),
+        "--output-dir",
+        str(output),
+        "--batch-size",
+        "500",
+        "--ci-lane",
+        "standard",
+        "--ci-main-baseline",
+        str(manifest),
+        "--_ci-provision-campaign",
+        str(cohort),
+    ]
+    for selector in selectors:
+        argv.extend(("--test-path", selector))
+    monkeypatch.setattr(module.sys, "argv", [*argv, "--", "-q"])
+    assert module._main() == 0
+    run = json.loads((output / "run.json").read_bytes())
+    assert run["status"] == "PASS" and run["completed"] == payload["nodeids"]
+    assert run["batches"] == [payload["nodeids"]]
+    assert not (suite / "extra-ran").exists()
+    contract_path = output / "ci-provisioned-campaign.json"
+    contract = json.loads(contract_path.read_bytes())
+    main = Path(run["ci_lane"]["manifest_path"])
+    context = module._CiLaneContext(
+        main, suite, environment=json.loads(main.read_bytes())["environment"]
+    )
+    campaign = module._CiCampaignContext(contract_path, context, run=output)
+    folder = output / ("global-collection" if owner else "collection")
+    path = folder / "receipt.json"
+    original = path.read_bytes()
+    assert 16 * 1024**2 < len(original) < module._NATIVE_RECEIPT_LIMIT
+    receipt = json.loads(original)
+    assert receipt["kind"] == "collection" and receipt["full_collection_checked"]
+    assert receipt["exitstatus"] == 0 and receipt["collection_errors"] == []
+    assert receipt["phases"] == receipt["phase_durations"] == {}
+    assert receipt["completed"] == []
+    assert (
+        len([node for node in receipt["full_preselection_ids"] if bulk.name in node])
+        == 2000
+    )
+    assert (
+        receipt["collection_transition_completed"] and receipt["post_pytest_completed"]
+    )
+    reference = "global_inventory"
+    assert contract[reference]["sha256"] == hashlib.sha256(original).hexdigest()
+    assert campaign._load_inventory(reference) == receipt
+    campaign.recheck()
+    active = campaign.global_context if owner else context
+    request = json.loads((folder / "request.json").read_bytes())
+    terminal = folder / "lane-terminal.json"
+    original_terminal = terminal.read_bytes()
+    checked = module._ci_lane_closed(
+        folder, request, active, expected_receipt_sha256=contract[reference]["sha256"]
+    )
+    assert checked == receipt
+    assert module._ci_lane_closed(folder, request, active) == receipt
+    try:
+        # Coherently rebound duplicate keys still fail the ordinary native path.
+        duplicate = b'{"kind":"collection",' + original.lstrip()[1:]
+        path.write_bytes(duplicate)
+        rebound = json.loads(original_terminal)
+        rebound["receipt_sha256"] = hashlib.sha256(duplicate).hexdigest()
+        module._write(terminal, rebound)
+        with pytest.raises(ValueError, match="duplicate campaign native receipt key"):
+            module._ci_lane_closed(folder, request, active)
+        # A semantically identical late byte mutation cannot replace the sealed
+        # original SHA, even when its native terminal is coherently rebound.
+        changed = original + b"\n"
+        path.write_bytes(changed)
+        rebound["receipt_sha256"] = hashlib.sha256(changed).hexdigest()
+        module._write(terminal, rebound)
+        with pytest.raises(ValueError, match="inventory SHA differs from original"):
+            module._ci_lane_closed(
+                folder,
+                request,
+                active,
+                expected_receipt_sha256=contract[reference]["sha256"],
+            )
+        with pytest.raises(ValueError, match="campaign referenced bytes changed"):
+            campaign.recheck()
+    finally:
+        path.write_bytes(original)
+        terminal.write_bytes(original_terminal)
+    campaign.recheck()
