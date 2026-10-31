@@ -1,5 +1,30 @@
 # Precision migration handoff — 2026-10-31
 
+## Current published CI and unqualified EXTRA data
+
+Root/origin/PR277 is published at `2d273e23`. CI585 closes all nine STANDARD
+compute jobs plus strict 3.12 join, including original all-files hooks once per
+cohort, source/context/phases/JUnit, resources and cleanup. Whole jobs total
+84.92 minutes (maximum 1,061 seconds); all 19 success uploads total 65,308,579
+bytes. See [the current scoped result and remaining gates](ci_execution_plan.md#current-ci585-standard-result-and-extra-profile-data).
+The four original full jobs remain separately owned; their retained 18:06 UTC
+snapshot is live, and earlier failed outcomes are preserved.
+
+Accepted local metadata implementation `e84111ed` is the base of four proposed
+GLOBAL EXTRA profiles. Genuine working-tree collections derive F=1,390 in each
+cohort, including the complete 134 metadata controls and four declaration checks;
+full A/R and the seven mandatory scientific BF16 cases remain retained. Actual
+non-3.12 fixed-harness skips have exact native/JUnit evidence; 3.12 must execute
+that control. These are proposal-data observations, not clean source admission,
+full timed F, scientific acceptance or activation. The following bounded profile
+checkpoint must precede separately reviewed nonreplacement workflow wiring.
+
+The user's 2026-10-31 16:02:41 UTC reviewed SOURCE publication exception remains
+limited to the named BF16 failure, which stays mandatory and FAILED. It waives no
+new CI regression or scientific/final gate. Public behavior remains LEGACY;
+Native3/ORT2, 3,712 caller obligations, default-strict extrema, replay, original
+models/artifacts and Node/Chrome work remain open.
+
 ## Strict metadata accounting checkpoint — local implementation qualification
 
 The existing reconciler, generator and pytest owner retain the full **1,856 rows /
@@ -55,9 +80,9 @@ with all original receipt read/hash paths observed at 64 MiB
 Synthetic Actions snapshots remain unit controls, distinct from hosted 3.12.15
 qualification.
 
-CI584 remains FAILED. Whole hosted execution, complete EXTRA profiles and
-scientific/final B–F acceptance remain separate; local controls do not qualify
-them. The mandatory native BF16 TopK failure is preserved under unchanged
+CI584 remains FAILED. Its receipt-capacity successor has the scoped CI585
+STANDARD result above; complete EXTRA profiles and scientific/final B–F
+acceptance remain separate from these local controls. The mandatory native BF16 TopK failure is preserved under unchanged
 runtime, inputs and criteria.
 
 ## Published combined checkpoint — 7fcfa114
@@ -82,7 +107,8 @@ This is bounded rebase evidence, not a rerun of whole SOURCE matrices, hosted
 acceptance or full B–F completion. Source and Git/context/PID checks closed at
 each stage; final code/artifact/runtime protection is recorded separately.
 
-Root/origin/PR277 is published at `7fcfa114`. At **2026-10-31 16:02:41 UTC**,
+At publication `7fcfa114`, the combined SOURCE code below was adopted. Its current
+CI-only successor is `2d273e23`. At **2026-10-31 16:02:41 UTC**,
 the user approved reviewed SOURCE publication despite the named mandatory
 BF16 TopK failure, which remains **FAILED** under unchanged runtime, inputs and
 criteria. This exception does not waive new CI regressions or scientific/final

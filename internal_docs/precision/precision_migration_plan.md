@@ -96,7 +96,7 @@ FP32 cast, so equivalent old numbers or unchanged call syntax are not promised.
 
 | Stage | Evidence available | Remaining gate |
 | --- | --- | --- |
-| 1. Inventory | The reconciled baseline retains 1,852 rows / 3,704 caller obligations: all 1,802 unchanged original core rows plus 45 MaxText and five MaxDiffusion obligations. | Complete optional SOURCE/model/numerical evidence in prepared upstream environments; retain configured import failures, name collisions and known failures explicitly. |
+| 1. Inventory | The [current inventory contract](current_inventory_epoch.md) retains 1,856 rows / 3,712 caller obligations. The 1,852 / 3,704 baseline (1,802 original core rows plus 45 MaxText and five MaxDiffusion obligations) is historical. | Complete optional SOURCE/model/numerical evidence in prepared upstream environments; retain configured import failures, name collisions and known failures explicitly. |
 | 2. Legacy repair | PR #275 is merged and its selected consumers are covered. | Audit remaining consumer gaps without reinterpreting the legacy flag. |
 | 3. Internal source path | Weak input metadata, bounded preferred-FP32 matrix results, and model-chosen FP64 normalization work have source-export evidence. Unvalidated algebraic fusions are disabled under SOURCE. | Use the internal profile as a safe starting point; migrate every existing operator family and distinguish unfinished work from demonstrated representation or runtime limits. |
 | 4. Scopes and artifacts | Selected functions/branches, local precision settings and cache isolation have durable regressions. The committed private facade preserves names, reports and proto/IR/file serialization; actual artifacts reach the CPU sample gate and integrated regression checks pass. | Preserve all existing scopes, dynamic shapes, parameters, layout options, normalization choices, and artifact formats under the same contract. |
@@ -115,6 +115,14 @@ the public transition requires the complete existing-functionality acceptance
 matrix, not only the bounded internal profile.
 
 ## Next implementation work
+
+Current priorities are recorded in the [handoff](implementation_handoff.md) and
+[CI execution plan](ci_execution_plan.md): published `2d273e23` has scoped CI585
+STANDARD acceptance; local metadata `e84111ed` and genuine working-tree F/R data
+still require clean admission, native opt-in and timed EXTRA qualification.
+Native3/ORT2, unchanged scientific criteria, replay and complete B–F remain open.
+
+### Historical local implementation observation — 2026-10-26
 
 This unfinished LOCAL WIP continues stored **`e4db1943`**; **`fe214590`** remains
 the last fully green checkpoint. The
@@ -194,7 +202,8 @@ exact values, including mixed outputs whose floating values use tolerances.
 ## Stage 1 Inventory and freeze observable behavior
 
 Status: partial inventory with reproducible observations, not a full support
-matrix.
+matrix. The current [inventory epoch](current_inventory_epoch.md) is 1,856 rows /
+3,712 caller obligations; the former 1,852 / 3,704 records remain historical.
 
 Map every precision decision from public input normalization through tracing,
 constant binding, plugin emission, child scopes, optimization, and export

@@ -940,3 +940,127 @@ def test_owner_cohort_rejects_omitted_Main_counterpart_module(authority):
     _write_json(path, data)
     with pytest.raises(ValueError, match="omit an original Main counterpart"):
         module._cohort(path, module._runner()._context_json)
+
+
+@pytest.mark.parametrize("minor", ("311", "312", "313", "314"))
+def test_reviewed_global_EXTRA_profile_preserves_STANDARD_and_critical_ownership(minor):
+    directory = _ROOT / "internal_docs/precision/ci_standard"
+    standard = json.loads((directory / f"py{minor}.json").read_text())
+    extra = json.loads((directory / f"py{minor}-extra.json").read_text())
+    assert standard["schema"] == extra["schema"] == "jax2onnx-ci-standard-cohort-v1"
+    assert set(extra) == set(standard) | {"focused_extra_ids", "extra_allowed_skips"}
+    for name in set(standard) - {"environment", "collection_transition", "provenance"}:
+        assert extra[name] == standard[name]
+    flags = {"JAX2ONNX_TEST_CI_LANE_XDIST": "1", "JAX2ONNX_RUN_FIXED_PARTS_SMOKE": "1"}
+    assert extra["environment"] == {**standard["environment"], **flags}
+    transition = deepcopy(standard["collection_transition"])
+    for stage in ("collected_environment", "post_pytest_environment"):
+        transition[stage].update(flags)
+    assert extra["collection_transition"] == transition
+    assert all(
+        extra["provenance"][key] == value
+        for key, value in standard["provenance"].items()
+    )
+    focused = extra["focused_extra_ids"]
+    assert focused and len(focused) == len(set(focused))
+    assert all(type(nodeid) is str and nodeid for nodeid in focused)
+    baseline = standard["baseline"]
+    if "path" in baseline:
+        baseline = json.loads((directory / baseline["path"]).read_text())
+    assert not set(focused).intersection(baseline["nodeids"])
+    owner = "tests/extra_tests/framework/test_ci_lane_selection.py::"
+    required = {
+        owner + "test_opt_in_xdist_projects_before_worker_ids_are_published",
+        owner
+        + "test_lazy_body_import_final_audit_fails_after_passed_native_reports[opt-in-xdist]",
+        owner
+        + "test_opt_in_xdist_ingests_actual_terminal_worker_receipt_after_passed_reports[failed]",
+        owner
+        + "test_opt_in_xdist_ingests_actual_terminal_worker_receipt_after_passed_reports[missing]",
+        owner
+        + "test_opt_in_xdist_ingests_actual_terminal_worker_receipt_after_passed_reports[manifest]",
+        owner + "test_direct_staged_context_rejects_before_owner_import[xdist]",
+    }
+    required.update(
+        "tests/extra_tests/framework/test_prepare_ci_standard.py::"
+        "test_reviewed_global_EXTRA_profile_preserves_STANDARD_and_critical_ownership["
+        + cohort
+        + "]"
+        for cohort in ("311", "312", "313", "314")
+    )
+    fixed = (
+        "tests/extra_tests/framework/test_ci_standard_parts.py::"
+        "test_real_312_two_serial_main_owner_parts_join_and_fail_closed"
+    )
+    required.update(
+        {
+            fixed,
+            "tests/extra_tests/framework/test_ci_standard_parts.py::"
+            "test_worker_source_snapshot_uses_actual_script_root_and_one_read",
+        }
+    )
+    native_owner = "tests/extra_tests/converter/test_native_function_scope.py::"
+    required.update(
+        native_owner + name
+        for name in (
+            "test_source_nnx_function_custom_aux_exports_release_modules_and_buffers[completed]",
+            "test_source_nnx_function_custom_aux_exports_release_modules_and_buffers[failed]",
+            "test_source_nnx_function_custom_aux_closed_jaxpr_releases_modules_and_buffers",
+            "test_source_function_custom_aux_exports_release_owner_and_weights[completed]",
+            "test_source_function_custom_aux_exports_release_owner_and_weights[failed]",
+            "test_source_function_custom_aux_live_equation_owns_only_its_lifetime",
+        )
+    )
+    required.update(
+        {
+            "tests/extra_tests/converter/test_source_nnx_static_payload.py::"
+            "test_rejected_static_payload_is_not_hashed",
+            "tests/extra_tests/converter/test_source_nnx_static_payload.py::"
+            "test_mutable_pytree_auxiliary_rejects_before_body",
+            "tests/extra_tests/converter/test_source_callback_payload.py::"
+            "test_bound_methods_and_partial_callables_reject_before_execution",
+            "tests/extra_tests/converter/test_source_reduce_extrema_semantics.py::"
+            "test_scientific_maximum_original_reciprocal_composition_executes_profiles",
+        }
+    )
+    required.update(
+        "tests/extra_tests/converter/test_source_reduce_extrema_semantics.py::"
+        "test_source_extrema_original_nan_signed_zero_counterexample[" + variant + "]"
+        for variant in ("lax-float32", "lax-float64", "numpy-float32", "numpy-float64")
+    )
+    assert required <= set(focused)
+    scientific = {
+        "tests/extra_tests/converter/test_source_native_top_k.py::"
+        "test_source_bfloat16_top_k_portable_words_and_native_equivalence["
+        + variant
+        + "]"
+        for variant in (
+            "finite-inline",
+            "finite-named",
+            "finite-jit",
+            "finite-if-false",
+            "finite-if-true",
+            "nan-portable-inline",
+            "nan-portable-named",
+        )
+    }
+    assert not scientific.intersection(focused)
+    ownership = extra["provenance"]["extra_ownership"]
+    assert set(ownership["complete_extra_required_scientific_ids"]) == scientific
+    assert ownership["numerical_acceptance"] == "NOT_ASSERTED"
+    assert ownership["full_B_to_F_acceptance"] == "UNVERIFIED"
+    allowances = extra["extra_allowed_skips"]
+    if minor == "312":
+        assert allowances == []
+    else:
+        assert len(allowances) == 1
+        allowance = allowances[0]
+        assert set(allowance) == {"nodeid", "phases", "source", "line", "reason"}
+        assert allowance["nodeid"] == fixed
+        assert allowance["phases"] == ["setup:skipped", "teardown:passed"]
+        assert allowance["source"] == fixed.split("::", 1)[0]
+        assert type(allowance["line"]) is int and allowance["line"] > 0
+        assert (
+            allowance["reason"]
+            == "explicit official312 real serial-parts integration control"
+        )

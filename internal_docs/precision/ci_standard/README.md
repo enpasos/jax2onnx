@@ -1,5 +1,51 @@
 # Private STANDARD and support provisioning
 
+## Current scoped result and proposed EXTRA declarations
+
+Published `2d273e23` has all nine STANDARD compute jobs plus the strict 3.12 join
+successful in CI585: 84.92 actual job-minutes, maximum 1,061 seconds, and all 19
+successful uploads totaling 65,308,579 bytes. Original pinned all-files hooks run
+once per locked cohort (3.12 part a owns them). This qualifies native STANDARD
+outcomes/hooks/controlled resources only; scientific B–F and EXTRA remain open.
+The original four full jobs remain separately observed, without cancellation.
+
+`py311-extra.json` through `py314-extra.json` preserve their GLOBAL STANDARD
+baseline, packages/plugins, complete generated bindings and optional-source
+contracts. Only the explicit EXTRA flags/projection/applicability declarations
+and provenance differ. Both `JAX2ONNX_TEST_CI_LANE_XDIST=1` and
+`JAX2ONNX_RUN_FIXED_PARTS_SMOKE=1` bind all three context boundaries.
+
+| Proposed global profile | Observed C | Original S | A | F | R |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `py311-extra.json` | 20,602 | 4,571 | 16,031 | 1,390 | 14,641 |
+| `py312-extra.json` | 20,656 | 4,621 | 16,035 | 1,390 | 14,645 |
+| `py313-extra.json` | 20,607 | 4,573 | 16,034 | 1,390 | 14,644 |
+| `py314-extra.json` | 20,604 | 4,573 | 16,031 | 1,390 | 14,641 |
+
+These are genuine combined **working-tree observations**, not clean committed
+renderer admission or native full-F qualification. Counts are observations,
+never limits. F includes the complete current 134-case metadata owner, critical
+ownership/extrema/callback controls, all six xdist controls, both fixed-part
+controls and the four new declaration cases. Every unmatched A remains R and
+complete-extra owned. The sole non-3.12 harness allowance records independently
+observed exact skipped phases, JUnit, source/line/reason; 3.12 has no allowance.
+Clean committed admission/finite native controls and full timed F remain pending.
+
+Focused uses the existing global command with `--ci-lane extra
+--ci-extra-scope focused` and the corresponding extra profile, without a test-path
+or part marker. Python 3.12 still requires both pinned optional sources and all
+original models during setup/collection. Complete milestones/final use
+`--ci-extra-scope all`, retaining every A including R and all seven mandatory
+scientific BF16 TopK cases. Native F-only success is NOT_ASSERTED numerically and
+UNVERIFIED for B–F; it never replaces the independently required `default-strict`
+extrema CLI or scientific/replay/model/web gates. Minimum312 support retains its
+unchanged full command and A=146; minimum311 remains independently required.
+Nightly Node/Chrome contexts and exact active-branch SHA wiring remain owned.
+The [execution plan](../ci_execution_plan.md) records the separate provisional
+EXTRA budgets, future nonreplacement wiring and activation hold.
+
+## Historical provisioning observations
+
 This is private test-execution tooling, not a public SOURCE API or an activated
 workflow. Real rendering requires a committed source tree whose HEAD and every
 tracked file match an independently supplied event SHA. These inputs do not
@@ -12,7 +58,7 @@ candidates, locked312 RSS FAILURE and locked311 deadline CANCELLED. Four
 authoritative support jobs passed; four authoritative full jobs remain pending
 in this snapshot. All-eight qualification failed.
 
-This repair revision uses `py311-owners.json` / `py312-owners.json` only for the
+That historical repair revision used `py311-owners.json` / `py312-owners.json` only for the
 explicitly named temporary locked311/312 Main-owner qualification candidates.
 Both render `--collection-scope main-owners` and provision with all 188/190 literal
 module paths, retaining Main S=4,571/4,621 and the complete C/S/O/A contract below.
@@ -225,9 +271,10 @@ ordinary terminal hooks, native phases/JUnit, artifact ownership and final raw
 receipt-byte checks remain mandatory. Inventory equality alone does not prove
 parameter semantics, import effects or numerical equivalence.
 
-All C discovery and O collection costs count toward the unchanged **1,200-second
-whole-job, 4-GiB owned-RSS, 160 candidate job-minute and 100-MiB successful-evidence
-limits**. The complete Main mapping, original 45+5 optional models, support
+The original amendment recorded **1,200-second whole-job, 4-GiB owned-RSS,
+160 candidate job-minute and 100-MiB successful-evidence limits**. The current
+explicit fixed-part locked312 execution uses 5 GiB; other STANDARD limits remain
+unchanged, as scoped in the current execution plan. The complete Main mapping, original 45+5 optional models, support
 contexts, full extras and exact-final all-cohort suites remain required. Finite
 protocol controls do not qualify production import order, model numerics, memory
 savings or activation; follow the [execution plan](../ci_execution_plan.md#reviewed-main-owner-collection-amendment).

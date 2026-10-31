@@ -1,5 +1,48 @@
 # Precision migration CI execution plan
 
+## Current CI585 STANDARD result and EXTRA profile data
+
+Published `2d273e23` closes all nine STANDARD compute jobs and the strict 3.12
+join successfully in [CI585](https://github.com/enpasos/jax2onnx/actions/runs/41221900406).
+Actual whole-job spans total **84.92 job-minutes**, with a **1,061-second** maximum;
+all **19 successful uploads total 65,308,579 bytes**, within the unchanged
+160-minute / 100-MiB campaign budgets. Original pinned all-files hooks pass once
+per locked cohort (3.12 part a owns them). Full C/O, native phases/JUnit, exact
+original skips, controlled work/pack resources and cleanup close; the strict join
+proves disjoint 216 + 4,405 equals original S=4,621
+([scoped closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-2d273e23-watch-IbQz2oyQ/candidate-standard-qualification-closure.json)).
+Managed Actions resource intervals outside controlled commands remain unobserved.
+This is STANDARD native-pytest/hooks/resource evidence, not EXTRA, scientific or
+B–F acceptance. The four original full jobs remained live at the retained
+2026-10-31 18:06 UTC snapshot; earlier failures remain unchanged.
+
+New global `py311-extra.json` through `py314-extra.json` derive **F=1,390** from
+real combined working-tree C=20,602 / 20,656 / 20,607 / 20,604. They include the
+complete 134-case metadata owner and four new declaration controls. Remaining
+R=14,641 / 14,645 / 14,644 / 14,641 stays owned by complete EXTRA; counts are
+observations, never ceilings. Both opt-in flags bind startup/collection/final.
+The sole non-3.12 fixed-harness allowance comes from each actual skipped
+setup/teardown and JUnit/source/line/reason record; Python 3.12 has no allowance.
+These dirty-tree observations and literal data are **unqualified** pending clean
+committed renderer admission and finite native opt-in validation. Full timed F on
+all four cohorts is additionally required before activation; the existing
+STANDARD profiles and workflow are unchanged in this data checkpoint.
+
+The next separately qualified workflow checkpoint adds four nonreplacement
+focused rows: provisional **2,000-second WORK / 35-minute whole job / 4-GiB RSS /
+2-GiB live headroom**, with separate 160-minute / 100-MiB EXTRA budgets. Only a
+trusted tracked EXTRA-profile admission may extend the existing observer timeout;
+a YAML-only change cannot bypass its current ceiling. STANDARD limits and fixed
+3.12 parts remain unchanged. Complete-A milestone/final campaigns replace focused
+work, and retain full support A=146, minimum311 and original nightly Node/Chrome
+contexts. No gate activation follows from preparing these data.
+
+All seven unchanged scientific BF16 TopK cases remain mandatory in complete A/R
+and FAILED where observed, under unchanged pins, inputs and criteria. The
+independent `default-strict` extrema CLI, Native3/ORT2, current 3,712 obligations,
+opaque/manual/metadata-free accounting, replay, original models/artifacts and web
+obligations remain required. F-only controls never establish numerical acceptance.
+
 ## CI584 native-receipt capacity repair
 
 At published `7fcfa114`, CI584's five locked compute jobs failed during campaign
@@ -26,9 +69,9 @@ with all original receipt read/hash paths observed at 64 MiB
 Synthetic Actions snapshots remain unit controls, distinct from hosted 3.12.15
 qualification.
 
-CI584 remains FAILED. Whole hosted execution, complete EXTRA profiles and
-scientific/final B–F acceptance remain separate; local controls do not qualify
-them. The mandatory native BF16 TopK failure is preserved under unchanged
+CI584 remains FAILED. Its receipt-capacity successor has the scoped CI585
+STANDARD result above; complete EXTRA profiles and scientific/final B–F
+acceptance remain separate from these local controls. The mandatory native BF16 TopK failure is preserved under unchanged
 runtime, inputs and criteria.
 
 ## Focused EXTRA projection — local verifier controls
@@ -63,7 +106,7 @@ Qualified STANDARD profile data is unchanged.
 
 The ownership plan remains four routine focused cohorts, with four complete-A
 cohorts replacing focused work for milestone/final campaigns; preserve the
-additional complete minimum311 job, minimum312 support's full A (currently 140),
+additional complete minimum311 job, minimum312 support's full A (currently 146; historical 140),
 and nightly Node/Chrome contexts with exact active-branch SHA wiring.
 Retirement requires retained original outcomes, complete ownership and exact-head
 replacement qualification with independent review; preserve still-live original
