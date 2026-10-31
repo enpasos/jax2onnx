@@ -1,6 +1,53 @@
 # Precision migration handoff — 2026-10-30
 
-## Focused EXTRA projection — local verifier controls
+## Current combined local integration — bounded rebase qualified, publication PENDING
+
+This private integration combines accepted CI verifier `b18dbe35` (parent
+`e11918ad`), reviewed SOURCE integration `676a7c40` and static complex selection
+`f22e0c24`. All 21 SOURCE production/test/guide paths outside this handoff retain
+exact `f22e0c24` bytes; all eight CI-only paths retain exact `b18dbe35` bytes.
+Only handoff prose is reconciled. The original ownership, broadcast,
+conjugation and layout commits (`a740196f` → `ca7eee45` → `e4a3492d` → `12dd3cdc`),
+selection commit and their receipts remain intact. Earlier source-only assembly
+snapshots, indices and patches remain retained; no new implementation was needed.
+
+The approved combined smoke closes the same ordered **18 PASS / zero skips**
+on each official Python 3.11/3.13 family: six completed/failed export and
+live-trace ownership controls, plus all 12 existing named/inline complex Select
+capture cases across the reviewed dtype/x64 profiles and opsets 23/26
+([combined rebase closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/combined-ci-source-b18-6Ohs3B/combined-rebase-controls-closure.json)).
+The original capture tests retain their genuine Native3/oracle/ORT checks.
+This is bounded rebase evidence, not a rerun of whole SOURCE matrices, hosted
+acceptance or full B–F completion. Source and Git/context/PID checks closed at
+each stage; final code/artifact/runtime protection is recorded separately.
+
+Published Root/PR remains CI-only `6c444f3b`. The reviewed official-native
+BF16 TopK failure below remains **FAILED**, with exact CPU/compiler cause
+unproved; no official-runtime profile decision is assumed. SOURCE publication
+and the user's SOURCE-push exception remain **PENDING**. No push, workflow
+activation, actual F selections, profile data or cohort allowances are included.
+Failed indexing `6d3`, failed Mul successors, the 45-file WIP, producer WIP and
+unreviewed SOURCE metadata changes are excluded; public LEGACY is preserved.
+
+The separate metadata checkpoint's first official 3.11 execution retains
+**seven PASS / one FAIL** for current inventory drift
+([immutable first-failure receipt](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-metadata-acceptance-676a-9efjtpyn/qual311-first-failure-closure.json)).
+Its failed source/raw evidence is preserved separately. Metadata work is neither
+merged nor accepted by this integration; any authorized correction remains
+outside these tested inputs.
+
+Wider receipts below retain their original source and execution epochs:
+`676a7c40`'s dual-family 36 controls and earlier 137/70/95/343-case SOURCE and
+consumer packets; `f22e0c24`'s 286 cases per family (234 numerical / 52 controls),
+179 Where consumers and independent Astra oracle review; and `b18dbe35`'s
+731 IDs per family (725 PASS / six unchanged opt-in skips), actual official
+3.12.9's two join regressions, strict docs and normal hooks. These historical
+receipts do not become new combined-head execution. Full B–F, known
+FAILED/UNVERIFIED science gates, supported-cohort milestone/final suites,
+complete EXTRA ownership, fresh hosted quality-inclusive budgets and
+coordinated activation remain open. Local publication remains HOLD.
+
+## Historical b18dbe35 focused EXTRA verifier checkpoint — local qualification
 
 The canonical runner extends local `e11918ad` with a
 `--ci-extra-scope all|focused` option. The default remains complete **A=C−S**;
@@ -63,7 +110,7 @@ bytes, exceeding its 64 MiB limit. Its original failure receipt is immutable;
 verified PAX preservation corrected retained storage without replaying tests.
 This is a retention correction, not a retroactive budget PASS.
 
-## Earlier complete-EXTRA repair — local e11918ad
+## Historical e11918ad complete-EXTRA repair — local qualification
 
 CI583's original Python 3.12 job at exact `6c444f3b` ended **FAILURE** at
 **2026-10-31 14:20:27 UTC**, in BF16 TopK `finite-inline`, batch 31/55
@@ -116,17 +163,50 @@ verifiers. Preserve historical failures below. Separate full B–F/milestone/fin
 obligations and known FAILED/UNVERIFIED science gates remain open; public LEGACY
 remains unchanged.
 
-## Historical CI582 admission handoff — qualification was PENDING
+## Historical 676a7c40 SOURCE rebase and CI583 candidate checkpoint
 
-The two-part controller is published at `1ff4c9c6`. **Final hosted qualification is PENDING**;
-no numerical conclusion or B–F completion is asserted.
+At published `6c444f3b`, [CI583](https://github.com/enpasos/jax2onnx/actions/runs/41206202756)
+closed all nine STANDARD compute candidates and the fixed locked312 join with
+SUCCESS. Each complete candidate job is below 1,200 seconds; their combined
+4,421 seconds and 64,156,009 uploaded bytes satisfy the 160-job-minute and
+100-MiB candidate budgets. The exact ordered 216/4,405 union restores original
+S=4,621 after genuine full C=19,660 and O=4,850 collection in each part. All
+50 optional cases, including Omni, close native phases and JUnit. The two
+controlled-work RSS peaks are 4,459,020,288/4,570,902,528 bytes under the current
+5-GiB locked312 limit, with work, packing and join cleanup confirmed
+([bounded primary closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-6c444f3b-watch-niR5o14v/candidate-qualification-closure.json)).
+
+These are native STANDARD pytest outcomes, not numerical or full B–F acceptance.
+At the 13:57:29 UTC observation, the four original support jobs are successful
+and all four original full suites remain LIVE. Required-check acceptance and
+public transition remain pending. The fixed Main S does not discharge separate
+quality-owner or EXTRA/A coverage, and coordinated STANDARD/EXTRA activation
+remains unfinished.
+
+This private tree combines the accepted ownership, broadcast, conjugation and
+layout commits (`a740196f` → `ca7eee45` → `e4a3492d` → `12dd3cdc`) onto `6c444f3b`.
+The production, test and developer-guide files retain the accepted `12dd3cdc`
+bytes. This rebase closes the same 36 existing controls on each official
+3.11/3.13 family: six completed/failed export and live-trace ownership cases,
+plus 30 named/inline broadcast, conjugation and layout capture cases
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-accepted-integration-6c-s8864k_v/qualification311/qualification-closure.json),
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-accepted-integration-6c-s8864k_v/qualification313/qualification-closure.json)).
+These are integration controls, not a rerun of the earlier complete SOURCE
+family suites. Failed indexing and Mul successors are excluded. SOURCE publication waits for the original required
+checks and separate integration qualification.
+
+## Historical CI582 repair preparation — before CI583
+
+The two-part controller was published at `1ff4c9c6`; hosted qualification was
+pending at that preparation checkpoint. No numerical conclusion or B–F completion
+was asserted.
 
 At exact `1ff4c9c6`, [CI582](https://github.com/enpasos/jax2onnx/actions/runs/41205139374)
 was rejected before any job: five join job-level environment expressions used
 an unavailable `runner` context. The same paths are now initialized from real
 `RUNNER_TEMP` in the first join step through `GITHUB_ENV`; the targeted check
 rejects this context in workflow/job environment maps. No model/work result
-is inferred from that failed admission, and fresh hosted qualification remains pending.
+is inferred from that failed admission; fresh hosted qualification was then pending.
 
 Initial controls closed 100 PASS and one explicit 3.12-only skip. The actual
 official Python 3.12.9 control closed 2 PASS (`8642f73a`), covering two tiny
@@ -185,6 +265,136 @@ remain pending where unqualified; coordinated standard/extra gates are inactive.
 The [30 October temporary transition amendment](ci_execution_plan.md#temporary-transition-amendment-2026-10-30)
 permits one bounded candidate qualification alongside the authoritative old eight
 jobs; it does not activate a gate.
+
+## Historical SOURCE checkpoints — original qualification epochs
+
+### SOURCE Function ownership checkpoint — local qualification
+
+The SOURCE sections below retain their original local preparation epochs.
+References to the then-published `8f113ea8`/`a612d5e4` do not describe the
+current published head or qualify this new integration.
+
+Published CI parent `a612d5e4` / [CI579](https://github.com/enpasos/jax2onnx/actions/runs/41182937914)
+remains **PENDING** at checkpoint preparation (2026-10-31 08:06 UTC). Its single-decode CI
+repair is committed; hosted RSS and full exact-head campaign acceptance are not
+established. The failed CI578 source epoch remains below.
+
+This checkpoint sends canonical flat leaves through SOURCE discovery and shared
+native Function-body tracing, restoring SOURCE result trees lexically. The body
+wrapper also serves LEGACY. Live plain equations retain their receiver while
+needed; read-only, zero-draw, empty-effects NNX clones release while explicit
+numeric state may remain with a live closed Jaxpr. No global cache clearing is
+used; the [developer guide](../../docs/developer_guide/plugin_system.md) records
+the boundary contract.
+
+The exact plugin/test/guide bytes carried here retain their prior finite
+qualification: the same ordered **137 cases across all 24 selected regressions
+PASS on each official311/313 family**, including the complete native Function
+test file and applicable LEGACY/context/state/key/capture/control-flow coverage
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/function8578-published311-nlr_wtlp/terminal-closure.json),
+[cache accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/function8578-published311-nlr_wtlp/output-accounting-supplement.json),
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/function8578-published313-3i30k7nk/terminal-closure.json)).
+The intervening parent change contains CI runner/tests and documentation only;
+these receipts are not new test execution or whole-commit acceptance here.
+
+The test-only `8578c47a` baseline retains **1 FAIL** after real export, one
+Function, full checker, body tracing and plugin restoration: at least one
+owner/weights weakref remained live; its individual identity was not measured
+([baseline](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/function8578-source-baseline311-t0ayb2_y/terminal-closure.json),
+[interpretation erratum](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/function8578-baseline-erratum-oew5c1f9/erratum.json)).
+General mutable NNX/RNG/AD, minimum ORT, full B–F and public transition remain
+OPEN; measured ORT is 1.31. Public LEGACY/gate activation stays HOLD. The complete
+accepted suite and required hosted gates remain obligations on the final head.
+
+### Static SOURCE complex selection checkpoint — local qualification
+
+The isolated accepted-`12dd3cdc` successor adds dedicated static same-width
+complex `select_n`, including original `lax.select` and `jnp.where` traces, at
+opsets 23/26. Pair-preserving integer GatherElements copies both components;
+case-only native weakness and every input descriptor are checked before
+allocation. Integer selectors retain the public native valid-index precondition.
+
+Both official 3.11/3.13 families pass the same ordered **286 cases: 234 numerical
+and 52 controls**
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-complex-select-12dd-zzknzdaf/qual311-closure.json),
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-complex-select-12dd-zzknzdaf/qual313-closure.json)).
+Saved original eager/first/warm references and full-checker models with both ORT
+1.31 CPU modes match independent selected-word oracles in dtype/shape, component
+NaN masks and exact non-NaN words, including zeros/subnormals and noncontiguous
+inline/named captures. This does not inherit the separate red indexing WIP or
+repair the failed Mul corpus. General B–F, unresolved metadata criteria,
+symbolic/mixed-width scopes, AD, minimum ORT and public transition remain OPEN.
+This checkpoint is local and unpublished; published Root/PR remains CI-only
+`6c444f3b`. Existing historical epochs and failed receipts below are unchanged.
+
+### Static SOURCE complex tensor-layout checkpoint — local qualification
+
+The local `e4a3492d` successor admits the complete static same-width
+copy/reshape/transpose/squeeze/concatenate/rev family at opsets 23/26, with one
+physical pair contract and no widening of the real tensor admission path.
+Both official 3.11/3.13 families pass the same ordered **343 cases: 182 numerical
+and 161 rejection/bypass controls**
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-complex-layout-e4a-ay6pswm6/qual311-closure.json),
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-complex-layout-e4a-ay6pswm6/qual313-closure.json)).
+The original eager/first/warm results and saved/reloaded full-checker models with
+both ORT 1.31 CPU modes match independent layout oracles under the existing
+NaN-mask/exact-non-NaN-word criterion. Whole-family named/inline captures preserve
+noncontiguous input views, real siblings and repeated outputs. All inputs,
+including the second concatenate operand, are physically checked before emission.
+
+The [developer guide](../../docs/developer_guide/advanced_topics/complex_numbers.md#private-source-static-tensor-layout-contract)
+records the shared pair-axis and static metadata rules. General Mul remains
+FAILED in its immutable packet; cross-width conversion, symbolic complex scopes,
+AD/general NNX/RNG, minimum ORT, complete B–F and public transition remain OPEN.
+These SOURCE checkpoints are local and unpublished; Root/PR stays CI-only `8f113ea8`.
+
+### Static SOURCE complex conjugation checkpoint — local qualification
+
+The local `ca7eee45` successor adds only static same-width complex conjugation
+at opsets 23/26, with native parameter/weakness checks and physical pair
+validation before emission. Both official 3.11/3.13 families pass the same ordered
+**95 cases: 68 numerical and 27 rejection controls**
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-complex-conj-ca7-3u4lktfb/qual311-closure.json),
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-complex-conj-ca7-3u4lktfb/qual313-closure.json)).
+Original eager/first/warm results and both ORT 1.31 modes match the sign-bit oracle
+under the existing NaN-mask/non-NaN-word criterion. Public `lax.conj`/`jnp.conj`,
+noncontiguous inline/named captures, real/imaginary siblings and repeated outputs
+are covered. The original registry row keeps its callable, configuration,
+graph callback and absent numerical criterion unchanged.
+
+This reuses the existing Gather/Neg/Concat helper; LEGACY is unchanged. Width
+conversion, real-input `lax.conj`, symbolic complex scopes, general Mul/AD and
+NNX/RNG, minimum ORT, complete B–F and public transition remain OPEN. The retained
+Mul counterexample remains FAILED. Root/PR stays at CI-only `8f113ea8`; these
+SOURCE commits are local and unpublished.
+
+### Static SOURCE complex broadcast checkpoint — local qualification
+
+The static opset-23/26 contract preserves complex64/complex128 pair width,
+native weakness and arbitrary unique logical axis mappings without moving the
+physical channel. Both official311/313 families have the same ordered **70 PASS**:
+**56 numerical copy/capture cases, 12 rejection controls and two product-source
+broadcast-admission controls**
+([311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-complex-mul-a740-39fpx65k/broadcast-stable311-closure.json),
+[313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-complex-mul-a740-39fpx65k/broadcast-stable313-closure.json)).
+Numerical evidence uses original eager/first/warm results, independent copy
+oracles, saved/full-checked artifacts and ORT 1.31 CPU with both optimization
+modes. Named capture evidence uses a registered module-level plain owner and
+retains the original noncontiguous array and its stored strides.
+
+The original square public call is natively forwarded unchanged; all three
+measured roles and its actual Jaxpr confirm identity. A rectangular public
+transpose retains a real broadcast equation and checks the lowering separately.
+General complex Mul and its compositions, complete B–F, minimum ORT and public
+transition remain OPEN. This local source checkpoint does not establish hosted
+campaign acceptance or publish SOURCE; Root/PR remains at CI-only `8f113ea8`.
+
+Five historical `/tmp/jax2onnx-real-lane-*` collect-only output directories were
+archived byte-for-byte before retiring their originals; their original paths,
+metadata and payload hashes remain in the
+[archive manifest](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/source-root-scratch-archive-a_pn3zi0/file-manifest.json)
+beside the verified PAX archive and retirement receipt. Historical references
+below retain their original epoch and resolve through this mapping.
 
 ## Historical CI578 repair status — 2026-10-31
 
@@ -1467,13 +1677,22 @@ outside version control.
    standard coverage and each successful Linux STANDARD job's complete
    <=1,200-second start-through-cleanup/upload span. Activate separately
    identified extras only after their literal ownership and acceptance triggers
-   are reviewed. The 50 optional IDs, duplicate-removal outcome and actual
-   savings remain unverified; no CI performance budget is demonstrated.
+   are reviewed. All 50 original optional IDs are assigned; 44 MaxText and five
+   MaxDiffusion cases closed, while original Omni remains incomplete. Completion
+   of all 50 and the whole candidate campaign remains pending; actual savings
+   remain unverified
+   ([CI578 accounting](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-8578c47a-watch-uJvj63pA/locked312-failure-trigger-phase-accounting.json)).
+   At `8578c47a`/CI578, finite Main STANDARD311/313/314 whole jobs succeeded in
+   1,061/993/1,049 seconds, each below 1,200 seconds
+   ([job snapshot](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-8578c47a-watch-uJvj63pA/jobs-20261031T073238Z.json)).
+   Overall eight-job acceptance remains failed at that epoch; successor CI579 is
+   pending, not a demonstrated hosted RSS repair.
 2. Complete the remaining original full-model and separate twelve-case gates
    with unchanged sources, full inputs, numerical criteria, state/reset
-   sequences and artifact audits. Finish the original maximum/reciprocal SOURCE
-   composition and retain the failed default extrema target unless new evidence
-   or an explicit execution-target decision resolves it.
+   sequences and artifact audits. The original maximum/reciprocal SOURCE
+   composition already ran 120 target comparisons; strict native-reference
+   agreement and numerical acceptance remain FAILED. Retain that failure unless
+   new evidence or an explicit execution-target decision resolves it.
 3. Complete unfinished B–F operators, state/metadata, scoped/symbolic/control
    behavior, supplied/third-party sources, inventory/replay and durable artifact
    contracts. Bounded containment or explicit rejection does not discharge

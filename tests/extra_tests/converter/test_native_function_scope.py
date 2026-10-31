@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -732,3 +733,502 @@ def test_if_function_if_same_shape_captures_keep_distinct_sentinel_values(
                     assert actual.tobytes() == expected.tobytes()
         assert model.SerializeToString() == payload
         assert active_precision_policy() is PrecisionPolicy.LEGACY
+
+
+def _assert_native_flat_result_values(actual, expected):
+    assert actual.dtype == expected.dtype and actual.shape == expected.shape
+    if expected.dtype.kind != "f":
+        np.testing.assert_array_equal(actual, expected)
+        return
+    np.testing.assert_array_equal(np.isnan(actual), np.isnan(expected))
+    np.testing.assert_array_equal(np.isinf(actual), np.isinf(expected))
+    infinite = np.isinf(expected)
+    np.testing.assert_array_equal(
+        np.signbit(actual[infinite]), np.signbit(expected[infinite])
+    )
+    zeros = expected == 0
+    np.testing.assert_array_equal(actual[zeros], expected[zeros])
+    np.testing.assert_array_equal(
+        np.signbit(actual[zeros]), np.signbit(expected[zeros])
+    )
+    finite = np.isfinite(expected)
+    np.testing.assert_array_equal(
+        actual[finite].tobytes(order="C"), expected[finite].tobytes(order="C")
+    )
+
+
+class _FlatOwnedExportResult:
+    def __init__(self, value, owner):
+        self.value, self.owner = value, owner
+
+
+jax.tree_util.register_pytree_node(
+    _FlatOwnedExportResult,
+    lambda result: ((result.value,), result.owner),
+    lambda owner, values: _FlatOwnedExportResult(values[0], owner),
+)
+
+
+@onnx_function
+class _FlatAuxExportOwner:
+    def __init__(self):
+        self.weights = np.asarray([1.25, -2.5], np.float32)
+
+    def __call__(self, x):
+        return _FlatOwnedExportResult(-x, self)
+
+
+@onnx_function
+class _NNXFlatAuxExportOwner(nnx.Module):
+    def __init__(self):
+        self.weight = nnx.Param(jnp.asarray([1.25, -2.5], np.float32))
+        self.rngs = nnx.Rngs(17)
+
+    def __call__(self, x):
+        return _FlatOwnedExportResult(-x * self.weight[...], self)
+
+
+@pytest.mark.parametrize("fail", [False, True], ids=["completed", "failed"])
+def test_source_nnx_function_custom_aux_exports_release_modules_and_buffers(
+    fail, monkeypatch
+):
+    import gc
+    import weakref
+
+    from jax2onnx.plugins import plugin_system as ps
+    from jax2onnx.plugins._source_function_state import (
+        FunctionOperandLayout,
+        FunctionStateCall,
+    )
+    from jax2onnx.plugins.flax.nnx._source_function_state import NNXFunctionState
+    from tests.extra_tests.converter.test_source_mlp_state_preparation import (
+        array_snapshot,
+    )
+
+    plugin = ps.ONNX_FUNCTION_PLUGIN_REGISTRY[
+        ps._qualname_of_target(_NNXFlatAuxExportOwner)
+    ]
+    plugin_fields = plugin._orig_fn, plugin._unbound_orig_fn
+    method = _NNXFlatAuxExportOwner.__call__
+    original_invoke = NNXFunctionState.invoke
+    original_lower = ps.FunctionPlugin._lower_in_context
+    original_trace = ps.FunctionPlugin._trace_function_body
+    owner_reference = None
+    clone_references = []
+    completed_traces = 0
+    observed_layouts = 0
+    sentinel_observed = False
+    sentinel = "abort after SOURCE NNX custom-aux body trace"
+
+    def observe_invoke(self, arguments, keywords, state):
+        result, updated, effects = original_invoke(self, arguments, keywords, state)
+        if self.method is method:
+            assert isinstance(result, _FlatOwnedExportResult)
+            assert isinstance(result.owner, _NNXFlatAuxExportOwner)
+            assert result.owner is not owner_reference()
+            assert self.state_count == len(state) == len(updated) == 3
+            assert effects == ()
+            # Do not retain the result, adapter, clone Variables or traced leaves.
+            clone_references.append(weakref.ref(result.owner))
+        return result, updated, effects
+
+    def observe_lower(self, context, equation, parameters):
+        nonlocal observed_layouts
+        if self is plugin:
+            metadata = parameters[ps._SOURCE_TRACE]
+            adapter = parameters[ps._SOURCE_STATE]
+            layout = parameters[ps._FUNCTION_LAYOUT]
+            keys = parameters[ps._SOURCE_KEY_REUSE]
+            assert metadata.call is None
+            assert isinstance(adapter, NNXFunctionState) and adapter.method is method
+            assert adapter.effects == () and not equation.effects
+            assert isinstance(layout, FunctionOperandLayout)
+            assert layout.positional_count == layout.argument_count == 1
+            assert layout.state_count == adapter.state_count == 3
+            layout.check(equation.invars)
+            assert len(equation.outvars) == 1 + layout.state_count
+            assert not keys.failed and not keys.sinks and not keys.sources
+            observed_layouts += 1
+        return original_lower(self, context, equation, parameters)
+
+    def checked_trace(self, callee, equation, captures, **kwargs):
+        nonlocal completed_traces
+        if self is plugin:
+            assert isinstance(callee, FunctionStateCall)
+            assert isinstance(callee.adapter, NNXFunctionState)
+            assert callee.adapter.method is method and callee.adapter.effects == ()
+            assert callee.positional_count == 1
+            assert kwargs["source_trace"].call is None
+            assert kwargs["precision_policy"] is PrecisionPolicy.SOURCE
+        body = original_trace(self, callee, equation, captures, **kwargs)
+        if self is plugin:
+            completed_traces += 1
+            assert not body.jaxpr.effects
+            assert len(body.jaxpr.invars) == len(body.jaxpr.outvars) == 4
+            if fail:
+                raise RuntimeError(sentinel)
+        return body
+
+    monkeypatch.setattr(NNXFunctionState, "invoke", observe_invoke)
+    monkeypatch.setattr(ps.FunctionPlugin, "_lower_in_context", observe_lower)
+    monkeypatch.setattr(ps.FunctionPlugin, "_trace_function_body", checked_trace)
+
+    def export_owned():
+        nonlocal owner_reference, sentinel_observed
+        owner = _NNXFlatAuxExportOwner()
+        owner_reference = weakref.ref(owner)
+        buffers = tuple(
+            weakref.ref(value) for value in jax.tree_util.tree_leaves(nnx.state(owner))
+        )
+        assert len(buffers) == 3
+        before = array_snapshot(owner)
+        variable_ids = (
+            id(owner.weight),
+            id(owner.rngs.default.key),
+            id(owner.rngs.default.count),
+        )
+        assert np.asarray(owner.rngs.default.count[...]).item() == 0
+
+        def call(x):
+            return owner(x).value
+
+        artifact = None
+        try:
+            with jax.enable_x64(False):
+                artifact = ui._to_onnx(
+                    call,
+                    [jax.ShapeDtypeStruct((2,), np.float32)],
+                    precision_policy=PrecisionPolicy.SOURCE,
+                    return_mode="ir",
+                )
+        except RuntimeError as error:
+            assert fail and type(error) is RuntimeError and str(error) == sentinel
+            sentinel_observed = True
+        else:
+            assert not fail
+            assert isinstance(artifact, ir.Model) and len(artifact.functions) == 1
+            onnx.checker.check_model(ir.to_proto(artifact), full_check=True)
+        finally:
+            assert array_snapshot(owner) == before
+            assert variable_ids == (
+                id(owner.weight),
+                id(owner.rngs.default.key),
+                id(owner.rngs.default.count),
+            )
+        # No owner, Variable, state tuple, result or exception escapes this helper.
+        return artifact, owner_reference, buffers
+
+    artifact, reference, buffers = export_owned()
+    assert completed_traces == observed_layouts == 1
+    assert sentinel_observed is fail and clone_references
+    assert plugin._orig_fn is plugin_fields[0]
+    assert plugin._unbound_orig_fn is plugin_fields[1]
+    gc.collect()
+    assert reference() is None
+    assert all(reference() is None for reference in (*buffers, *clone_references))
+    if not fail:
+        assert isinstance(artifact, ir.Model) and len(artifact.functions) == 1
+
+
+def test_source_nnx_function_custom_aux_closed_jaxpr_releases_modules_and_buffers(
+    monkeypatch,
+):
+    import gc
+    import weakref
+
+    from jax2onnx._compat.jax import Literal
+    from jax2onnx.converter.conversion_api import _activate_plugin_worlds
+    from jax2onnx.converter.precision_policy import precision_policy_scope
+    from jax2onnx.plugins import plugin_system as ps
+    from jax2onnx.plugins._source_function_state import (
+        FunctionOperandLayout,
+        FunctionStateCall,
+    )
+    from jax2onnx.plugins.flax.nnx._source_function_state import NNXFunctionState
+    from tests.extra_tests.converter.test_source_mlp_state_preparation import (
+        array_snapshot,
+    )
+
+    plugin = ps.ONNX_FUNCTION_PLUGIN_REGISTRY[
+        ps._qualname_of_target(_NNXFlatAuxExportOwner)
+    ]
+    plugin_fields = plugin._orig_fn, plugin._unbound_orig_fn
+    method = _NNXFlatAuxExportOwner.__call__
+    original_invoke = NNXFunctionState.invoke
+    owner_reference = None
+    clone_references = []
+
+    def observe_invoke(self, arguments, keywords, state):
+        result, updated, effects = original_invoke(self, arguments, keywords, state)
+        if self.method is method:
+            assert isinstance(result, _FlatOwnedExportResult)
+            assert isinstance(result.owner, _NNXFlatAuxExportOwner)
+            assert result.owner is not owner_reference()
+            assert self.state_count == len(state) == len(updated) == 3
+            assert effects == ()
+            clone_references.append(weakref.ref(result.owner))
+        return result, updated, effects
+
+    monkeypatch.setattr(NNXFunctionState, "invoke", observe_invoke)
+
+    def captured_owned():
+        nonlocal owner_reference
+        owner = _NNXFlatAuxExportOwner()
+        owner_reference = weakref.ref(owner)
+        buffers = tuple(
+            weakref.ref(value) for value in jax.tree_util.tree_leaves(nnx.state(owner))
+        )
+        assert len(buffers) == 3
+        before = array_snapshot(owner)
+        variable_ids = (
+            id(owner.weight),
+            id(owner.rngs.default.key),
+            id(owner.rngs.default.count),
+        )
+        assert np.asarray(owner.rngs.default.count[...]).item() == 0
+
+        def call(x):
+            return owner(x).value
+
+        with (
+            jax.enable_x64(False),
+            precision_policy_scope(PrecisionPolicy.SOURCE),
+            _activate_plugin_worlds(),
+        ):
+            closed = jax.make_jaxpr(call)(jax.ShapeDtypeStruct((2,), np.float32))
+        assert array_snapshot(owner) == before
+        assert variable_ids == (
+            id(owner.weight),
+            id(owner.rngs.default.key),
+            id(owner.rngs.default.count),
+        )
+        return closed, owner_reference, buffers
+
+    def exercise(closed, buffers):
+        (equation,) = closed.jaxpr.eqns
+        assert equation.primitive is plugin._source_primitive
+        metadata = equation.params[ps._SOURCE_TRACE]
+        adapter = equation.params[ps._SOURCE_STATE]
+        layout = equation.params[ps._FUNCTION_LAYOUT]
+        keys = equation.params[ps._SOURCE_KEY_REUSE]
+        assert metadata.call is None
+        assert isinstance(adapter, NNXFunctionState) and adapter.method is method
+        assert adapter.effects == () and not equation.effects
+        assert isinstance(layout, FunctionOperandLayout)
+        assert layout.positional_count == layout.argument_count == 1
+        assert layout.state_count == adapter.state_count == len(buffers) == 3
+        layout.check(equation.invars)
+        assert len(equation.outvars) == 1 + layout.state_count
+        assert not keys.failed and not keys.sinks and not keys.sources
+        key_inputs = {
+            index
+            for index, variable in enumerate(equation.invars)
+            if jax.dtypes.issubdtype(variable.aval.dtype, jax.dtypes.prng_key)
+        }
+        key_outputs = {
+            index
+            for index, variable in enumerate(equation.outvars)
+            if jax.dtypes.issubdtype(variable.aval.dtype, jax.dtypes.prng_key)
+        }
+        assert {source for source, _ in keys.forwards} == key_inputs
+        assert {target for _, target in keys.forwards} == key_outputs
+        # These are legitimate closed-Jaxpr numeric constants, not owner metadata.
+        assert closed.consts
+        for reference in buffers:
+            value = reference()
+            assert value is None or any(value is item for item in closed.consts)
+        x = np.asarray([-2.0, 3.0], np.float32)
+        environment = dict(zip(closed.jaxpr.constvars, closed.consts, strict=True))
+        (argument,) = closed.jaxpr.invars
+        environment[argument] = x
+        operands = tuple(
+            atom.val if isinstance(atom, Literal) else environment[atom]
+            for atom in equation.invars
+        )
+        native_call = FunctionStateCall(adapter, layout.positional_count, keys)
+        native_result, native_state = native_call(*operands)
+        assert isinstance(native_result, _FlatOwnedExportResult)
+        assert all(
+            after is before
+            for before, after in zip(
+                operands[layout.argument_count :], native_state, strict=True
+            )
+        )
+        actual = equation.primitive.impl(*operands, **equation.params)
+        axes = (0, *(None for _ in range(layout.state_count)))
+        nested = jax.vmap(
+            jax.vmap(
+                lambda *values: equation.primitive.bind(*values, **equation.params),
+                in_axes=axes,
+            ),
+            in_axes=axes,
+        )
+        batched = nested(np.broadcast_to(x, (2, 3, 2)), *operands[1:])
+        for observed, batch_shape in ((actual, ()), (batched, (2, 3))):
+            assert len(observed) == 1 + layout.state_count
+            _assert_native_flat_result_values(
+                np.asarray(observed[0]),
+                np.broadcast_to(
+                    np.asarray(native_result.value),
+                    (*batch_shape, *native_result.value.shape),
+                ),
+            )
+            for actual_state, expected_state in zip(
+                observed[1:], native_state, strict=True
+            ):
+                assert actual_state.dtype == expected_state.dtype
+                assert actual_state.shape == (*batch_shape, *expected_state.shape)
+                is_key = jax.dtypes.issubdtype(
+                    expected_state.dtype, jax.dtypes.prng_key
+                )
+                actual_data = np.asarray(
+                    jax.random.key_data(actual_state) if is_key else actual_state
+                )
+                expected_data = np.asarray(
+                    jax.random.key_data(expected_state) if is_key else expected_state
+                )
+                _assert_native_flat_result_values(
+                    actual_data,
+                    np.broadcast_to(
+                        expected_data, (*batch_shape, *expected_data.shape)
+                    ),
+                )
+
+    closed, reference, buffers = captured_owned()
+    assert clone_references
+    assert plugin._orig_fn is plugin_fields[0]
+    assert plugin._unbound_orig_fn is plugin_fields[1]
+    gc.collect()
+    assert reference() is None
+    assert all(reference() is None for reference in clone_references)
+    exercise(closed, buffers)
+    assert plugin._orig_fn is plugin_fields[0]
+    assert plugin._unbound_orig_fn is plugin_fields[1]
+    del closed
+    gc.collect()
+    assert reference() is None
+    assert all(reference() is None for reference in (*buffers, *clone_references))
+
+
+@pytest.mark.parametrize("fail", [False, True], ids=["completed", "failed"])
+def test_source_function_custom_aux_exports_release_owner_and_weights(
+    fail, monkeypatch
+):
+    import gc
+    import weakref
+
+    from jax2onnx.plugins.plugin_system import (
+        FunctionPlugin,
+        ONNX_FUNCTION_PLUGIN_REGISTRY,
+        _qualname_of_target,
+    )
+
+    plugin = ONNX_FUNCTION_PLUGIN_REGISTRY[_qualname_of_target(_FlatAuxExportOwner)]
+    plugin_fields = plugin._orig_fn, plugin._unbound_orig_fn
+    original_trace = FunctionPlugin._trace_function_body
+    completed_traces = 0
+    sentinel_observed = False
+    sentinel = "abort after SOURCE custom-aux body trace"
+
+    def checked_trace(self, *args, **kwargs):
+        nonlocal completed_traces
+        closed = original_trace(self, *args, **kwargs)
+        if self is plugin:
+            completed_traces += 1
+            if fail:
+                raise RuntimeError(sentinel)
+        return closed
+
+    monkeypatch.setattr(FunctionPlugin, "_trace_function_body", checked_trace)
+
+    def export_owned():
+        nonlocal sentinel_observed
+        owner = _FlatAuxExportOwner()
+        references = weakref.ref(owner), weakref.ref(owner.weights)
+
+        def call(x):
+            return owner(x).value
+
+        artifact = None
+        try:
+            with jax.enable_x64(False):
+                artifact = ui._to_onnx(
+                    call,
+                    [jax.ShapeDtypeStruct((2,), np.float32)],
+                    precision_policy=PrecisionPolicy.SOURCE,
+                    return_mode="ir",
+                )
+        except RuntimeError as error:
+            assert fail and type(error) is RuntimeError and str(error) == sentinel
+            sentinel_observed = True
+        else:
+            assert not fail
+            assert isinstance(artifact, ir.Model) and len(artifact.functions) == 1
+            onnx.checker.check_model(ir.to_proto(artifact), full_check=True)
+        return artifact, references
+
+    artifact, references = export_owned()
+    assert completed_traces == 1 and sentinel_observed is fail
+    assert plugin._orig_fn is plugin_fields[0]
+    assert plugin._unbound_orig_fn is plugin_fields[1]
+    gc.collect()
+    assert all(reference() is None for reference in references)
+    if not fail:
+        # Keep the actual artifact live beyond release of all Python owners.
+        assert isinstance(artifact, ir.Model) and len(artifact.functions) == 1
+
+
+def test_source_function_custom_aux_live_equation_owns_only_its_lifetime():
+    import gc
+    import weakref
+
+    from jax2onnx.converter.conversion_api import _activate_plugin_worlds
+    from jax2onnx.converter.precision_policy import precision_policy_scope
+    from jax2onnx.plugins.plugin_system import (
+        ONNX_FUNCTION_PLUGIN_REGISTRY,
+        _SOURCE_TRACE,
+        _qualname_of_target,
+    )
+
+    plugin = ONNX_FUNCTION_PLUGIN_REGISTRY[_qualname_of_target(_FlatAuxExportOwner)]
+    plugin_fields = plugin._orig_fn, plugin._unbound_orig_fn
+
+    def owned_equation():
+        owner = _FlatAuxExportOwner()
+        references = weakref.ref(owner), weakref.ref(owner.weights)
+
+        def call(x):
+            return owner(x).value
+
+        with (
+            jax.enable_x64(False),
+            precision_policy_scope(PrecisionPolicy.SOURCE),
+            _activate_plugin_worlds(),
+        ):
+            closed = jax.make_jaxpr(call)(jax.ShapeDtypeStruct((2,), np.float32))
+        (equation,) = closed.jaxpr.eqns
+        return equation, references
+
+    def exercise(equation, references):
+        metadata = equation.params[_SOURCE_TRACE]
+        assert metadata.call.receiver is references[0]()
+        assert metadata.call.original.__self__ is references[0]()
+        x = np.asarray([-2.0, 3.0], np.float32)
+        (actual,) = equation.primitive.impl(x, **equation.params)
+        _assert_native_flat_result_values(np.asarray(actual), -x)
+        nested = jax.vmap(
+            jax.vmap(lambda row: equation.primitive.bind(row, **equation.params))
+        )
+        values = np.broadcast_to(x, (2, 3, 2))
+        (actual,) = nested(values)
+        _assert_native_flat_result_values(np.asarray(actual), -values)
+
+    equation, references = owned_equation()
+    gc.collect()
+    assert all(reference() is not None for reference in references)
+    exercise(equation, references)
+    assert plugin._orig_fn is plugin_fields[0]
+    assert plugin._unbound_orig_fn is plugin_fields[1]
+    del equation
+    gc.collect()
+    assert all(reference() is None for reference in references)

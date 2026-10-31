@@ -43,6 +43,7 @@ from jax2onnx._compat.jax import (
     is_selected_prng_key_dtype,
     selected_prng_key_words,
     is_native_precision_pair,
+    is_unpartitioned_prng_placement,
 )
 from jax2onnx.converter.source_deployment import (
     DeploymentTarget,
@@ -1109,8 +1110,116 @@ def _validate_dim_as_value(
     _same_shape(target.shape, (), site)
 
 
-def _validate_copy(
+def _require_complex_layout_equation(eqn: Any, site: _Site) -> None:
+    """Bind the private complex selector to six pure canonical equations."""
+    primitives = {
+        "copy": jax.lax.copy_p,
+        "reshape": jax.lax.reshape_p,
+        "transpose": jax.lax.transpose_p,
+        "squeeze": jax.lax.squeeze_p,
+        "concatenate": jax.lax.concatenate_p,
+        "rev": jax.lax.rev_p,
+    }
+    site.require(
+        site.primitive in primitives
+        and eqn.primitive is primitives[site.primitive]
+        and not eqn.effects
+        and type(eqn.params) is dict,
+        "complex layout identity, effects or parameter container differs from native",
+        "one of the six pure canonical native layout primitives",
+        category="lowering-defect",
+    )
+
+
+def _static_complex_tensor_result(
+    eqn: Any,
+    data: Sequence[_Tensor],
+    target: _Tensor,
+    site: _Site,
+    *,
+    weak_inputs: Sequence[Any] | None = None,
+) -> None:
+    """Check shared static complex data while each caller keeps its exact owner."""
+    site.require(
+        site.opset in (23, 26),
+        "complex layout at this opset needs separate implementation",
+        "the static complex pair representation at opset 23 or 26",
+    )
+    site.require(
+        target.dtype in _COMPLEX
+        and bool(data)
+        and all(value.dtype == target.dtype for value in data),
+        "complex layout changes or mixes its native data width",
+        "one unchanged complex64 or complex128 data dtype",
+    )
+    site.require(
+        eqn.outvars[0].aval.weak_type
+        is all(
+            var.aval.weak_type
+            for var in (eqn.invars if weak_inputs is None else weak_inputs)
+        ),
+        "complex layout result weakness differs from native operands",
+        "the native conjunction of all operand Boolean weak_type flags",
+        category="lowering-defect",
+    )
+    site.require(
+        all(
+            value.symbol is None
+            and all(
+                isinstance(dim, (int, np.integer))
+                and not isinstance(dim, (bool, np.bool_))
+                and 0 <= dim <= np.iinfo(np.int64).max
+                for dim in value.shape
+            )
+            for value in (*data, target)
+        ),
+        "complex layout needs static INT64-representable dimensions",
+        "static nonnegative native dimensions representable as INT64 shape constants",
+    )
+    site.require(
+        all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS)
+        and all(
+            is_unpartitioned_prng_placement(var.aval.sharding, len(var.aval.shape))
+            for var in (*eqn.invars, *eqn.outvars)
+        ),
+        "complex layout placement needs separate implementation",
+        "ordinary absent/empty unpartitioned native placement",
+    )
+
+
+def _complex_layout_result(
+    eqn: Any, data: Sequence[_Tensor], target: _Tensor, site: _Site
+) -> None:
+    """Keep the original six canonical layout primitives as their own owner."""
+    _require_complex_layout_equation(eqn, site)
+    _static_complex_tensor_result(eqn, data, target, site)
+
+
+def _validate_complex_layout(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    """Select only the six complex layout owners and reuse their exact shape laws."""
+    _require_complex_layout_equation(eqn, site)
+    if site.primitive == "copy":
+        _validate_copy(eqn, inputs, outputs, site, _complex_data=True)
+    elif site.primitive == "reshape":
+        _validate_reshape(eqn, inputs, outputs, site, _complex_data=True)
+    elif site.primitive in {"transpose", "squeeze", "concatenate", "rev"}:
+        _validate_tensor_layout(eqn, inputs, outputs, site, _complex_data=True)
+    else:
+        site.fail(
+            "primitive is outside the closed complex layout family",
+            "copy, reshape, transpose, squeeze, concatenate or rev",
+        )
+
+
+def _validate_copy(
+    eqn: Any,
+    inputs: list[_Tensor],
+    outputs: list[_Tensor],
+    site: _Site,
+    *,
+    _complex_data: bool = False,
 ) -> None:
     """Native copy preserves the canonical REAL value through an Identity."""
     _arity(eqn, 1, 1, site)
@@ -1123,7 +1232,10 @@ def _validate_copy(
         category="lowering-defect",
     )
     source, target = inputs[0], outputs[0]
-    _tensor_result(eqn, inputs, target, site)
+    if _complex_data:
+        _complex_layout_result(eqn, inputs, target, site)
+    else:
+        _tensor_result(eqn, inputs, target, site)
     _same_shape(target.shape, source.shape, site)
     site.require(
         target.symbol == source.symbol,
@@ -1134,14 +1246,22 @@ def _validate_copy(
 
 
 def _validate_reshape(
-    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+    eqn: Any,
+    inputs: list[_Tensor],
+    outputs: list[_Tensor],
+    site: _Site,
+    *,
+    _complex_data: bool = False,
 ) -> None:
     _arity(eqn, 1, 1, site)
     _params(
         eqn, {"new_sizes", "dimensions"}, site, required={"new_sizes", "dimensions"}
     )
     source, target = inputs[0], outputs[0]
-    _tensor_result(eqn, inputs, target, site)
+    if _complex_data:
+        _complex_layout_result(eqn, inputs, target, site)
+    else:
+        _tensor_result(eqn, inputs, target, site)
     expected = eqn.params["new_sizes"]
     site.require(
         isinstance(expected, tuple),
@@ -1187,7 +1307,12 @@ def _validate_reshape(
 
 
 def _validate_tensor_layout(
-    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+    eqn: Any,
+    inputs: list[_Tensor],
+    outputs: list[_Tensor],
+    site: _Site,
+    *,
+    _complex_data: bool = False,
 ) -> None:
     name = site.primitive
     _arity(eqn, len(inputs) if name == "concatenate" else 1, 1, site)
@@ -1198,7 +1323,10 @@ def _validate_tensor_layout(
         category="lowering-defect",
     )
     target = outputs[0]
-    _tensor_result(eqn, inputs, target, site)
+    if _complex_data:
+        _complex_layout_result(eqn, inputs, target, site)
+    else:
+        _tensor_result(eqn, inputs, target, site)
     source = inputs[0]
     rank = len(source.shape)
     if name == "concatenate":
@@ -1766,10 +1894,94 @@ def _pointwise_shape(inputs: Sequence[_Tensor], result: _Tensor, site: _Site) ->
     _same_shape(result.shape, shape, site)
 
 
+def _validate_complex_broadcast_in_dim(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    """Prove a static logical broadcast before mapping its real/imaginary axis."""
+    _arity(eqn, 1, 1, site)
+    site.require(
+        eqn.primitive is jax.lax.broadcast_in_dim_p
+        and not eqn.effects
+        and type(eqn.params) is dict,
+        "complex broadcast identity, effects or parameters differ from native",
+        "the pure canonical native broadcast_in_dim with dictionary parameters",
+        category="lowering-defect",
+    )
+    _params(
+        eqn,
+        {"shape", "broadcast_dimensions"},
+        site,
+        required={"shape", "broadcast_dimensions"},
+    )
+    source, target = inputs[0], outputs[0]
+    site.require(
+        site.opset in (23, 26),
+        "complex broadcast at this opset needs separate implementation",
+        "the static complex pair representation at opset 23 or 26",
+    )
+    site.require(
+        source.dtype in _COMPLEX and source.dtype == target.dtype,
+        "complex broadcast changes its logical width",
+        "one unchanged complex64 or complex128 dtype",
+        category="lowering-defect",
+    )
+    site.require(
+        source.symbol is None
+        and target.symbol is None
+        and all(
+            isinstance(dim, (int, np.integer))
+            and not isinstance(dim, (bool, np.bool_))
+            and dim >= 0
+            for value in (source, target)
+            for dim in value.shape
+        ),
+        "symbolic complex broadcast needs separate implementation",
+        "static nonnegative logical dimensions",
+    )
+    site.require(
+        all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
+        "complex broadcast placement needs separate implementation",
+        "an unspecified placement",
+    )
+    shape, dimensions = eqn.params["shape"], eqn.params["broadcast_dimensions"]
+    site.require(
+        type(shape) is tuple
+        and type(dimensions) is tuple
+        and all(
+            isinstance(dim, (int, np.integer))
+            and not isinstance(dim, (bool, np.bool_))
+            and dim >= 0
+            for dim in shape
+        )
+        and shape == target.shape
+        and len(dimensions) == len(source.shape)
+        and all(
+            isinstance(axis, (int, np.integer))
+            and not isinstance(axis, (bool, np.bool_))
+            and 0 <= axis < len(target.shape)
+            for axis in dimensions
+        )
+        and len(set(dimensions)) == len(dimensions)
+        and all(
+            size in (1, target.shape[axis])
+            for size, axis in zip(source.shape, dimensions, strict=True)
+        )
+        and type(eqn.invars[0].aval.weak_type) is bool
+        and type(eqn.outvars[0].aval.weak_type) is bool
+        and eqn.invars[0].aval.weak_type == eqn.outvars[0].aval.weak_type,
+        "complex broadcast shape, mapping or weakness disagrees with native",
+        "the declared target shape, one unique compatible axis per input axis and unchanged weakness",
+        category="lowering-defect",
+    )
+
+
 def _validate_broadcast_in_dim(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
     """Bind native target shape and the exact mapped symbolic axis."""
+    if any(value.dtype in _COMPLEX for value in (*inputs, *outputs)):
+        _validate_complex_broadcast_in_dim(eqn, inputs, outputs, site)
+        return
     _arity(eqn, 1, 1, site)
     _params(
         eqn,
@@ -2033,6 +2245,61 @@ def _validate_complex_add(
     _pointwise_shape(inputs, outputs[0], site)
 
 
+def _validate_complex_conj(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    """Prove same-width conjugation before touching the physical pair."""
+    site.require(
+        eqn.primitive is jax.lax.conj_p
+        and not eqn.effects
+        and type(eqn.params) is dict,
+        "complex conjugation identity, effects or parameters differ from native",
+        "the pure canonical lax.conj_p with native dictionary parameters",
+        category="lowering-defect",
+    )
+    _arity(eqn, 1, 1, site)
+    _params(eqn, {"input_dtype"}, site, required={"input_dtype"})
+    source, target = inputs[0], outputs[0]
+    site.require(
+        site.opset in (23, 26),
+        "complex conjugation at this opset needs separate implementation",
+        "the static complex pair representation at opset 23 or 26",
+    )
+    site.require(
+        source.dtype in _COMPLEX and target.dtype == source.dtype,
+        "complex conjugation operand/result widths need separate implementation",
+        "one complex64 or complex128 operand and its same-width result",
+    )
+    site.require(
+        all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
+        "complex conjugation placement needs separate implementation",
+        "native conjugation with unspecified placement",
+    )
+    site.require(
+        isinstance(eqn.params["input_dtype"], np.dtype)
+        and eqn.params["input_dtype"] == np.dtype(source.dtype)
+        and eqn.outvars[0].aval.weak_type is eqn.invars[0].aval.weak_type,
+        "complex conjugation dtype attribute or weakness disagrees with native",
+        "the exact native input_dtype and unchanged Boolean weakness",
+        category="lowering-defect",
+    )
+    site.require(
+        all(
+            value.symbol is None
+            and all(
+                isinstance(dim, (int, np.integer))
+                and not isinstance(dim, (bool, np.bool_))
+                and dim >= 0
+                for dim in value.shape
+            )
+            for value in (*inputs, *outputs)
+        ),
+        "symbolic complex conjugation needs separate implementation",
+        "static nonnegative native complex dimensions",
+    )
+    _same_shape(target.shape, source.shape, site)
+
+
 def _validate_complex_foundation(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
@@ -2063,6 +2330,55 @@ def _validate_complex_foundation(
         category="lowering-defect",
     )
     _pointwise_shape(inputs, target, site)
+
+
+def _validate_complex_select(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    """Own native static same-width complex case selection, including all arms."""
+    site.require(
+        eqn.primitive is jax.lax.select_n_p
+        and not eqn.effects
+        and type(eqn.params) is dict
+        and not eqn.params,
+        "complex select identity, effects or parameters differ from native",
+        "the pure canonical select_n primitive with its empty native parameters",
+        category="lowering-defect",
+    )
+    site.require(
+        len(inputs) >= 2 and len(outputs) == 1,
+        "complex select requires a selector, at least one case and one result",
+        "the exact native nonempty case arity",
+        category="lowering-defect",
+    )
+    selector, cases, target = inputs[0], inputs[1:], outputs[0]
+    _static_complex_tensor_result(eqn, cases, target, site, weak_inputs=eqn.invars[1:])
+    site.require(
+        selector.dtype in _INTEGERS | {"bool"}
+        and selector.symbol is None
+        and selector.shape in ((), target.shape),
+        "complex select has an unsupported selector type or shape",
+        "one ordinary Boolean/integer scalar or mask with the exact logical case shape",
+    )
+    site.require(
+        selector.dtype != "bool" or len(cases) <= 2,
+        "Boolean complex select has more than two cases",
+        "the native Boolean one/two-case rule",
+        category="lowering-defect",
+    )
+    site.require(
+        all(value.shape == target.shape and value.symbol is None for value in cases),
+        "complex select case/result shapes differ",
+        "equal concrete native shapes for every case and result",
+        category="lowering-defect",
+    )
+    bound = int(np.iinfo(np.int64).max)
+    size = prod(int(dim) for dim in target.shape)
+    site.require(
+        len(cases) <= bound and len(cases) * size * 2 <= bound,
+        "complex select stacked physical element count exceeds INT64",
+        "INT64-representable N*prod(logical_shape)*2 storage",
+    )
 
 
 def _validate_select(
@@ -2448,11 +2764,16 @@ def _validate_equation(
                 "the selected native PRNG algorithm, context and empty placement",
             )
     elif name == "select_n":
-        _validate_select(eqn, inputs, outputs, site)
+        if any(value.dtype in _COMPLEX for value in (*inputs, *outputs)):
+            _validate_complex_select(eqn, inputs, outputs, site)
+        else:
+            _validate_select(eqn, inputs, outputs, site)
     elif name in {"eq", "ne", "lt", "le", "gt", "ge"}:
         _validate_predicate(eqn, inputs, outputs, site)
     elif name in {"and", "or", "xor", "not"}:
         _validate_bitwise(eqn, inputs, outputs, site)
+    elif name == "conj":
+        _validate_complex_conj(eqn, inputs, outputs, site)
     elif name in {"real", "imag", "complex"}:
         _validate_complex_foundation(eqn, inputs, outputs, site)
     elif name == "exp":
@@ -2568,6 +2889,15 @@ def _validate_equation(
         validate_native_conv(eqn, inputs, outputs, site)
     elif name == "reduce_window_sum":
         validate_native_window_sum(eqn, inputs, outputs, site)
+    elif name in {
+        "copy",
+        "reshape",
+        "transpose",
+        "squeeze",
+        "concatenate",
+        "rev",
+    } and any(value.dtype in _COMPLEX for value in (*inputs, *outputs)):
+        _validate_complex_layout(eqn, inputs, outputs, site)
     elif name == "copy":
         _validate_copy(eqn, inputs, outputs, site)
     elif name == "reshape":

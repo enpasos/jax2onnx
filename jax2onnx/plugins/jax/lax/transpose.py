@@ -15,6 +15,8 @@ from jax2onnx.converter.source_representation import representation_for_aval
 from jax import lax
 
 import onnx_ir as ir
+
+from jax2onnx.plugins.jax.lax._source_complex_layout import lower_source_complex_layout
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -109,6 +111,9 @@ class TransposePlugin(PrimitiveLeafPlugin):
     """plugins IR converter for jax.lax.transpose → ONNX Transpose."""
 
     def lower(self, ctx: Any, eqn: JaxprEqn) -> None:
+        if lower_source_complex_layout(ctx, eqn):
+            return
+
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
 

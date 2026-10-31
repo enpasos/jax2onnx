@@ -8,6 +8,8 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins.jax.lax._source_complex_layout import lower_source_complex_layout
+
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import _Site, _tensor, _validate_tensor_layout
@@ -138,6 +140,9 @@ def _cast_value(
 )
 class ConcatenatePlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if lower_source_complex_layout(ctx, eqn):
+            return
+
         if ctx.precision_policy is PrecisionPolicy.SOURCE:
             self._lower_source_native(ctx, eqn)
             return

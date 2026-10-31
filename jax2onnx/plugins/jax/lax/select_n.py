@@ -9,6 +9,8 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_profile import _Site, _tensor, _validate_complex_select
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -22,6 +24,100 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 import jax.numpy as jnp
+
+
+def _lower_source_complex_select(ctx: LoweringContextProtocol, eqn: Any) -> bool:
+    """Copy the selected complete pair after proving every physical operand."""
+    if ctx.precision_policy is not PrecisionPolicy.SOURCE:
+        return False
+    if not any(
+        isinstance(var.aval.dtype, np.dtype)
+        and var.aval.dtype in (np.dtype(np.complex64), np.dtype(np.complex128))
+        for var in (*eqn.invars, *eqn.outvars)
+    ):
+        return False
+    site = _Site(
+        "static complex select lowering", ctx.builder.opset, eqn.primitive.name
+    )
+    _validate_complex_select(
+        eqn,
+        [_tensor(var, site) for var in eqn.invars],
+        [_tensor(var, site) for var in eqn.outvars],
+        site,
+    )
+    values = []
+    for var in eqn.invars:
+        value = ctx.require_value_for_var(var)
+        if not representation_for_aval(var.aval).matches_ir_value(value):
+            raise TypeError(
+                "SOURCE complex select physical input differs from its declared representation"
+            )
+        values.append(value)
+    out_var = eqn.outvars[0]
+    representation = representation_for_aval(out_var.aval)
+    output = ctx.allocate_value_for_var(
+        out_var, name_hint=ctx.fresh_name("source_complex_select")
+    )
+    if not representation.matches_ir_value(output):
+        raise TypeError(
+            "SOURCE complex select physical output differs from its declared pair"
+        )
+    logical = tuple(int(dim) for dim in out_var.aval.shape)
+    physical = (*logical, 2)
+    dtype = representation.ir_dtype
+    builder = ctx.builder
+
+    def stamp(value: ir.Value, shape: tuple[int, ...], kind: ir.DataType) -> ir.Value:
+        value.type = ir.TensorType(kind)
+        _stamp_type_and_shape(value, shape)
+        _ensure_value_metadata(ctx, value)
+        return value
+
+    axis = _const_i64(ctx, np.asarray([0], dtype=np.int64), "complex_select_axis")
+    arms = [
+        stamp(builder.op("Unsqueeze", [value, axis]), (1, *physical), dtype)
+        for value in values[1:]
+    ]
+    stacked = stamp(
+        builder.op("Concat", arms, {"axis": 0}), (len(arms), *physical), dtype
+    )
+    index = values[0]
+    if index.dtype != ir.DataType.INT64:
+        index = stamp(
+            builder.op("Cast", [index], {"to": int(ir.DataType.INT64.value)}),
+            tuple(int(dim) for dim in eqn.invars[0].aval.shape),
+            ir.DataType.INT64,
+        )
+    # A single logical selector is duplicated across both real/imaginary words.
+    index_shape = (
+        (1, *logical, 1) if eqn.invars[0].aval.shape else (1,) * (len(logical) + 2)
+    )
+    reshape_shape = _const_i64(
+        ctx, np.asarray(index_shape, dtype=np.int64), "complex_select_index_shape"
+    )
+    index = stamp(
+        builder.op("Reshape", [index, reshape_shape], {"allowzero": 1}),
+        index_shape,
+        ir.DataType.INT64,
+    )
+    gathered_shape = (1, *physical)
+    expand_shape = _const_i64(
+        ctx, np.asarray(gathered_shape, dtype=np.int64), "complex_select_expand_shape"
+    )
+    index = stamp(
+        builder.op("Expand", [index, expand_shape]), gathered_shape, ir.DataType.INT64
+    )
+    selected = stamp(
+        builder.op("GatherElements", [stacked, index], {"axis": 0}),
+        gathered_shape,
+        dtype,
+    )
+    result = builder.op("Squeeze", [selected, axis], output=output)
+    if not representation.matches_ir_value(result):
+        raise TypeError("SOURCE complex select changed the declared physical result")
+    _ensure_value_metadata(ctx, result)
+    ctx.bind_value_for_var(out_var, result)
+    return True
 
 
 @register_native_primitive(
@@ -139,6 +235,8 @@ class SelectNPlugin(PrimitiveLeafPlugin):
     """IR-only selection with exact SOURCE floating-point copies."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if _lower_source_complex_select(ctx, eqn):
+            return
         builder = ctx.builder
 
         invars = list(eqn.invars)

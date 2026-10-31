@@ -975,9 +975,12 @@ def test_copy_rejects_malformed_native_contract_before_identity_lowering(
         graph.eqns[0].effects = ("unreviewed effect",)
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(graph, 23)
+    # The synthetic complex row has only a same-name primitive. Canonical
+    # complex copy now has its own owner; a forged identity is a lowering
+    # defect, while the default REAL contract remains unchanged.
     assert caught.value.category == (
         "profile-exclusion"
-        if defect in {"scope", "equation-effects", "complex"}
+        if defect in {"scope", "equation-effects"}
         else "lowering-defect"
     )
     assert caught.value.primitive == "copy"

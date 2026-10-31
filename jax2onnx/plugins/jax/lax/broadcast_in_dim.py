@@ -7,6 +7,13 @@ import jax.numpy as jnp
 from jax import lax
 import numpy as np
 import onnx_ir as ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_profile import (
+    _Site,
+    _tensor,
+    _validate_complex_broadcast_in_dim,
+)
+from jax2onnx.converter.source_representation import representation_for_aval
 
 # from onnx_ir import Attribute as IRAttr
 from jax2onnx.converter.typing_support import (
@@ -219,6 +226,74 @@ def _maybe_inline_constant_broadcast(
     return True
 
 
+def _lower_source_complex_broadcast(ctx: LoweringContextProtocol, eqn: Any) -> None:
+    site = _Site("complex broadcast lowering", ctx.builder.opset, eqn.primitive.name)
+    _validate_complex_broadcast_in_dim(
+        eqn,
+        [_tensor(var, site) for var in eqn.invars],
+        [_tensor(var, site) for var in eqn.outvars],
+        site,
+    )
+    source_var, target_var = eqn.invars[0], eqn.outvars[0]
+    source = representation_for_aval(source_var.aval)
+    target = representation_for_aval(target_var.aval)
+    value = ctx.require_value_for_var(source_var)
+    if not source.matches_ir_value(value):
+        raise TypeError(
+            "SOURCE complex broadcast physical storage differs from its declared pair"
+        )
+    # Logical axes are mapped first; the unchanged channel is always mapped to
+    # the final physical axis. Do not infer complex storage from an extent of 2.
+    reshape = [1] * len(target.logical_shape)
+    for size, axis in zip(
+        source.logical_shape, eqn.params["broadcast_dimensions"], strict=True
+    ):
+        reshape[axis] = int(cast(int, size))
+    physical_reshape = (*reshape, 2)
+    output = ctx.allocate_value_for_var(
+        target_var, name_hint=ctx.fresh_name("source_complex_broadcast")
+    )
+    if not target.matches_ir_value(output):
+        raise TypeError("SOURCE complex broadcast allocated incompatible storage")
+    # Native mappings can transpose logical axes. Order those axes by their
+    # destination before inserting singleton axes, leaving the pair axis last.
+    dimensions = eqn.params["broadcast_dimensions"]
+    order = tuple(sorted(range(len(source.logical_shape)), key=dimensions.__getitem__))
+    mapped_shape = source.physical_shape
+    if order != tuple(range(len(source.logical_shape))):
+        mapped_shape = tuple(source.logical_shape[axis] for axis in order) + (2,)
+        value = ctx.builder.op(
+            "Transpose",
+            [value],
+            {"perm": ir.AttrInt64s("perm", (*order, len(source.logical_shape)))},
+            output=ir.val(
+                ctx.fresh_name("complex_broadcast_permuted"),
+                dtype=source.ir_dtype,
+                shape=tuple(cast(int, dim) for dim in mapped_shape),
+            ),
+        )
+    if mapped_shape == target.physical_shape:
+        result = ctx.builder.op("Identity", [value], output=output)
+    else:
+        if mapped_shape != physical_reshape:
+            shape = _const_i64(ctx, physical_reshape, "complex_broadcast_reshape")
+            value = ctx.builder.op(
+                "Reshape",
+                [value, shape],
+                {"allowzero": 1},
+                output=ir.val(
+                    ctx.fresh_name("complex_broadcast_mapped"),
+                    dtype=source.ir_dtype,
+                    shape=physical_reshape,
+                ),
+            )
+        shape = _const_i64(ctx, target.physical_shape, "complex_broadcast_target")
+        result = ctx.builder.op("Expand", [value, shape], output=output)
+    if not target.matches_ir_value(result):
+        raise TypeError("SOURCE complex broadcast changed its declared pair storage")
+    ctx.bind_value_for_var(target_var, result)
+
+
 @register_native_primitive(
     jaxpr_primitive=jax.lax.broadcast_in_dim_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/jax-primitives.html",
@@ -322,6 +397,12 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
     """
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE and any(
+            np.dtype(var.aval.dtype).name in {"complex64", "complex128"}
+            for var in (*eqn.invars, *eqn.outvars)
+        ):
+            _lower_source_complex_broadcast(ctx, eqn)
+            return
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(

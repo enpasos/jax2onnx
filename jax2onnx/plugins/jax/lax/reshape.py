@@ -11,6 +11,8 @@ import jax
 from jax import lax
 
 import onnx_ir as ir
+
+from jax2onnx.plugins.jax.lax._source_complex_layout import lower_source_complex_layout
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -270,6 +272,9 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
     # ---------------- lowering (IR) ----------------
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if lower_source_complex_layout(ctx, eqn):
+            return
+
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
         new_sizes = tuple(eqn.params["new_sizes"])

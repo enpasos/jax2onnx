@@ -931,6 +931,7 @@ class FunctionPlugin(PrimitivePlugin):
                 layout = FunctionOperandLayout(len(args), len(operands), len(state))
                 operands = (*operands, *state)
         observed_effects: list[tuple[int, ...]] = []
+        result_trees: list[Any] = []
 
         def source_call(*operand_args: Any) -> Any:
             positional, call_kwargs = _unpack_function_arguments(
@@ -938,13 +939,19 @@ class FunctionPlugin(PrimitivePlugin):
             )
             call_kwargs.pop("instance_key", None)
             if adapter is None:
-                return callee(*positional, **call_kwargs)
-            assert layout is not None
-            result, state, effects = adapter.invoke(
-                positional, call_kwargs, tuple(operand_args[layout.argument_count :])
-            )
-            observed_effects.append(effects)
-            return result, state
+                result = callee(*positional, **call_kwargs)
+            else:
+                assert layout is not None
+                result, state, effects = adapter.invoke(
+                    positional,
+                    call_kwargs,
+                    tuple(operand_args[layout.argument_count :]),
+                )
+                observed_effects.append(effects)
+                result = result, state
+            leaves, tree = jtu.tree_flatten(result)
+            result_trees.append(tree)
+            return tuple(leaves)
 
         call_x64 = bool(jax.config.x64_enabled)
         call_matmul_precision = jax.config.jax_default_matmul_precision
@@ -954,6 +961,8 @@ class FunctionPlugin(PrimitivePlugin):
         from jax2onnx.converter._source_regions import freeze_closed_body
 
         closed_body, outputs = jax.make_jaxpr(source_call, return_shape=True)(*operands)
+        if len(result_trees) != 1:
+            raise ValueError("SOURCE Function result discovery must execute once")
         original_body = freeze_closed_body(closed_body)
         if adapter is not None:
             parameters[_SOURCE_KEY_REUSE] = self._source_key_reuse(closed_body)
@@ -968,7 +977,7 @@ class FunctionPlugin(PrimitivePlugin):
             adapter.validate_owner(owner)
             parameters[_SOURCE_STATE] = adapter
             parameters[_FUNCTION_LAYOUT] = layout
-        leaves, result_tree = jtu.tree_flatten(outputs)
+        leaves, result_tree = outputs, result_trees[0]
         parameters[_SOURCE_TRACE] = _SourceFunctionTrace(
             tuple(
                 self._aval_to_shaped_array(leaf, preserve_weak_type=True)
@@ -1595,7 +1604,9 @@ class FunctionPlugin(PrimitivePlugin):
                     if source_trace is not None and source_trace.call is not None
                     else callee
                 )
-                return original(*arguments[:base_count], **kwargs)
+                result = original(*arguments[:base_count], **kwargs)
+                # The body Jaxpr is flat; keep custom aux out of native tree-cache keys.
+                return tuple(jtu.tree_leaves(result))
 
         active = _IN_FUNCTION_BUILD.get()
         token = _IN_FUNCTION_BUILD.set(active | {self.name})

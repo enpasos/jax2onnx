@@ -356,17 +356,22 @@ def test_integer_where_accepts_original_int32_signature() -> None:
     _accept(proto, feeds, references, _BITWISE)
 
 
-def test_complex_where_remains_excluded() -> None:
-    with pytest.raises(SourcePrecisionError) as error:
-        ui._to_onnx(
-            lambda c, x: jnp.where(c, x, x),
-            [
-                jax.ShapeDtypeStruct((2,), bool),
-                jax.ShapeDtypeStruct((2,), np.complex64),
-            ],
-            precision_policy=PrecisionPolicy.SOURCE,
-        )
-    assert error.value.category == "profile-exclusion"
+def test_complex_where_has_static_pair_artifact() -> None:
+    # Static same-width complex selection now has a dedicated SOURCE route.
+    # Numerical copy/NaN/zero evidence belongs to the complete complex owner.
+    model = ui._to_onnx(
+        lambda c, x: jnp.where(c, x, x),
+        [
+            jax.ShapeDtypeStruct((2,), bool),
+            jax.ShapeDtypeStruct((2,), np.complex64),
+        ],
+        precision_policy=PrecisionPolicy.SOURCE,
+        return_mode="proto",
+    )
+    onnx.checker.check_model(model, full_check=True)
+    output = model.graph.output[0].type.tensor_type
+    assert output.elem_type == onnx.TensorProto.FLOAT
+    assert tuple(dim.dim_value for dim in output.shape.dim) == (2, 2)
 
 
 @pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])

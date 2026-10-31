@@ -30,6 +30,81 @@ To stay portable across runtimes we represent every complex tensor as a real ten
 
 These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookkeeping so individual plugins only need to express the real-valued arithmetic. New complex-aware plugins should rely on them instead of ad hoc `Gather` / `Reshape` sequences so every lowering shares the same representation.
 
+## Private SOURCE broadcast contract
+
+Static SOURCE `broadcast_in_dim` at opsets 23/26 preserves the declared
+complex64/complex128 width and final real/imaginary channel. Logical axis mappings
+may permute axes; typed Transpose, Reshape and Expand keep the channel last.
+An original public call that native JAX forwards unchanged remains an alias;
+the converter does not invent a broadcast for that trace.
+
+Selected official Python 3.11/3.13 checks pass with ORT 1.31 CPU, optimizations
+disabled and enabled: 56 numerical copy/capture cases, 12 rejection controls and
+two broadcast-admission controls per family. Captures include noncontiguous views,
+a registered plain-owner Function and an independent real trailing-two sibling.
+The two product-source admission controls do not qualify complex Mul numerics.
+General Mul, complete B–F, minimum ORT and public SOURCE transition remain open;
+public LEGACY remains the default.
+
+## Private SOURCE conjugation contract
+
+Static same-width `lax.conj` at opsets 23/26 validates the native `input_dtype`,
+weakness and complete physical pair before allocating or emitting nodes. The
+existing Gather/Neg/Concat helper keeps the real component and negates the
+imaginary component without a width conversion or floating product. Original
+`jnp.conj` traces retain their native dependencies.
+
+Selected official 3.11/3.13 checks with ORT 1.31 pass 68 numerical cases and 27
+rejection controls per family, including captured views and real/imaginary
+projections. The independent oracle flips only the imaginary sign bit; comparison
+requires equal NaN masks and exact non-NaN component words, including signed
+zeros and subnormals. NaN payloads and signs are recorded without a preservation
+claim. Cross-width conversion, real-input `lax.conj`, symbolic complex scopes,
+general Mul/AD, minimum ORT and public SOURCE transition remain separate work.
+
+## Private SOURCE static tensor-layout contract
+
+Static same-width complex `copy`, `reshape`, `transpose`, `squeeze`,
+`concatenate` and `rev` at opsets 23/26 share a strict physical-pair contract.
+Canonical native equations, static shape/axis laws, dtype and weakness are checked
+before allocation; every input must already have the declared real width and
+last size-two channel. Logical permutations append that channel, reshape keeps
+literal zero extents, and reverse builds integer Range/Gather indices without
+floating arithmetic or a Python-sized index vector. Concatenation checks every
+input and the native all-input weakness rule. Real trailing-two tensors retain
+their separate path.
+
+The same ordered 343 checks pass on each official 3.11/3.13 family: 182 numerical
+cases and 161 rejection/bypass controls. Original eager/first/warm and both ORT
+1.31 CPU optimization modes match the independent copy/layout oracles in physical
+dtype/shape, NaN masks and exact non-NaN words. Coverage includes empty/scalar
+shapes, signed zeros, infinities, subnormals, noncontiguous inline/named captures,
+real siblings and repeated outputs. NaN payload/sign preservation, symbolic
+complex layout, width conversion, Mul/AD, minimum ORT, complete B–F and public
+SOURCE transition remain outside this finite contract.
+
+## Private SOURCE static selection contract
+
+Static same-width complex `lax.select`, `lax.select_n` and original `jnp.where`
+traces at opsets 23/26 select complete real/imaginary pairs. The dedicated native
+`select_n` admission checks all case and selector descriptors before allocation.
+Cases have equal logical shape and width; a Boolean selector has at most two
+cases, while an integer selector must satisfy the native precondition
+`0 <= which < number_of_cases`. Scalar selectors and selectors matching the
+logical shape are supported. Result weakness depends on every case, excluding
+the selector. Unsqueeze/Concat/GatherElements/Squeeze copy both component words
+without floating selection or arithmetic.
+
+The same ordered 286 checks pass on official 3.11/3.13 with ORT 1.31 CPU:
+234 numerical cases and 52 contract/representation controls. Original
+eager/first/warm and both target optimization modes match independent selected
+word oracles in physical dtype/shape, component NaN masks and exact non-NaN
+words. Coverage includes all eight integer selector widths in valid domains,
+scalar/empty/trailing-two shapes, weak values and noncontiguous inline/named
+captures with real and index siblings. NaN payloads/signs, out-of-domain integer
+selectors, mixed widths, symbolic complex scopes, Mul/Cast/AD, minimum ORT,
+complete B–F and public transition are not qualified by these checks.
+
 ## Supported operations
 
 - **Construction and projection** (`lax.complex`, `lax.real`, `lax.imag`):
