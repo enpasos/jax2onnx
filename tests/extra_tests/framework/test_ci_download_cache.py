@@ -2,10 +2,12 @@
 
 """Hosted cache safety and fixed serial STANDARD part transport."""
 
+from copy import deepcopy
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -570,3 +572,82 @@ def test_join_observes_current_attempt_jobs_before_acceptance_without_token_logs
     assert "2 * 1024**2 + 1" in snapshot and "timeout=20" in snapshot
     assert "print(" not in snapshot
     assert "redirect_request" in snapshot
+
+
+def _assert_early_env_has_no_runner_context(workflow):
+    # Actions job/workflow env excludes runner, unlike step env/with. YAML and
+    # bash parsers cannot detect this expression-context admission boundary.
+    scopes = [("workflow", workflow.get("env", {}))]
+    scopes.extend((name, job.get("env", {})) for name, job in workflow["jobs"].items())
+    for scope, environment in scopes:
+        for key, value in environment.items():
+            assert not (
+                isinstance(value, str)
+                and re.search(
+                    r"\$\{\{(?:(?!\}\}).)*\brunner\s*(?:\.|\[)", value, re.DOTALL
+                )
+            ), f"runner context is unavailable in {scope} env {key}"
+
+
+def test_workflow_and_job_env_use_only_available_actions_contexts():
+    _assert_early_env_has_no_runner_context(_workflow())
+
+
+@pytest.mark.parametrize("scope", ["workflow", "job"])
+@pytest.mark.parametrize(
+    "expression",
+    ["${{ runner.temp }}", "${{ format('{0}/receipts', runner['temp']) }}"],
+)
+def test_unavailable_runner_context_is_rejected_before_workflow_admission(
+    scope, expression
+):
+    workflow = deepcopy(_workflow())
+    if scope == "workflow":
+        environment = workflow.setdefault("env", {})
+    else:
+        environment = workflow["jobs"]["candidate-standard-locked312-join"].setdefault(
+            "env", {}
+        )
+    environment["FORBIDDEN_PATH"] = expression
+    with pytest.raises(AssertionError, match="runner context is unavailable"):
+        _assert_early_env_has_no_runner_context(workflow)
+
+
+def test_join_paths_are_initialized_from_real_runner_temp_before_any_consumer(tmp_path):
+    workflow = _workflow()
+    job = workflow["jobs"]["candidate-standard-locked312-join"]
+    step = job["steps"][0]
+    assert step["id"] == "join-paths" and step["shell"] == "bash"
+    names = {
+        "CANDIDATE_DIR": "ci-candidate-locked312-join",
+        "CANDIDATE_TOOLS": "ci-candidate-locked312-join-tools",
+        "CANDIDATE_VENV": "ci-candidate-locked312-join-venv",
+        "CANDIDATE_TMP": "ci-candidate-locked312-join-tmp",
+        "CANDIDATE_DOWNLOADS": "ci-standard-part-downloads",
+    }
+    assert set(names).isdisjoint(job["env"])
+    actual_temporary = tmp_path / "actual runner temporary with spaces"
+    actual_temporary.mkdir()
+    environment_file = tmp_path / "GITHUB_ENV"
+    environment_file.touch()
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(actual_temporary),
+            "GITHUB_ENV": str(environment_file),
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    written = dict(
+        line.split("=", 1) for line in environment_file.read_text().splitlines()
+    )
+    assert written == {
+        key: str(actual_temporary / suffix) for key, suffix in names.items()
+    }
+    assert not list(actual_temporary.iterdir())
+    assert "${{ runner." not in step["run"]
+    _assert_early_env_has_no_runner_context(workflow)

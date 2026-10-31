@@ -2,7 +2,15 @@
 
 ## Current STANDARD repair plan — qualification PENDING
 
-The coherent candidate remains unpublished; **hosted qualification is PENDING**.
+The two-part controller is published at `1ff4c9c6`; **hosted qualification is PENDING**.
+
+At exact `1ff4c9c6`, [CI582](https://github.com/enpasos/jax2onnx/actions/runs/41205139374)
+was rejected before any job: five join job-level environment expressions used
+an unavailable `runner` context. The same paths are now initialized from real
+`RUNNER_TEMP` in the first join step through `GITHUB_ENV`; the targeted check
+rejects this context in workflow/job environment maps. No model/work result
+is inferred from that failed admission, and fresh hosted qualification remains pending.
+
 CI581 at exact `8f113ea8` [locked312 job](https://github.com/enpasos/jax2onnx/actions/runs/41189302941) ended CANCELLED after 1,252 seconds whole-job:
 WORK was 1,105.4059 seconds and packing reached its 90-second deadline.
 Its observed aggregate peak was 4,429,303,808 bytes; the observed worker

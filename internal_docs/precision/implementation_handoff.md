@@ -2,8 +2,16 @@
 
 ## Current STANDARD repair handoff — qualification PENDING
 
-The coherent repair remains unpublished. **Final hosted qualification is PENDING**;
+The two-part controller is published at `1ff4c9c6`. **Final hosted qualification is PENDING**;
 no numerical conclusion or B–F completion is asserted.
+
+At exact `1ff4c9c6`, [CI582](https://github.com/enpasos/jax2onnx/actions/runs/41205139374)
+was rejected before any job: five join job-level environment expressions used
+an unavailable `runner` context. The same paths are now initialized from real
+`RUNNER_TEMP` in the first join step through `GITHUB_ENV`; the targeted check
+rejects this context in workflow/job environment maps. No model/work result
+is inferred from that failed admission, and fresh hosted qualification remains pending.
+
 Initial controls closed 100 PASS and one explicit 3.12-only skip. The actual
 official Python 3.12.9 control closed 2 PASS (`8642f73a`), covering two tiny
 serial native campaigns, strict join and semantic/source/profile/resource/time

@@ -827,13 +827,21 @@ jobs:
       EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CANDIDATE_ID: locked312-join
       CANDIDATE_COHORT: internal_docs/precision/ci_standard/py312-owners.json
-      CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-locked312-join
-      CANDIDATE_TOOLS: ${{ runner.temp }}/ci-candidate-locked312-join-tools
-      CANDIDATE_VENV: ${{ runner.temp }}/ci-candidate-locked312-join-venv
-      CANDIDATE_TMP: ${{ runner.temp }}/ci-candidate-locked312-join-tmp
-      CANDIDATE_DOWNLOADS: ${{ runner.temp }}/ci-standard-part-downloads
 
     steps:
+    - name: Initialize fixed join paths from the actual runner
+      id: join-paths
+      shell: bash
+      run: |
+        set -euo pipefail
+        {
+          printf 'CANDIDATE_DIR=%s/ci-candidate-locked312-join\n' "$RUNNER_TEMP"
+          printf 'CANDIDATE_TOOLS=%s/ci-candidate-locked312-join-tools\n' "$RUNNER_TEMP"
+          printf 'CANDIDATE_VENV=%s/ci-candidate-locked312-join-venv\n' "$RUNNER_TEMP"
+          printf 'CANDIDATE_TMP=%s/ci-candidate-locked312-join-tmp\n' "$RUNNER_TEMP"
+          printf 'CANDIDATE_DOWNLOADS=%s/ci-standard-part-downloads\n' "$RUNNER_TEMP"
+        } >> "$GITHUB_ENV"
+
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
