@@ -5281,5 +5281,8 @@
     "tests/primitives/test_nnx.py",
     "tests/primitives/test_random.py",
     "tests/test_gpt_oss_components.py"
-  ]
+  ],
+  "standard_parts": {
+    "split_after": "tests/extra_tests/test_normalization_export_policy.py::test_normalization_mode_reaches_control_flow_contexts[force_decomposed]"
+  }
 }

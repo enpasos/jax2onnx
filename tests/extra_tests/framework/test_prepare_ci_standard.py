@@ -1091,3 +1091,92 @@ def test_reviewed_global_EXTRA_profile_preserves_STANDARD_and_critical_ownership
             allowance["reason"]
             == "explicit official312 real serial-parts integration control"
         )
+
+
+@pytest.mark.parametrize("minor", ["3.11", "3.13"])
+@pytest.mark.parametrize("part", ["a", "b"])
+def test_ordinary_split_renderer_keeps_full_authority_and_exact_cohort(
+    authority, monkeypatch, minor, part
+):
+    module, root, path, event, run, data = _split_authority(authority, monkeypatch)
+    data["python_minor"] = minor
+    _write_json(path, data)
+    module._git(root, "add", ".")
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "reviewed ordinary split fixture",
+    )
+    event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    major, python_minor = (int(value) for value in minor.split("."))
+    monkeypatch.setattr(
+        module,
+        "sys",
+        SimpleNamespace(version_info=SimpleNamespace(major=major, minor=python_minor)),
+    )
+    manifest, observed = module._manifest(path, root, event, run, standard_part=part)
+    assert observed == data
+    assert manifest["python_minor"] == minor
+    assert manifest["nodeids"] == data["baseline"]["nodeids"]
+    marker = manifest["standard_part"]
+    assert (
+        marker["id"] == part and marker["profile"] == path.relative_to(root).as_posix()
+    )
+    assert marker["profile_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert marker["full_s_sha256"] == module._runner()._ci_standard_ids_digest(
+        manifest["nodeids"]
+    )
+    assignments = module._runner()._ci_standard_parts(
+        manifest["nodeids"], data["standard_parts"]
+    )
+    assert marker["assigned_sha256"] == module._runner()._ci_standard_ids_digest(
+        assignments[part]
+    )
+    assert marker["run_id"] == "123456" and marker["run_attempt"] == "2"
+
+
+@pytest.mark.parametrize("minor", ["3.11", "3.13"])
+@pytest.mark.parametrize(
+    "fault", ["missing-part", "missing-attempt", "unsupported-minor"]
+)
+def test_ordinary_split_renderer_rejects_unbound_or_unsupported_authority(
+    authority, monkeypatch, minor, fault
+):
+    module, root, path, event, run, data = _split_authority(authority, monkeypatch)
+    data["python_minor"] = "3.14" if fault == "unsupported-minor" else minor
+    _write_json(path, data)
+    module._git(root, "add", ".")
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "unbound ordinary split fixture",
+    )
+    event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    declared = data["python_minor"].split(".")
+    monkeypatch.setattr(
+        module,
+        "sys",
+        SimpleNamespace(
+            version_info=SimpleNamespace(major=int(declared[0]), minor=int(declared[1]))
+        ),
+    )
+    if fault == "missing-attempt":
+        monkeypatch.delenv("GITHUB_RUN_ATTEMPT")
+    with pytest.raises(ValueError, match="STANDARD part|reviewed split cohort"):
+        module._manifest(
+            path,
+            root,
+            event,
+            run,
+            standard_part=None if fault == "missing-part" else "a",
+        )

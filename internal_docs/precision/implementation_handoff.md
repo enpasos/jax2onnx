@@ -2,31 +2,40 @@
 
 ## Current published CI and local repair
 
-Root/origin/PR277 is published at `3d7e5317`. CI586 exposes two retained CI
-failures: focused EXTRA lacks the frozen original-history Git object in shallow
-checkouts; STANDARD 3.14 exceeds the unchanged WORK deadline and whole-job budget.
-The bounded local repair provisions the exact immutable object without changing
-HEAD or metadata criteria, and moves only STANDARD 3.14 to the existing complete
-Main-owner collection route with its original 4,573 S IDs and 188 literal modules.
-Genuine shallow-Git/affected metadata controls close 8 PASS on each official
-3.11/3.13 family and the unchanged 3.12 case passes exclusively. The two earlier
-overlapping resource epochs remain unqualified. Current literal F=1,506 adds only
-the new Git control; original global collection epochs and complete R/science
-assignments remain explicit. Clean 3.14 C/O, exact-head hosted timing, full timed F
-and activation are still pending. See [current evidence and limits](ci_execution_plan.md#current-ci586-repair-checkpoint).
+Published `62276cd8` runs CI587. All four focused EXTRA campaigns close at the
+recorded F=1,506: 6,021 PASS and three original cohort-applicability skips.
+STANDARD 3.14 closes its unchanged 4,573 assignments (4,562 PASS / 11 original
+skips) in 1,075 seconds for the whole job. STANDARD 3.11 and 3.13 instead hit
+the unchanged 1,100-second WORK deadline and are cancelled after 1,228 / 1,224
+seconds. Their final 453-case assignments remain unaccepted. The four original
+full jobs were still running at the last retained observation. These outcomes
+remain separate; overall STANDARD and gate activation are not qualified.
 
-CI585 remains 17 successful jobs and one stale Node-copy control failure,
-repaired and qualified locally before `3d7e5317`. Its scoped STANDARD result and
-finite F=1,390 admission are historical evidence at their recorded heads, not
-current full-F or scientific acceptance. All seven ordinary BF16 cases passed
-in CI585's retained 3.12 log; earlier BF16 failures remain preserved without an
-upstream-fix claim.
+The local repair uses the existing fixed serial-parts/join protocol for 3.11
+and 3.13, preserving full S and its order: 1,658 + 2,913 / 2,915, respectively.
+The existing 3.12 cut and sole 5-GiB exception remain unchanged; ordinary parts
+retain 4 GiB, 1,100-second WORK and 1,200-second whole-job limits. Local focused
+controls close 113 + one genuine tiny a/b/join per official 3.11/3.13 family,
+three actual 3.12 controls and one actual 3.14 rejection control. A new negative
+control's first message-order failure is preserved; its cohort-exact correction
+does not change production criteria. Literal F becomes 1567 through genuine
+changed-owner collections; original full-C epochs and complete R stay explicit.
+Next-head full-S timing and aggregate 160-job-minute / 100-MiB STANDARD budgets
+remain to be measured. See [the execution plan](ci_execution_plan.md#current-ci587-repair-checkpoint).
 
-The user's 2026-10-31 16:02:41 UTC reviewed SOURCE publication exception remains
-limited to the named BF16 failure, which stays mandatory and FAILED where
-observed. It waives no new CI regression or scientific/final gate. Public behavior
-remains LEGACY; Native3/ORT2, 3,712 caller obligations, default-strict extrema,
-replay, original models/artifacts and Node/Chrome work remain open.
+The reviewed SOURCE publication exception from 2026-10-31 16:02:41 UTC does not
+waive new CI failures or scientific criteria. Historical BF16 failures remain
+failed where observed; the seven ordinary BF16 cases passed in CI585 without
+establishing an upstream repair. Native3/ORT2, 3,712 caller obligations,
+default-strict extrema, replay, models/artifacts and Node/Chrome work remain open.
+
+Current code still exposes LEGACY behavior. Development instructions retain a
+LEGACY bridge only where a concrete CI or reference comparison needs it, with
+its removal purpose recorded. Reviewed implementation in this unmerged branch
+need not wait for the entire contract to be qualified, and incompleteness alone
+creates no extra approval requirement. The complete compatibility, scientific
+and B–F contract remains required before merge; this CI repair changes no default
+or public API.
 
 ## Strict metadata accounting checkpoint — local implementation qualification
 

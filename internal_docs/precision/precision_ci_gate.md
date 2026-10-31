@@ -1,111 +1,154 @@
-# CI gate for the precision migration
+# CI gates for the precision migration
 
-This binding addendum records the revised user objective of 2026-10-29: repair
-actual failures, keep required checks passing, and reduce validation cost without
-losing product or migration obligations. It supplements the
-[complete implementation work plan](precision_implementation_work_plan.md);
-it does not replace or reduce the precision migration objective.
+These are the acceptance rules for PR #277, updated 2026-10-31. They preserve
+the complete [migration work plan](precision_implementation_work_plan.md).
+The [execution plan](ci_execution_plan.md) owns literal selections, commands,
+resource measurements and activation evidence; the [handoff](implementation_handoff.md)
+records implementation and failed predecessors. A passing CI lane establishes
+only the work assigned to that lane.
 
-The latest user timing instruction on **2026-10-29** requires **each successful
-Linux STANDARD job to finish within 1,200 seconds (20 minutes)**, measured from
-actual job start through checkout, setup, generation, collection, execution,
-aggregation, upload and final cleanup. External runner queue time is excluded.
-Timeout, interruption, a guard stop or incomplete evidence fails qualification.
-A short pytest/workload duration does not establish the complete job budget.
+## What must pass before completion
 
-Preserve the complete frozen `main` baseline, including original Python 3.12
-optional models, inputs, assertions and exact skip allowances. Added checks run
-in separately executable, complete/disjoint extra lanes and retain their
-milestone/final obligations. Keep the initially bounded four-Python-plus-four-
-support layout, existing resource limits and context requirements.
+The complete accepted suite must pass on the **exact final commit**, across
+all supported Python and official framework cohorts. This includes the main
+baseline, added SOURCE tests, complete models, inventory and replay, numerical
+acceptance, minimum dependencies, browser integrations and normal quality checks.
+Independent Astra review must accept the implementation and its evidence. A
+result from another revision, a smaller example or a green diagnostic test
+cannot close a missing final obligation.
 
-This absolute rule supersedes relative NoIncrease, paired main/PR timing
-campaigns, median/worst comparative gates, mandatory original two-worker
-benchmarking and the older 35-minute standard budget. Retain earlier results as
-historical, superseded evidence. The comparative diagnostic is retired without
-a replacement framework; its hosted failure stays FAILED_OR_INCOMPLETE.
-Mapping, collection context, resource and direct-xdist qualification remain
-pending. This document changes no runner, selector, ordinary workflow or timeout
-gate and grants no activation or standard 20-minute acceptance.
+At the documented published checkpoint, ordinary export still uses **LEGACY**,
+the existing precision policy, and **SOURCE** names the private implementation
+of the intended contract. This is the current implementation, not a requirement
+to preserve the old default throughout the unmerged PR. The branch may adopt the
+new contract incrementally through normal reviewed code, tests and documentation.
+Complete capability, compatibility and scientific acceptance remain merge and
+release requirements. These documentation changes switch no code or CI gate.
 
-## Immediate acceptance
+## Current qualification
 
-The published workflow still runs all eight ordinary checks, including the four
-complete Python jobs. The [execution plan](ci_execution_plan.md) has independent
-Astra architecture acceptance for incremental implementation. Its scheduling
-and routine/exhaustive gate split are not implemented or qualified. The user's
-revised objective permits that split after independent review of the concrete
-implementation and its activation evidence.
+At the 2026-10-31 22:35 UTC observation of
+[CI587 on published `62276cd8`](https://github.com/enpasos/jax2onnx/actions/runs/41243854804),
+the four focused EXTRA cohorts had succeeded. Their verdict is `F_ONLY`: the
+remaining added tests and scientific acceptance did not run in those lanes.
+Python 3.14 STANDARD completed within the whole-job limit, and Python 3.12's
+strict two-part execution and join succeeded. Python 3.11 and 3.13 STANDARD
+stopped at their work deadlines and exceeded the whole-job limit. The four
+original complete Python jobs were still running at that observation.
 
-All eight PR #277 checks must reach terminal **SUCCESS** on the exact current
-head, including the Python 3.11–3.14 jobs and every support job. Record the commit
-and run links with their actual terminal outcomes. Pending, interrupted,
-cancelled or skipped work is not a successful check; an older head's green run
-does not qualify the current revision. Local checks, review and remote CI remain
-separate evidence.
+Consequently, the STANDARD budget and replacement-gate activation are **not
+qualified**. A repair using the existing balanced two-part execution and strict
+join is being qualified for Python 3.11 and 3.13. Its local controls and later
+hosted outcomes must be assessed separately. Do not describe this snapshot as
+all green, final acceptance or completed migration.
 
-Repair the actual cause while preserving Python's 3.11 support floor, the
-JAX/JAXLIB 0.10.2 and Flax/NNX 0.12.8 floors, lockfile versions/markers and all
-supported cohorts. Preserve original tests, meaningful negative controls,
-criteria, fixed sources/callables, models and full inputs. Skips, removals,
-weakened assertions, relaxed tolerances/thresholds, reduced samples or raised
-resource budgets cannot substitute for a repair.
+## The 20-minute STANDARD budget
 
-## Gate for subsequent changes
+Every successful Linux STANDARD job must finish in **at most 1,200 seconds**.
+Measure from actual job start through checkout, dependency setup, generation,
+collection, hooks, execution, aggregation, upload and final cleanup. Only the
+external runner queue is excluded. Shared prerequisites retain their proper
+cost; moving them to another job cannot hide STANDARD work.
 
-1. Before pushing a feature change, complete its focused tests, required local
-   checks and review. Keep significant changes in meaningful commits with the
-   normal installed hooks invoked without bypass. Applicable hooks must pass;
-   legitimate no-matching-file SKIPs remain recorded.
-2. After every push, verify the terminal CI outcomes for that exact revision.
-   Retain failed, superseded and cancelled predecessor outcomes as they occurred;
-   do not report them as green through a later revision's success.
-3. Publish additional features only after the current head satisfies all routine
-   requirements of the independently accepted, implemented CI plan; until then,
-   the existing eight-check gate applies. If a pushed head is red, prioritize its repair immediately.
-   Necessary CI-repair pushes may proceed while the preceding head is red.
+A pytest duration or a successful work segment is insufficient. Timeouts,
+interruption, cancellation, resource-guard stops and missing evidence fail
+qualification. Report every cohort and support job, aggregate runner time,
+owned-process memory and uploaded bytes. The former relative timing campaigns,
+35-minute STANDARD allowance and mandatory two-worker benchmark are superseded.
 
-Implementation uses Sol Ultra and significant changes receive Astra Ultra
-review. Passing local checks or review never preclaims remote CI success.
+| Resource | Binding boundary |
+| --- | --- |
+| Ordinary STANDARD execution | Existing 1,100-second monitored-work deadline; 1,200-second whole-job cap; 4 GiB aggregate owned-process RSS. |
+| Reviewed Python 3.12 optional-model exception | Its existing 5 GiB limit and two-part join remain specific to that profile. This does not raise other cohorts' limits. |
+| STANDARD campaign | Existing 160 job-minute aggregate and 100 MiB compressed successful-evidence budgets; record complete failure evidence separately. |
+| Local native execution | Retain the existing one-job/one-native-worker, thread, CPU, available-memory and free-disk guards. Hosted success does not close a local model resource hold. |
+| Focused EXTRA | Separate provisional 35-minute job / 160 job-minute aggregate / 100 MiB successful-evidence targets. These do not consume or extend the STANDARD allowance. |
+| Expensive complete validation | Separate measured runtime, memory and artifact budgets in the execution plan. Provisional targets are not achieved results or permission to raise local caps. |
 
-The revised objective no longer requires every exhaustive obligation after
-every push. Full acceptance remains mandatory at significant migration
-milestones, when affected assumptions change, and on the exact final commit
-across every supported cohort. Changes invalidate affected prior evidence;
-unrelated successful packets need not be repeated after each edit. A changed
-check name or a green subset never proves that former full coverage executed.
-The proposed lane mapping and budgets remain unverified until actual runs and
-independent review establish them.
+Measure all controlled project-work intervals and their descendants. Label
+unobserved GitHub-managed service intervals explicitly; never record them as
+zero. A successful job still needs its complete wall-clock span. Resource
+stops do not prove an OOM, cache leak or compiler cause.
 
-## Official dependency boundary
+## Coverage ownership
 
-Use supported official JAX/jaxlib releases with the existing versions and lock
-markers. Custom builds, dependency patches, binary overlays or substitutions
-of JAX, jaxlib, XLA or LLVM require separate explicit user approval. Ordinary
-implementation, CI repair, commit and push authorization does not grant it.
-The unapproved compiler experiment is being removed; its tests are not product
-acceptance obligations. Keep the native BF16 counterexample and distinguish it
-from converter and execution-target failures.
+For each cohort, `C` is the complete collection, `S` is the preserved main
+baseline, and `A = C − S` is every added test. An explicitly reviewed focused
+subset `F` belongs to `A`; `R = A − F` remains assigned to complete EXTRA.
+The letters describe test ownership, not numerical acceptance.
 
-## Authorized scope and continuing objective
+| Lane | Required work and trigger |
+| --- | --- |
+| STANDARD | Main-equivalent tests and support coverage on Python 3.11–3.14, including original optional-model inputs and assertions, minimum dependencies and original integration ownership. Required on routine updates under the original conditions. |
+| Focused EXTRA | Literal reviewed regressions for extrema, Function ownership, NNX static rejection, affected SOURCE semantics and relevant consumers on all applicable cohorts. Required on affected routine updates. |
+| Complete EXTRA | All of `A`, replacing focused-only execution at significant milestones and final acceptance; no unmatched addition disappears. Preserve all original model inputs, state sequences, references and criteria. |
+| Other integration and migration lanes | Complete Node/Chrome coverage, current inventory/replay and numerical verdicts, model/resource closure, strict docs and remaining accepted obligations. Each has an executable owner and the required milestone/final trigger. |
 
-The user authorizes scoped CI repairs and ordinary pushes to the existing PR
-branch that restore and maintain this gate. This does not authorize merging,
-force-pushing, unrequested messages or broader publication.
+Keep legacy code only where an identified CI or regression/reference comparison
+needs it, with [explicit removal criteria](precision_implementation_work_plan.md#temporary-legacy-bridges).
+That temporary need does not require every public default or lowering to remain
+unchanged throughout development. Changes to the public contract still need
+normal reviewed implementation, tests and migration documentation.
 
-The full B–F precision migration remains unfinished until its original
-acceptance gates are met, including fixed original sources, all existing
-functionality and one coherent public SOURCE UX without permanent selectors,
-fallbacks or capability loss. Public defaults remain LEGACY until the reviewed
-phase-F transition. CI health at one head qualifies that head's checks; it does
-not close the remaining model, capability or migration obligations.
+Retain original checks while replacements are qualified. Retirement requires
+complete ownership, exact-head collection/outcome equivalence, measured budgets
+and independent review. A new green check name does not prove that the former
+coverage ran. Keep minimum-Python coverage, minimum-runtime support's complete
+added selection, optional environments and active-branch SHA wiring explicit.
 
-Until a reviewed scheduling change is implemented, full-suite CI uses fresh
-serial pytest batches. Every batch verifies the same
-full ordered collection before selecting its assigned items, preserving
-collection-time imports and registrations; each item executes intact in one
-process. PASS requires the completed node IDs to form an exact, disjoint union of
-the original collection, with original pytest outcome rules and complete
-phase/JUnit accounting. Receipts and passive resource observations document
-execution; they do not establish OOM as the cause of earlier interruptions or
-close the separate model resource gate.
+The exhaustive union is exactly `S + A = C`, with no duplicates or omissions
+within its canonical campaign. Preserve collection imports, registration,
+fixtures, process order and context-sensitive predecessors. An accepted
+Main-owner collection route is a scoped exception, not permission to stop full
+inventory discovery. Part executions qualify only with the strict complete join.
+Keep each test case intact; splitting its internal samples or comparison phases
+to fit a budget is not allowed. Direct native xdist remains unqualified.
+
+Receipts and JUnit must account for collection and setup/call/teardown outcomes,
+assigned and completed IDs, source/cohort/context, exact existing skip allowances,
+and final artifacts. Missing phases, changed contracts, unexpected skips,
+xfails, duplicate IDs or unassigned work cannot pass. Use existing runners and
+reports; no additional controller or evidence framework is required.
+
+## Publication and review
+
+Before a feature push, complete focused regressions, relevant supported-family
+checks, normal pinned hooks, documentation checks and independent review. After
+every push, inspect the required terminal outcomes for that exact revision.
+Repair a new red check before publishing further features; CI-repair pushes are
+authorized while the previous head is red. Local tests and review do not preclaim
+hosted success.
+
+The user's named **BF16 publication exception** permits independently reviewed
+SOURCE pushes despite the retained official-native BF16 TopK failure. That case
+remains mandatory and **FAILED** where observed. The exception waives neither a
+new CI regression nor scientific, milestone or final acceptance. A later passing
+sample does not erase the failed predecessor or establish an upstream repair.
+
+Full validation is required at significant migration milestones, when changed
+assumptions invalidate it, and on the exact final commit. Ordinary fixes need
+not rerun unrelated successful exhaustive packets after every edit. Implementation
+uses Sol Ultra; architecture and independent acceptance use Astra Ultra.
+
+## Dependencies and numerical verdicts
+
+Use supported official JAX/jaxlib releases and preserve both lockfiles' versions
+and cohort markers. Custom builds, patches, binary overlays or substitutions of
+JAX, jaxlib, XLA or LLVM require separate explicit user approval and are currently
+prohibited. Permission to implement, repair CI, commit or push does not grant it.
+The unapproved compiler infrastructure has been removed; retain the concise
+[upstream counterexample](../../docs/about/dependencies.md).
+
+Schema validity, source semantics, runtime execution and numerical acceptance
+are separate gates. The current user decision keeps native eager/JIT
+contradictions **FAILED** until the required official roles agree. Changing that
+reference rule would require a separate explicit decision. Missing
+references, criteria or numerical execution never count as acceptance. Enforce
+output dtype/shape/structure, exact discrete results, required NaN masks, zero
+signs and downstream reciprocal signs; apply bitwise checks where justified.
+Valid all-zero results are allowed. NaN payload equality is not a universal
+output criterion. See the [numerical contract](precision_target_state.md#numerical-correctness).
+
+Ordinary commits and non-force pushes to the existing branch and PR are
+authorized. Merge, force-push, release publication and unrequested external
+messages are outside this task.

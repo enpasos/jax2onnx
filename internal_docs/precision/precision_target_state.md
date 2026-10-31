@@ -1,10 +1,16 @@
 # Computation Precision Target State
 
-Status: normative semantic design, 2026-10-18. The normal export API applies
-this contract consistently across the existing functionality. The
-[implementation work plan](precision_implementation_work_plan.md) defines the
-coverage and final transition gates. Its bounded source profile is internal
-intermediate work; the public transition is not complete and no release is assigned.
+This is the intended semantic contract, updated 2026-10-31. It describes the
+completed exporter, not a claim that today's implementation meets every
+requirement. The [current state](precision_current_state.md) describes actual
+capabilities; the [implementation work plan](precision_implementation_work_plan.md)
+retains the complete B–F coverage and acceptance obligations.
+
+The unmerged PR may adopt this contract incrementally through normal reviewed
+implementation and tests. Legacy paths remain only for concrete temporary
+CI/reference needs. Complete functionality, compatibility, scientific validation
+and independent acceptance are required before merge and release. There is no
+release date or permanent public mixture of precision policies.
 
 For model preparation and expected export behavior, read the
 [user view](precision_target_state_user_view.md). All companion documents are
@@ -161,8 +167,9 @@ they affect those choices; matching the boundary dtypes alone cannot validate
 input normalization.
 
 Explicit input specifications retain their requested dtypes. If an explicit
-FP64 input request would be truncated because x64 is disabled, export fails with
-an actionable error before tracing instead of silently changing that request.
+FP64, int64, uint64 or complex128 input request would be narrowed because x64 is
+disabled, export fails with an actionable error before invoking the model instead
+of silently changing that request.
 Arrays already created with reduced precision cannot be reconstructed from an
 earlier, higher-precision intention.
 
@@ -390,6 +397,14 @@ establish equivalent computations when JAX promotion metadata such as
 containers and pytrees; truly equivalent states can still share a definition.
 Output-signature equality alone cannot detect changed internal arithmetic.
 
+Precision-relevant cache identity must not keep completed exports' model
+instances and weights alive. Preserve legitimate live-trace ownership and
+release ownership held only for completed or failed exports. Unconditional
+global JAX cache clearing is not an ownership solution. Stateful preparation
+must reject unsupported mutable static payloads before executing or mutating
+the original model, or provide reviewed isolation and complete state/RNG
+handling. Early rejection contains a gap; it does not complete state support.
+
 ## Numerical correctness
 
 Type preservation does not promise bitwise equality between JAX and every ONNX
@@ -435,12 +450,43 @@ illustrates why such choices need operation-specific evidence. Its bounds do
 not establish a global guarantee for all normalization or mixed-precision
 graphs, or automatically authorize that lowering under the source contract.
 
-Structural checks must cover dtypes, casts, signatures, and constant payloads.
-Numerical checks must include rounding-sensitive inputs and appropriate NaN,
-infinity, and signed-zero behavior. A model loading successfully is necessary
-but insufficient evidence of correct precision. Tests must also verify that
-unsupported combinations fail with the intended diagnostic instead of silently
-changing precision or overstating deployment readiness.
+Structural checks cover dtypes, casts, signatures, required attributes and
+actual constant payloads. Numerical checks first verify output count/structure,
+shape and dtype; integer and Boolean values remain exact in mixed outputs.
+Floating criteria must be explicit and appropriate to the operation. Missing
+references, absent criteria or omitted numerical execution cannot become
+positive acceptance.
+
+Exercise finite nonzero values, positive and negative zero, NaNs, signed
+infinities, subnormals and rounding boundaries where relevant. Ordinary exact
+numerical equality and `allclose` equate the two zeros: check sign bits when the
+contract requires them and test downstream reciprocal infinity signs or other
+consumers. Check NaN masks explicitly. Use bitwise comparison where justified,
+without imposing NaN-payload equality on every arithmetic output. Exact stored
+constant/artifact words are a distinct identity requirement. All-zero results
+can be legitimate and must not be rejected universally.
+
+Use the original official JAX computation and required eager, fresh-JIT and
+warmed-JIT roles. The current user decision requires those roles to agree;
+contradictions remain FAILED until they do. Changing that rule would require a
+separate explicit decision. Do not select the convenient reference, weaken the
+criterion or alter the compiler to obtain a passing result. A configured runtime
+profile, such as denormal-as-zero, qualifies only that profile and does not
+accept default execution. Capture native references before target execution can
+change their floating-point environment.
+
+Supported official dependencies and lock cohorts remain the reference. Custom
+builds, patches, overlays or substitutions of JAX, jaxlib, XLA or LLVM are
+currently prohibited without separate explicit approval. A native failure is
+separate from a converter defect, ONNX restriction or runtime failure. The named
+BF16 publication exception does not waive its scientific or final gate.
+
+A model loading successfully is necessary but insufficient evidence of correct
+precision. Tests detecting expected failures or exercising rejection diagnostics
+are not numerical equivalence results. Errors must name the failed phase and
+requirement without overstating deployment readiness. The
+[work plan](precision_implementation_work_plan.md#artifact-reports-and-sample-acceptance)
+defines report, artifact identity and sample-acceptance obligations.
 
 ## Related reading
 

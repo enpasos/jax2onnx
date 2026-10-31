@@ -363,6 +363,10 @@ def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp
     "candidate,part",
     [
         ("locked311", ""),
+        ("locked311-a", "a"),
+        ("locked311-b", "b"),
+        ("locked313-a", "a"),
+        ("locked313-b", "b"),
         ("locked312-a", "a"),
         ("locked312-b", "b"),
         ("locked313", ""),
@@ -412,12 +416,14 @@ def test_normal_five_gib_limits_apply_only_to_fixed_locked312_parts(candidate, p
         line for line in result.stdout.splitlines() if line != "capacity probe stub"
     ]
     expected = ["4096", "2048", "1100"]
-    if part:
+    if candidate in {"locked312-a", "locked312-b"}:
         expected = ["5120", "8192", "1100", "--locked312-standard-profile", profile]
     elif focused:
         expected = ["4096", "2048", "2000", "--focused-extra-profile", profile]
     assert observed == expected
-    assert result.stdout.count("capacity probe stub") == bool(part)
+    assert result.stdout.count("capacity probe stub") == (
+        candidate in {"locked312-a", "locked312-b"}
+    )
     assert (
         '"${execution_profile_args[@]}"'
         in work.split("python -B scripts/run_with_resources.py", 1)[1].split(
@@ -514,12 +520,14 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
         for entry in job["strategy"]["matrix"]["include"]
         if entry.get("lane", "standard") == "standard"
     ]
-    assert len(matrix) == 9
+    assert len(matrix) == 11
     assert {entry["id"] for entry in matrix} == {
-        "locked311",
+        "locked311-a",
+        "locked311-b",
         "locked312-a",
         "locked312-b",
-        "locked313",
+        "locked313-a",
+        "locked313-b",
         "locked314",
         "minimum312",
         "normalization312",
@@ -528,12 +536,13 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
     }
     parts = [entry for entry in matrix if entry.get("part")]
     assert [(entry["id"], entry["part"]) for entry in parts] == [
-        ("locked312-a", "a"),
-        ("locked312-b", "b"),
+        ("locked" + minor + "-" + part, part)
+        for minor in ("311", "312", "313")
+        for part in ("a", "b")
     ]
     assert all(
-        entry["python"] == "3.12"
-        and entry["cohort"] == "py312-owners"
+        entry["python"] == "3." + entry["id"][7:9]
+        and entry["cohort"] == "py" + entry["id"][6:9] + "-owners"
         and entry["role"] == "locked"
         for entry in parts
     )
@@ -568,7 +577,7 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
 def test_focused_extra_rows_add_four_global_cohorts_with_separate_job_limits():
     job = _workflow()["jobs"]["candidate-standard"]
     matrix = job["strategy"]["matrix"]["include"]
-    assert len(matrix) == 13 and job["strategy"]["fail-fast"] is False
+    assert len(matrix) == 15 and job["strategy"]["fail-fast"] is False
     focused = [entry for entry in matrix if entry.get("lane") == "extra"]
     assert focused == [
         {
@@ -635,6 +644,10 @@ def test_focused_resource_extension_requires_its_exact_lane_role_scope_and_no_pa
     "candidate",
     [
         "locked311",
+        "locked311-a",
+        "locked311-b",
+        "locked313-a",
+        "locked313-b",
         "locked312-a",
         "locked312-b",
         "locked313",
@@ -653,8 +666,14 @@ def test_canonical_dispatch_preserves_standard_parts_and_explicit_focused_scope(
     candidate,
 ):
     job = _workflow()["jobs"]["candidate-standard"]
-    entry = next(
-        item for item in job["strategy"]["matrix"]["include"] if item["id"] == candidate
+    entry = (
+        next(
+            item
+            for item in job["strategy"]["matrix"]["include"]
+            if item["id"] == candidate
+        )
+        if candidate not in {"locked311", "locked313"}
+        else {"role": "locked"}
     )
     work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
     dispatch = (
@@ -782,9 +801,9 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
         and entry.get("part") != "b"
     }
     assert owner_cohorts == {
-        "locked311": "3.11",
+        "locked311-a": "3.11",
         "locked312-a": "3.12",
-        "locked313": "3.13",
+        "locked313-a": "3.13",
         "locked314": "3.14",
     }
     original = (ROOT / "scripts/run_all_checks.sh").read_text()
@@ -820,6 +839,10 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
     "candidate,owns_quality",
     [
         ("locked311", True),
+        ("locked311-a", True),
+        ("locked311-b", False),
+        ("locked313-a", True),
+        ("locked313-b", False),
         ("locked312-a", True),
         ("locked312-b", False),
         ("locked313", True),
@@ -838,10 +861,14 @@ def test_candidate_quality_runs_once_per_locked_cohort_without_support_hooks(
     candidate, owns_quality
 ):
     job, _, commands = _candidate_quality_commands()
-    entry = next(
-        value
-        for value in job["strategy"]["matrix"]["include"]
-        if value["id"] == candidate
+    entry = (
+        next(
+            value
+            for value in job["strategy"]["matrix"]["include"]
+            if value["id"] == candidate
+        )
+        if candidate not in {"locked311", "locked313"}
+        else {"role": "locked"}
     )
     result = subprocess.run(
         [
@@ -1055,7 +1082,9 @@ def test_bulk_pack_separates_routine_sources_and_preserves_full_failure_payload(
     assert "steps.primary.outcome != 'success'" in raw_upload["if"]
 
 
-@pytest.mark.parametrize("candidate", ["locked312-a", "focused312"])
+@pytest.mark.parametrize(
+    "candidate", ["locked311-a", "locked312-a", "locked313-a", "focused312"]
+)
 def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
     tmp_path, candidate
 ):
@@ -1087,7 +1116,8 @@ def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
     assert accounting["ci_extra_scope"] == ("focused" if focused else None)
     assert accounting["work_timeout_seconds"] == (2000 if focused else 1100)
     assert accounting["whole_job_timeout_seconds"] == (2100 if focused else 1200)
-    assert accounting["execution_rss_mib"] == (4096 if focused else 5120)
+    expected_rss = 5120 if candidate == "locked312-a" else 4096
+    assert accounting["execution_rss_mib"] == expected_rss
     assert accounting["standard_part"] == (None if focused else "a")
     assert "<=9600s (160 job-minutes)" in accounting["campaign_budgets"]
     assert "<=104857600 bytes" in accounting["campaign_budgets"]
@@ -1098,10 +1128,10 @@ def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
         assert accounting["extra_acceptance_rss_mib"] == 4096
         assert "standard_acceptance_rss_mib" not in accounting
     else:
-        assert "nine compute spans and the fixed join <=1200s each" in (
+        assert "eleven STANDARD compute spans and three fixed joins <=1200s each" in (
             accounting["campaign_budgets"]
         )
-        assert accounting["standard_acceptance_rss_mib"] == 5120
+        assert accounting["standard_acceptance_rss_mib"] == expected_rss
         assert "extra_acceptance_rss_mib" not in accounting
 
 
@@ -1109,6 +1139,17 @@ def test_fixed_join_requires_both_complete_parts_and_original_authority_paths():
     job = _workflow()["jobs"]["candidate-standard-locked312-join"]
     assert job["needs"] == "candidate-standard" and "always()" in job["if"]
     assert job["timeout-minutes"] == 20
+    assert job["strategy"]["fail-fast"] is False
+    assert job["strategy"]["matrix"]["include"] == [
+        {
+            "id": "locked" + minor,
+            "python": "3." + minor[1:],
+            "cohort": "py" + minor + "-owners",
+        }
+        for minor in ("311", "312", "313")
+    ]
+    assert job["name"] == "candidate STANDARD ${{ matrix.id }} complete union"
+    assert job["env"]["CANDIDATE_STANDARD_ID"] == "${{ matrix.id }}"
     downloads = [
         step for step in job["steps"] if "download-artifact@" in step.get("uses", "")
     ]
@@ -1118,7 +1159,9 @@ def test_fixed_join_requires_both_complete_parts_and_original_authority_paths():
             "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131"
         )
         assert step["if"] == "always()"
-        assert step["with"]["name"] == f"candidate-standard-locked312-{part}-success"
+        assert step["with"]["name"] == (
+            "candidate-standard-${{ matrix.id }}-" + part + "-success"
+        )
         assert step["with"]["path"] == (
             "${{ runner.temp }}/ci-standard-part-downloads/" + part
         )
@@ -1131,8 +1174,8 @@ def test_fixed_join_requires_both_complete_parts_and_original_authority_paths():
     assert work.index("python scripts/generate_tests.py") < work.index(
         "--ci-join-standard-parts"
     )
-    assert '"$RUNNER_TEMP/ci-candidate-locked312-a/run"' in work
-    assert '"$RUNNER_TEMP/ci-candidate-locked312-b/run"' in work
+    assert '"$RUNNER_TEMP/ci-candidate-${CANDIDATE_STANDARD_ID}-a/run"' in work
+    assert '"$RUNNER_TEMP/ci-candidate-${CANDIDATE_STANDARD_ID}-b/run"' in work
     assert '--ci-standard-profile "$CANDIDATE_COHORT"' in work
     assert "--collect-only" not in work and "--max-workers" not in work
     restore = work.split("<<'PY_RESTORE_PARTS'\n", 1)[1].split("\nPY_RESTORE_PARTS", 1)[
@@ -1228,6 +1271,7 @@ def test_join_paths_are_initialized_from_real_runner_temp_before_any_consumer(tm
             **os.environ,
             "RUNNER_TEMP": str(actual_temporary),
             "GITHUB_ENV": str(environment_file),
+            "CANDIDATE_STANDARD_ID": "locked312",
         },
         capture_output=True,
         text=True,
@@ -1243,3 +1287,55 @@ def test_join_paths_are_initialized_from_real_runner_temp_before_any_consumer(tm
     assert not list(actual_temporary.iterdir())
     assert "${{ runner." not in step["run"]
     _assert_early_env_has_no_runner_context(workflow)
+
+
+@pytest.mark.parametrize("minor", ["311", "313"])
+def test_ordinary_fixed_union_paths_use_real_runner_temp_and_exact_cohort(
+    tmp_path, minor
+):
+    job = _workflow()["jobs"]["candidate-standard-locked312-join"]
+    step = job["steps"][0]
+    actual_temporary = tmp_path / "actual ordinary runner temporary with spaces"
+    actual_temporary.mkdir()
+    environment_file = tmp_path / "GITHUB_ENV"
+    environment_file.touch()
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(actual_temporary),
+            "GITHUB_ENV": str(environment_file),
+            "CANDIDATE_STANDARD_ID": "locked" + minor,
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    written = dict(
+        line.split("=", 1) for line in environment_file.read_text().splitlines()
+    )
+    assert written == {
+        "CANDIDATE_DIR": str(
+            actual_temporary / ("ci-candidate-locked" + minor + "-join")
+        ),
+        "CANDIDATE_TOOLS": str(
+            actual_temporary / ("ci-candidate-locked" + minor + "-join-tools")
+        ),
+        "CANDIDATE_VENV": str(
+            actual_temporary / ("ci-candidate-locked" + minor + "-join-venv")
+        ),
+        "CANDIDATE_TMP": str(
+            actual_temporary / ("ci-candidate-locked" + minor + "-join-tmp")
+        ),
+        "CANDIDATE_DOWNLOADS": str(actual_temporary / "ci-standard-part-downloads"),
+    }
+    assert not list(actual_temporary.iterdir())
+    work = next(s["run"] for s in job["steps"] if s.get("id") == "join")
+    assert 'if [[ "$CANDIDATE_STANDARD_ID" == locked312 ]]' in work
+    assert 'if os.environ["CANDIDATE_STANDARD_ID"] == "locked312"' in work
+    assert (
+        'name = "ci-candidate-" + os.environ["CANDIDATE_STANDARD_ID"] + "-" + part'
+        in work
+    )
+    _assert_early_env_has_no_runner_context(_workflow())

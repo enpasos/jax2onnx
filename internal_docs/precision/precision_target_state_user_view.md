@@ -1,10 +1,16 @@
 # Computation Precision Target Behavior for Users
 
-Status: intended semantic behavior, 2026-10-18. The normal export API follows
-the same precision rule throughout its existing functionality. The
-[implementation work plan](precision_implementation_work_plan.md) defines full
-coverage and transition gates. Bounded source experiments remain internal;
-the public transition is not complete and no release is assigned.
+This guide describes the intended completed behavior, updated 2026-10-31.
+It is a design contract, not a claim that all of it is available today. The
+[current guide](precision_current_state_user_view.md) describes the implemented
+interface, and the [migration guide](precision_migration_plan_user_view.md)
+explains the planned argument and default changes.
+
+The unmerged PR may adopt the new contract during development. Complete
+functionality, compatibility, scientific validation and independent review are
+required before merge and release. Temporary old paths exist only where CI or
+meaningful reference comparisons need them; the result has one public precision
+rule. No release date is assigned.
 
 The JAX model defines how each calculation chooses its computation and
 accumulation precision, including deliberate conversions and output dtypes.
@@ -12,8 +18,8 @@ The export call supplies the inputs and their tracing properties and selects
 the ONNX representation. Export preserves the resulting computation
 within the capabilities of the selected ONNX version and execution target.
 
-Use the ordinary `to_onnx` call. There is no separate source/legacy precision
-mode or operator profile to choose. Existing supported operations, functions,
+In the completed design, use the ordinary `to_onnx` call. There is no separate
+source/legacy precision mode or operator profile to choose. Existing supported operations, functions,
 loops, dynamic shapes, layout options, parameters, and output formats follow
 the same rule. A technical limit is explained for the affected operation and
 target; incomplete implementation is not presented as such a limit.
@@ -116,10 +122,12 @@ cannot recover that request from an already reduced value or graph.
 The export report distinguishes the types and precision-relevant input
 properties you supplied, those used for tracing, and the exported types. A
 warning about FP64 truncation identifies a JAX configuration problem; it does
-not mean that ONNX lacks the requested type. The ordinary export call applies
-this contract once the [implementation gates](precision_implementation_work_plan.md)
-have passed. The [migration guide](precision_migration_plan_user_view.md)
-explains the explicit transition from the existing precision argument.
+not mean that ONNX lacks the requested type. The
+[implementation work plan](precision_implementation_work_plan.md) defines complete
+coverage and acceptance before merge; the branch can adopt coherent parts of
+this interface earlier through reviewed implementation. The
+[migration guide](precision_migration_plan_user_view.md) explains the explicit
+transition from the existing precision argument.
 
 Selecting an ONNX implementation must preserve the model's numerical contract.
 For example, choosing a native operator requires suitable computation and
@@ -222,7 +230,22 @@ Without a declared execution target, runtime compatibility remains unverified.
 Matching dtypes alone does not establish numerical agreement between JAX and
 a runtime.
 Compare representative and difficult inputs against JAX using the intended
-model and input configuration.
+model and input configuration. Check output structure, shape and dtype before
+values. Integer and Boolean results are exact. Missing references, comparison
+criteria or numerical execution cannot be reported as acceptance.
+
+Include zeros, NaNs, infinities, subnormals and rounding boundaries where they
+matter. An all-zero answer can be correct. Ordinary equality treats positive
+and negative zero as equal, so check their signs explicitly when the calculation
+depends on them. A reciprocal can reveal the difference as positive or negative
+infinity. Check required NaN locations, without demanding identical NaN payload
+bits for every operation.
+
+If the required official JAX eager and compiled reference results disagree, the
+check stays failed until they agree. A passing export cannot resolve that
+contradiction by choosing one result. Only supported official dependencies are
+currently authorized; changing the JAX compiler requires separate explicit
+approval. This is distinct from choosing a documented deployment runtime option.
 
 If the model deliberately rounds an intermediate result before using it again,
 check that boundary too. A runtime may execute successfully with the expected

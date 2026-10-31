@@ -383,8 +383,8 @@ jobs:
 
 
   # One PR qualification milestone only. The eight jobs above remain authoritative.
-  # Nine STANDARD roles plus four nonreplacement focused EXTRA roles.
-  # Locked312 STANDARD closes only through the fixed join below.
+  # Eleven STANDARD roles plus four nonreplacement focused EXTRA roles.
+  # Locked311/312/313 STANDARD close only through their fixed joins below.
   candidate-standard:
     name: candidate ${{ matrix.lane == 'extra' && 'focused EXTRA' || 'STANDARD' }} (${{ matrix.label || matrix.id }})
     if: github.event_name == 'pull_request' && github.event.pull_request.number == 277
@@ -394,10 +394,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - {id: locked311, python: '3.11', cohort: py311-owners, role: locked, label: 'locked311 Main-owner qualification'}
+        - {id: locked311-a, part: a, python: '3.11', cohort: py311-owners, role: locked, label: 'locked311 serial part a'}
+        - {id: locked311-b, part: b, python: '3.11', cohort: py311-owners, role: locked, label: 'locked311 serial part b'}
         - {id: locked312-a, part: a, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 serial part a (5GiB)'}
         - {id: locked312-b, part: b, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 serial part b (5GiB)'}
-        - {id: locked313, python: '3.13', cohort: py313, role: locked}
+        - {id: locked313-a, part: a, python: '3.13', cohort: py313-owners, role: locked, label: 'locked313 serial part a'}
+        - {id: locked313-b, part: b, python: '3.13', cohort: py313-owners, role: locked, label: 'locked313 serial part b'}
         - {id: locked314, python: '3.14', cohort: py314, role: locked}
         - {id: minimum312, python: '3.12', cohort: minimum312, role: minimum}
         - {id: normalization312, python: '3.12', cohort: normalization312, role: normalization}
@@ -571,7 +573,7 @@ jobs:
         poetry install --no-interaction
 
         # Preserve Main's pinned all-files quality check at its base-lock point.
-        # Locked312 part a owns it once; part b retains the same pytest context.
+        # Part a owns it once per split cohort; b retains the same pytest context.
         # Setup, hooks and their failures count toward this monitored WORK/job.
         if [[ "$CANDIDATE_LANE" == standard && "$CANDIDATE_ROLE" == locked && "$CANDIDATE_PART" != b ]]; then
           poetry run python scripts/ensure_path_markers.py --fix
@@ -644,7 +646,7 @@ jobs:
           export JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1
           export JAX2ONNX_ONNXRUNTIME_WEB_RUNNER=node
         fi
-        if [[ "$CANDIDATE_ID" == locked311 || "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b || "$CANDIDATE_ID" == locked314 ]]; then
+        if [[ "$CANDIDATE_LANE" == standard && "$CANDIDATE_ROLE" == locked ]]; then
           render_args+=(--collection-scope main-owners)
         fi
         if [[ -n "$CANDIDATE_PART" ]]; then
@@ -682,7 +684,7 @@ jobs:
         PY_CAPACITY
         fi
         part_args=()
-        if [[ "$CANDIDATE_ID" == locked312-a || "$CANDIDATE_ID" == locked312-b ]]; then
+        if [[ -n "$CANDIDATE_PART" ]]; then
           part_args=(--ci-standard-part "$CANDIDATE_PART")
         fi
         lane_args=(--ci-lane "$CANDIDATE_LANE")
@@ -825,7 +827,7 @@ jobs:
             "campaign_budgets": (
                 "Four focused EXTRA spans <=2100s each; separate aggregate <=9600s (160 job-minutes); separate successful uploaded artifacts <=104857600 bytes"
                 if focused_extra else
-                "All nine compute spans and the fixed join <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes"
+                "All eleven STANDARD compute spans and three fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes"
             ),
             "work_timeout_seconds": 2000 if focused_extra else 1100,
             "whole_job_timeout_seconds": 2100 if focused_extra else 1200,
@@ -883,18 +885,26 @@ jobs:
         if-no-files-found: error
 
   candidate-standard-locked312-join:
-    name: candidate STANDARD locked312 complete union
+    name: candidate STANDARD ${{ matrix.id }} complete union
     needs: candidate-standard
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.number == 277
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - {id: locked311, python: '3.11', cohort: py311-owners}
+        - {id: locked312, python: '3.12', cohort: py312-owners}
+        - {id: locked313, python: '3.13', cohort: py313-owners}
     permissions:
       contents: read
       actions: read
     env:
       EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      CANDIDATE_ID: locked312-join
-      CANDIDATE_COHORT: internal_docs/precision/ci_standard/py312-owners.json
+      CANDIDATE_ID: ${{ matrix.id }}-join
+      CANDIDATE_STANDARD_ID: ${{ matrix.id }}
+      CANDIDATE_COHORT: internal_docs/precision/ci_standard/${{ matrix.cohort }}.json
 
     steps:
     - name: Initialize fixed join paths from the actual runner
@@ -903,10 +913,10 @@ jobs:
       run: |
         set -euo pipefail
         {
-          printf 'CANDIDATE_DIR=%s/ci-candidate-locked312-join\n' "$RUNNER_TEMP"
-          printf 'CANDIDATE_TOOLS=%s/ci-candidate-locked312-join-tools\n' "$RUNNER_TEMP"
-          printf 'CANDIDATE_VENV=%s/ci-candidate-locked312-join-venv\n' "$RUNNER_TEMP"
-          printf 'CANDIDATE_TMP=%s/ci-candidate-locked312-join-tmp\n' "$RUNNER_TEMP"
+          printf 'CANDIDATE_DIR=%s/ci-candidate-%s-join\n' "$RUNNER_TEMP" "$CANDIDATE_STANDARD_ID"
+          printf 'CANDIDATE_TOOLS=%s/ci-candidate-%s-join-tools\n' "$RUNNER_TEMP" "$CANDIDATE_STANDARD_ID"
+          printf 'CANDIDATE_VENV=%s/ci-candidate-%s-join-venv\n' "$RUNNER_TEMP" "$CANDIDATE_STANDARD_ID"
+          printf 'CANDIDATE_TMP=%s/ci-candidate-%s-join-tmp\n' "$RUNNER_TEMP" "$CANDIDATE_STANDARD_ID"
           printf 'CANDIDATE_DOWNLOADS=%s/ci-standard-part-downloads\n' "$RUNNER_TEMP"
         } >> "$GITHUB_ENV"
 
@@ -914,26 +924,26 @@ jobs:
       with:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-    - name: Set up Python 3.12
+    - name: Set up Python ${{ matrix.python }}
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
-        python-version: '3.12'
+        python-version: ${{ matrix.python }}
 
-    - name: Download complete locked312 part a receipts
+    - name: Download complete ${{ matrix.id }} part a receipts
       if: always()
       uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       with:
-        name: candidate-standard-locked312-a-success
+        name: candidate-standard-${{ matrix.id }}-a-success
         path: ${{ runner.temp }}/ci-standard-part-downloads/a
 
-    - name: Download complete locked312 part b receipts
+    - name: Download complete ${{ matrix.id }} part b receipts
       if: always()
       uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       with:
-        name: candidate-standard-locked312-b-success
+        name: candidate-standard-${{ matrix.id }}-b-success
         path: ${{ runner.temp }}/ci-standard-part-downloads/b
 
-    - name: Observe complete locked312 receipt join
+    - name: Observe complete ${{ matrix.id }} receipt join
       id: join
       if: always()
       env:
@@ -968,7 +978,7 @@ jobs:
         downloads = Path(os.environ["CANDIDATE_DOWNLOADS"])
         restored = []
         for part in ("a", "b"):
-            name = "ci-candidate-locked312-" + part
+            name = "ci-candidate-" + os.environ["CANDIDATE_STANDARD_ID"] + "-" + part
             incoming = downloads / part
             archive = incoming / (name + ".tar.gz")
             expected_inputs = {archive.name, name + "-accounting.json", name + "-pack-resources"}
@@ -1042,8 +1052,8 @@ jobs:
         (Path(os.environ["CANDIDATE_DIR"]) / "receipt-transport.json").write_text(json.dumps(restored, indent=2) + "\n")
         PY_RESTORE_PARTS
 
-        # Recreate the same complete optional Python environment in a separate
-        # project venv, preserving both original optional-source path slots.
+        # Recreate each original Python environment in a separate project venv.
+        # Only locked312 has the two original optional-source path slots.
         python -B - <<'PY_JOIN_ENV' > "$CANDIDATE_DIR/profile.env"
         import json
         import os
@@ -1051,8 +1061,10 @@ jobs:
         import shlex
 
         profile = json.loads(Path(os.environ["CANDIDATE_COHORT"]).read_text())
-        original_a = os.environ["RUNNER_TEMP"] + "/ci-candidate-locked312-a/optional-sources/"
-        slots = {"${CHECKOUT}": os.environ["GITHUB_WORKSPACE"], "${MAXTEXT_SOURCE}": original_a + "maxtext", "${MAXDIFFUSION_SOURCE}": original_a + "maxdiffusion"}
+        slots = {"${CHECKOUT}": os.environ["GITHUB_WORKSPACE"]}
+        if os.environ["CANDIDATE_STANDARD_ID"] == "locked312":
+            original_a = os.environ["RUNNER_TEMP"] + "/ci-candidate-locked312-a/optional-sources/"
+            slots.update({"${MAXTEXT_SOURCE}": original_a + "maxtext", "${MAXDIFFUSION_SOURCE}": original_a + "maxdiffusion"})
         print("unset TF_CPP_MIN_LOG_LEVEL PYTEST_VERSION JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR")
         for name, value in profile["environment"].items():
             if name == "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR":
@@ -1071,28 +1083,30 @@ jobs:
         export POETRY_VIRTUALENVS_CREATE=false
         poetry --version > "$CANDIDATE_DIR/poetry-version.txt"
         poetry install --no-interaction
-        for part in a b; do
-          original_root="$RUNNER_TEMP/ci-candidate-locked312-$part"
-          mkdir "$original_root/optional-sources"
-          for integration in MAXTEXT MAXDIFFUSION; do
-            ref_name="JAX2ONNX_${integration}_REF"
-            if [[ "$integration" == MAXTEXT ]]; then
-              remote=https://github.com/AI-Hypercomputer/maxtext.git
-              group=maxtext
-            else
-              remote=https://github.com/google/maxdiffusion.git
-              group=maxdiffusion
-            fi
-            source_dir="$original_root/optional-sources/$group"
-            git init "$source_dir"
-            git -C "$source_dir" remote add origin "$remote"
-            git -C "$source_dir" fetch --depth 1 origin "${!ref_name}"
-            git -C "$source_dir" checkout --detach FETCH_HEAD
-            test "$(git -C "$source_dir" rev-parse HEAD)" = "${!ref_name}"
-            test -z "$(git -C "$source_dir" status --porcelain)"
-            if [[ "$part" == a ]]; then poetry install --no-interaction --with "$group"; fi
+        if [[ "$CANDIDATE_STANDARD_ID" == locked312 ]]; then
+          for part in a b; do
+            original_root="$RUNNER_TEMP/ci-candidate-locked312-$part"
+            mkdir "$original_root/optional-sources"
+            for integration in MAXTEXT MAXDIFFUSION; do
+              ref_name="JAX2ONNX_${integration}_REF"
+              if [[ "$integration" == MAXTEXT ]]; then
+                remote=https://github.com/AI-Hypercomputer/maxtext.git
+                group=maxtext
+              else
+                remote=https://github.com/google/maxdiffusion.git
+                group=maxdiffusion
+              fi
+              source_dir="$original_root/optional-sources/$group"
+              git init "$source_dir"
+              git -C "$source_dir" remote add origin "$remote"
+              git -C "$source_dir" fetch --depth 1 origin "${!ref_name}"
+              git -C "$source_dir" checkout --detach FETCH_HEAD
+              test "$(git -C "$source_dir" rev-parse HEAD)" = "${!ref_name}"
+              test -z "$(git -C "$source_dir" status --porcelain)"
+              if [[ "$part" == a ]]; then poetry install --no-interaction --with "$group"; fi
+            done
           done
-        done
+        fi
         python -m pip list --format=json > "$CANDIDATE_DIR/installed-packages.json"
         # Source regeneration only: no pytest C/O collection, cases, or models.
         python scripts/generate_tests.py
@@ -1138,8 +1152,8 @@ jobs:
         unset jobs_api_token
         python -B scripts/run_pytest_batches.py \
           --ci-join-standard-parts \
-            "$RUNNER_TEMP/ci-candidate-locked312-a/run" \
-            "$RUNNER_TEMP/ci-candidate-locked312-b/run" \
+            "$RUNNER_TEMP/ci-candidate-${CANDIDATE_STANDARD_ID}-a/run" \
+            "$RUNNER_TEMP/ci-candidate-${CANDIDATE_STANDARD_ID}-b/run" \
           --ci-standard-profile "$CANDIDATE_COHORT" \
           --ci-job-observations "$CANDIDATE_DIR/job-observations.json" \
           --output-dir "$CANDIDATE_DIR/run"
@@ -1170,25 +1184,25 @@ jobs:
         if total > 100 * 1024**2 or files > 50000:
             raise ValueError("join receipts exceed bounded upload input")
         (evidence / "accounting.json").write_text(json.dumps({
-            "candidate": "locked312-join",
+            "candidate": os.environ["CANDIDATE_ID"],
             "expected_head": os.environ["EXPECTED_CHECKOUT_SHA"],
             "uncompressed_receipt_bytes_before_accounting": total,
             "execution_rss_mib": 4096,
             "standard_acceptance_rss_mib": 4096,
             "managed_actions_resource_intervals": "UNOBSERVED: checkout, setup-python, downloads, uploads, post hooks",
             "whole_job_timing": "UNVERIFIED until actual Actions started_at/completed_at including post hooks",
-            "campaign_budgets": "All nine compute spans and the fixed join <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
+            "campaign_budgets": "All eleven STANDARD compute spans and three fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
         }, indent=2) + "\n")
         PY
 
-    - name: Upload complete locked312 join result
+    - name: Upload complete ${{ matrix.id }} join result
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: candidate-standard-locked312-join-${{ job.status }}
+        name: candidate-standard-${{ matrix.id }}-join-${{ job.status }}
         path: |
-          ${{ runner.temp }}/ci-candidate-locked312-join/
-          ${{ runner.temp }}/ci-candidate-locked312-join-work-resources/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-join/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-join-work-resources/
         retention-days: ${{ job.status == 'success' && 7 || 14 }}
         compression-level: 6
         if-no-files-found: error
@@ -1197,18 +1211,18 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: candidate-standard-locked312-join-failure-inputs
+        name: candidate-standard-${{ matrix.id }}-join-failure-inputs
         path: |
           ${{ runner.temp }}/ci-standard-part-downloads/
-          ${{ runner.temp }}/ci-candidate-locked312-a/
-          ${{ runner.temp }}/ci-candidate-locked312-a-work-resources/
-          ${{ runner.temp }}/ci-candidate-locked312-a-pack-resources/
-          ${{ runner.temp }}/ci-candidate-locked312-a-accounting.json
-          ${{ runner.temp }}/ci-candidate-locked312-b/
-          ${{ runner.temp }}/ci-candidate-locked312-b-work-resources/
-          ${{ runner.temp }}/ci-candidate-locked312-b-pack-resources/
-          ${{ runner.temp }}/ci-candidate-locked312-b-accounting.json
-          ${{ runner.temp }}/ci-candidate-locked312-join-tmp/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-a/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-a-work-resources/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-a-pack-resources/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-a-accounting.json
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-b/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-b-work-resources/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-b-pack-resources/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-b-accounting.json
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-join-tmp/
         retention-days: 14
         include-hidden-files: true
         compression-level: 0

@@ -1,43 +1,68 @@
 # Precision migration CI execution plan
 
-## Current CI586 repair checkpoint
+## Current CI587 repair checkpoint
 
-Published `3d7e5317` runs [CI586](https://github.com/enpasos/jax2onnx/actions/runs/41237801158).
-The four focused EXTRA jobs fail before their selected metadata diagnostics can
-execute: shallow checkouts lack immutable original-history object
-`ccc861b0dff5042958a267addc43b622a4b61d49`, so the strict inventory archive
-check fails. The repair fetches only that object, checks exact identity and
-readable `tests` archive, and preserves the checked-out HEAD and tracked state.
-It applies before original full-suite execution and inside monitored focused
-EXTRA WORK. Metadata inputs, assertions and scientific criteria are unchanged.
-The genuine shallow-Git control plus seven affected metadata cases pass on each
-official 3.11/3.13 family; the unchanged 3.12 metadata control also passes in a
-fresh exclusive stage. Earlier overlapping 3.12/3.14 resource epochs remain
-explicitly unqualified despite their functional results.
+Published `62276cd8` runs [CI587](https://github.com/enpasos/jax2onnx/actions/runs/41243854804).
+The exact original-history object is now provisioned before the affected metadata
+work. All four complete focused campaigns at F=1,506 pass their native controls:
+6,021 PASS and three original applicability skips. Their whole-job spans total
+38.68 minutes and eight successful uploads total 37,972,019 bytes. This is
+F-only native execution, numerically NOT_ASSERTED and B–F UNVERIFIED; full A/R
+and the independent scientific gates remain required.
 
-STANDARD 3.14 separately hits its unchanged 1,100-second WORK deadline:
-1,105.394 seconds elapsed, 3,073,613,824-byte peak RSS, cleanup confirmed and
-no observed OOM or disk breach. Its run records 4,120 completed IDs and an
-unclosed final 453-item batch; bounded primaries contain no JUnit for independent
-phase acceptance. Packing then times out at 90 seconds and the whole job is
-cancelled after 1,225 seconds. Other STANDARD jobs and the strict 3.12 join
-succeed; this failed cohort prevents current STANDARD qualification.
-Thirteen full collections contribute 157.084 seconds of combined startup,
-collection and context overhead, not an isolated import measurement or promised
-saving. Existing `py314.json` now uses the established Main-owner schema and
-188 literal modules while retaining exactly the same 4,573 Main IDs and shared
-baseline. EXTRA 3.14 stays GLOBAL. Genuine clean-head C/O projection and the next
-hosted full-S/whole-job timing remain required; no budget or model size changes.
+STANDARD 3.14 completes exactly S=4,573, with 4,562 PASS and 11 original skips.
+Its WORK is 1,063.071 seconds and whole job 1,075 seconds. Actual C=20,670 and
+O=4,808, all 188 complete modules, contexts/phases/JUnit and controlled resource
+closure were checked. No local or hosted speedup is inferred from this result.
 
-The new Git control extends literal F from 1,505 to **1,506**. Its genuine
-single-owner collection preserves the previous 98 IDs and adds exactly one.
-Historical full C receipts keep their original source epoch: the resulting
-C+1 projection is not a newly observed global collection. R remains
-14,591 / 14,595 / 14,594 / 14,591, including all seven mandatory scientific BF16
-cases. Complete A, scientific/default-strict extrema, Native3/ORT2, 3,712 caller
-obligations, replay, models/artifacts and web contexts remain required.
-Full timed F and gate activation remain unqualified. The named reviewed SOURCE
-publication exception waives no new CI failure or scientific criterion.
+STANDARD 3.11 and 3.13 fail the unchanged 1,100-second controlled deadline:
+1,103.667 / 1,105.378 seconds, cleanup confirmed, with no observed OOM or disk
+breach. Their run records cover 4,118 / 4,120 assignments; the final 453-case
+batch in each is wholly unaccepted. Whole-job cancellation at 1,228 / 1,224
+seconds also exceeds the 1,200-second requirement. Four original full jobs were
+still live at the last retained observation. Successful cohorts do not qualify
+these failed campaigns.
+
+The bounded successor extends the existing fixed serial-parts protocol to
+`py311-owners.json` and `py313-owners.json`, cutting after original batch seven.
+It preserves exact full S: 1,658 + 2,913 and 1,658 + 2,915. Each part performs
+genuine complete C/O and retains all original assignments, skips and numeric
+criteria. Strict joins validate same head/attempt/cohort, source/runtime/context,
+phases/JUnit, resource/cleanup and disjoint ordered reconstruction. Part a owns
+the original all-files hooks once per cohort. Existing 3.12 parts/5-GiB binding,
+3.14 and four EXTRA rows remain unchanged.
+
+Local controls pass 113 selected cases plus one real tiny a/b/join on each
+official 3.11/3.13 family; three actual 3.12 controls and one actual 3.14 rejection
+also pass. The first new 3.12 negative expectation failed at a stricter earlier
+guard; its raw failure is retained, and only the cohort-specific message was
+corrected. All completed positive branches and collection declarations remain
+bound to their actual source epochs. Genuine changed-owner collections extend
+literal F to 1567; this is a projection over retained original full C, not a new
+global observation or qualification of the expanded F.
+
+This reviewed fixed-parts layout supersedes the historical 2026-10-30
+"Do not shard" / eight-candidate scheduling amendment below. Original case
+internals remain unchanged; exact full S is reconstructed by strict union.
+All parts and joins belong to one STANDARD campaign, so their actual whole-job
+spans and complete upload total must be reported together against its aggregate
+limits; per-part timings alone do not qualify the replacement.
+
+The next hosted candidate has eleven STANDARD compute jobs and three joins.
+Each stays within 1,100-second WORK / 1,200-second whole limits; ordinary
+3.11/3.13 parts stay at 4 GiB and the sole 3.12 exception stays at 5 GiB. Added
+setup, C/O, joins and all uploads must fit the unchanged 160-job-minute /
+100-MiB STANDARD campaign budgets. These costs and next-head full S remain
+unqualified. EXTRA keeps its separate 2,000-second WORK / 35-minute whole /
+4-GiB limits and 160-minute / 100-MiB budgets. No gate activation follows from
+the local repair.
+
+All unmatched A remains in complete R. Seven scientific BF16 cases,
+default-strict extrema, Native3/ORT2, 3,712 caller obligations, frozen replay,
+models/artifacts and Node/Chrome remain independently owned. The reviewed SOURCE
+publication exception waives no new CI regression. Temporary LEGACY bridges
+serve identified CI/reference comparisons; the complete contract is a merge
+gate, not a blanket prohibition on reviewed work inside this unmerged branch.
 
 ## Historical CI585 STANDARD result and initial EXTRA profile data
 

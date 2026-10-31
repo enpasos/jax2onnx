@@ -234,7 +234,7 @@ def _run_tiny_part(fixture, part, *, fail=False):
         "--max-rss-mib",
         "4096",
         "--min-available-mib",
-        "8192",
+        "8192" if template["python_minor"] == "3.12" else "2048",
         "--disk-path",
         str(suite),
         "--disk-path",
@@ -279,7 +279,91 @@ def _run_tiny_part(fixture, part, *, fail=False):
 def test_real_312_two_serial_main_owner_parts_join_and_fail_closed(
     tmp_path, monkeypatch
 ):
+    _exercise_current_fixed_parts_join(tmp_path, monkeypatch, "3.12")
+
+
+@pytest.mark.parametrize("batch_size", [1, 499])
+def test_actual_cli_rejects_hosted_part_repacking_before_any_run(tmp_path, batch_size):
+    manifest = tmp_path / "baseline.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "standard_part": {
+                    "profile": "internal_docs/precision/ci_standard/py312-owners.json"
+                }
+            }
+        )
+    )
+    output = tmp_path / "never-started"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(_RUNNER),
+            "--ci-lane",
+            "standard",
+            "--ci-main-baseline",
+            str(manifest),
+            "--_ci-provision-campaign",
+            str(tmp_path / "unused-profile.json"),
+            "--ci-standard-part",
+            "a",
+            "--batch-size",
+            str(batch_size),
+            "--output-dir",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 2
+    assert "original 500-case batching" in result.stderr
+    assert not output.exists()
+
+
+def test_worker_source_snapshot_uses_actual_script_root_and_one_read(
+    tmp_path, monkeypatch
+):
+    module = _runner()
+    empty = tmp_path / "unrelated-cwd"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+    snapshot = module._worker_context()
+    original = module._context_read
+    calls = []
+
+    def read(path, limit=2 * 1024**2):
+        calls.append(path)
+        return original(path, limit)
+
+    monkeypatch.setattr(module, "_context_read", read)
+    root, bindings = module._ci_worker_source_files()
+    assert root == _RUNNER.parents[1].resolve()
+    assert calls == [
+        (root / name).resolve(strict=True) for name in module._WORKER_SOURCE_FILES
+    ]
+    assert bindings == snapshot["source_files"]
+    for name, proof in bindings.items():
+        payload = (root / name).read_bytes()
+        assert proof == {
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+
+
+def _observations_for_minor(head, python_minor):
+    observations = _observations(head)
+    cohort = python_minor.replace(".", "")
+    suffix = " (5GiB)" if python_minor == "3.12" else ""
+    for job, part in zip(observations["jobs"], ("a", "b"), strict=True):
+        job["name"] = f"candidate STANDARD (locked{cohort} serial part {part}{suffix})"
+    return observations
+
+
+def _exercise_current_fixed_parts_join(tmp_path, monkeypatch, python_minor):
     fixture = _tiny_parts(tmp_path, monkeypatch)
+    assert fixture[2]["python_minor"] == python_minor
     module, suite, payload, environment, cohort, selectors, head, base = fixture
     original_read = module._context_read
     receipt_reads = set()
@@ -302,7 +386,7 @@ def test_real_312_two_serial_main_owner_parts_join_and_fail_closed(
     observations = base / "unit-control-job-observations.json"
     # These are explicitly synthetic Actions observations around REAL resource
     # intervals, testing association only; they are never hosted timing proof.
-    unit_jobs = _observations(head)
+    unit_jobs = _observations_for_minor(head, python_minor)
     for job, root in zip(unit_jobs["jobs"], (root_a, root_b), strict=True):
         resource = json.loads(
             (Path(str(root.parent) + "-work-resources") / "summary.json").read_bytes()
@@ -324,6 +408,9 @@ def test_real_312_two_serial_main_owner_parts_join_and_fail_closed(
     code, result = join([root_a, root_b], "join")
     assert code == 0, result
     assert result["completed_ids"] == payload["nodeids"]
+    assert result["standard_acceptance"] == (
+        f"FULL_{python_minor.replace('.', '')}_STANDARD_NATIVE_PYTEST_ONLY"
+    )
     assert result["numerical_acceptance"] == "NOT_ASSERTED"
     assert result["full_B_to_F_acceptance"] == "UNVERIFIED"
     for root, part in ((root_a, "a"), (root_b, "b")):
@@ -408,6 +495,20 @@ def test_real_312_two_serial_main_owner_parts_join_and_fail_closed(
         == "STANDARD part resource/cleanup/capacity closure is incomplete"
     ), report
     resource_path.write_bytes(raw_resource)
+    if python_minor != "3.12":
+        for fault in ("foreign-five-gib", "foreign-execution-binding"):
+            resource = json.loads(raw_resource)
+            if fault == "foreign-five-gib":
+                resource["limits"]["rss_mib"] = 5120
+            else:
+                resource["standard_execution_profile"] = {"checkout": head}
+            module._write(resource_path, resource)
+            rejected, report = join([root_a, root_b], fault)
+            assert rejected == 1, report
+            assert report["failure"]["message"] == (
+                "STANDARD part resource/cleanup/capacity closure is incomplete"
+            )
+            resource_path.write_bytes(raw_resource)
     resource = json.loads(raw_resource)
     worker_pid = json.loads((root_b / "run.json").read_bytes())["processes"][-1]["pid"]
     resource["owned_pid_start_ledger"] = [
@@ -460,14 +561,87 @@ def test_real_312_two_serial_main_owner_parts_join_and_fail_closed(
     assert join([root_a, incomplete], "incomplete")[0] == 1
 
 
+@pytest.mark.parametrize("minor,second", [("311", 2913), ("313", 2915)])
+def test_fixed_ordinary_profiles_preserve_full_s_and_exact_reviewed_cut(minor, second):
+    module = _runner()
+    directory = _RUNNER.parents[1] / "internal_docs/precision/ci_standard"
+    profile = json.loads((directory / f"py{minor}-owners.json").read_bytes())
+    baseline = profile["baseline"]
+    if "path" in baseline:
+        baseline = json.loads((directory / baseline["path"]).read_bytes())
+    full = baseline["nodeids"]
+    parts = module._ci_standard_parts(full, profile["standard_parts"])
+    assert len(parts["a"]) == 1658 and len(parts["b"]) == second
+    assert parts["a"] + parts["b"] == full
+    assert set(parts["a"]).isdisjoint(parts["b"])
+    assert parts["a"][-1] == (
+        "tests/extra_tests/test_normalization_export_policy.py::"
+        "test_normalization_mode_reaches_control_flow_contexts[force_decomposed]"
+    )
+    assert not any(
+        "test_maxtext.py::" in node or "test_maxdiffusion.py::" in node for node in full
+    )
+
+
+@pytest.mark.parametrize("minor", ["3.11", "3.13"])
+def test_ordinary_parts_bind_exact_cohort_job_names_and_reject_foreign_jobs(minor):
+    module = _runner()
+    head = "a" * 40
+    marker = {"checkout": head, "run_id": "123", "run_attempt": "1"}
+    observations = _observations_for_minor(head, minor)
+    times = module._ci_standard_job_times(observations, marker, python_minor=minor)
+    assert times["a"]["elapsed_seconds"] == times["b"]["elapsed_seconds"] == 60
+    for foreign in {"3.11", "3.12", "3.13"} - {minor}:
+        with pytest.raises(ValueError, match="missing or duplicated"):
+            module._ci_standard_job_times(
+                _observations_for_minor(head, foreign), marker, python_minor=minor
+            )
+
+
+@pytest.mark.skipif(
+    os.environ.get("JAX2ONNX_RUN_FIXED_PARTS_SMOKE") != "1",
+    reason="explicit current-cohort real serial-parts integration control",
+)
+def test_real_current_cohort_serial_parts_join_and_fail_closed(tmp_path, monkeypatch):
+    minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if minor in {"3.11", "3.13"}:
+        _exercise_current_fixed_parts_join(tmp_path, monkeypatch, minor)
+    else:
+        # The original real312 positive remains its separately collected control.
+        # 3.14 has no reviewed fixed split. Prove that unsupported part admission
+        # fails before any worker, without inventing an off-cohort skip allowance.
+        fixture = _tiny_parts(tmp_path, monkeypatch)
+        module, suite, payload, environment, cohort, selectors, head, base = fixture
+        data = json.loads(cohort.read_bytes())
+        data["python_minor"] = payload["python_minor"] = "3.14"
+        module._write(cohort, data)
+        payload["source_files"][cohort.name] = hashlib.sha256(
+            cohort.read_bytes()
+        ).hexdigest()
+        actual, root = _run_tiny_part(fixture, "a")
+        assert actual.returncode != 0
+        expected = (
+            "unsupported STANDARD part authority"
+            if minor == "3.14"
+            else "unqualified Python cohort"
+        )
+        assert expected in actual.stdout + actual.stderr
+        assert not (root / "global-collection").exists()
+        assert not (root / "collection").exists()
+        assert not list(root.glob("batch-*"))
+
+
+@pytest.mark.parametrize("minor", ["311", "313"])
 @pytest.mark.parametrize("batch_size", [1, 499])
-def test_actual_cli_rejects_hosted_part_repacking_before_any_run(tmp_path, batch_size):
+def test_actual_cli_rejects_ordinary_hosted_part_repacking_before_any_run(
+    tmp_path, minor, batch_size
+):
     manifest = tmp_path / "baseline.json"
     manifest.write_text(
         json.dumps(
             {
                 "standard_part": {
-                    "profile": "internal_docs/precision/ci_standard/py312-owners.json"
+                    "profile": f"internal_docs/precision/ci_standard/py{minor}-owners.json"
                 }
             }
         )
@@ -498,33 +672,3 @@ def test_actual_cli_rejects_hosted_part_repacking_before_any_run(tmp_path, batch
     assert result.returncode == 2
     assert "original 500-case batching" in result.stderr
     assert not output.exists()
-
-
-def test_worker_source_snapshot_uses_actual_script_root_and_one_read(
-    tmp_path, monkeypatch
-):
-    module = _runner()
-    empty = tmp_path / "unrelated-cwd"
-    empty.mkdir()
-    monkeypatch.chdir(empty)
-    snapshot = module._worker_context()
-    original = module._context_read
-    calls = []
-
-    def read(path, limit=2 * 1024**2):
-        calls.append(path)
-        return original(path, limit)
-
-    monkeypatch.setattr(module, "_context_read", read)
-    root, bindings = module._ci_worker_source_files()
-    assert root == _RUNNER.parents[1].resolve()
-    assert calls == [
-        (root / name).resolve(strict=True) for name in module._WORKER_SOURCE_FILES
-    ]
-    assert bindings == snapshot["source_files"]
-    for name, proof in bindings.items():
-        payload = (root / name).read_bytes()
-        assert proof == {
-            "bytes": len(payload),
-            "sha256": hashlib.sha256(payload).hexdigest(),
-        }

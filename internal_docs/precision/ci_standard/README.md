@@ -1,69 +1,47 @@
 # Private STANDARD and support provisioning
 
-## Current repair and literal EXTRA declarations
+## Current profiles and bounded repair
 
-Published `3d7e5317` has four focused EXTRA failures from a missing immutable
-original-history Git object and a separate STANDARD 3.14 deadline/cancellation.
-The repair provisions the exact object before relevant execution and changes
-only STANDARD `py314.json` to existing Main-owner collection over 188 complete
-modules and unchanged S=4,573. `py314-extra.json` remains GLOBAL. Local affected
-metadata/Git controls pass 8 cases each on 3.11/3.13 and one unchanged 3.12 case
-exclusively. Current full-S timing, clean 3.14 C/O and full timed F remain pending;
-see [the CI586 repair record](../ci_execution_plan.md#current-ci586-repair-checkpoint).
-CI585's 84.92-minute/65,308,579-byte scoped STANDARD result remains historical.
+Published `62276cd8` closes all four focused F=1,506 campaigns and STANDARD 3.14
+in CI587. STANDARD 3.11/3.13 hit the unchanged WORK and whole-job limits. The
+local successor applies the existing strict fixed-parts protocol to those two
+Main-owner profiles: 1,658 + 2,913 / 2,915 original S IDs, complete C/O per part,
+original hooks once in part a, and a strict same-head/attempt union. Existing
+3.12 parts/5-GiB exception, 3.14 and GLOBAL EXTRA profiles retain their roles.
+Next-head timing and all campaign budgets still require actual qualification.
+See [current evidence and limits](../ci_execution_plan.md#current-ci587-repair-checkpoint).
 
-`py311-extra.json` through `py314-extra.json` preserve their corresponding
-original baseline, packages/plugins, complete generated bindings and optional-source
-contracts. Only the explicit EXTRA flags/projection/applicability declarations
-and provenance differ. Both `JAX2ONNX_TEST_CI_LANE_XDIST=1` and
-`JAX2ONNX_RUN_FIXED_PARTS_SMOKE=1` bind all three context boundaries.
-
-| Proposed global profile | Historical observed C | Projected C only | Original S | Projected A | Literal F | R |
+| Global profile | Original observed C | Projected C | Original S | Projected A | Literal F | R |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `py311-extra.json` | 20,667 | 20,668 | 4,571 | 16,097 | 1,506 | 14,591 |
-| `py312-extra.json` | 20,721 | 20,722 | 4,621 | 16,101 | 1,506 | 14,595 |
-| `py313-extra.json` | 20,672 | 20,673 | 4,573 | 16,100 | 1,506 | 14,594 |
-| `py314-extra.json` | 20,669 | 20,670 | 4,573 | 16,097 | 1,506 | 14,591 |
+| `py311-extra.json` | 20,668 | 20,703 | 4,571 | 16,132 | 1,567 | 14,565 |
+| `py312-extra.json` | 20,722 | 20,757 | 4,621 | 16,136 | 1,567 | 14,569 |
+| `py313-extra.json` | 20,673 | 20,708 | 4,573 | 16,135 | 1,567 | 14,568 |
+| `py314-extra.json` | 20,670 | 20,705 | 4,573 | 16,132 | 1,567 | 14,565 |
 
-The original full-C receipts retain their actual source epoch. A genuine
-99-item owner observation preserves all previous 98 IDs and adds one Git control;
-C+1/A+1 and literal F=1,506 are an explicit projection, not another observed
-global collection. R is unchanged. These data are not native full-F qualification. Counts are observations,
-never limits. F includes the complete current 134-case metadata owner, critical
-ownership/extrema/callback controls, all six xdist controls, both fixed-part
-controls, the four declaration cases, all 112 actual workflow/resource controls and
-three existing Node provision controls. Every unmatched A remains R and
-complete-extra owned. The sole non-3.12 harness allowance records independently
-observed exact skipped phases, JUnit, source/line/reason; 3.12 has no allowance.
-Initial F=1,390 local clean commit `895225ac` admits all four actual profiles and closes
-finite controls, including all six xdist cases per cohort. The initial local
-3.12 deadline/raw-allocation failures remain preserved; its one-batch continuation
-uses the immutable original C/manifest and explicitly external UNVERIFIED model
-transport. Full timed F and scientific acceptance remain pending. The new
-workflow/policy controls and the Node repair controls are included in final
-F=1,505; the new Git control then extends literal F to 1,506. The Node correction changes only an existing function body; the retained
-C source epoch stays explicit through the unchanged collection-declaration AST
-bridge and actual 3.12 positive/3.11/3.13 rejection controls. Supported 3.12 and
-unsupported-cohort Node parameter IDs differ, so their ordered F hashes differ. That updated
-working-tree data still requires final committed-source/hosted qualification.
+Each original full C remains at its recorded exact622 source epoch. All four
+existing official runtimes genuinely collect the three changed owners; their
+ordered IDs agree. Replacing only those owner declarations is an explicit
+projection, not another global collection. Every original ID and S order is
+preserved. All new and affected selected controls join F; unmatched A remains R.
+Counts are observations, never limits. Expanded F must pass at its final head.
 
-Focused uses the existing global command with `--ci-lane extra
---ci-extra-scope focused` and the corresponding extra profile, without a test-path
-or part marker. Python 3.12 still requires both pinned optional sources and all
-original models during setup/collection. Complete milestones/final use
-`--ci-extra-scope all`, retaining every A including R and all seven mandatory
-scientific BF16 TopK cases. Native F-only success is NOT_ASSERTED numerically and
-UNVERIFIED for B–F; it never replaces the independently required `default-strict`
-extrema CLI or scientific/replay/model/web gates. Minimum312 support retains its
-unchanged full command and A=146; minimum311 remains independently required.
-Nightly Node/Chrome contexts and exact active-branch SHA wiring remain owned.
-The [execution plan](../ci_execution_plan.md) records the separate provisional
-EXTRA budgets, prepared nonreplacement wiring and activation hold. The
-`--focused-extra-profile` observer permission is restricted to current tracked
-GLOBAL focused profiles at 2,000 seconds / 4 GiB, without changing STANDARD or
-locked312 limits. Its 112 local workflow/CLI controls pass per official 3.11/3.13 family and use
-explicit synthetic Actions fixtures. Hosted admission and complete timed-F jobs
-remain required.
+The profiles preserve baseline, packages/plugins, generated and optional-source
+contracts. Both opt-in flags bind startup, collected and final environments.
+The original non-3.12 smoke allowance keeps its exact source line 274, phases,
+JUnit and reason; 3.12 has no such allowance. New 3.11/3.13 real tiny joins execute
+under the existing opt-in flag, while 3.12/3.14 reject the unsupported fixture
+through their exact existing preworker guard. No general skip rule is added.
+
+Focused uses `--ci-lane extra --ci-extra-scope focused` with the GLOBAL extra
+profile, no test-path and no part. Focused 3.12 retains both pinned optional
+sources and all original models during setup/collection. Complete milestone,
+final and affected-assumption campaigns use `--ci-extra-scope all`, retaining
+every R and all seven scientific BF16 cases. F-only native success is
+NOT_ASSERTED numerically and B–F UNVERIFIED; default-strict extrema, Native3/ORT2,
+3,712 caller obligations, replay, model artifacts and web contexts remain separate.
+Minimum312 retains its unchanged full command and A=146; minimum311 and nightly
+Node/Chrome with exact active-branch SHA remain required. The expanded local
+profiles and candidate wiring do not activate gates.
 
 ## Historical provisioning observations
 

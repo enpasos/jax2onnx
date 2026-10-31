@@ -1,161 +1,46 @@
-# Computation Precision: Current User Experience
+# Computation precision: what works today
 
-Public precision-policy reference: `main` at `fae17822`, 2026-10-17, after the
-merged double-consumer repair. Older local-branch records below are dated
-2026-10-27 and retain their original scope.
+The public exporter still uses its existing precision behavior. The planned
+source-preserving behavior is being developed privately and is **not a public
+export mode**. This page describes the current interface and its limitations,
+as of 2026-10-31. The [target user guide](precision_target_state_user_view.md)
+describes the intended result; the [migration guide](precision_migration_plan_user_view.md)
+explains how the transition will work. The unmerged PR may change its ordinary
+export path while implementation continues. Complete functionality and validation
+are required before merge; this page does not announce a release.
 
-As of **2026-10-30**, the [current handoff](implementation_handoff.md#current-checkpoint-2026-10-30)
-records published `cd5cb4be` with eight successful existing CI checks. The private
-runner remains ungated; whole-job 20-minute STANDARD qualification and full B–F
-are unfinished. Public LEGACY options and defaults remain unchanged.
+## Choosing the current export setting
 
-This document explains the precision behavior available to JAX model exporters.
-See the [technical details](precision_current_state.md) for implementation and
-validation evidence, or the [precision overview](README.md) for the complete
-document set. The [target user experience](precision_target_state_user_view.md)
-and [migration guide](precision_migration_plan_user_view.md) describe proposed
-changes. The merged double-consumer repair covers selected double-precision
-loading and execution; the broader precision contract remains a proposal.
+`to_onnx` currently exposes `enable_double_precision=False` by default. In an
+ordinary call, false temporarily disables JAX x64 and true enables it; the
+previous setting is restored afterward, including on failure. A surrounding
+local JAX configuration scope can take precedence, so use the same effective
+settings for the JAX result you compare against.
 
-## Older Local Branch Snapshots
-
-The latest finite CI repair qualification is recorded in the
-[handoff](implementation_handoff.md) and
-[technical checkpoint](poc/source_integration_findings.md#latest-ci-repair-qualification).
-Local quality and exact-head CI retain separate evidence. The older results below
-retain their own scope; public options and defaults remain unchanged.
-
-The supported floor remains **Python 3.11+, JAX/JAXLIB 0.10.2+, Flax 0.12.8+
-and ONNX IR 1.0.0+**. The user’s Poetry update retains the modern JAX 0.12.0.1 /
-IR 1.1.0 stack. Current public options, defaults and `enable_double_precision`
-remain unchanged.
-
-The private path checks more cases against the original computation and the
-actual returned model, preserving chosen types, input-derived layouts and
-original callable state. It also accounts for original registered cases without
-changing their supplied comparison criteria. These bounded checks establish
-neither all-model support nor a general numerical guarantee.
-
-Published diagnostic checkpoint **`09f31f45`** passes all eight CI checks,
-including the complete Python 3.11–3.14 test suites. The private rounding
-component and native target-metadata experiment have separate focused checks;
-the exporter does not yet use the new rounding component. The later candidate's
-precision-plan and graph checks pass their complete focused and regression
-selections on both locked stacks. Selecting the correct source-dependent
-rounding procedure remains unfinished, as do the complete migration and public
-transition.
-The [handoff](implementation_handoff.md) distinguishes these results and retains
-the earlier host-observed rounding failure.
-
-The earlier 2026-10-26 qualifications retain their own scope. The complete
-available Python 3.13/JAX 0.11
-native-callable test owner now passes 312 cases, including all original 282
-identities; this is not locked modern-Python or all-model support. Current
-focused and broader pairs pass their recorded scopes. Current package typing
-passes on both local stacks within its package scope. Local closeout keeps its
-own gates in the
-[technical ledger](poc/source_integration_findings.md#current-checkpoint).
-The private path still restores x64, matrix precision and both NumPy promotion
-settings across in-call handling and finalization, including errors; it makes no
-promise about every JAX setting. Actual local checks and checkpoint closeout
-outcomes belong to this cut's commit record.
-
-Public options remain LEGACY, including the enclosing-local setting's precedence
-over the flag's temporary global value. The flag discussion below assumes no
-local override. The first original-model case still stops at the default 4 GiB
-guard: its phase ledger records eight B=2 run/comparison bodies returning before
-an unfinished B=5 run. This is no completed model or numerical result. The
-memory-pattern configuration passes six small controls on each of three
-installed stacks, including the declared ORT floor. Its later large trial also
-stops at 4 GiB during the first B=5 run. This establishes neither a memory repair
-nor all-model support. The
-interrupted full run remains incomplete, and focused passes or software resource
-guards do not establish full support or general stability.
-The full inventory, fixed-source and numerical workflows and public transition
-remain required.
-
-Ordinary file exports retain inline Function constants and external storage for
-large root initializers. Actual runtime support and numerical acceptance require
-the target and supplied comparisons. Existing criteria and raw callback failures
-remain binding; no general scientific-FP64 preparation API is claimed.
-
-The completed migration will provide one ordinary source-preserving experience
-for all existing functionality and fixed supplied JAX sources. Genuine ONNX or
-target limits must be demonstrated; missing implementation is unfinished work.
-Until those gates close, use the current settings and a consistently configured
-JAX reference as described below.
-
-## Choosing the Export Setting
-
-`to_onnx` currently exposes `enable_double_precision=False` by default. During
-export, this setting temporarily disables JAX x64, even if your application has
-already enabled it. Passing `True` temporarily enables x64. The previous JAX
-setting is restored after the call, including when export raises an error.
-Consequently, enabling x64 elsewhere in your application does not replace this
-export argument.
-
-| Existing call | JAX setting during export | Input default when only a shape is supplied |
+| Existing call | Ordinary x64 setting during export | Default for shape-only inputs |
 | --- | --- | --- |
-| Argument omitted | x64 disabled | FP32 |
-| `enable_double_precision=False` | x64 disabled | FP32 |
-| `enable_double_precision=True` | x64 enabled | FP64 |
+| Argument omitted | Disabled | FP32 |
+| `enable_double_precision=False` | Disabled | FP32 |
+| `enable_double_precision=True` | Enabled | FP64 |
 
-The argument also selects the input dtype when you provide only a shape. For
-example, `to_onnx(fn, [(4,)])` uses a float32 input, while
-`to_onnx(fn, [(4,)], enable_double_precision=True)` uses a float64 input. If the
-input dtype matters, declare it explicitly with `jax.ShapeDtypeStruct` instead
-of relying on this default.
+For example, `to_onnx(fn, [(4,)])` uses an FP32 input, while the same call with
+`enable_double_precision=True` uses FP64. Declare an explicit
+`jax.ShapeDtypeStruct` when the input dtype matters. An FP64 declaration alone
+does not override disabled x64: JAX may narrow it during tracing.
 
-Double export promotes many floating values, but it does not make every value
-float64. Explicit conversions, selected array constructors, and some operations
-retain lower precision. Float16 and bfloat16 also have their own supported
-cases. The argument therefore does not currently offer one uniform rule for
-models that intentionally mix floating types.
+The flag also affects constants and lowered arithmetic. Double export widens
+many floating values, but explicit conversions, selected constructors and
+low-precision paths retain exceptions. It does not provide a uniform rule for
+models that intentionally mix precisions. Configure the comparison model
+consistently and check the actual exported result.
 
-An explicit FP64 input does not override the disabled x64 setting on the old
-omitted/false route. In the tested case, JAX truncates an FP64 input
-specification: JAX 0.10.2 does so silently, while JAX 0.11.2 warns. A requested
-FP64 cast inside model code warns and becomes FP32 on both tested stacks.
-Configure the JAX reference consistently when comparing with such exports.
+JAX scalars can carry `weak_type`, a property that changes how they combine
+with explicitly typed operands. Current public input preparation can lose that
+property. Equal shape and dtype therefore do not always imply the same traced
+calculation. The private migration corrects this, but that correction has not
+changed the public interface.
 
-Scalar inputs can also carry JAX's `weak_type` property, which affects how their
-type combines with another operand. For example, `jnp.asarray(2048.0)` creates
-such a scalar. Public legacy input preparation loses that property. Matching
-shape and dtype alone therefore may not reproduce the intended JAX promotion.
-The private source experiment now preserves it: in the
-[tested addition](poc/migration_ux_findings.md#weak-input-properties-preserved-on-the-source-path),
-a weak scalar plus explicitly FP16 `1` returns FP16 `2048`, while a strong
-input with the same shape and dtype returns FP32 or FP64 `2049`. Both source
-routes have regression coverage on both supported JAX stacks. That correction
-does not alter public legacy normalization.
-
-The [local integration](poc/source_integration_findings.md) also preserves
-selected mixed-type calculations through real named functions and two-branch
-conditionals, including constants and both runtime branch choices. Its private
-function variant handles mixed and structured results and distinguishes weak
-and strong input signatures. It also retains local JAX x64 and matrix-precision
-settings across a named function. Sequential source and legacy exports now
-have regression checks around cached conditionals and ordinary JAX execution.
-These selected serialized CPU cases are an intermediate step toward the complete
-migration.
-The local follow-up also preserves weak typing in stored model parameters and
-nested configuration values when reusing a named function. Optional exporter
-optimizations now respect the selected source calculation too. These repairs
-have separate regression coverage; they do not certify runtime precision.
-No public source option is available. Selected compiled bodies and native loops
-have private regression coverage. Remaining loop/JIT forms, operations and
-deployment validation still need evidence.
-
-A further FP32 reciprocal example agrees with JAX under the tested ORT sessions
-with optimization off, but differs when optimization is on. A captured FP16
-addition also loses its intended intermediate rounding in both profiles.
-The [follow-up findings](poc/source_integration_findings.md#follow-up-review-on-2026-10-18)
-record the exact cases. Disabling runtime optimization is therefore not a
-general precision remedy.
-
-## Explicit Conversions Can Depend on the Input Type
-
-Consider this small export:
+## A small example of the current behavior
 
 ```python
 import jax
@@ -174,102 +59,94 @@ model = to_onnx(
 )
 ```
 
-For this function, focused checks at the stated snapshot produced:
+This FP64-to-FP32 conversion retains an FP32 output in the focused regressions.
+If the input specification is changed to FP32, JAX can remove the redundant
+cast, and the existing double-export policy can produce an FP64 output instead.
+The source expression alone does not determine the public export's arithmetic.
 
-| Explicit input specification | Exported output dtype |
-| --- | --- |
-| float64 | float32 |
-| float32 | float64 |
+The earlier loading failure for `-x.astype(jnp.float32)` is repaired for the
+covered paths. With an FP64 input and double export, the value is rounded to
+FP32, widened, and then negated in FP64. Returning the same rounded value
+separately still gives an FP32 output. The repair makes these models valid
+without promising that every later operation runs at the source model's FP32
+precision.
 
-In the second case, JAX can remove the redundant float32-to-float32 conversion
-before export, and double export subsequently promotes the value. The same
-source `astype` expression therefore does not guarantee the same exported
-output dtype for both input specifications.
+For a numerical example, consider:
 
-The previous loading failure for `return -x.astype(jnp.float32)` is repaired.
-With a float64 input and double export enabled, the value is first rounded to
-float32, then converted back to float64 for negation. The exported result is
-float64. Returning that rounded value directly as another output still returns
-float32; sharing it with the negation does not change that direct output.
+```python
+def rounding_sensitive(x):
+    y = x.astype(jnp.float32)
+    return (y + 1) - y
+```
 
-Focused CPU tests also cover selected arithmetic, unary, sum, concatenation,
-function, and output-layout cases. This repair preserves the existing double
-export policy. It does not guarantee that every later operation follows the
-source model's float32 arithmetic: rounding to float32 and then doing arithmetic
-in float64 can produce a different answer from continuing entirely in float32.
+With FP64 input `1e8`, the intended FP32 arithmetic returns zero in JAX. The
+tested current double export returns one because the later arithmetic is wider.
+This is why the migration needs a coherent rule throughout the model.
 
-## Precision and Deployment Need Separate Checks
+## Validate the calculation on its deployment target
 
-An exported model's input and output dtypes do not fully describe its internal
-arithmetic. Some normalization calculations deliberately use a wider
-accumulator while returning the original output dtype. Such choices can improve
-accuracy on tested inputs without promising identical results across JAX and
-ONNX runtimes.
+A valid ONNX file, a model that loads, and an accurate result are separate
+achievements. Input/output dtypes do not prove the intermediate rounding or
+accumulation used by the runtime. Some retained examples load successfully but
+lose a required FP16 rounding step; others differ only when runtime optimization
+is enabled. Disabling optimization is not a general fix.
 
-The [numerical experiment](poc/numerical_contract_findings.md) makes three
-different situations visible:
+Use the intended JAX model, weights, inputs and configuration as the reference.
+Check output structure, shapes and dtypes before numerical values. Include
+finite nonzero inputs, zeros, infinities, NaNs, subnormals and rounding boundaries
+where they matter to the operation. An all-zero answer can be correct.
 
-| Example | Observed behavior | Meaning for an export user |
-| --- | --- | --- |
-| FP16 matrix operands with a requested FP32 result | JAX returns FP32 `2049`; public legacy export returns FP16 `2048`. The private source path now returns FP32 `2049` for the tested matrix cases. | A bounded private repair exists; it has no public export switch and makes no general matrix-algorithm or performance promise. |
-| FP16 square followed by a sum | JAX rounds the squares to zero and sums to zero. The tested ONNX Runtime CPU sessions expose zero squares but return a nonzero sum. | Matching input/output types and successful execution do not establish required intermediate rounding. |
-| FP32 normalization with a selected FP64 variance sum | The private source path now exports the complete tested calculation, including inside a named function or conditional. | The selected wider sum retains the small contributions in these samples; broader normalization support remains to be established. |
+`allclose` and ordinary exact numerical equality treat positive and negative
+zero as equal. If the model depends on the sign, check it explicitly and include
+a later operation that reveals the difference, such as reciprocal producing
+positive or negative infinity. Check NaN locations when required; comparing
+all NaN payload bits is not a universal numerical requirement.
 
-The matrix comparison distinguishes the public exporter from the private
-experiment. The square/sum case uses the private path and does not establish
-the behavior of every public FP16 export. Normalization now has complete source
-exports as well as the original separately constructed feasibility control.
-All are bounded CPU observations on the versions recorded in the findings.
+Record the runtime version, provider, hardware and optimization/math settings.
+CPU success does not certify a browser or accelerator. Web packaging does not
+establish browser execution. The [dependency table](../../docs/about/dependencies.md#onnx-runtime-kernel-gaps)
+records specific kernel and behavior gaps and distinguishes current public
+handling from private migration work. A result on the locked runtime does not
+establish support on the minimum supported runtime.
 
-A private sample check now records the CPU execution settings and distinguishes
-an acceptable result, a numerical mismatch, and an untested sample. It refuses
-to mark the known square/sum failure as accepted. Exporting the file still
-succeeds; the check does not repair that runtime result or certify other inputs.
+## Local branch snapshot
 
-The tested square/sum example can pass after explicitly changing its model
-arithmetic. That change remains a candidate requiring its own validation; it
-is not an automatic repair available from an export switch. Execution cost
-and applicability to other inputs still need assessment.
+The private path, called SOURCE in the technical documents, preserves selected
+mixed-type calculations, weak inputs, constants and local precision settings
+through real functions and control flow. It also has reviewed finite complex
+broadcast, conjugation, layout and selection support. Completed-export ownership
+has been repaired without clearing JAX caches globally. Unsupported NNX mutable
+static payloads are rejected before the original model runs or changes; general
+state migration remains unfinished.
 
-Check the exported model on the runtime and execution provider you will deploy.
-Small direct ONNX models tested with ONNX 1.23.2 and ONNX Runtime 1.31.0 CPU
-illustrate the limits:
+The main numerical blockers are still visible. Default-runtime extrema
+comparisons remain failed for subnormal cases. Some official JAX eager and JIT
+results disagree on zero signs, and the official BF16 TopK counterexample remains
+open. A configured runtime profile or a passing diagnostic does not settle those
+broader failures. Only official supported dependencies are currently permitted;
+custom compiler builds need separate explicit approval.
 
-| Operation and dtype | Observed result |
-| --- | --- |
-| float64 matrix multiplication | Loaded and ran |
-| float64 convolution | Model was valid, but loading failed: implementation unavailable |
-| bfloat16 addition or negation | Models were valid, but loading failed: implementation unavailable |
+At the documented 2026-10-31 published checkpoint, focused regression lanes
+passed, but the complete scientific gate and CI timing qualification across the
+supported Python/JAX versions were unfinished. The [technical current state](precision_current_state.md)
+explains these boundaries. Test counts do not measure how much of the migration
+is complete.
 
-These checks cover the tested operations, not complete exported models or other
-devices. Bit reinterpretation also depends on the selected ONNX operator set:
-a minimal float32-to-int32 example failed at the current default, opset 23,
-and ran at opset 26. See the [runtime evidence](precision_current_state.md#onnx-feasibility-and-runtime-evidence)
-for the exact scope. Web export packaging likewise does not certify browser
-execution. Model validity, successful loading, and output accuracy are separate
-checks.
+## What to do now
 
-Use representative inputs, including numerically difficult cases relevant to
-your model. Compare against JAX running with the intended settings, and assess
-the error against your task's accuracy requirements. A dtype match or one
-successful example cannot replace that comparison. Existing numerical tests
-cover particular configurations rather than every model and deployment.
+Keep using the documented public export interface, and retain a working artifact
+and its environment as a comparison. Make model precision choices explicit where
+the framework supports them. For FP64 work, configure JAX before creating values
+and use the intended model, parameter and input types. Widening already rounded
+weights cannot recover their original precision.
 
-Precision choices apply to each operation's computation, accumulation, output,
-and deliberate conversions. A model may intentionally retain float16 or
-bfloat16 throughout. Other examples include selected float32 steps for
-stability or scientific calculations requiring float64. There is no universal
-float32 minimum.
+Keep an intentional FP32 cast when its rounding matters. If a calculation should
+use *at least* FP32 instead, express that rule through model configuration or a
+supported preparation step; the exporter cannot infer it from a hardcoded cast.
+The [target example](precision_target_state_user_view.md#example-exactly-fp32-or-at-least-fp32)
+explains the distinction.
 
-One concrete choice is exactly float32 versus at least float32:
-`astype(jnp.float32)` expresses the former. Keeping that conversion unchanged
-retains its rounding from float64 to float32, even when a later operation uses
-float64. The conversion alone cannot communicate a minimum-precision request.
-
-Express the intended computation types in model configuration or model code
-before export. The proposed
-[FP32 exact-or-minimum example](precision_target_state_user_view.md#example-exactly-fp32-or-at-least-fp32)
-illustrates one such choice; it does not remove the current export limitations.
-For float64 work, also configure inputs and parameter creation accordingly.
-Changing existing float32 parameters to float64 cannot recover precision
-already lost when they were created.
+The final transition must preserve existing functionality, including unchanged
+third-party sources, dynamic controls and scientific FP64 workflows. The
+documented checkpoint has no public API change to migrate, and no release date
+is assigned.

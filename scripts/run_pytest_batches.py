@@ -1633,14 +1633,25 @@ def _ci_worker_source_files() -> tuple[Path, dict[str, Any]]:
 
 def _ci_standard_batch_size(profile: str, batch_size: int) -> None:
     if (
-        profile == "internal_docs/precision/ci_standard/py312-owners.json"
+        profile
+        in {
+            "internal_docs/precision/ci_standard/py311-owners.json",
+            "internal_docs/precision/ci_standard/py312-owners.json",
+            "internal_docs/precision/ci_standard/py313-owners.json",
+        }
         and batch_size != 500
     ):
         raise ValueError("hosted STANDARD parts require original 500-case batching")
 
 
-def _ci_standard_resource(summary: Any) -> None:
-    """Accept closed ordinary work, including its cleanup and real capacity."""
+def _ci_standard_resource(summary: Any, *, python_minor: str = "3.12") -> None:
+    """Accept the existing cohort envelope with cleanup and real capacity."""
+    if python_minor not in {"3.11", "3.12", "3.13"}:
+        raise ValueError("unsupported STANDARD part Python cohort")
+    locked312 = python_minor == "3.12"
+    rss_mib = 5120 if locked312 else 4096
+    available_mib = 8192 if locked312 else 2048
+    initial_mib = 12288 if locked312 else 2048
     limits = summary.get("limits", {})
     if (
         summary.get("status") != "COMPLETE"
@@ -1652,9 +1663,11 @@ def _ci_standard_resource(summary: Any) -> None:
         or summary.get("cleanup_confirmed") is not True
         or summary.get("remaining_descendants") != []
         or summary.get("diagnostic_only", False) is not False
+        or summary.get("focused_extra_execution_profile") is not None
+        or (not locked312 and summary.get("standard_execution_profile") is not None)
         or not 0 < limits.get("timeout_seconds", 0) <= 1100
-        or not 0 < limits.get("rss_mib", 0) <= 5120
-        or limits.get("host_available_mib", 0) < 8192
+        or not 0 < limits.get("rss_mib", 0) <= rss_mib
+        or limits.get("host_available_mib", 0) < available_mib
         or limits.get("disk_free_mib", 0) < 4096
         or not 0 <= summary.get("elapsed_seconds", -1) <= 1100
         or not 0 < summary.get("peak_owned_rss_bytes", 0) <= limits["rss_mib"] * 1024**2
@@ -1663,8 +1676,8 @@ def _ci_standard_resource(summary: Any) -> None:
             summary.get("kernel_before", {}).get("memory", {}).get("MemAvailable", 0)
             * 1024,
         )
-        < 12288 * 1024**2
-        or summary.get("minimum_host_available_bytes", 0) < 8192 * 1024**2
+        < initial_mib * 1024**2
+        or summary.get("minimum_host_available_bytes", 0) < available_mib * 1024**2
         or not summary.get("disk_free_minima")
         or min(summary["disk_free_minima"].values()) < 4096 * 1024**2
         or summary.get("sample_interval_seconds") != 0.2
@@ -1693,7 +1706,13 @@ def _ci_standard_resource(summary: Any) -> None:
             raise ValueError("STANDARD part observed an OOM event")
 
 
-def _ci_standard_job_times(observations: Any, marker: dict[str, Any]) -> dict[str, Any]:
+def _ci_standard_job_times(
+    observations: Any, marker: dict[str, Any], *, python_minor: str = "3.12"
+) -> dict[str, Any]:
+    if python_minor not in {"3.11", "3.12", "3.13"}:
+        raise ValueError("unsupported STANDARD part Python cohort")
+    cohort = python_minor.replace(".", "")
+    suffix = " (5GiB)" if python_minor == "3.12" else ""
     jobs = observations.get("jobs")
     if (
         type(jobs) is not list
@@ -1705,7 +1724,7 @@ def _ci_standard_job_times(observations: Any, marker: dict[str, Any]) -> dict[st
         )
     result = {}
     for part in ("a", "b"):
-        name = f"candidate STANDARD (locked312 serial part {part} (5GiB))"
+        name = f"candidate STANDARD (locked{cohort} serial part {part}{suffix})"
         matches = [job for job in jobs if job.get("name") == name]
         if len(matches) != 1:
             raise ValueError("Actions part job is missing or duplicated")
@@ -1950,7 +1969,11 @@ def _ci_join_standard_parts(
             worker_root, worker_sources = _ci_worker_source_files()
             if (
                 marker["profile"]
-                == "internal_docs/precision/ci_standard/py312-owners.json"
+                in {
+                    "internal_docs/precision/ci_standard/py311-owners.json",
+                    "internal_docs/precision/ci_standard/py312-owners.json",
+                    "internal_docs/precision/ci_standard/py313-owners.json",
+                }
                 and worker_root != checkout
             ):
                 raise ValueError(
@@ -2057,7 +2080,7 @@ def _ci_join_standard_parts(
                     held(root / worker["folder"] / name, proof)
             resource_path = Path(str(root.parent) + "-work-resources") / "summary.json"
             resource = read(resource_path)
-            _ci_standard_resource(resource)
+            _ci_standard_resource(resource, python_minor=manifest["python_minor"])
             interval_start = datetime.fromisoformat(resource["started_utc"])
             run_start = datetime.fromisoformat(run["started"])
             run_end = datetime.fromisoformat(run["finished"])
@@ -2095,11 +2118,27 @@ def _ci_join_standard_parts(
                     raise ValueError(
                         "hosted part resource cap/source/profile binding differs"
                     )
+            elif marker["profile"] in {
+                "internal_docs/precision/ci_standard/py311-owners.json",
+                "internal_docs/precision/ci_standard/py313-owners.json",
+            }:
+                if (
+                    resource["limits"]["rss_mib"] != 4096
+                    or resource.get("standard_execution_profile") is not None
+                    or resource.get("focused_extra_execution_profile") is not None
+                    or worker_sources["scripts/run_with_resources.py"]
+                    != context.sources["scripts/run_with_resources.py"]
+                ):
+                    raise ValueError(
+                        "hosted ordinary part resource cap/source/profile binding differs"
+                    )
             if observations is None:
                 raise ValueError(
                     "actual current-attempt Actions whole-job observations are required"
                 )
-            result["whole_job_times"] = _ci_standard_job_times(observations, marker)
+            result["whole_job_times"] = _ci_standard_job_times(
+                observations, marker, python_minor=manifest["python_minor"]
+            )
             job = result["whole_job_times"][part]
             job_start = datetime.fromisoformat(job["started_at"].replace("Z", "+00:00"))
             job_end = datetime.fromisoformat(job["completed_at"].replace("Z", "+00:00"))
@@ -2147,7 +2186,7 @@ def _ci_join_standard_parts(
             status="PASS",
             full_standard_ids=full_s,
             completed_ids=all_ids,
-            standard_acceptance="FULL_312_STANDARD_NATIVE_PYTEST_ONLY",
+            standard_acceptance=f"FULL_{manifest['python_minor'].replace('.', '')}_STANDARD_NATIVE_PYTEST_ONLY",
         )
     except (
         OSError,
@@ -3695,7 +3734,7 @@ def _ci_standard_part_ids(manifest: dict[str, Any], root: Path) -> list[str]:
             "run_attempt",
         }
         or marker["id"] not in {"a", "b"}
-        or manifest["python_minor"] != "3.12"
+        or manifest["python_minor"] not in {"3.11", "3.12", "3.13"}
         or any(
             not _ci_node_digest(marker[key])
             for key in (
@@ -3717,7 +3756,7 @@ def _ci_standard_part_ids(manifest: dict[str, Any], root: Path) -> list[str]:
     if (
         hashlib.sha256(payload).hexdigest() != marker["profile_sha256"]
         or profile.get("schema") != "jax2onnx-ci-main-owner-cohort-v1"
-        or profile.get("python_minor") != "3.12"
+        or profile.get("python_minor") != manifest["python_minor"]
         or profile.get("baseline_commit") != manifest["baseline_commit"]
         or profile.get("standard_parts") != {"split_after": marker["split_after"]}
     ):

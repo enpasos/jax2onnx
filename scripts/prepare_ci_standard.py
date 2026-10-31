@@ -383,7 +383,7 @@ def _manifest(
     if "standard_parts" in data:
         if (
             not owner
-            or data["python_minor"] != "3.12"
+            or data["python_minor"] not in {"3.11", "3.12", "3.13"}
             or standard_part not in {"a", "b"}
         ):
             raise ValueError(
