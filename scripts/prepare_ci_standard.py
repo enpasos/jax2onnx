@@ -115,6 +115,9 @@ def _cohort(
     support = (
         type(data) is dict and data.get("schema") == "jax2onnx-ci-support-cohort-v1"
     )
+    owner = (
+        type(data) is dict and data.get("schema") == "jax2onnx-ci-main-owner-cohort-v1"
+    )
     node = support and data.get("support_role") == "node-smoke"
     if (
         type(data) is not dict
@@ -135,8 +138,13 @@ def _cohort(
         }
         | ({"support_role", "collection_args"} if support else set())
         | ({"node_runtime"} if node else set())
+        | ({"collection_args"} if owner else set())
         or data["schema"]
-        not in {"jax2onnx-ci-standard-cohort-v1", "jax2onnx-ci-support-cohort-v1"}
+        not in {
+            "jax2onnx-ci-standard-cohort-v1",
+            "jax2onnx-ci-support-cohort-v1",
+            "jax2onnx-ci-main-owner-cohort-v1",
+        }
         or data["python_minor"] != f"{sys.version_info.major}.{sys.version_info.minor}"
     ):
         raise ValueError("unsupported STANDARD cohort")
@@ -150,6 +158,8 @@ def _cohort(
         or len(set(data["collection_args"])) != len(data["collection_args"])
     ):
         raise ValueError("unsupported support role/cohort or ordered selectors")
+    if owner:
+        _runner()._ci_owner_modules(data["collection_args"])
     baseline = data["baseline"]
     if type(baseline) is dict and set(baseline) == {"path", "sha256"}:
         source = path.parent / _relative(baseline["path"])
@@ -159,6 +169,15 @@ def _cohort(
         bindings[source.resolve(strict=True)] = _sha(raw)
     if type(baseline) is not dict or set(baseline) != {"nodeids", "generated"}:
         raise ValueError("STANDARD baseline needs literal IDs and generated bindings")
+    if owner and (
+        type(baseline["nodeids"]) is not list
+        or any(
+            type(nodeid) is not str
+            or nodeid.split("::", 1)[0] not in data["collection_args"]
+            for nodeid in baseline["nodeids"]
+        )
+    ):
+        raise ValueError("Main-owner modules omit an original Main counterpart owner")
     if node:
         authority = data["node_runtime"]
         if (
@@ -322,6 +341,8 @@ def _manifest(
     run: Path,
     optional_sources: dict[str, Path] | None = None,
     node_prefix: Path | None = None,
+    *,
+    collection_scope: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     runner = _runner()
     root = root.resolve(strict=True)
@@ -337,6 +358,12 @@ def _manifest(
     if path.relative_to(root).as_posix() not in sources:
         raise ValueError("cohort input must be an event-bound tracked source")
     data, baseline, read_bindings = _cohort(path, runner._context_json)
+    owner = data["schema"] == "jax2onnx-ci-main-owner-cohort-v1"
+    if collection_scope is not None and (
+        not owner or collection_scope not in {"main-owners", "global"}
+    ):
+        raise ValueError("only an approved Main-owner cohort has two collection scopes")
+    owner_rendering = owner and collection_scope != "global"
     if any(
         sources.get(read_path.relative_to(root).as_posix()) != digest
         for read_path, digest in read_bindings.items()
@@ -398,7 +425,10 @@ def _manifest(
         "nodeids": baseline["nodeids"],
         "source_files": dict(sorted(sources.items())),
         "packages": data["packages"],
-        "collection_args": data.get("collection_args", []),
+        "collection_args": (
+            data.get("collection_args", []) if not owner or owner_rendering else []
+        ),
+        **({"collection_scope": "main-owners"} if owner_rendering else {}),
         "environment": environment,
         "collection_transition": transition,
         **(
@@ -418,6 +448,7 @@ def _main() -> int:
     parser.add_argument("--maxtext-source", type=Path)
     parser.add_argument("--maxdiffusion-source", type=Path)
     parser.add_argument("--node-prefix", type=Path)
+    parser.add_argument("--collection-scope", choices=("main-owners", "global"))
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if os.path.lexists(args.output):
@@ -434,7 +465,13 @@ def _main() -> int:
         if source is not None
     }
     manifest, _ = _manifest(
-        args.cohort, root, args.event_sha, args.run_dir, optional, args.node_prefix
+        args.cohort,
+        root,
+        args.event_sha,
+        args.run_dir,
+        optional,
+        args.node_prefix,
+        collection_scope=args.collection_scope,
     )
     with output.open("x") as stream:
         stream.write(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")

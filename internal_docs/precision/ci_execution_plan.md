@@ -1,6 +1,22 @@
 # Precision migration CI execution plan
 
-Status — 2026-10-30, 18:43:26 UTC: Published `a0debb7f` [CI 574](https://github.com/enpasos/jax2onnx/actions/runs/41101017340) records **11 SUCCESS, one FAILURE and four old full jobs in progress** ([snapshot](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/checks-coordinator-doc-snapshot.json)). Seven candidates succeed, including locked311/313/314 in **1,041 / 988 / 1,096 s**; locked312's **4,298.11-MiB** owned-RSS breach and incomplete worker/cleanup leave all-eight qualification **FAILED**. Candidate totals are **4,611 s / 76.85 job-minutes** and **42,692,635 successful-archive bytes** ([budgets](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/candidate-terminal-budget-1826.json), `82033163…`). An unpublished coordinator lifetime cleanup separately passes **24 controller cases on each official 3.11/3.13 family**, preserving final receipt-byte rejection ([closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/coordinator-lifetime-source-qmrp_dyv/closed-focused-qualification.json), `beda37ac…`). Its approximately 35-MiB reachable-object census is not measured RSS savings or a canonical memory fix. All existing resource, full-model, numerical, B–F and gate-activation requirements remain unchanged.
+Current status: published `a0debb7f` [CI 574](https://github.com/enpasos/jax2onnx/actions/runs/41101017340) is terminal with **11 SUCCESS and five FAILURE** ([retained final record](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/final-terminal-205648/closed-final-ci574.json)). Seven candidates succeed, including locked311/313/314 in **1,041 / 988 / 1,096 s**; locked312's **4,298.11-MiB** owned-RSS breach and incomplete worker/cleanup leave all-eight qualification **FAILED**. Candidate totals remain **4,611 s / 76.85 job-minutes** and **42,692,635 successful-archive bytes**. The unpublished coordinator cleanup's earlier **24 controller passes on each official 3.11/3.13 family** and approximately 35-MiB reachable-object census remain [finite evidence](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/coordinator-lifetime-source-qmrp_dyv/closed-focused-qualification.json), not measured RSS savings or a canonical memory repair.
+
+Separately, the local full-global locked312 campaign at private `b63ee7f4`
+**FAILED/incomplete at its 1,200-second deadline**: C=19,474 and S=4,621, with
+**98 closed PASS, 4,523 unexecuted and all original 45+5 model cases unexecuted**
+([closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard-b63-locked312-sourceplan-7yx7JTF1/closed-canonical-standard312.json)).
+This result does not qualify the later owner-collection source epoch. Its 59 new
+protocol controls pass; the three complete framework-owner files close on
+official Python 3.11 and 3.13 with 556 PASS and six unchanged opt-in-xdist SKIPs
+per cohort. Separate opt-in runs pass all six exact cases with zero skips on
+each official Python 3.11/3.13 family. The separate Scan repair passes 50 IR
+controls and all four original Loop numerical cases on official Python 3.11.
+Production import/context evidence, full cohort S and the remaining Scan
+cohort/SOURCE gates remain pending as recorded in the
+[handoff](implementation_handoff.md#current-checkpoint-2026-10-30).
+Public LEGACY, the authoritative checks and all full B–F/resource requirements
+remain unchanged; **activation is HOLD**.
 
 Predecessor status snapshot — 2026-10-30: Published `c5d60d4c` [CI 573](https://github.com/enpasos/jax2onnx/actions/runs/41076579765) has **10 SUCCESS, three FAILURE, one CANCELLED and two old full jobs in progress** in the [frozen job snapshot](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci573-c5d60-aw64dezy/jobs-final-repair-prep.json) (`3856753b…`). Old 3.13/3.14 fail the same stale negative-test injection; old 3.11/3.12 are still running. Six of eight candidates succeed; locked311's **1,227-second** whole-job span and locked312's owned-RSS guard stop leave all-eight qualification failed. The eight candidate spans total **4,301 s / 71.68 job-minutes**, and the six successful archives total **30,775,351 bytes**; these partial successes do not satisfy all-eight acceptance ([frozen budgets](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci573-c5d60-aw64dezy/candidate-terminal-budget.json), `6027acf6…`). CI 571/572 failures and their source repairs remain historical evidence below and in the handoff.
 
@@ -49,6 +65,40 @@ The reviewed candidate permits incremental implementation. Literal selection,
 main-to-PR contract mapping, collection-context equivalence, measured whole-job
 20-minute runtime and all gate-activation evidence remain unqualified. This review does
 not accept missing migration verifiers or claim performance results.
+
+## Reviewed Main-owner collection amendment
+
+The [reviewed v2 amendment](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-owner-scope-amendment-v2-3mme80px/AMENDMENT.md)
+permits a bounded extension of the existing runner. It preserves every Main
+counterpart and changes worker collection only through explicit owner authority:
+
+| Inventory | Required meaning |
+| --- | --- |
+| C | Genuine complete global PR collection for this exact cohort and campaign. |
+| S | Literal total one-to-one Main mapping: 4,571 / 4,621 / 4,573 / 4,573 on locked311/312/313/314. |
+| O | Genuine complete ordinary collection of approved ordered Main-owner modules, including their added cases. |
+| A = C − S | All extras, including O − S and C − O, assigned to executable lanes and triggers. |
+
+Discover C once inside each fresh campaign; there is no cross-run C cache.
+Every owner worker collects complete O with normal hooks and actual Items, then
+selects its assigned S. O is never labeled C. Reconcile its ordered
+nodeid/module/class inventory against C; those fields do not replace source,
+parameter, callable, input or numerical-contract review. Preserve the original
+45 MaxText and five MaxDiffusion obligations and each cohort's own context.
+
+The [provisioning-only route](ci_standard/README.md#reviewed-main-owner-variant)
+binds separate current-RUN C/O receipts, explicit scope, exact source/generated
+bytes, packages/plugins, optional inputs and the existing context transitions.
+Global/support routes retain their stricter original contracts. Terminal hooks,
+native phases, artifact ownership and final persisted-byte audits remain required.
+All discovery and collection costs count toward the same whole-job limits;
+this amendment claims no memory saving or Omni fit.
+
+Source approval and finite controls do not activate the variant. Current
+collector/import/registry qualification, full per-cohort S, support/integration
+and complete extra coverage, exact-final supported-cohort suites, quality checks
+and measured budgets remain required before independent acceptance and explicit
+workflow activation. The existing eight plus temporary eight layout is unchanged.
 
 ## Earlier private qualification — 2026-10-30
 
@@ -288,7 +338,8 @@ Full44, full B–F, literal exact-head CI and gate activation remain open.
 An independently accepted **temporary candidate**, using existing
 `collection_args` and canonical lifecycle checks, collects all 188 mapped main
 owner modules. At `9e37792c`, separate phase-free controls observe global
-`C=18,689`, `S=4,571`, `A=14,118` and complete owner `C=4,796`, including all
+`C=18,689`, `S=4,571`, `A=14,118` and complete owner inventory of 4,796
+(`O` in the current amendment), including all
 225 additions inside those owners. Both collection costs are charged:
 23.267989 s globally and 8.079359 s for owners. Three declared context boundaries
 match the fresh main control except the bound artifact path. A separate staged
@@ -1027,16 +1078,21 @@ including through SOURCE code imported from an existing module. Added imports do
 not become baseline tests, but their cost still counts if standard requires them.
 Moving extra execution to another lane does not remove its collection overhead.
 
-Keep full collection authoritative during qualification. Compare full-collection
-baseline execution with the proposed cheaper context on an immutable PR revision
-and both official framework families, then validate every supported cohort's
-manifest/outcomes. Preserve ordered projections, registry/configuration effects,
-original assertions and phase outcomes. Retain
+Global C remains the complete inventory authority. The reviewed owner variant
+above is the explicit exception to recollecting full C in every STANDARD worker;
+it does not relax existing global/support routes. Qualify concrete current
+collector, first/transitive/lazy-import, registry and fixture dependencies under
+the exact source/cohort/process context, then validate every supported cohort's
+manifest and native outcomes. Main Module completion order and matching boundary
+snapshots alone do not prove import equivalence. Preserve ordered projections,
+required effects, original assertions and phase outcomes. Retain
 `test_each_real_batch_preserves_unassigned_module_import_effects` and
 `test_unassigned_collection_drift_stops_before_assigned_execution`; any replacement
-mechanism needs review and meaningful counterexamples. A full collection still
-required by standard is charged to its measured time, even if performed in a
-shared prerequisite. Collection manifests alone cannot qualify a cheaper context.
+mechanism needs review and meaningful counterexamples, including the owner
+control that rejects a missing global import effect before native test phases.
+Finite source and process-order evidence is required, not a universal proof of
+import independence. Required full discovery is charged to STANDARD even in a
+separate prerequisite; collection manifests alone cannot qualify a cheaper context.
 
 Derive and freeze the old ordered predecessor packets for the f64-to-f16 tie case
 and BF16 native TopK case. Preserve the ten native-binding model cases in separate

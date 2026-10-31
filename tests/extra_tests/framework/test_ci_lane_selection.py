@@ -2227,3 +2227,399 @@ def test_support_campaign_accepts_only_the_original_ordered_command(monkeypatch,
     }.get(fault, [])
     with pytest.raises(ValueError):
         module._ci_campaign_arguments(actual, options, selectors)
+
+
+def _main_owner_campaign_fixture(tmp_path):
+    """Independent literal C/S/O and ordinary closed-worker wire fixtures."""
+    module = _runner()
+    standard = ["test_a_owner.py::test_base", "test_a_owner.py::test_other"]
+    inside = "test_a_owner.py::test_inside_extra"
+    outside = "test_z_extra.py::test_outside_extra"
+    suite, manifest, environment = _suite(
+        tmp_path,
+        {
+            "test_a_owner.py": "def test_base(): pass\ndef test_other(): pass\ndef test_inside_extra(): pass\n",
+            "test_z_extra.py": "def test_outside_extra(): pass\n",
+        },
+        standard,
+    )
+    run = tmp_path / "campaign-run"
+    run.mkdir()
+    environment["JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"] = str(
+        run / "native-model-artifacts"
+    )
+    payload = json.loads(manifest.read_text())
+    payload["environment"] = module._ci_lane_environment(environment)
+    jax = {"status": "NOT_LOADED", "values": {}}
+    payload["collection_transition"] = {
+        "startup_jax_config": jax,
+        "collected_environment": copy.deepcopy(payload["environment"]),
+        "collected_jax_config": jax,
+        "post_pytest_environment": copy.deepcopy(payload["environment"]),
+        "post_pytest_jax_config": jax,
+    }
+    module._write(manifest, payload)
+    global_context = module._CiLaneContext(manifest, suite, environment=environment)
+    owner_payload = copy.deepcopy(payload)
+    owner_payload.update(
+        collection_scope="main-owners", collection_args=["test_a_owner.py"]
+    )
+    owner_manifest = tmp_path / "owner-baseline.json"
+    module._write(owner_manifest, owner_payload)
+    context = module._CiLaneContext(owner_manifest, suite, environment=environment)
+
+    def collection(folder, ctx, ids, *, owner):
+        items = [
+            {"nodeid": node, "module": node.split("::")[0], "class": None}
+            for node in ids
+        ]
+        request = {
+            "kind": "collection",
+            "pytest_args": [
+                "--_j2o-ci-lane=standard",
+                "--_j2o-ci-main-baseline=" + str(ctx.path),
+                "--_j2o-ci-main-sha256=" + ctx.sha256,
+                *ctx.manifest.get("collection_args", []),
+                "--collect-only",
+            ],
+        }
+        receipt = {
+            "kind": "collection",
+            "pytest_args": request["pytest_args"],
+            "items": items,
+            "full_items": copy.deepcopy(items),
+            "full_preselection_ids": ids,
+            "selected_ids": ids,
+            "assigned_ids": [],
+            "full_collection_checked": True,
+            "collection_errors": [],
+            "collection_skips": [],
+            "exitstatus": 0,
+            "finished": "closed",
+            "phases": {},
+            "phase_durations": {},
+            "completed": [],
+            "collection_transition_completed": True,
+            "post_pytest_completed": True,
+            "ci_lane": {
+                "lane": "standard",
+                "manifest_path": str(ctx.path),
+                "manifest_sha256": ctx.sha256,
+                "environment": ctx.manifest["environment"],
+                "source_files": ctx.sources,
+                "source_files_after": ctx.sources,
+                "errors": [],
+                "standard_ids": standard,
+                "extra_ids": [node for node in ids if node not in standard],
+            },
+        }
+        for name in ("startup_context", "collection_context", "final_context"):
+            receipt[name] = {
+                "status": "OBSERVED",
+                "errors": [],
+                "environment": copy.deepcopy(ctx.manifest["environment"]),
+                "loaded_jax_config": jax,
+            }
+        if owner:
+            receipt.update(
+                collection_scope="main-owners",
+                collection_args=["test_a_owner.py"],
+                qualified_collection_args=["test_a_owner.py"],
+                collection_reports=[
+                    {
+                        "nodeid": "test_a_owner.py",
+                        "outcome": "passed",
+                        "result": [
+                            {"nodeid": node, "type": "Function"} for node in ids
+                        ],
+                    }
+                ],
+            )
+        folder.mkdir()
+        module._write(folder / "request.json", request)
+        module._write(folder / "receipt.json", receipt)
+        module._write(
+            folder / "lane-terminal.json",
+            {
+                "receipt_sha256": hashlib.sha256(
+                    (folder / "receipt.json").read_bytes()
+                ).hexdigest(),
+                "request_sha256": hashlib.sha256(
+                    (folder / "request.json").read_bytes()
+                ).hexdigest(),
+                "manifest_sha256": ctx.sha256,
+                "exitstatus": 0,
+            },
+        )
+        return receipt
+
+    global_receipt = collection(
+        run / "global-collection",
+        global_context,
+        standard + [inside, outside],
+        owner=False,
+    )
+    owner_receipt = collection(
+        run / "collection", context, standard + [inside], owner=True
+    )
+
+    def ref(path):
+        return {
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+
+    contract = {
+        "schema": "jax2onnx-ci-main-owner-campaign-v1",
+        "python_minor": payload["python_minor"],
+        "main_manifest": ref(owner_manifest),
+        "global_manifest": ref(manifest),
+        "global_inventory": ref(run / "global-collection/receipt.json"),
+        "owner_inventory": ref(run / "collection/receipt.json"),
+        "allowed_skips": [],
+    }
+    contract_path = run / "campaign.json"
+    module._write(contract_path, contract)
+    return module, context, contract_path, run, global_receipt, owner_receipt
+
+
+def _rewrite_owner_inventory(module, contract_path, run, role, receipt):
+    path = (
+        run
+        / ("global-collection" if role == "global_inventory" else "collection")
+        / "receipt.json"
+    )
+    module._write(path, receipt)
+    terminal_path = path.with_name("lane-terminal.json")
+    terminal = json.loads(terminal_path.read_text())
+    terminal["receipt_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    module._write(terminal_path, terminal)
+    contract = json.loads(contract_path.read_text())
+    contract[role]["sha256"] = terminal["receipt_sha256"]
+    module._write(contract_path, contract)
+
+
+def test_main_owner_campaign_preserves_complete_C_and_inside_outside_extras(tmp_path):
+    module, context, contract, run, global_receipt, owner = (
+        _main_owner_campaign_fixture(tmp_path)
+    )
+    campaign = module._CiCampaignContext(contract, context, run=run)
+    assert campaign.standard == [
+        "test_a_owner.py::test_base",
+        "test_a_owner.py::test_other",
+    ]
+    assert campaign.extra == [
+        "test_a_owner.py::test_inside_extra",
+        "test_z_extra.py::test_outside_extra",
+    ]
+    assert campaign.inventory["full_items"] == owner["full_items"]
+    assert campaign.global_inventory == global_receipt
+    assert campaign.collection(copy.deepcopy(owner)) == (
+        campaign.standard,
+        campaign.extra,
+    )
+    batch, assigned, junit = _campaign_batch(tmp_path, owner)
+    campaign.batch(batch, assigned, junit)
+    campaign.recheck()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "scope-absent",
+        "scope-global",
+        "global-for-O",
+        "missing-inside-extra",
+        "missing-main",
+        "duplicate-main",
+        "parameter-main",
+        "reordered-main",
+        "module-provenance",
+        "chronology-missing",
+        "chronology-duplicate",
+        "late-error",
+        "executed-inventory",
+    ],
+)
+def test_main_owner_campaign_rejects_same_scope_or_contract_substitution(
+    tmp_path, fault
+):
+    module, context, contract, run, global_receipt, owner = (
+        _main_owner_campaign_fixture(tmp_path)
+    )
+    changed = copy.deepcopy(owner)
+    if fault == "scope-absent":
+        del changed["collection_scope"]
+    elif fault == "scope-global":
+        changed["collection_scope"] = "global"
+    elif fault == "global-for-O":
+        changed = global_receipt
+    elif fault in {
+        "missing-inside-extra",
+        "missing-main",
+        "duplicate-main",
+        "parameter-main",
+        "reordered-main",
+    }:
+        ids = changed["full_preselection_ids"][:]
+        if fault == "missing-inside-extra":
+            ids.pop()
+        elif fault == "missing-main":
+            ids.pop(0)
+        elif fault == "duplicate-main":
+            ids.insert(0, ids[0])
+        elif fault == "parameter-main":
+            ids[0] += "[changed-parameter]"
+        else:
+            ids[:2] = ids[1::-1]
+        changed["items"] = changed["full_items"] = [
+            {"nodeid": node, "module": "test_a_owner.py", "class": None} for node in ids
+        ]
+        changed["selected_ids"] = changed["full_preselection_ids"] = ids
+        changed["ci_lane"]["extra_ids"] = [
+            node for node in ids if node not in context.manifest["nodeids"]
+        ]
+        changed["collection_reports"][0]["result"] = [
+            {"nodeid": node, "type": "Function"} for node in ids
+        ]
+    elif fault == "module-provenance":
+        changed["full_items"][0]["class"] = "test_a_owner.py::ChangedClass"
+        changed["items"] = copy.deepcopy(changed["full_items"])
+    elif fault == "chronology-missing":
+        changed["collection_reports"] = []
+    elif fault == "chronology-duplicate":
+        changed["collection_reports"] *= 2
+    elif fault == "late-error":
+        changed["ci_lane"]["errors"] = ["late hook failure"]
+    else:
+        changed["phases"] = {
+            changed["selected_ids"][0]: [{"when": "setup", "outcome": "passed"}]
+        }
+    _rewrite_owner_inventory(module, contract, run, "owner_inventory", changed)
+    with pytest.raises(ValueError):
+        module._CiCampaignContext(contract, context, run=run)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "run-absent",
+        "stale-reference",
+        "copied-old-context",
+        "owner-as-global",
+        "source-epoch",
+    ],
+)
+def test_main_owner_campaign_requires_closed_current_run_C_and_O(tmp_path, fault):
+    module, context, contract_path, run, global_receipt, _owner = (
+        _main_owner_campaign_fixture(tmp_path)
+    )
+    contract = json.loads(contract_path.read_text())
+    if fault == "stale-reference":
+        stale = tmp_path / "old-run"
+        stale.mkdir()
+        target = stale / "receipt.json"
+        target.write_bytes((run / "global-collection/receipt.json").read_bytes())
+        contract["global_inventory"]["path"] = str(target)
+    elif fault == "copied-old-context":
+        for stage in ("startup_context", "collection_context", "final_context"):
+            global_receipt[stage]["environment"][
+                "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"
+            ] = str(tmp_path / "old-run/native-model-artifacts")
+        _rewrite_owner_inventory(
+            module, contract_path, run, "global_inventory", global_receipt
+        )
+        contract = json.loads(contract_path.read_text())
+    elif fault in {"owner-as-global", "source-epoch"}:
+        manifest = Path(contract["global_manifest"]["path"])
+        data = json.loads(manifest.read_text())
+        if fault == "owner-as-global":
+            data.update(
+                collection_scope="main-owners", collection_args=["test_a_owner.py"]
+            )
+        else:
+            data["baseline_commit"] = "b" * 40
+        module._write(manifest, data)
+        contract["global_manifest"]["sha256"] = hashlib.sha256(
+            manifest.read_bytes()
+        ).hexdigest()
+    module._write(contract_path, contract)
+    with pytest.raises(ValueError):
+        module._CiCampaignContext(
+            contract_path, context, **({} if fault == "run-absent" else {"run": run})
+        )
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["main_manifest", "global_manifest", "global_inventory", "owner_inventory"],
+)
+def test_main_owner_campaign_final_recheck_rejects_persisted_reference_tampering(
+    tmp_path, target
+):
+    module, context, contract, run, _global_receipt, _owner = (
+        _main_owner_campaign_fixture(tmp_path)
+    )
+    campaign = module._CiCampaignContext(contract, context, run=run)
+    path, _digest = campaign.references[target]
+    path.write_bytes(path.read_bytes() + b" ")
+    with pytest.raises(ValueError, match="changed"):
+        campaign.recheck()
+
+
+@pytest.mark.parametrize(
+    "schema", ["jax2onnx-ci-campaign-v1", "jax2onnx-ci-support-campaign-v1"]
+)
+def test_main_owner_scope_cannot_be_relabelled_as_existing_campaign(tmp_path, schema):
+    module, context, contract_path, run, _global_receipt, _owner = (
+        _main_owner_campaign_fixture(tmp_path)
+    )
+    contract = json.loads(contract_path.read_text())
+    contract["schema"] = schema
+    module._write(contract_path, contract)
+    with pytest.raises(ValueError, match="unsupported campaign"):
+        module._CiCampaignContext(contract_path, context, run=run)
+
+
+@pytest.mark.parametrize(
+    "fault", ["omit-empty", "change-result", "missing-phase", "outside-assignment"]
+)
+def test_main_owner_each_child_keeps_complete_O_chronology_and_native_assignment(
+    tmp_path, fault
+):
+    module, context, contract_path, run, _global_receipt, owner = (
+        _main_owner_campaign_fixture(tmp_path)
+    )
+    # A native no-item Class report is part of O even with unchanged Item names.
+    owner["collection_reports"].insert(
+        0, {"nodeid": "test_a_owner.py::EmptyClass", "outcome": "passed", "result": []}
+    )
+    _rewrite_owner_inventory(module, contract_path, run, "owner_inventory", owner)
+    campaign = module._CiCampaignContext(contract_path, context, run=run)
+    batch, assigned, junit = _campaign_batch(tmp_path, owner)
+    if fault == "omit-empty":
+        batch["collection_reports"].pop(0)
+    elif fault == "change-result":
+        batch["collection_reports"][-1]["result"].pop()
+    elif fault == "missing-phase":
+        batch["phases"][assigned[0]].pop()
+    else:
+        batch["assigned_ids"] = batch["selected_ids"] = [
+            "test_z_extra.py::test_outside_extra"
+        ]
+    with pytest.raises(ValueError):
+        campaign.batch(batch, assigned, junit)
+
+
+@pytest.mark.parametrize("marker", [None, "global", "owners", True])
+def test_main_owner_marker_is_an_exact_baseline_authority_value(tmp_path, marker):
+    module, context, _contract, _run, _global, _owner = _main_owner_campaign_fixture(
+        tmp_path
+    )
+    data = json.loads(context.path.read_text())
+    data["collection_scope"] = marker
+    module._write(context.path, data)
+    with pytest.raises(ValueError, match="scope marker"):
+        module._CiLaneContext(
+            context.path, context.root, environment=context.manifest["environment"]
+        )

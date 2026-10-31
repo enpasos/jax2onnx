@@ -23,7 +23,65 @@ jobs; it does not activate a gate.
 
 ## Current checkpoint — 2026-10-30
 
-Published `a0debb7f` in [CI 574](https://github.com/enpasos/jax2onnx/actions/runs/41101017340) has **11 SUCCESS, one FAILURE and four old full jobs in progress** in the [18:43:26 UTC snapshot](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/checks-coordinator-doc-snapshot.json). Locked311/313/314 succeed in **1,041 / 988 / 1,096 s**; locked312 breaches sampled owned **4,298.11 MiB > 4,096 MiB**, leaving the original Omni case and worker/cleanup closure incomplete ([actual failure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/locked312-cause-9za14t2h/closed-cause-review.json), `e61337f8…`). The eight candidate spans total **4,611 s / 76.85 job-minutes**; seven successful archives total **42,692,635 bytes** ([budgets](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/candidate-terminal-budget-1826.json), `82033163…`). All-eight qualification remains **FAILED**.
+Published `a0debb7f` in [CI 574](https://github.com/enpasos/jax2onnx/actions/runs/41101017340) is terminal with **11 SUCCESS and five FAILURE** ([final record](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/final-terminal-205648/closed-final-ci574.json)). Locked311/313/314 succeed in **1,041 / 988 / 1,096 s**; locked312 breaches sampled owned **4,298.11 MiB > 4,096 MiB**, leaving the original Omni case and worker/cleanup closure incomplete ([actual failure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/locked312-cause-9za14t2h/closed-cause-review.json), `e61337f8…`). The eight candidate spans total **4,611 s / 76.85 job-minutes**; seven successful archives total **42,692,635 bytes**. All-eight qualification remains **FAILED**; the four old full-job failures and earlier snapshots remain retained evidence.
+
+The separate local full-global locked312 campaign at private `b63ee7f4`
+**FAILED/incomplete at the 1,200-second deadline**. Its genuine C=19,474 and
+S=4,621 produced **98 closed PASS and 4,523 unexecuted cases**; all original
+**45 MaxText + five MaxDiffusion cases were unexecuted**
+([closed campaign](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard-b63-locked312-sourceplan-7yx7JTF1/closed-canonical-standard312.json)).
+This is neither a hosted result nor memory/numerical qualification. Its inventory
+is historical after subsequent source changes.
+
+The [reviewed Main-owner amendment](ci_execution_plan.md#reviewed-main-owner-collection-amendment)
+is now a private nine-path prototype on b63, with pinned formatting complete.
+It retains genuine C, literal complete S, ordinary owner O and full A=C−S through
+the existing provisioning-only route. **59 new protocol controls PASS on
+official Python 3.11, with zero failures/errors/skips**
+([focused closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-owner-focused59-311-48o793m0/closed-focused59.json)).
+These controls do not prove production import/registry equivalence or model
+numerics. The first complete three-owner Python 3.11 run stopped at **493 PASS, one FAIL
+and six original opt-in-xdist SKIPs**: unchanged nested artifact admission found
+free space below its 4-GiB-plus-manifest reserve before starting a worker
+([preserved failure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-owner-complete-311313-hk33rbs2/closed-complete-owner-py311.json)).
+After verified archival of obsolete clean worktrees, the same source, complete
+file order and criteria close on **official Python 3.11 and 3.13**, each with
+**556 PASS, six unchanged SKIPs and zero failures/errors**. Costs are
+**148.93 s / 584.94 MiB** on [311](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-owner-complete311-disk-rebind-z9dhf831/closed-complete-owner-py311.json)
+and **254.20 s / 640.48 MiB** on [313](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-owner-complete313-d4g55xoj/closed-complete-owner-py313.json).
+All 59 added controls pass on each; original outcomes are 497 PASS plus the same
+six skip identities/reasons. One existing support-test parameter differs by
+Python minor (`unsupported-normalization-role` on 3.11, `first-collection` on 3.13),
+both PASS; the other 561 ordered identities/outcomes match
+([comparison](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-owner-complete313-d4g55xoj/cohort-ordered-outcome-comparison.json)).
+Source/resource/artifact/process closures hold. This accepts the finite ordinary
+framework-owner gates only; their six-skip records remain unchanged.
+
+Separate official Python 3.11 and 3.13 runs with the existing
+`JAX2ONNX_TEST_CI_LANE_XDIST=1` opt-in each execute **all six exact cases: six
+PASS, zero failures/errors/skips**, with closed source/resource/artifact/process
+checks ([opt-in311 closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-optin-xdist6-311-sourceplan-6pxh650u/closed-optin-xdist6-py311.json),
+[opt-in313 closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-optin-xdist6-313-sourceplan-bs5ytvmj/closed-optin-xdist6-py313.json)).
+This qualifies those synthetic xdist protocol controls in their explicit opt-in
+contexts; it does not relabel the ordinary skips or qualify production xdist.
+
+The separate Scan adapter at source `4318eac3` / test `aba89d69` closes on
+official Python 3.11 with **54 PASS, zero failures/errors/skips**: 16 new and
+34 retained IR controls, followed by all **four unchanged original Loop
+numerical cases**, covering both precision flags and ORT optimization modes
+([Scan54 closure](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/complex-scan54-final311-9h0o1c1_/closed-scan54-py311.json)).
+The four numerical cases retain strong-array eager/first/warm references,
+schema/type checks, exact finite values, signed-zero and non-finite criteria.
+The run closes at **33.03 s / 536.11 MiB** with all source/resource/artifact/process
+checks held. Earlier failed Scan epochs remain failed; this accepts only the
+selected current official311 cases, with cold compilation unverified and
+official313, minimum, SOURCE and full-model gates still open.
+
+Full current per-cohort S, original
+integrations/support, all extras, complete B–F and exact-final cohort suites,
+whole-tree quality and measured STANDARD budgets remain required. No memory
+saving, Omni fit or completed SOURCE transition follows. **Activation remains
+HOLD**, and public LEGACY and the authoritative checks remain unchanged.
 
 The unpublished coordinator cleanup releases completed decoded collection/batch objects after their required checks, retaining campaign inventory and final durable audits. **24 controller cases PASS on each official 3.11/3.13 family** ([closed qualification](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci574-a0de-7271vsuc/coordinator-lifetime-source-qmrp_dyv/closed-focused-qualification.json), `beda37ac…`), including release before the next real child and rejection of later receipt-byte tampering. The approximately **35 MiB** census measures reachable Python objects, not demonstrated RSS savings or an Omni memory repair. Full-model, numerical and B–F acceptance remain open.
 

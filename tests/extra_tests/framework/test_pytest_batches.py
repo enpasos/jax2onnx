@@ -3713,3 +3713,240 @@ def test_cast_observer_config_rejects_foreign_values_without_coercion(
     with pytest.raises(ValueError, match="original .*config"):
         module._config_values(config)
     assert calls == []
+
+
+def _prepare_main_owner_provision_suite(tmp_path, monkeypatch, *, import_effect=False):
+    # Preserve the existing real-pytest fixture; declare the new context rather
+    # than learning it from either new discovery/owner observation.
+    suite, manifest, environment, cohort, _inventory = _prepare_provision_suite(
+        tmp_path, monkeypatch
+    )
+    module = _runner()
+    payload = json.loads(manifest.read_text())
+    data = json.loads(cohort.read_text())
+    sources = {
+        "test_z_outside.py": (
+            "import os\nos.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'\n"
+            if import_effect
+            else ""
+        )
+        + "from pathlib import Path\ndef test_outside_extra():\n    Path('outside-extra-ran').touch()\n",
+        "test_z_global_skip.py": "import pytest\npytest.skip('global-only collection skip', allow_module_level=True)\n",
+    }
+    for name, source in sources.items():
+        (suite / name).write_text(source)
+        payload["source_files"][name] = hashlib.sha256(
+            (suite / name).read_bytes()
+        ).hexdigest()
+    selectors = ["test_cases.py", "test_collection_skip.py"]
+    payload.update(collection_scope="main-owners", collection_args=selectors)
+    if import_effect:
+        environment.pop("TF_CPP_MIN_LOG_LEVEL", None)
+        payload["environment"].pop("TF_CPP_MIN_LOG_LEVEL", None)
+        payload["collection_transition"]["collected_environment"][
+            "TF_CPP_MIN_LOG_LEVEL"
+        ] = "1"
+        payload["collection_transition"]["post_pytest_environment"][
+            "TF_CPP_MIN_LOG_LEVEL"
+        ] = "1"
+    data.update(schema="jax2onnx-ci-main-owner-cohort-v1", collection_args=selectors)
+    data["environment"] = dict(payload["environment"])
+    data["collection_transition"] = json.loads(
+        json.dumps(payload["collection_transition"])
+    )
+    for mapping in (
+        data["environment"],
+        data["collection_transition"]["collected_environment"],
+        data["collection_transition"]["post_pytest_environment"],
+    ):
+        mapping["JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"] = (
+            "${RUN}/native-model-artifacts"
+        )
+    module._write(cohort, data)
+    payload["source_files"][cohort.name] = hashlib.sha256(
+        cohort.read_bytes()
+    ).hexdigest()
+    module._write(manifest, payload)
+    return suite, manifest, environment, cohort, selectors
+
+
+@pytest.mark.parametrize(
+    "import_effect",
+    [False, True],
+    ids=["complete-owner-positive", "missing-import-effect-rejected"],
+)
+def test_real_main_owner_campaign_closes_C_then_O_and_preserves_import_context(
+    tmp_path,
+    monkeypatch,
+    import_effect,
+):
+    module = _runner()
+    suite, manifest, environment, cohort, selectors = (
+        _prepare_main_owner_provision_suite(
+            tmp_path, monkeypatch, import_effect=import_effect
+        )
+    )
+    monkeypatch.chdir(suite)
+    monkeypatch.setattr(module.os, "environ", environment)
+    output = tmp_path / "receipts"
+    argv = [
+        str(_RUNNER),
+        "--output-dir",
+        str(output),
+        "--ci-lane",
+        "standard",
+        "--ci-main-baseline",
+        str(manifest),
+        "--_ci-provision-campaign",
+        str(cohort),
+    ]
+    for selector in selectors:
+        argv.extend(("--test-path", selector))
+    monkeypatch.setattr(module.sys, "argv", [*argv, "--", "-q"])
+    assert module._main() == (1 if import_effect else 0)
+    run = json.loads((output / "run.json").read_text())
+    global_receipt = json.loads((output / "global-collection/receipt.json").read_text())
+    owner = json.loads((output / "collection/receipt.json").read_text())
+    assert global_receipt["exitstatus"] == 0
+    assert global_receipt["phases"] == global_receipt["phase_durations"] == {}
+    assert global_receipt["completed"] == []
+    assert (
+        "collection_scope" not in global_receipt
+        and "collection_reports" not in global_receipt
+    )
+    assert len(global_receipt["collection_skips"]) == 2
+    assert owner["collection_scope"] == "main-owners"
+    assert len(owner["collection_skips"]) == 1
+    assert [
+        report["nodeid"]
+        for report in owner["collection_reports"]
+        if report["nodeid"].endswith(".py") and "::" not in report["nodeid"]
+    ] == selectors
+    assert (
+        not (suite / "extra-ran").exists()
+        and not (suite / "outside-extra-ran").exists()
+    )
+    if import_effect:
+        # Same literal Main names, valid genuine C, but O missed a required
+        # collected import effect. No native body/phase may become acceptance.
+        assert run["status"] == "FAIL" and run["completed"] == []
+        assert not (suite / "base-ran").exists()
+        assert owner["phases"] == owner["phase_durations"] == {}
+        assert owner["completed"] == []
+        assert any(
+            "collection-transition environment differs" in error
+            for error in owner["ci_lane"]["errors"]
+        )
+        assert not (output / "ci-provisioned-campaign.json").exists()
+    else:
+        assert run["status"] == "PASS"
+        assert run["completed"] == json.loads(manifest.read_text())["nodeids"]
+        assert run["global_extra_nodeids"] == [
+            "test_cases.py::test_extra",
+            "test_z_outside.py::test_outside_extra",
+        ]
+        assert len(run["processes"]) == 3  # one C, one O, one native S batch
+        contract = json.loads((output / "ci-provisioned-campaign.json").read_text())
+        assert contract["schema"] == "jax2onnx-ci-main-owner-campaign-v1"
+        for role, folder in (
+            ("global_inventory", "global-collection"),
+            ("owner_inventory", "collection"),
+        ):
+            assert (
+                contract[role]["sha256"]
+                == hashlib.sha256(
+                    (output / folder / "receipt.json").read_bytes()
+                ).hexdigest()
+            )
+        batch = json.loads((output / "batch-0001/receipt.json").read_text())
+        assert batch["full_preselection_ids"] == owner["full_preselection_ids"]
+        assert batch["collection_reports"] == owner["collection_reports"]
+        assert batch["collection_skips"] == owner["collection_skips"]
+
+
+@pytest.mark.parametrize("fault", ["marker-absent", "global-profile"])
+def test_owner_provision_requires_marker_and_matching_source_bound_cohort(
+    tmp_path, monkeypatch, fault
+):
+    module = _runner()
+    suite, manifest, environment, cohort, _selectors = (
+        _prepare_main_owner_provision_suite(tmp_path, monkeypatch)
+    )
+    payload = json.loads(manifest.read_text())
+    if fault == "marker-absent":
+        del payload["collection_scope"]
+    else:
+        data = json.loads(cohort.read_text())
+        data["schema"] = "jax2onnx-ci-standard-cohort-v1"
+        del data["collection_args"]
+        module._write(cohort, data)
+        payload["source_files"][cohort.name] = hashlib.sha256(
+            cohort.read_bytes()
+        ).hexdigest()
+    module._write(manifest, payload)
+    context = module._CiLaneContext(manifest, suite, environment=payload["environment"])
+    with pytest.raises(ValueError, match="profile and scope marker differ"):
+        module._CiCampaignProvision(cohort, context, tmp_path / "receipts")
+
+
+@pytest.mark.parametrize(
+    "contract_first", [False, True], ids=["baseline-first", "contract-first"]
+)
+def test_main_owner_supplied_contract_is_rejected_before_run_or_children(
+    tmp_path, monkeypatch, capsys, contract_first
+):
+    module = _runner()
+    suite, manifest, environment = _prepare_lane_suite(
+        tmp_path,
+        {"test_owner.py": "def test_base(): pass\n"},
+        ["test_owner.py::test_base"],
+        collection_args=("test_owner.py",),
+    )
+    payload = json.loads(manifest.read_text())
+    payload["collection_scope"] = "main-owners"
+    module._write(manifest, payload)
+    monkeypatch.chdir(suite)
+    monkeypatch.setattr(module.os, "environ", environment)
+    output = tmp_path / "owner-supplied-output"
+    contract = tmp_path / "not-read-owner-contract.json"
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("supplied owner contract reached execution or validation")
+
+    monkeypatch.setattr(module, "_child", forbidden)
+    monkeypatch.setattr(module, "_CiCampaignContext", forbidden)
+    baseline_args = ["--ci-main-baseline", str(manifest)]
+    contract_args = ["--ci-campaign-contract", str(contract)]
+    authority_args = (
+        contract_args + baseline_args
+        if contract_first
+        else baseline_args + contract_args
+    )
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            str(_RUNNER),
+            "--output-dir",
+            str(output),
+            "--ci-lane",
+            "standard",
+            *authority_args,
+            "--test-path",
+            "test_owner.py",
+            "--",
+            "-q",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        module._main()
+    assert error.value.code == 2
+    assert (
+        "Main-owner execution requires --_ci-provision-campaign; "
+        "supplied owner contracts cannot start a new RUN"
+    ) in capsys.readouterr().err
+    assert calls == []
+    assert not output.exists()
+    assert not contract.exists()

@@ -617,6 +617,10 @@ def _worker(request_path: Path) -> int:
             environment=startup_context["environment"],
             expected_sha256=authority[_CI_PRIVATE_OPTIONS[2]],
         )
+        if lane_context.owner and authority[_CI_PRIVATE_OPTIONS[0]] != "standard":
+            raise ValueError(
+                "Main-owner workers execute only their assigned STANDARD counterparts"
+            )
         lane_context.observe_node(startup_context)
         lane_context.check_snapshot(startup_context, stage="startup")
     # Import pytest only inside disposable collection/execution children.
@@ -644,6 +648,8 @@ def _worker(request_path: Path) -> int:
         "native_source_recomputed": False,
         "cast_observer_enabled": control is None,
     }
+    if lane_context is not None and lane_context.owner:
+        receipt.update(collection_scope="main-owners", collection_reports=[])
     if control is not None:
         receipt["diagnostic_control"] = {
             **control,
@@ -883,6 +889,17 @@ def _worker(request_path: Path) -> int:
                     raise pytest.UsageError(str(exc)) from exc
 
         def pytest_collectreport(self, report: Any) -> None:
+            if lane_context is not None and lane_context.owner:
+                observed = {
+                    "nodeid": report.nodeid,
+                    "outcome": report.outcome,
+                    "result": [
+                        {"nodeid": item.nodeid, "type": type(item).__name__}
+                        for item in report.result
+                    ],
+                }
+                receipt["collection_reports"].append(observed)
+                append_event({"kind": "collection_report", "report": observed})
             if report.failed or report.skipped:
                 key = "collection_errors" if report.failed else "collection_skips"
                 receipt[key].append(
@@ -1564,6 +1581,14 @@ def _main() -> int:
             )
             if type(manifest) is not dict:
                 raise ValueError("campaign requires a baseline manifest")
+            if (
+                args.ci_campaign_contract
+                and manifest.get("collection_scope") == "main-owners"
+            ):
+                raise ValueError(
+                    "Main-owner execution requires --_ci-provision-campaign; "
+                    "supplied owner contracts cannot start a new RUN"
+                )
             _ci_campaign_arguments(
                 args.test_path, options, manifest.get("collection_args", [])
             )
@@ -1627,6 +1652,7 @@ def _main() -> int:
     provision = None
     lane_environment = None
     lane_closed: list[tuple[Path, dict[str, Any], dict[str, str]]] = []
+    discovery_closed: list[tuple[Path, dict[str, Any], dict[str, str], Any]] = []
     run["native_model_artifact_transport"] = "native-model-artifact-transport.json"
 
     def write_setup_failure() -> None:
@@ -1790,6 +1816,13 @@ def _main() -> int:
                     strict=True,
                 )
             )
+            if lane_context.owner and (
+                args.ci_lane != "standard"
+                or not (args.ci_campaign_contract or args._ci_provision_campaign)
+            ):
+                raise ValueError(
+                    "Main-owner execution requires an explicit current-run owner campaign"
+                )
             (root / "ci-main-baseline.json").write_bytes(lane_context.path.read_bytes())
             run["ci_lane"] = {
                 "lane": args.ci_lane,
@@ -1804,7 +1837,13 @@ def _main() -> int:
             _write(root / "run.json", run)
 
         if args.ci_campaign_contract:
-            campaign = _CiCampaignContext(args.ci_campaign_contract, lane_context)
+            campaign = _CiCampaignContext(
+                args.ci_campaign_contract, lane_context, run=root
+            )
+            if campaign.owner and args.ci_lane != "standard":
+                raise ValueError(
+                    "Main-owner campaign does not replace the complete extras lane"
+                )
             run["ci_campaign"] = {
                 "contract_path": str(campaign.path),
                 "contract_sha256": campaign.sha256,
@@ -1819,11 +1858,14 @@ def _main() -> int:
                 args._ci_provision_campaign, lane_context, root
             )
 
-        def closed_lane_worker(folder: Path, request: dict[str, Any]) -> dict[str, Any]:
-            if lane_context is None:
+        def closed_lane_worker(
+            folder: Path, request: dict[str, Any], *, context: Any = None
+        ) -> dict[str, Any]:
+            active_context = lane_context if context is None else context
+            if active_context is None:
                 return json.loads((folder / "receipt.json").read_text())
-            lane_context.recheck(environment=lane_environment)
-            receipt = _ci_lane_closed(folder, request, lane_context)
+            active_context.recheck(environment=lane_environment)
+            receipt = _ci_lane_closed(folder, request, active_context)
             names = ("request.json", "receipt.json", "lane-terminal.json")
             if campaign is not None and request["kind"] == "batch":
                 names += ("junit.xml",)
@@ -1831,9 +1873,69 @@ def _main() -> int:
                 name: hashlib.sha256((folder / name).read_bytes()).hexdigest()
                 for name in names
             }
-            lane_closed.append((folder, request, hashes))
+            if context is None:
+                lane_closed.append((folder, request, hashes))
+            else:
+                discovery_closed.append((folder, request, hashes, active_context))
             run["ci_lane"]["closed_workers"][folder.name] = hashes
             return receipt
+
+        if provision is not None and provision.owner:
+            if args.ci_lane != "standard":
+                raise ValueError(
+                    "Main-owner provisioning preserves a separate complete extras lane"
+                )
+            global_context = provision.global_discovery()
+            global_options = [
+                option
+                for option in worker_options
+                if not any(
+                    option.startswith(name + "=") for name in _CI_PRIVATE_OPTIONS
+                )
+            ]
+            global_options.extend(
+                f"{name}={value}"
+                for name, value in zip(
+                    _CI_PRIVATE_OPTIONS,
+                    ("standard", str(global_context.path), global_context.sha256),
+                    strict=True,
+                )
+            )
+            global_folder = root / "global-collection"
+            global_request = {
+                "kind": "collection",
+                "pytest_args": [*global_options, "--collect-only"],
+            }
+            if canonical_child(global_folder, global_request) != 0:
+                raise ValueError(
+                    "Main-owner campaign genuine global C did not close successfully"
+                )
+            global_receipt = closed_lane_worker(
+                global_folder, global_request, context=global_context
+            )
+            global_ids = [item["nodeid"] for item in global_receipt["items"]]
+            if (
+                global_receipt["collection_errors"]
+                or not global_receipt["full_collection_checked"]
+                or global_receipt["full_preselection_ids"] != global_ids
+                or global_receipt["selected_ids"] != global_ids
+                or not global_ids
+                or len(set(global_ids)) != len(global_ids)
+            ):
+                raise ValueError("Main-owner genuine global C is incomplete")
+            _ci_lane_partition(global_ids, global_context.manifest)
+            run["global_nodeids"] = global_ids
+            run["collection_scope"] = "main-owners"
+            run["global_discovery"] = {
+                "folder": str(global_folder),
+                "manifest_path": str(global_context.path),
+                "manifest_sha256": global_context.sha256,
+                "receipt_sha256": hashlib.sha256(
+                    (global_folder / "receipt.json").read_bytes()
+                ).hexdigest(),
+            }
+            _write(root / "run.json", run)
+            del global_receipt, global_ids
 
         collection = root / "collection"
         request = {
@@ -1874,6 +1976,18 @@ def _main() -> int:
             }
         if campaign is not None:
             campaign.collection(baseline)
+            if campaign.owner:
+                run["collection_scope"] = "main-owners"
+                run["global_nodeids"] = campaign.global_inventory[
+                    "full_preselection_ids"
+                ]
+                run["global_extra_nodeids"] = campaign.extra
+                run["ci_campaign"].update(
+                    {
+                        name + "_path": str(path)
+                        for name, (path, _digest) in campaign.references.items()
+                    }
+                )
         collection_skips = baseline["collection_skips"]
         lane_ids = nodeids
         if lane_context is not None:
@@ -1969,6 +2083,16 @@ def _main() -> int:
     if lane_context is not None:
         try:
             lane_context.recheck(environment=lane_environment)
+            for folder, request, hashes, context in discovery_closed:
+                if any(
+                    hashlib.sha256((folder / name).read_bytes()).hexdigest() != digest
+                    for name, digest in hashes.items()
+                ):
+                    raise ValueError(
+                        "closed Main-owner global discovery bytes changed after validation"
+                    )
+                context.recheck(environment=lane_environment)
+                _ci_lane_closed(folder, request, context)
             for folder, request, hashes in lane_closed:
                 if any(
                     hashlib.sha256((folder / name).read_bytes()).hexdigest() != expected
@@ -2402,6 +2526,82 @@ def _ci_node_check(
     return result
 
 
+def _ci_owner_modules(arguments: Any) -> list[str]:
+    """The owner schema accepts complete, literal modules only."""
+    if (
+        type(arguments) is not list
+        or not arguments
+        or any(type(argument) is not str or not argument for argument in arguments)
+        or len(set(arguments)) != len(arguments)
+    ):
+        raise ValueError("Main-owner collection needs unique ordered complete modules")
+    for argument in arguments:
+        if type(argument) is not str or not argument:
+            raise ValueError("Main-owner selector must be a complete module")
+        path = Path(argument)
+        if (
+            path.is_absolute()
+            or path.as_posix() != argument
+            or ".." in path.parts
+            or path.suffix != ".py"
+            or argument.startswith("-")
+            or any(character in argument for character in "*?[]\\\x00\n\r:")
+        ):
+            raise ValueError(
+                "Main-owner selector must be a complete literal .py module"
+            )
+    return list(arguments)
+
+
+def _ci_owner_reports(receipt: Any, selectors: list[str]) -> list[dict[str, Any]]:
+    """Validate metadata-only native chronology, without retaining collectors."""
+    reports = receipt.get("collection_reports")
+    if (
+        receipt.get("collection_scope") != "main-owners"
+        or type(reports) is not list
+        or not reports
+    ):
+        raise ValueError(
+            "Main-owner receipt needs its explicit scope and collector chronology"
+        )
+    for report in reports:
+        if (
+            type(report) is not dict
+            or set(report) != {"nodeid", "outcome", "result"}
+            or type(report["nodeid"]) is not str
+            or type(report["outcome"]) is not str
+            or report["outcome"] not in {"passed", "skipped", "failed"}
+            or type(report["result"]) is not list
+            or any(
+                type(item) is not dict
+                or set(item) != {"nodeid", "type"}
+                or any(type(item[key]) is not str for key in item)
+                for item in report["result"]
+            )
+        ):
+            raise ValueError("Main-owner collector chronology has an invalid report")
+    for outcome, field in (
+        ("failed", "collection_errors"),
+        ("skipped", "collection_skips"),
+    ):
+        if Counter(
+            report["nodeid"] for report in reports if report["outcome"] == outcome
+        ) != Counter(event.get("nodeid") for event in receipt.get(field, [])):
+            raise ValueError(
+                "Main-owner collector outcomes differ from native collection events"
+            )
+    modules = [
+        report["nodeid"]
+        for report in reports
+        if report["nodeid"].endswith(".py") and "::" not in report["nodeid"]
+    ]
+    if modules != selectors:
+        raise ValueError(
+            "Main-owner native Module chronology differs from approved selectors"
+        )
+    return reports
+
+
 def _ci_lane_manifest(
     path: Path, *, environment: Any = None
 ) -> tuple[dict[str, Any], bytes]:
@@ -2422,6 +2622,7 @@ def _ci_lane_manifest(
         - {
             "packages",
             "collection_args",
+            "collection_scope",
             "collection_transition",
             "support_role",
             "node_runtime",
@@ -2478,6 +2679,14 @@ def _ci_lane_manifest(
         raise ValueError(
             "baseline collection_args need unique ordered literal selectors"
         )
+    if "collection_scope" in manifest:
+        if (
+            manifest["collection_scope"] != "main-owners"
+            or "support_role" in manifest
+            or "node_runtime" in manifest
+        ):
+            raise ValueError("unsupported baseline Main-owner scope marker")
+        _ci_owner_modules(collection_args)
     sources = manifest["source_files"]
     if (
         type(sources) is not dict
@@ -2713,6 +2922,7 @@ class _CiLaneContext:
         )
         if self.node_reference is not None:
             _ci_node_check(root, self.node_authority, self.node_reference, full=True)
+        self.owner = self.manifest.get("collection_scope") == "main-owners"
         self.transition = self.manifest.get("collection_transition")
         self.collection_completed = False
         self.post_pytest_completed = False
@@ -2951,6 +3161,10 @@ class _CiCampaignProvision:
             self.path, _context_json
         )
         self.sha256 = self.bindings[self.path]
+        self.owner = self.data["schema"] == "jax2onnx-ci-main-owner-cohort-v1"
+        if self.owner != context.owner:
+            raise ValueError("provisioned Main-owner profile and scope marker differ")
+        self.global_context = None
         node = context.manifest.get("node_runtime")
         expected_node = self.helper._node_binding(
             self.data,
@@ -3018,6 +3232,20 @@ class _CiCampaignProvision:
                 raise ValueError("reviewed provision source changed")
         self.helper._installation(self.data, self.context.root)
 
+    def global_discovery(self) -> _CiLaneContext:
+        if not self.owner or self.global_context is not None:
+            raise ValueError("Main-owner campaign permits one fresh global discovery")
+        payload = dict(self.context.manifest)
+        del payload["collection_scope"]
+        payload["collection_args"] = []
+        path = self.run / "ci-global-baseline.json"
+        with path.open("x") as stream:
+            stream.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        self.global_context = _CiLaneContext(
+            path, self.context.root, environment=self.context.manifest["environment"]
+        )
+        return self.global_context
+
     def campaign(self, collection: Path) -> "_CiCampaignContext":
         support = self.data["schema"] == "jax2onnx-ci-support-cohort-v1"
         payload = {
@@ -3039,10 +3267,37 @@ class _CiCampaignProvision:
             },
             "allowed_skips": self.data["allowed_skips"],
         }
+        if self.owner:
+            if self.global_context is None:
+                raise ValueError(
+                    "Main-owner campaign needs its closed current-run C first"
+                )
+            payload = {
+                "schema": "jax2onnx-ci-main-owner-campaign-v1",
+                "python_minor": self.context.manifest["python_minor"],
+                "main_manifest": payload["main_manifest"],
+                "global_manifest": {
+                    "path": str(self.global_context.path),
+                    "sha256": self.global_context.sha256,
+                },
+                "global_inventory": {
+                    "path": str(self.run / "global-collection/receipt.json"),
+                    "sha256": hashlib.sha256(
+                        (self.run / "global-collection/receipt.json").read_bytes()
+                    ).hexdigest(),
+                },
+                "owner_inventory": {
+                    "path": str(collection / "receipt.json"),
+                    "sha256": hashlib.sha256(
+                        (collection / "receipt.json").read_bytes()
+                    ).hexdigest(),
+                },
+                "allowed_skips": self.data["allowed_skips"],
+            }
         path = self.run / "ci-provisioned-campaign.json"
         with path.open("x") as stream:
             stream.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-        return _CiCampaignContext(path, self.context)
+        return _CiCampaignContext(path, self.context, run=self.run)
 
 
 def _ci_campaign_skips(skips: Any, context: _CiLaneContext) -> dict[str, Any]:
@@ -3076,7 +3331,9 @@ def _ci_campaign_skips(skips: Any, context: _CiLaneContext) -> dict[str, Any]:
 class _CiCampaignContext:
     """Optional strict outcomes around the existing canonical lane machinery."""
 
-    def __init__(self, path: Path, lane_context: _CiLaneContext) -> None:
+    def __init__(
+        self, path: Path, lane_context: _CiLaneContext, *, run: Path | None = None
+    ) -> None:
         self.path = path.resolve(strict=True)
         self.context = lane_context
         contract, raw = _context_json(self.path, 65536, label="campaign contract")
@@ -3085,8 +3342,14 @@ class _CiCampaignContext:
             type(contract) is dict
             and contract.get("schema") == "jax2onnx-ci-support-campaign-v1"
         )
+        self.owner = (
+            type(contract) is dict
+            and contract.get("schema") == "jax2onnx-ci-main-owner-campaign-v1"
+        )
         self.inventory_name = (
-            "command_inventory" if self.support else "global_inventory"
+            "owner_inventory"
+            if self.owner
+            else ("command_inventory" if self.support else "global_inventory")
         )
         if (
             type(contract) is not dict
@@ -3098,10 +3361,17 @@ class _CiCampaignContext:
                 self.inventory_name,
                 "allowed_skips",
             }
+            | ({"global_manifest", "global_inventory"} if self.owner else set())
             or contract["schema"]
-            not in {"jax2onnx-ci-campaign-v1", "jax2onnx-ci-support-campaign-v1"}
+            not in {
+                "jax2onnx-ci-campaign-v1",
+                "jax2onnx-ci-support-campaign-v1",
+                "jax2onnx-ci-main-owner-campaign-v1",
+            }
             or contract["python_minor"] != lane_context.manifest["python_minor"]
-            or bool(lane_context.manifest.get("collection_args", [])) != self.support
+            or bool(lane_context.manifest.get("collection_args", []))
+            != (self.support or self.owner)
+            or lane_context.owner != self.owner
         ):
             raise ValueError("unsupported campaign contract or full-global cohort")
         if lane_context.transition is None:
@@ -3115,7 +3385,11 @@ class _CiCampaignContext:
                 "campaign JUnit serialization requires qualified pytest 9.1.1"
             )
         self.references = {}
-        for name in ("main_manifest", self.inventory_name):
+        for name in (
+            "main_manifest",
+            self.inventory_name,
+            *(("global_manifest", "global_inventory") if self.owner else ()),
+        ):
             reference = contract[name]
             if (
                 type(reference) is not dict
@@ -3138,10 +3412,110 @@ class _CiCampaignContext:
         if hashlib.sha256(payload).hexdigest() != self.inventory_sha256:
             raise ValueError("campaign global inventory SHA differs")
         self.standard, self.extra = self._inventory(self.inventory)
+        if self.owner:
+            self._owner_inventories(run)
         self.allowed_skips = _ci_campaign_skips(contract["allowed_skips"], lane_context)
         self.recheck()
 
-    def _inventory(self, receipt: Any) -> tuple[list[str], list[str]]:
+    def _owner_inventories(self, run: Path | None) -> None:
+        if run is None:
+            raise ValueError("Main-owner campaign needs its actual current RUN binding")
+        self.run = run.resolve(strict=True)
+        if self.run.is_relative_to(self.context.root) or self.context.manifest[
+            "environment"
+        ].get("JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR") != str(
+            self.run / "native-model-artifacts"
+        ):
+            raise ValueError("Main-owner campaign differs from its current RUN context")
+        for name, folder in (
+            ("global_inventory", "global-collection"),
+            ("owner_inventory", "collection"),
+        ):
+            expected = self.run / folder / "receipt.json"
+            if (
+                expected.is_symlink()
+                or expected.parent.is_symlink()
+                or self.references[name][0] != expected
+            ):
+                raise ValueError(
+                    "Main-owner inventory does not belong to this current campaign RUN"
+                )
+        path, digest = self.references["global_manifest"]
+        self.global_context = _CiLaneContext(
+            path,
+            self.context.root,
+            environment=self.context.manifest["environment"],
+            expected_sha256=digest,
+        )
+        manifest = self.global_context.manifest
+        if self.global_context.owner or manifest.get("collection_args", []):
+            raise ValueError("Main-owner global discovery must be genuine unfiltered C")
+        if {
+            k: v
+            for k, v in manifest.items()
+            if k not in {"collection_scope", "collection_args"}
+        } != {
+            k: v
+            for k, v in self.context.manifest.items()
+            if k not in {"collection_scope", "collection_args"}
+        }:
+            raise ValueError(
+                "Main-owner C/O manifests have different source/cohort/context epochs"
+            )
+        inventory_path, digest = self.references["global_inventory"]
+        self.global_inventory, raw = _context_json(
+            inventory_path, 16 * 1024 * 1024, label="global inventory"
+        )
+        if hashlib.sha256(raw).hexdigest() != digest:
+            raise ValueError("Main-owner global inventory SHA differs")
+        standard, extra = self._inventory(
+            self.global_inventory, context=self.global_context, owner=False
+        )
+        expected_items = [
+            item
+            for item in self.global_inventory["full_items"]
+            if item["module"] in set(self.context.manifest["collection_args"])
+        ]
+        if self.inventory["full_items"] != expected_items or self.standard != standard:
+            raise ValueError(
+                "Main-owner O is not the complete ordered C owner projection"
+            )
+        self.standard, self.extra = standard, extra
+        self._owner_closed_inventories()
+
+    def _owner_closed_inventories(self) -> None:
+        for name, context in (
+            ("global_inventory", self.global_context),
+            ("owner_inventory", self.context),
+        ):
+            folder = self.references[name][0].parent
+            request, _raw = _context_json(
+                folder / "request.json",
+                16 * 1024 * 1024,
+                label="campaign collection request",
+            )
+            if request.get("kind") != "collection":
+                raise ValueError(
+                    "Main-owner inventory is not a native collection worker"
+                )
+            closed = _ci_lane_closed(folder, request, context)
+            expected = (
+                self.global_inventory if name == "global_inventory" else self.inventory
+            )
+            if closed != expected:
+                raise ValueError(
+                    "Main-owner inventory differs from closed native worker bytes"
+                )
+
+    def _inventory(
+        self,
+        receipt: Any,
+        *,
+        context: _CiLaneContext | None = None,
+        owner: bool | None = None,
+    ) -> tuple[list[str], list[str]]:
+        context = self.context if context is None else context
+        owner = self.owner if owner is None else owner
         if (
             type(receipt) is not dict
             or receipt.get("kind") != "collection"
@@ -3159,7 +3533,7 @@ class _CiCampaignContext:
             or "diagnostic_control" in receipt
         ):
             raise ValueError("campaign inventory needs a closed phase-free collection")
-        self._selectors(receipt)
+        self._selectors(receipt, context=context, owner=owner)
         full = receipt.get("full_preselection_ids")
         items = receipt.get("full_items")
         skips = receipt.get("collection_skips")
@@ -3191,7 +3565,7 @@ class _CiCampaignContext:
             raise ValueError(
                 "campaign inventory has incomplete C/items/collection skips"
             )
-        standard, extra = _ci_lane_partition(full, self.context.manifest)
+        standard, extra = _ci_lane_partition(full, context.manifest)
         for key, expected in (("full", full), ("standard", standard), ("extra", extra)):
             if key in receipt and receipt[key] != expected:
                 raise ValueError("campaign stored C/S/A projection differs")
@@ -3206,18 +3580,46 @@ class _CiCampaignContext:
             ("collection_context", "collected"),
             ("final_context", "post_pytest"),
         ):
-            self.context.check_snapshot(receipt.get(key), stage=stage)
+            context.check_snapshot(receipt.get(key), stage=stage)
         return standard, extra
 
-    def _selectors(self, receipt: dict[str, Any]) -> None:
-        if self.support and any(
-            receipt.get(name) != self.context.manifest["collection_args"]
+    def _selectors(
+        self,
+        receipt: dict[str, Any],
+        *,
+        context: _CiLaneContext | None = None,
+        owner: bool | None = None,
+    ) -> None:
+        context = self.context if context is None else context
+        owner = self.owner if owner is None else owner
+        if owner:
+            _ci_owner_reports(receipt, context.manifest["collection_args"])
+        elif "collection_scope" in receipt or "collection_reports" in receipt:
+            raise ValueError("global/support campaign rejects Main-owner receipt scope")
+        if (
+            self.owner
+            and not owner
+            and any(
+                receipt.get(name, []) != []
+                for name in ("collection_args", "qualified_collection_args")
+            )
+        ):
+            raise ValueError(
+                "Main-owner global discovery has a hidden selector prefilter"
+            )
+        if (self.support or owner) and any(
+            receipt.get(name) != context.manifest["collection_args"]
             for name in ("collection_args", "qualified_collection_args")
         ):
             raise ValueError("support campaign receipt selectors differ from authority")
 
     def collection(self, receipt: dict[str, Any]) -> tuple[list[str], list[str]]:
         partition = self._inventory(receipt)
+        if (
+            self.owner
+            and receipt["collection_reports"] != self.inventory["collection_reports"]
+        ):
+            raise ValueError("Main-owner collector chronology differs from frozen O")
         if any(
             receipt[key] != self.inventory[key]
             for key in (
@@ -3229,7 +3631,7 @@ class _CiCampaignContext:
             )
         ):
             raise ValueError("campaign fresh global collection differs from inventory")
-        return partition
+        return (self.standard, self.extra) if self.owner else partition
 
     @staticmethod
     def _junit_key(nodeid: str) -> tuple[str, str]:
@@ -3250,6 +3652,13 @@ class _CiCampaignContext:
         full = self.inventory["full_preselection_ids"]
         skips = self.inventory["collection_skips"]
         self._selectors(receipt)
+        if self.owner and (
+            receipt["full_items"] != self.inventory["full_items"]
+            or receipt["collection_reports"] != self.inventory["collection_reports"]
+        ):
+            raise ValueError(
+                "Main-owner batch differs from complete frozen O/items/chronology"
+            )
         _validate(receipt, assigned, full, skips)
         assigned_set = set(assigned)
         if (
@@ -3359,6 +3768,11 @@ class _CiCampaignContext:
             ):
                 raise ValueError("campaign referenced bytes changed")
         self.context.recheck(environment=self.context.manifest["environment"])
+        if self.owner:
+            self.global_context.recheck(
+                environment=self.global_context.manifest["environment"]
+            )
+            self._owner_closed_inventories()
 
 
 def _ci_lane_worker_authority(options: list[str]) -> dict[str, str] | None:
@@ -3416,6 +3830,10 @@ def _ci_lane_closed(
         raise ValueError("closed canonical lane receipt/request binding differs")
     receipt = json.loads(payload)
     selectors = context.manifest.get("collection_args", [])
+    if context.owner:
+        _ci_owner_reports(receipt, selectors)
+    elif "collection_scope" in receipt or "collection_reports" in receipt:
+        raise ValueError("closed global/support receipt cannot claim Main-owner scope")
     if selectors and any(
         receipt.get(name) != selectors
         for name in ("collection_args", "qualified_collection_args")
@@ -3569,6 +3987,10 @@ def pytest_configure(config: Any) -> None:
         raise pytest.UsageError(str(exc)) from exc
     checkpoint()
     context = _CiLaneContext(Path(baseline), root, expected_sha256=raw_hash)
+    if context.owner:
+        raise pytest.UsageError(
+            "Main-owner scope requires the canonical owner campaign"
+        )
 
     class LaneSelection:
         projecting = False

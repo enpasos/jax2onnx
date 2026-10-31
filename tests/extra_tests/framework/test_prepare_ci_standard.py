@@ -640,3 +640,122 @@ def test_minimum_support_rejects_altered_project_installer_and_foundation_bindin
     event = module._git(root, "rev-parse", "HEAD").decode().strip()
     with pytest.raises(ValueError, match="binding"):
         module._manifest(path, root, event, run)
+
+
+@pytest.mark.parametrize(
+    "selectors",
+    [
+        [],
+        ["tests/test_base.py"] * 2,
+        ["tests/test_base.py::TestBase"],
+        ["tests/test_base.py::test_base[value]"],
+        ["tests"],
+        ["../test_base.py"],
+        ["tests/*.py"],
+        ["--pyargs"],
+        [1],
+        [{}],
+    ],
+)
+def test_main_owner_cohort_rejects_nonliteral_or_partial_module_authority(
+    authority, selectors
+):
+    module, _root, path, _event, _run, original, _distributions = authority
+    data = deepcopy(original)
+    data.update(schema="jax2onnx-ci-main-owner-cohort-v1", collection_args=selectors)
+    _write_json(path, data)
+    with pytest.raises(ValueError, match="Main-owner"):
+        module._cohort(path, module._runner()._context_json)
+
+
+def test_main_owner_cohort_keeps_literal_module_order_without_item_inference(authority):
+    module, _root, path, _event, _run, original, _distributions = authority
+    data = deepcopy(original)
+    data.update(
+        schema="jax2onnx-ci-main-owner-cohort-v1",
+        collection_args=["tests/test_base.py", "tests/primitives/test_generated.py"],
+    )
+    _write_json(path, data)
+    observed, baseline, _bindings = module._cohort(path, module._runner()._context_json)
+    assert observed == data and baseline == data["baseline"]
+    assert observed["collection_args"] == data["collection_args"]
+
+
+@pytest.mark.parametrize(
+    "schema", ["jax2onnx-ci-standard-cohort-v1", "jax2onnx-ci-support-cohort-v1"]
+)
+def test_existing_cohort_schemas_do_not_accept_owner_authority_by_extra_keys(
+    authority, schema
+):
+    module, _root, path, _event, _run, original, _distributions = authority
+    data = deepcopy(original)
+    data.update(
+        schema=schema,
+        collection_args=["tests/test_base.py"],
+        collection_scope="main-owners",
+    )
+    if schema == "jax2onnx-ci-support-cohort-v1":
+        data["support_role"] = "normalization"
+    _write_json(path, data)
+    with pytest.raises(ValueError, match="unsupported STANDARD cohort"):
+        module._cohort(path, module._runner()._context_json)
+
+
+@pytest.mark.parametrize("scope", [None, "main-owners", "global"])
+def test_owner_renderer_binds_only_its_two_declared_scope_materializations(
+    authority, scope
+):
+    module, root, path, _event, run, original, _distributions = authority
+    data = deepcopy(original)
+    data.update(
+        schema="jax2onnx-ci-main-owner-cohort-v1",
+        collection_args=["tests/test_base.py"],
+    )
+    _write_json(path, data)
+    module._git(root, "add", ".")
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "reviewed owner fixture",
+    )
+    event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    manifest, observed = module._manifest(
+        path, root, event, run, collection_scope=scope
+    )
+    assert observed == data
+    assert manifest["nodeids"] == data["baseline"]["nodeids"]
+    assert (
+        manifest["source_files"]["cohort.json"]
+        == hashlib.sha256(path.read_bytes()).hexdigest()
+    )
+    if scope == "global":
+        assert manifest["collection_args"] == [] and "collection_scope" not in manifest
+    else:
+        assert manifest["collection_scope"] == "main-owners"
+        assert manifest["collection_args"] == data["collection_args"]
+
+
+@pytest.mark.parametrize("scope", ["main-owners", "global", "unknown"])
+def test_existing_global_renderer_does_not_authorize_owner_scope_controls(
+    authority, scope
+):
+    module, root, path, event, run, _data, _distributions = authority
+    with pytest.raises(ValueError, match="approved Main-owner cohort"):
+        module._manifest(path, root, event, run, collection_scope=scope)
+
+
+def test_owner_cohort_rejects_omitted_Main_counterpart_module(authority):
+    module, _root, path, _event, _run, original, _distributions = authority
+    data = deepcopy(original)
+    data.update(
+        schema="jax2onnx-ci-main-owner-cohort-v1",
+        collection_args=["tests/test_other.py"],
+    )
+    _write_json(path, data)
+    with pytest.raises(ValueError, match="omit an original Main counterpart"):
+        module._cohort(path, module._runner()._context_json)

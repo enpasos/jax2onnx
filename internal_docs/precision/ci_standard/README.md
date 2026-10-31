@@ -5,7 +5,12 @@ workflow. Real rendering requires a committed source tree whose HEAD and every
 tracked file match an independently supplied event SHA. These inputs do not
 qualify a hosted job against the complete 1,200-second budget.
 
-At `56c6a24f`, [CI 571](https://github.com/enpasos/jax2onnx/actions/runs/41060058197)
+The reviewed Main-owner extension below is private source under qualification;
+**activation remains HOLD**. Current hosted/local outcomes and pending gates are
+recorded in the [handoff](../implementation_handoff.md#current-checkpoint-2026-10-30).
+The original full-global and support routes remain available and unchanged.
+
+Historical checkpoint: at `56c6a24f`, [CI 571](https://github.com/enpasos/jax2onnx/actions/runs/41060058197)
 passes all four candidate support jobs. All four global candidates fail:
 locked312 detects MaxText leaking `XLA_FLAGS`; locked311/313/314 reject ten
 unchanged missing-npm call skips omitted from their allowances. Remaining
@@ -76,7 +81,7 @@ Generation is a separate child; its environment changes do not rewrite the
 coordinator's startup profile. Preserve existing generated artifacts before its
 normal cleanup. Do not add framework flags, package overlays or cache clearing.
 
-With that profile already established, the Python 3.11 command shape is:
+With that profile already established, the original global Python 3.11 command shape is:
 
 ```sh
 python -B scripts/prepare_ci_standard.py \
@@ -122,8 +127,9 @@ fails instead of refreshing authority from the observation.
 ## First-collection provisioning and limits
 
 `--_ci-provision-campaign` is mutually exclusive with the existing
-`--ci-campaign-contract` route. STANDARD requires full-global canonical selection;
-the support variant below retains its exact original command. Provisioning
+`--ci-campaign-contract` route. The original STANDARD schema requires full-global
+canonical selection; only the explicit owner variant below changes that scope.
+The support variant retains its exact original command. Global provisioning
 freezes source-bound skip allowances before collection and runs the
 existing canonical collection exactly once. After closed-worker hashes,
 exit status, zero execution and the independent environment/JAX transition pass,
@@ -159,6 +165,59 @@ renderer and exact Root/Main restoration. The packet is
 same evidence root (hash `4b5560aa…`). This uses a reviewer-supplied **local SHA**,
 not GitHub event provenance. Saved cohort epochs remain distinct from restored
 Root28; no collection, runtime or FULL followed these admissions.
+
+## Reviewed Main-owner variant
+
+The [v2 wire amendment](/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/standard-owner-scope-amendment-v2-3mme80px/WIRE-DRAFT.md)
+extends the existing renderer and campaign validator. It introduces no second
+executor. `jax2onnx-ci-main-owner-cohort-v1` adds only literal ordered
+`collection_args` to the STANDARD cohort fields. The reviewed profiles preserve
+their original Main identities, inputs, skip allowances and other authority:
+
+| Input | Main S | Complete owner modules |
+| --- | ---: | ---: |
+| `py311-owners.json` | 4,571 | 188 |
+| `py312-owners.json` | 4,621 | 190 |
+| `py313-owners.json` | 4,573 | 188 |
+| `py314-owners.json` | 4,573 | 188 |
+
+Selectors are the frozen relative `.py` paths in profile order, not inferred from
+the current items. Partial function/class/parameter selectors, globs and duplicate
+paths are rejected. Every worker uses ordinary collectors and Items, retains
+successful/empty collector reports, and collects every added case in those owners
+before projecting its assigned literal S after normal collection/ordering hooks.
+
+The owner-rendered baseline carries hash-bound
+`collection_scope: "main-owners"`. The same profile's global rendering has empty
+collection arguments and no scope marker; both retain the same declared context
+transition. Workers read scope from the baseline, never infer it from selectors.
+Original global/support authorities reject the owner marker.
+
+Execution is **provisioning-only** through `--_ci-provision-campaign`, using the
+matching owner profile and repeating its literal ordered arguments as
+`--test-path`. A supplied owner `--ci-campaign-contract` is rejected before RUN
+creation or child/context validation. Existing global/support supplied contracts
+remain supported. The owner campaign closes genuine complete global C at
+`RUN/global-collection/receipt.json`, then complete owner O at
+`RUN/collection/receipt.json`. Its distinct
+`jax2onnx-ci-main-owner-campaign-v1` binds both manifests and both receipts to
+this fresh RUN; no old execution nonce or cross-run C cache is accepted.
+
+O must equal the ordered C projection for the approved modules, and every worker
+must reproduce complete O and its collector chronology. Complete extras are
+**A=C−S**, including both O−S and C−O; all remain separately assigned. Global
+collection errors block success. Global-only skips remain global observations,
+not fabricated owner-child events. Source/package/environment/JAX checks,
+ordinary terminal hooks, native phases/JUnit, artifact ownership and final raw
+receipt-byte checks remain mandatory. Inventory equality alone does not prove
+parameter semantics, import effects or numerical equivalence.
+
+All C discovery and O collection costs count toward the unchanged **1,200-second
+whole-job, 4-GiB owned-RSS, 160 candidate job-minute and 100-MiB successful-evidence
+limits**. The complete Main mapping, original 45+5 optional models, support
+contexts, full extras and exact-final all-cohort suites remain required. Finite
+protocol controls do not qualify production import order, model numerics, memory
+savings or activation; follow the [execution plan](../ci_execution_plan.md#reviewed-main-owner-collection-amendment).
 
 ## Private support variant
 
