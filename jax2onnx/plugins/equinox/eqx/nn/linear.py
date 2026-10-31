@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Any, Callable, ClassVar, Final
 
 import equinox as eqx
@@ -14,6 +15,7 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -474,9 +476,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
     def _patch_call(
         orig: Callable[..., jax.Array] | None,
     ) -> Callable[..., jax.Array]:
-        del orig
-
-        def wrapped(
+        def legacy(
             self: eqx.nn.Linear,
             x: jax.Array,
             *,
@@ -492,7 +492,14 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 bias = jnp.asarray(bias, dtype=x.dtype)
             return LinearPlugin._PRIM.bind(x, weight, bias)
 
-        return wrapped
+        def wrapped(self: eqx.nn.Linear, *args: Any, **kwargs: Any) -> jax.Array:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig is None:
+                    raise RuntimeError("equinox.nn.Linear.__call__ is not available.")
+                return orig(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
+
+        return wraps(orig)(wrapped) if orig is not None else wrapped
 
     @classmethod
     def ensure_abstract_eval_bound(cls) -> None:

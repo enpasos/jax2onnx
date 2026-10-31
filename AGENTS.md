@@ -8,7 +8,7 @@ This page is the quick briefing for automated agents (or humans) dropping into t
 
 - **Pipeline:** Everything runs through the IR-only converter. `converter/` builds `onnx_ir` graphs; `plugins/` land primitive-specific lowering; `tests/` cover both policy and regression cases.
 - **Docs map:** Start with `docs/developer_guide/architecture.md` for the architecture overview. Technical playbooks live under `docs/developer_guide/advanced_topics/` (builder etiquette, expect_graph usage, control-flow wiring, IR optimizer, reflection guardrails, etc.). Release history lives under `docs/about/`; coverage pages and examples live under `docs/user_guide/`.
-- **Tooling:** Python 3.11+, Poetry, Ruff, Black, mypy, pytest. Supported runtime stack is **JAX ≥0.8.1** and **Flax/NNX ≥0.12.1**.
+- **Tooling:** Python 3.11+, Poetry, Ruff, Black, mypy, pytest. Supported runtime stack is **JAX/JAXLIB ≥0.10.2** and **Flax/NNX ≥0.12.8**.
 - **Recent heads-up (2025-10-02):**
   - NNX examples construct RNGs via `with_rng_seed(...)`; avoid inline lambdas so callables stay hashable under current JAX releases.
   - `jax.nn.dot_product_attention` follows JAX's reference: masked logits get JAX's finite large negative before `Softmax` (fully masked rows are uniform, never NaN), and FP16/BF16 logits and softmax run in FP32. The Linen plugin still renormalises masked weights after `Softmax`.
@@ -45,11 +45,13 @@ Keep these handy—most deep-dives live there instead of here.
   - No `jax_dynamic_shapes` auto-toggle.
   - Primitive parameters must be hashable; `construct_and_call(...).with_dtype(...)` constructs modules once per dtype.
   - Flax NNX requires attributes that hold arrays to be wrapped in `nnx.List` / `nnx.data`.
-- **Two supported stacks.** `poetry.lock` resolves Python 3.11 and 3.12 to the
-  older `jax 0.10.2` / `numpy 2.4` / `scipy 1.17` stack and Python 3.13+ to
-  `jax 0.11.x` (CI's 3.13/3.14 jobs assert this), so testing on 3.12 does not
-  exercise JAX 0.11. Both must keep working — route version-sensitive APIs
-  through `jax2onnx/_compat/jax.py` instead of importing them directly.
+- **Locked framework variants.** Poetry selects JAX/JAXLIB `0.10.2` and Flax
+  `0.12.8` on Python 3.11/3.12, and JAX/JAXLIB `0.12.0.1` and Flax `0.12.10` on
+  Python 3.13/3.14. `uv.lock` selects JAX/JAXLIB `0.10.2` on Python 3.11 and
+  `0.12.0` on Python 3.12+, retaining Flax `0.12.8`.
+  Preserve each lock's versions and markers. Python 3.11 remains supported; route
+  version-sensitive APIs through `jax2onnx/_compat/jax.py` instead of importing
+  them directly. Retain the compatibility helpers when changing support floors.
   (`[tool.mypy] python_version` is 3.12 because numpy's stubs need PEP 695 parsing.)
 - JAX 0.11 specifics:
   - `ClosedJaxpr` **is** `Jaxpr`, and `Jaxpr.jaxpr` returns `self`. Recursive
@@ -127,20 +129,25 @@ Keep these handy—most deep-dives live there instead of here.
 - Enable the relevant `JAX2ONNX_*_DEBUG` env while running the failing test.
 - Verify mutations persist across graph mirrors (`graph.nodes`, `_nodes`, etc.) if you’re editing IR.
 - Plugins patch APIs such as `jnp.expm1` and `jax.nn.log1mexp` only during
-  conversion. Tests must look them up at call time (`lambda x: jnp.expm1(x)`);
+  conversion. Legacy plugin-lowering tests must look them up at call time
+  (`lambda x: jnp.expm1(x)`);
   passing a reference captured at import traces JAX's decomposition instead and
-  silently skips the plugin.
+  silently skips the plugin. Private SOURCE tests intentionally retain original
+  JAX semantics; do not rewrite fixed supplied callables to force a plugin path.
 - ONNX Runtime kernel gaps that shape lowerings (bfloat16 `Log`, float64
   `Sinh`/`Cos`/`Erf`, `Where` and `-0.0`) are tracked in one table in
   `docs/about/dependencies.md`; update it when a lowering works around a new
-  gap or when the locked or minimum ONNX Runtime changes. Graphs that hit a gap
-  fail at session creation. ONNX Runtime's NumPy binding also rejects bfloat16
+  gap or when the locked or minimum ONNX Runtime changes. Missing kernels can
+  fail at session creation; behavior gaps also require numerical and signed-zero
+  checks. The table distinguishes public LEGACY handling from private SOURCE
+  algorithms. ONNX Runtime's NumPy binding also rejects bfloat16
   arrays: feed raw `uint16` bits through
   `OrtValue.ortvalue_from_numpy_with_onnx_type` and IO binding, as in
   `tests/extra_tests/test_log1p_expm1_precision.py`.
-- With `enable_double_precision=True`, `ctx.bind_const_for_var` promotes every
-  float constant to DOUBLE, also in float16/bfloat16 graphs that keep their own
-  dtype. Cast such constants explicitly to the compute dtype (see
+- In LEGACY exports with `enable_double_precision=True`,
+  `ctx.bind_const_for_var` can promote floating constants to DOUBLE, also in
+  float16/bfloat16 graphs that keep their own dtype. Cast such constants
+  explicitly to the compute dtype (see
   `ElementwiseEmitter.scalar` in `plugins/jax/_log1p_expm1.py`): retyping them
   in place, as `cast_param_like` does, is undone for FLOAT constants by the
   later double-precision promotion. Export half-precision tests with the flag on

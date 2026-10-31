@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
+from types import SimpleNamespace
 from typing import Any
 
 import equinox as eqx
@@ -15,6 +16,8 @@ import onnxruntime as ort  # type: ignore[import-untyped]
 import pytest
 
 from jax2onnx import to_onnx
+from jax2onnx.converter.precision_policy import PrecisionPolicy, precision_policy_scope
+from jax2onnx.plugins.flax.nnx.conv import ConvPlugin
 
 
 @pytest.fixture(autouse=True)
@@ -189,6 +192,99 @@ def test_nnx_grouped_input_dilated_conv() -> None:
     attrs = _conv_transpose_attrs(model)
     assert attrs["strides"] == [2, 2]
     assert attrs["group"] == 2
+
+
+@pytest.mark.parametrize(
+    "fallback", ["empty_kernel", "insufficient_rank", "input_dilation"]
+)
+def test_nnx_conv_fallback_preserves_original_call_form(
+    fallback: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    x = np.ones((2, 1, 3, 5, 4), dtype=np.float32)
+    if fallback == "empty_kernel":
+        layer = SimpleNamespace(kernel_size=())
+    elif fallback == "insufficient_rank":
+        layer = SimpleNamespace(kernel_size=(3, 3))
+        x = np.ones((4,), dtype=np.float32)
+    else:
+        # Legacy flattens these two batch dimensions before detecting dilation.
+        # The original must still receive the identical unreshaped input object.
+        layer = SimpleNamespace(kernel_size=(3, 3), strides=1, input_dilation=2)
+    calls: list[tuple[Any, tuple[Any, ...], dict[str, Any]]] = []
+    result, hint = object(), object()
+
+    def original(self: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append((self, args, kwargs))
+        return result
+
+    monkeypatch.setattr(ConvPlugin, "_ORIGINAL_CALL", ConvPlugin._ORIGINAL_CALL)
+    patched = ConvPlugin._make_patch(original)
+    forms = [
+        ((x,), {}),
+        ((x,), {"out_sharding": None}),
+        ((x,), {"out_sharding": hint}),
+        ((x, None), {}),
+        ((x, hint), {}),
+    ]
+    with precision_policy_scope(PrecisionPolicy.LEGACY):
+        for args, kwargs in forms:
+            calls.clear()
+            assert patched(layer, *args, **kwargs) is result
+            assert len(calls) == 1
+            actual_self, actual_args, actual_kwargs = calls[0]
+            assert actual_self is layer
+            assert len(actual_args) == len(args)
+            assert all(a is b for a, b in zip(actual_args, args, strict=True))
+            assert actual_kwargs.keys() == kwargs.keys()
+            assert all(actual_kwargs[key] is value for key, value in kwargs.items())
+
+
+@pytest.mark.parametrize("policy", [PrecisionPolicy.LEGACY, PrecisionPolicy.SOURCE])
+def test_nnx_conv_fallback_retains_native_results_and_argument_errors(
+    policy: PrecisionPolicy, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layer = nnx.Conv(
+        4,
+        6,
+        (3, 3),
+        input_dilation=2,
+        feature_group_count=2,
+        padding=((1, 1), (1, 1)),
+        rngs=nnx.Rngs(0),
+    )
+    x = _random((2, 1, 3, 5, 4))
+    original = getattr(
+        nnx.Conv.__call__, "__j2o_nnx_conv_original__", nnx.Conv.__call__
+    )
+    # The native common call is a required positive path on every stack.
+    expected_default = np.asarray(original(layer, x))
+    monkeypatch.setattr(ConvPlugin, "_ORIGINAL_CALL", ConvPlugin._ORIGINAL_CALL)
+    patched = ConvPlugin._make_patch(original)
+    hint = jax.sharding.SingleDeviceSharding(jax.devices("cpu")[0])
+    forms = [
+        ((x,), {}),
+        ((x,), {"out_sharding": None}),
+        ((x,), {"out_sharding": hint}),
+        ((x, None), {}),
+        ((x, hint), {}),
+    ]
+
+    def assert_native_bytes(actual: Any, expected: Any) -> None:
+        actual_array, expected_array = np.asarray(actual), np.asarray(expected)
+        np.testing.assert_array_equal(actual_array, expected_array, strict=True)
+        assert actual_array.tobytes() == expected_array.tobytes()
+
+    with precision_policy_scope(policy):
+        assert_native_bytes(patched(layer, x), expected_default)
+        for args, kwargs in forms:
+            try:
+                expected = original(layer, *args, **kwargs)
+            except Exception as native_error:
+                with pytest.raises(type(native_error)) as caught:
+                    patched(layer, *args, **kwargs)
+                assert str(caught.value) == str(native_error)
+            else:
+                assert_native_bytes(patched(layer, *args, **kwargs), expected)
 
 
 def test_lax_conv_transpose_nhwc_with_constant_kernel() -> None:

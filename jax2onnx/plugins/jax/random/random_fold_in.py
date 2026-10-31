@@ -17,6 +17,8 @@ import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.plugins.jax.random._source_prng import emit_fold_in
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -70,6 +72,9 @@ class RandomFoldInPlugin(PrimitiveLeafPlugin):
     """Forward the incoming key; sufficient for deterministic inference paths."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            emit_fold_in(ctx, eqn)
+            return
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

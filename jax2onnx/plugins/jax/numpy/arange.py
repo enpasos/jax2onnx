@@ -17,6 +17,7 @@ from jax2onnx._compat.jax import (
     dim_constant,
 )
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -27,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
-
 
 _DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
 _JNP_ARANGE_ORIG: Final = jnp.arange
@@ -805,6 +805,8 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
                 dtype_param: np.dtype[Any] | type | None = kwargs.pop("dtype", None)
 
                 start_kw = kwargs.pop("start", None)

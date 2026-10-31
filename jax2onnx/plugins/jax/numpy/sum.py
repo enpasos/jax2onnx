@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence as _Seq
+from functools import wraps
 from types import SimpleNamespace
 from typing import Any, Callable, ClassVar, Final
 
@@ -18,6 +19,10 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.ir_utils import const_value_to_numpy
@@ -244,7 +249,7 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.sum not found for monkey patching")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def _legacy(
                 a: ArrayLike,
                 axis: int | _Seq[int] | None = None,
                 dtype: np.dtype[Any] | type | None = None,
@@ -275,6 +280,12 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
                     keepdims=keepdims,
                     promote_integers=bool(promote_integers),
                 )
+
+            @wraps(orig)
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 

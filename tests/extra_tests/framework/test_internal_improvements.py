@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 from pathlib import Path
+import gc
+import inspect
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
+import weakref
 
 from flax import nnx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+import pytest
 
 import jax2onnx
+import jax2onnx.plugins.plugin_system as plugin_system
 from jax2onnx.converter.conversion_api import _to_ir_dtype_from_np, to_onnx
 from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.converter.optimizer_graph_utils import (
@@ -33,6 +39,7 @@ from jax2onnx.plugins.plugin_system import (
     apply_monkey_patches,
     onnx_function,
 )
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.user_interface import _is_floating_dtype, _run_allclose, _to_numpy_input
 
 
@@ -342,13 +349,15 @@ def test_function_plugin_abstract_eval_uses_requested_instance() -> None:
             if isinstance(p, FunctionPlugin) and p.target is TinySliceBlock
         )
         spec = jax.ShapeDtypeStruct(sample.shape, sample.dtype)
+        key_a = next(k for k, inst in INSTANCE_MAP2.items() if inst is block_a)
+        key_b = next(k for k, inst in INSTANCE_MAP2.items() if inst is block_b)
         # The plugin was last called on block_b. Tracing a previously captured
         # call for block_a must still infer block_a's output shape.
         shape_a = jax.eval_shape(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_a)), spec
+            lambda x: plugin.primitive.bind(x, instance_key=key_a), spec
         )
         shape_b = jax.eval_shape(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_b)), spec
+            lambda x: plugin.primitive.bind(x, instance_key=key_b), spec
         )
 
     assert shape_a.shape == (1,)
@@ -379,12 +388,573 @@ def test_function_plugin_batching_uses_requested_instance() -> None:
         )
         # Batch an earlier call after another instance updated the plugin's
         # most recent callable. Each captured key must keep its own weights.
-        batched_a = jax.vmap(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_a))
-        )(sample)
-        batched_b = jax.vmap(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_b))
-        )(sample)
+        key_a = next(k for k, inst in INSTANCE_MAP2.items() if inst is block_a)
+        key_b = next(k for k, inst in INSTANCE_MAP2.items() if inst is block_b)
+        batched_a = jax.vmap(lambda x: plugin.primitive.bind(x, instance_key=key_a))(
+            sample
+        )
+        batched_b = jax.vmap(lambda x: plugin.primitive.bind(x, instance_key=key_b))(
+            sample
+        )
 
     np.testing.assert_allclose(np.asarray(batched_a), np.asarray(sample) * 2.0)
     np.testing.assert_allclose(np.asarray(batched_b), np.asarray(sample) * 5.0)
+
+
+def test_function_plugin_recycled_address_uses_new_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class WidthDriven:
+        def __init__(self, width: int) -> None:
+            self.width = width
+
+        def __call__(self, x: jax.Array) -> jax.Array:
+            return jnp.zeros((*x.shape[:-1], self.width), dtype=x.dtype)
+
+    plugin = FunctionPlugin("onnx_fn::test.RecycledAddress", WidthDriven)
+    wrapped = plugin._make_patch_fn(plugin.primitive, is_class=True)(
+        WidthDriven.__call__
+    )
+    spec = jax.ShapeDtypeStruct((3, 257, 768), jnp.float32)
+    new_instance = WidthDriven(3072)
+    expected = jax.eval_shape(new_instance, spec)
+    assert expected.shape == (3, 257, 3072)
+    current_instance = WidthDriven(192)
+    old_ref = weakref.ref(current_instance)
+    reused_address = id(current_instance)
+    actual_id = id
+
+    def controlled_id(value: object) -> int:
+        if isinstance(value, WidthDriven) and value.width != 64:
+            return reused_address
+        return actual_id(value)
+
+    monkeypatch.setattr(plugin_system, "id", controlled_id, raising=False)
+    first = jax.make_jaxpr(lambda x: wrapped(current_instance, x))(spec)
+    old_key = first.eqns[0].params["instance_key"]
+    assert first.out_avals[0].shape == (3, 257, 192)
+    assert INSTANCE_MAP2[old_key] is current_instance
+
+    # Move the existing last-bound fallback off the old instance before GC.
+    current_instance = WidthDriven(64)
+    intervening = jax.make_jaxpr(lambda x: wrapped(current_instance, x))(spec)
+    assert intervening.out_avals[0].shape == (3, 257, 64)
+    gc.collect()
+    assert old_ref() is None
+    assert old_key not in INSTANCE_MAP2
+
+    # Exercise the normal wrapper with a simulated recycled address. Never
+    # reinject an old private token: registration must distinguish lifetimes.
+    current_instance = new_instance
+    actual = jax.make_jaxpr(lambda x: wrapped(current_instance, x))(spec)
+    assert actual.out_avals[0].shape == expected.shape
+    new_key = actual.eqns[0].params["instance_key"]
+    assert new_key != old_key
+    assert INSTANCE_MAP2[new_key] is new_instance
+
+
+def test_function_plugin_live_instance_reuses_key_and_abstract_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SliceBlock:
+        def __call__(self, x: jax.Array) -> jax.Array:
+            return x[:2]
+
+    plugin = FunctionPlugin("onnx_fn::test.StableLifetime", SliceBlock)
+    wrapped = plugin._make_patch_fn(plugin.primitive, is_class=True)(
+        SliceBlock.__call__
+    )
+    original_abstract_eval = plugin.primitive.abstract_eval
+    calls = []
+
+    def observe(*args: Any, **kwargs: Any) -> Any:
+        calls.append(kwargs["instance_key"])
+        return original_abstract_eval(*args, **kwargs)
+
+    monkeypatch.setattr(plugin.primitive, "abstract_eval", observe)
+    block = SliceBlock()
+    spec = jax.ShapeDtypeStruct((4,), jnp.float32)
+    first = jax.make_jaxpr(lambda x: wrapped(block, x))(spec)
+    second = jax.make_jaxpr(lambda x: wrapped(block, x))(spec)
+    first_key = first.eqns[0].params["instance_key"]
+    assert first_key == second.eqns[0].params["instance_key"]
+    assert plugin_system._register_function_instance(block) == first_key
+    assert calls == [first_key]
+    assert first.out_avals[0].shape == second.out_avals[0].shape == (2,)
+    assert INSTANCE_MAP2[first_key] is block
+
+
+def test_function_instance_keys_distinguish_equal_unhashable_objects() -> None:
+    comparisons = []
+
+    class EqualBlock:
+        __hash__ = None
+
+        def __eq__(self, other: object) -> bool:
+            comparisons.append(other)
+            return isinstance(other, EqualBlock)
+
+    first = EqualBlock()
+    second = EqualBlock()
+    assert first == second
+    comparisons.clear()
+    first_key = plugin_system._register_function_instance(first)
+    second_key = plugin_system._register_function_instance(second)
+    assert isinstance(first_key, int) and isinstance(second_key, int)
+    assert second_key > first_key
+    assert plugin_system._register_function_instance(first) == first_key
+    assert plugin_system._register_function_instance(second) == second_key
+    assert INSTANCE_MAP2[first_key] is first
+    assert INSTANCE_MAP2[second_key] is second
+    assert comparisons == []
+
+
+def test_function_instance_keys_support_frozen_modules_without_hashing() -> None:
+    class FrozenBlock(eqx.Module):
+        width: int
+
+        def __hash__(self) -> int:
+            raise AssertionError("instance registration must not hash modules")
+
+    first = FrozenBlock(2)
+    second = FrozenBlock(2)
+    assert first == second
+    before = (vars(first).copy(), vars(second).copy())
+    first_key = plugin_system._register_function_instance(first)
+    second_key = plugin_system._register_function_instance(second)
+    assert second_key > first_key
+    assert plugin_system._register_function_instance(first) == first_key
+    assert INSTANCE_MAP2[first_key] is first
+    assert INSTANCE_MAP2[second_key] is second
+    assert (vars(first), vars(second)) == before
+
+
+def test_function_instance_registration_does_not_retain_objects() -> None:
+    class Block:
+        pass
+
+    block = Block()
+    identity = id(block)
+    reference = weakref.ref(block)
+    key = plugin_system._register_function_instance(block)
+    assert plugin_system._FUNCTION_INSTANCE_IDENTITIES[identity][0]() is block
+    del block
+    gc.collect()
+    assert reference() is None
+    assert key not in INSTANCE_MAP2
+    assert identity not in plugin_system._FUNCTION_INSTANCE_IDENTITIES
+
+
+def test_function_instance_stale_callback_preserves_successor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Block:
+        pass
+
+    old = Block()
+    new = Block()
+    reused_address = id(old)
+    actual_id = id
+    monkeypatch.setattr(
+        plugin_system,
+        "id",
+        lambda obj: reused_address if isinstance(obj, Block) else actual_id(obj),
+        raising=False,
+    )
+    old_key = plugin_system._register_function_instance(old)
+    old_entry = plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address]
+    old_reference = old_entry[0]
+    stale_callback = old_reference.__callback__
+    assert stale_callback is not None
+    # The existing entry is live but belongs to a different object. It must
+    # never be accepted merely because the synthetic address matches.
+    new_key = plugin_system._register_function_instance(new)
+    successor = plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address]
+    assert old_reference() is old
+    assert new_key > old_key
+    assert successor[0]() is new
+    assert INSTANCE_MAP2[old_key] is old
+    assert INSTANCE_MAP2[new_key] is new
+    del old
+    gc.collect()
+    assert old_reference() is None
+    assert old_key not in INSTANCE_MAP2
+    assert plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address] is successor
+    stale_callback(old_reference)
+    assert plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address] is successor
+    assert plugin_system._register_function_instance(new) == new_key
+    assert INSTANCE_MAP2[new_key] is new
+
+
+def _restoration_target(kind: str) -> tuple[Any, str]:
+    def original(*args: Any) -> None:
+        pass
+
+    class Parent:
+        target = original
+
+    class Target(Parent):
+        pass
+
+    if kind == "inherited":
+        return Target, "target"
+    if kind == "inherited-classmethod":
+        Parent.target = classmethod(original)
+        return Target, "target"
+    if kind == "metaclass":
+
+        class Meta(type):
+            __call__ = original
+
+        class MetaTarget(metaclass=Meta):
+            pass
+
+        return MetaTarget, "__call__"
+    if kind == "ordinary":
+        Target.target = original
+    elif kind == "staticmethod":
+        Target.target = staticmethod(original)
+    elif kind == "classmethod":
+        Target.target = classmethod(original)
+    elif kind == "module":
+        module = ModuleType("restoration_target")
+        module.target = original
+        return module, "target"
+    else:
+        raise AssertionError(kind)
+    return Target, "target"
+
+
+def _assert_restored_attribute(
+    owner: Any, attr: str, raw: Any, local: bool, resolved: Any
+) -> None:
+    assert (attr in vars(owner)) is local
+    assert inspect.getattr_static(owner, attr) is raw
+    current = getattr(owner, attr)
+    assert current is resolved or (
+        inspect.ismethod(current)
+        and inspect.ismethod(resolved)
+        and current.__func__ is resolved.__func__
+        and current.__self__ is resolved.__self__
+    )
+
+
+@pytest.mark.parametrize("context", ["function", "leaf"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "inherited",
+        "inherited-classmethod",
+        "metaclass",
+        "ordinary",
+        "staticmethod",
+        "classmethod",
+        "module",
+    ],
+)
+def test_patch_context_restores_exact_namespace_and_descriptor_after_nested_exception(
+    monkeypatch: pytest.MonkeyPatch, context: str, kind: str
+) -> None:
+    owner, attr = _restoration_target(kind)
+    raw, local, resolved = (
+        inspect.getattr_static(owner, attr),
+        attr in vars(owner),
+        getattr(owner, attr),
+    )
+    parent = (
+        type(owner)
+        if kind == "metaclass"
+        else (owner.__bases__[0] if inspect.isclass(owner) else None)
+    )
+    parent_namespace = dict(vars(parent)) if parent is not None else None
+    calls = []
+    replacement = object()
+
+    def factory(original: Any) -> Any:
+        calls.append(original)
+        return replacement
+
+    if context == "function":
+        assert not plugin_system._PATCH_STATE
+        monkeypatch.setattr(
+            plugin_system, "_iter_patch_specs", lambda: iter([(factory, [owner], attr)])
+        )
+        activate = apply_monkey_patches
+    else:
+
+        def activate():
+            return apply_patches([MonkeyPatchSpec(owner, attr, factory)])
+
+    with pytest.raises(RuntimeError, match="body failure"):
+        with activate():
+            assert getattr(owner, attr) is replacement
+            with activate():
+                assert getattr(owner, attr) is replacement
+                if context == "function":
+                    assert plugin_system._PATCH_STATE[(owner, attr)]["count"] == 2
+            assert getattr(owner, attr) is replacement
+            raise RuntimeError("body failure")
+    assert len(calls) == (1 if context == "function" else 2)
+    _assert_restored_attribute(owner, attr, raw, local, resolved)
+    if parent_namespace is not None:
+        assert set(vars(parent)) == set(parent_namespace)
+        assert all(
+            vars(parent)[key] is value for key, value in parent_namespace.items()
+        )
+    assert not plugin_system._PATCH_STATE
+
+
+@pytest.mark.parametrize(
+    "kind", ["instance", "slot", "missing-instance", "missing-module"]
+)
+@pytest.mark.parametrize("spec_kind", ["assign", "factory"])
+@pytest.mark.parametrize("delete_if_missing", [False, True])
+def test_leaf_patch_preserves_instance_slot_and_missing_attribute_semantics(
+    kind: str, spec_kind: str, delete_if_missing: bool
+) -> None:
+    original, replacement = object(), object()
+    if kind == "slot":
+
+        class Target:
+            __slots__ = ("target",)
+
+        owner = Target()
+        owner.target = original
+    elif kind == "missing-module":
+        owner = ModuleType("missing_restoration_target")
+    else:
+        owner = SimpleNamespace()
+        if kind == "instance":
+            owner.target = original
+    missing = kind.startswith("missing")
+    calls = []
+
+    def factory(value: Any) -> Any:
+        calls.append(value)
+        assert value is (None if missing else original)
+        return replacement
+
+    spec = (
+        AssignSpec(owner, "target", replacement, delete_if_missing)
+        if spec_kind == "assign"
+        else MonkeyPatchSpec(owner, "target", factory, delete_if_missing)
+    )
+    with apply_patches([spec]):
+        assert owner.target is replacement
+    assert len(calls) == (0 if spec_kind == "assign" else 1)
+    if missing:
+        assert not hasattr(owner, "target")
+    else:
+        assert owner.target is original
+
+
+@pytest.mark.parametrize("context", ["function", "leaf"])
+def test_patch_context_unwinds_earlier_targets_when_later_factory_raises(
+    monkeypatch: pytest.MonkeyPatch, context: str
+) -> None:
+    first, attr = _restoration_target("inherited")
+    second, _ = _restoration_target("classmethod")
+    snapshots = [
+        (
+            owner,
+            inspect.getattr_static(owner, attr),
+            attr in vars(owner),
+            getattr(owner, attr),
+        )
+        for owner in (first, second)
+    ]
+    calls = []
+    replacement = object()
+
+    def first_factory(original: Any) -> Any:
+        calls.append("first")
+        return replacement
+
+    def failing_factory(original: Any) -> Any:
+        calls.append("second")
+        assert getattr(first, attr) is replacement
+        raise RuntimeError("entry failure")
+
+    if context == "function":
+        monkeypatch.setattr(
+            plugin_system,
+            "_iter_patch_specs",
+            lambda: iter(
+                [(first_factory, [first], attr), (failing_factory, [second], attr)]
+            ),
+        )
+        active = apply_monkey_patches()
+    else:
+        active = apply_patches(
+            [
+                MonkeyPatchSpec(first, attr, first_factory),
+                MonkeyPatchSpec(second, attr, failing_factory),
+            ]
+        )
+    with pytest.raises(RuntimeError, match="entry failure"):
+        with active:
+            raise AssertionError("Entry failure must occur before yielding")
+    assert calls == ["first", "second"]
+    for owner, raw, local, resolved in snapshots:
+        _assert_restored_attribute(owner, attr, raw, local, resolved)
+    assert not plugin_system._PATCH_STATE
+
+
+@pytest.mark.parametrize(
+    "kind", ["empty-list", "empty-list-subclass", "false-list", "false-iterable"]
+)
+def test_leaf_binding_preserves_custom_iteration_and_single_factory_call(
+    kind: str,
+) -> None:
+    original, replacement = object(), object()
+    owner = SimpleNamespace(target=original)
+    events: list[str] = []
+    payload = (
+        []
+        if kind == "empty-list-subclass"
+        else [AssignSpec(owner, "target", replacement)]
+    )
+
+    class CustomIterable:
+        def __iter__(self) -> Any:
+            events.append("iterate")
+            return iter(payload)
+
+        def __bool__(self) -> bool:
+            raise AssertionError("Custom binding specs must be iterated directly")
+
+    class CustomList(list[Any], CustomIterable):
+        __iter__ = CustomIterable.__iter__
+        __bool__ = CustomIterable.__bool__
+
+    if kind == "empty-list":
+        specs: Any = []
+    elif kind == "false-iterable":
+        specs = CustomIterable()
+    else:
+        specs = CustomList()
+
+    class Leaf(plugin_system.PrimitiveLeafPlugin):
+        @classmethod
+        def ensure_abstract_eval_bound(cls) -> None:
+            events.append("abstract")
+
+        @classmethod
+        def binding_specs(cls) -> Any:
+            events.append("factory")
+            return specs
+
+    with Leaf.plugin_binding():
+        assert owner.target is (
+            replacement if kind in {"false-list", "false-iterable"} else original
+        )
+    assert owner.target is original
+    assert events == (
+        ["abstract", "factory"]
+        if kind == "empty-list"
+        else ["abstract", "factory", "iterate"]
+    )
+
+
+def test_leaf_duplicate_target_stack_restores_original_in_reverse_order() -> None:
+    original, first, second = object(), object(), object()
+    owner = SimpleNamespace(target=original)
+    calls = []
+
+    def factory(value: Any) -> Any:
+        calls.append(value)
+        assert value is first
+        return second
+
+    with pytest.raises(RuntimeError, match="duplicate body failure"):
+        with apply_patches(
+            [
+                AssignSpec(owner, "target", first),
+                MonkeyPatchSpec(owner, "target", factory),
+            ]
+        ):
+            assert owner.target is second
+            raise RuntimeError("duplicate body failure")
+    assert len(calls) == 1 and calls[0] is first
+    assert owner.target is original
+
+
+@pytest.mark.parametrize("context", ["function", "leaf"])
+def test_patch_context_propagates_inherited_shadow_restoration_failure(
+    monkeypatch: pytest.MonkeyPatch, context: str
+) -> None:
+    rejection = {"active": False}
+
+    class Meta(type):
+        def __delattr__(cls, name: str) -> None:
+            if name == "target" and rejection["active"]:
+                raise RuntimeError("restore failure")
+            super().__delattr__(name)
+
+    class Parent:
+        target = object()
+
+    class Target(Parent, metaclass=Meta):
+        pass
+
+    def factory(original: Any) -> Any:
+        return object()
+
+    if context == "function":
+        monkeypatch.setattr(
+            plugin_system,
+            "_iter_patch_specs",
+            lambda: iter([(factory, [Target], "target")]),
+        )
+        active = apply_monkey_patches()
+    else:
+        active = apply_patches([MonkeyPatchSpec(Target, "target", factory)])
+    try:
+        with pytest.raises(RuntimeError, match="restore failure"):
+            with active:
+                rejection["active"] = True
+    finally:
+        rejection["active"] = False
+        if "target" in vars(Target):
+            type.__delattr__(Target, "target")
+    assert not plugin_system._PATCH_STATE
+
+
+def test_real_patch_targets_keep_exact_namespaces_after_activation_and_legacy_export() -> (
+    None
+):
+    plugin_system.import_all_plugins()
+    from flax import linen
+    from jax2onnx.plugins.examples.eqx.dino import DinoRoPE as EqxDinoRoPE
+    from jax2onnx.plugins.examples.nnx.dinov3 import DinoRoPE as NnxDinoRoPE
+
+    targets = [
+        EqxDinoRoPE,
+        NnxDinoRoPE,
+        linen.Conv,
+        linen.ConvLocal,
+        linen.MultiHeadAttention,
+    ]
+    snapshots = [
+        (
+            owner,
+            inspect.getattr_static(owner, "__call__"),
+            "__call__" in vars(owner),
+            getattr(owner, "__call__"),
+        )
+        for owner in targets
+    ]
+    assert all(not local for _, _, local, _ in snapshots)
+    with apply_monkey_patches():
+        assert all("__call__" in vars(owner) for owner in targets[:3])
+    for owner, raw, local, resolved in snapshots:
+        _assert_restored_attribute(owner, "__call__", raw, local, resolved)
+    model = jax2onnx.to_onnx(
+        lambda x: x + jnp.asarray(1, dtype=jnp.float32),
+        inputs=[jax.ShapeDtypeStruct((2, 3), np.float32)],
+        opset=23,
+    )
+    assert len(model.graph.input) == len(model.graph.output) == 1
+    assert any(node.op_type == "Add" for node in model.graph.node)
+    for owner, raw, local, resolved in snapshots:
+        _assert_restored_attribute(owner, "__call__", raw, local, resolved)

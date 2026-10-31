@@ -30,8 +30,10 @@ from jax2onnx.ir_utils import (
     ir_shape_from_dims,
     numpy_dtype_to_ir_with_float_policy,
     tensor_attr,
+    tensor_to_numpy,
 )
 
+from .precision_policy import PrecisionPolicy
 from .typing_support import SymbolicDimOrigin
 
 STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
@@ -85,6 +87,18 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
     Floats are normalized by enable_double flag.
     """
     return numpy_dtype_to_ir_with_float_policy(dtype, enable_double)
+
+
+def _same_source_initializer(
+    existing: np.ndarray[Any, np.dtype[Any]],
+    new: np.ndarray[Any, np.dtype[Any]],
+) -> bool:
+    """Compare typed payloads without rounding, numeric equality, or casts."""
+    return (
+        existing.dtype == new.dtype
+        and existing.shape == new.shape
+        and existing.tobytes(order="C") == new.tobytes(order="C")
+    )
 
 
 class _DynamicTapeBuilder(Tape):
@@ -146,8 +160,13 @@ class _DynamicTapeBuilder(Tape):
 class _InitializerList(MutableSequence[ir.Value]):
     """List-like view over graph initializers that preserves builder semantics."""
 
-    def __init__(self, graph: ir.Graph):
+    def __init__(
+        self,
+        graph: ir.Graph,
+        precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    ):
         self._graph = graph
+        self._precision_policy = precision_policy
 
     def __len__(self) -> int:
         return len(self._graph.initializers)
@@ -258,6 +277,12 @@ class _InitializerList(MutableSequence[ir.Value]):
             arr_new = const_value_to_numpy(value)
             arr_old = const_value_to_numpy(existing)
             if arr_new is not None and arr_old is not None:
+                if self._precision_policy is PrecisionPolicy.SOURCE:
+                    if _same_source_initializer(arr_old, arr_new):
+                        return
+                    raise ValueError(
+                        f"Initializer '{name}' already exists with different data"
+                    )
                 # Normalize dtype for fair comparison: onnx_ir tensors may
                 # materialize as float64 via numpy bridge.
                 try:
@@ -305,9 +330,13 @@ class IRBuilder:
         opset: int,
         enable_double_precision: bool,
         enable_stacktrace_metadata: bool = False,
+        precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     ):
+        if precision_policy is PrecisionPolicy.SOURCE and enable_double_precision:
+            raise ValueError("Source precision cannot use legacy double promotion")
         self.opset = opset
         self.enable_double_precision = enable_double_precision
+        self._precision_policy = precision_policy
         graph = ir.Graph(
             inputs=[],
             outputs=[],
@@ -320,7 +349,7 @@ class IRBuilder:
         self._inputs: MutableSequence[ir.Value] = graph.inputs
         self._outputs: MutableSequence[ir.Value] = graph.outputs
         self._nodes: ir.Graph = graph
-        self._initializers = _InitializerList(graph)
+        self._initializers = _InitializerList(graph, precision_policy)
         self._tape_builder = _DynamicTapeBuilder(graph)
         self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
 
@@ -443,12 +472,92 @@ class IRBuilder:
 
     # public helpers for initializers (used by FunctionPlugin)
     def add_initializer_from_scalar(self, name: str, value: Any) -> ir.Value:
+        arr = np.asarray(value)
+        if self._precision_policy is PrecisionPolicy.SOURCE:
+            if (
+                isinstance(value, (float, list, tuple))
+                and not isinstance(value, np.generic)
+                and (
+                    np.issubdtype(arr.dtype, np.floating)
+                    or arr.dtype.name == "bfloat16"
+                )
+            ):
+                raise TypeError(
+                    f"Source initializer '{name}' requires an explicitly typed "
+                    "NumPy/JAX array or scalar; type floating coefficients in "
+                    "the lowering to match the traced operation"
+                )
+            if self._function_mode:
+                # Function constants are nodes, not graph initializers. Inspect
+                # the actual graph so reuse cannot outlive graph edits.
+                named_values = {
+                    id(candidate): candidate
+                    for candidate in (
+                        *self.graph.inputs,
+                        *self.graph.outputs,
+                        *self.graph.initializers.values(),
+                        *(output for node in self.graph for output in node.outputs),
+                    )
+                    if candidate.name == name
+                }
+                if named_values:
+                    existing = next(iter(named_values.values()))
+                    producer = existing.producer()
+                    value_attr = (
+                        producer.attributes.get("value")
+                        if producer is not None
+                        else None
+                    )
+                    constant_tensor = (
+                        value_attr.as_tensor()
+                        if value_attr is not None
+                        and value_attr.type is ir.AttributeType.TENSOR
+                        else None
+                    )
+                    payload = tensor_to_numpy(constant_tensor)
+                    cached_payload = tensor_to_numpy(existing.const_value)
+                    requested_dtype = _dtype_to_ir(arr.dtype, False)
+                    if (
+                        len(named_values) == 1
+                        and producer is not None
+                        and producer.domain == ""
+                        and producer.op_type == "Constant"
+                        and constant_tensor is not None
+                        and constant_tensor.dtype == requested_dtype
+                        and tuple(constant_tensor.shape) == arr.shape
+                        and existing.dtype == requested_dtype
+                        and existing.shape == ir.Shape(arr.shape)
+                        and payload is not None
+                        and _same_source_initializer(payload, arr)
+                        and (
+                            existing.const_value is None
+                            or (
+                                cached_payload is not None
+                                and _same_source_initializer(payload, cached_payload)
+                            )
+                        )
+                    ):
+                        return existing
+                    raise ValueError(
+                        f"Initializer '{name}' already exists with different data "
+                        "or a nonconstant function value"
+                    )
         if name in self.graph.initializers:
             # Enforce duplicate policy: identical → reuse; different → error.
             existing = self.graph.initializers[name]
 
             arr_existing = const_value_to_numpy(existing)
-            arr_new = np.asarray(value)
+            arr_new = arr
+            if self._precision_policy is PrecisionPolicy.SOURCE:
+                if arr_existing is None:
+                    raise ValueError(
+                        f"Initializer '{name}' already exists and payloads are not comparable"
+                    )
+                if _same_source_initializer(arr_existing, arr_new):
+                    return existing
+                raise ValueError(
+                    f"Initializer '{name}' already exists with different data"
+                )
             # Respect the float64 downcast policy when comparing
             if not self.enable_double_precision and arr_new.dtype == np.float64:
                 arr_new = arr_new.astype(np.float32)
@@ -471,9 +580,12 @@ class IRBuilder:
                 f"Initializer '{name}' already exists and payloads are not comparable"
             )
 
-        arr = np.asarray(value)
-        # Narrow float64 (including Python floats) only; float16 stays float16.
-        if not self.enable_double_precision and arr.dtype == np.float64:
+        # Narrow float64 only under the legacy policy; retain low-precision data.
+        if (
+            self._precision_policy is PrecisionPolicy.LEGACY
+            and not self.enable_double_precision
+            and arr.dtype == np.float64
+        ):
             arr = arr.astype(np.float32)
         tensor = ir.tensor(arr)
         if self._function_mode:
@@ -501,7 +613,7 @@ class IRBuilder:
         return v
 
     def add_initializer_from_array(self, name: str, array: np.ndarray) -> ir.Value:
-        return self.add_initializer_from_scalar(name, np.asarray(array))
+        return self.add_initializer_from_scalar(name, array)
 
     # convenient I64 consts for shape ops
     def const_i64(self, name: str, values: Sequence[int]) -> ir.Value:

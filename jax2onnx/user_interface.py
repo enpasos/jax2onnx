@@ -44,12 +44,16 @@ Example:
 """
 
 import logging
+from functools import partial
+from dataclasses import dataclass, replace
 import importlib
 import json
 import os
 import re
 import subprocess
 import tempfile
+import warnings
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -57,6 +61,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Iterator,
     Literal,
     Mapping,
     Optional,
@@ -74,27 +79,88 @@ import jax.numpy as jnp
 import numpy as np
 import onnx
 import onnx_ir as ir
+from onnx_ir.traversal import RecursiveGraphIterator
 from jax import core
 
+from jax2onnx._compat.jax import preserve_caller_configuration
+from jax2onnx._source_capability import check_source_schema
 from jax2onnx.converter.conversion_api import (
     InputSpec,
     ShapeDimSpec,
     ShapeTupleSpec,
+    _TraceResult,
+    _source_input_values,
+    _source_named_input_spec,
+    _convert_to_ir,
     _force_jax_x64,
     _to_ir_dtype_from_np,
     to_onnx as to_onnx_impl,
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_deployment import (
+    DEPLOYMENT_METADATA_KEY,
+    DeploymentTarget,
+    DeploymentRequirements,
+    deployment_requirements_from_json,
+    _deployment_graph_scope,
+    _deployment_function_scope,
+    _deployment_child_scope,
+)
+from jax2onnx.converter.source_deployment_bindings import (
+    owned_graphs,
+    resolve_matrix_bindings,
+    update_matrix_bindings,
+    refresh_matrix_names,
+)
+from jax2onnx.converter.normalization_options import (
+    NormalizationMode,
+    normalize_normalization_mode,
+    source_normalization_adaptations,
+)
+from jax2onnx.converter.source_profile import (
+    SourcePrecisionError,
+    validate_source_input_dtype,
+    validate_source_jaxpr,
+)
+from jax2onnx.converter.source_representation import (
+    normalized_shape_dimensions,
+    representation_for_aval,
+    source_shape_contract,
+    validate_source_shapes,
+)
+from jax2onnx.ir_utils import iter_ir_functions
+from jax2onnx.converter.source_structure import (
+    StructureResult,
+    validate_source_structure,
+)
+from jax2onnx.precision import (
+    CheckStatus,
+    PrecisionCheck,
+    PrecisionInputSummary,
+    PrecisionReport,
+    PrecisionWarning,
+    SOURCE_DIAGNOSTIC_PROFILE,
+    SOURCE_PRECISION_PROFILE,
+    TensorProperties,
+    attach_precision_report,
+    get_precision_report,
+    _SourceArtifactFingerprint,
+    _SourceArtifactSnapshot,
+    _source_artifact_fingerprint,
+    _source_artifact_snapshot,
+)
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 
 _LOGGER = logging.getLogger(__name__)
 
 ReturnMode = Literal["proto", "ir", "file"]
+_SourceStructureCollector = Callable[
+    [_TraceResult, ir.Model, StructureResult, object], None
+]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
 ExportMode = Literal["standard", "web"]
 _VALID_EXPORT_MODES = {"standard", "web"}
-NormalizationMode = Literal["auto", "prefer_native", "force_decomposed"]
-_VALID_NORMALIZATION_MODES = {"auto", "prefer_native", "force_decomposed"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
@@ -102,6 +168,151 @@ OnnxFunctionTarget = Union[Callable[..., Any], type[Any]]
 OnnxFunctionDecorator = Callable[[OnnxFunctionTarget], OnnxFunctionTarget]
 
 _temporary_x64 = _force_jax_x64
+
+
+@dataclass(frozen=True)
+class _SourceTensorGuard:
+    tensor: ir.TensorProtocol
+    fingerprint: _SourceArtifactFingerprint
+    name: str | None
+    initializer: bool
+    proto_name_present: bool | None
+
+
+def _freeze_source_ir(
+    model: ir.Model,
+) -> tuple[ir.Model, tuple[_SourceTensorGuard, ...]]:
+    """Freeze topology and small metadata; guard shared tensor storage exactly.
+
+    Model.clone() deliberately shares types, non-graph attributes and tensors.
+    The official leaf codec detaches types/shapes and small attributes. Tensor
+    attributes get new wrappers while tensor objects stay shared; their exact
+    compact guards must match on both sides of reference serialization.
+    """
+    frozen = model.clone()
+    tensors: dict[int, ir.TensorProtocol] = {}
+    initializer_tensors: set[int] = set()
+    values: set[ir.Value] = set()
+    graphs: set[ir.Graph] = set()
+
+    def freeze_value(value: ir.Value) -> None:
+        if value in values:
+            return
+        values.add(value)
+        detached = ir.from_proto(ir.to_proto(value))
+        value.type, value.shape = detached.type, detached.shape
+        # This is the one .meta entry consumed by the official graph codec.
+        # Other .meta entries retain only the clone's ordinary shallow ownership.
+        if "quant_parameter_tensor_names" in value.meta:
+            value.meta["quant_parameter_tensor_names"] = dict(
+                value.meta["quant_parameter_tensor_names"]
+            )
+        if value.const_value is not None:
+            tensors[id(value.const_value)] = value.const_value
+
+    def freeze_attributes(attributes: Any) -> None:
+        for key, attribute in tuple(attributes.items()):
+            if attribute.value is None and not attribute.is_ref():
+                attributes[key] = ir.Attr(
+                    attribute.name,
+                    attribute.type,
+                    None,
+                    doc_string=attribute.doc_string,
+                )
+            elif attribute.is_ref():
+                attributes[key] = ir.from_proto(ir.to_proto(attribute))
+            elif attribute.type is ir.AttributeType.GRAPH:
+                freeze_graph(attribute.as_graph())
+            elif attribute.type is ir.AttributeType.GRAPHS:
+                for graph in attribute.as_graphs():
+                    freeze_graph(graph)
+            elif attribute.type in (
+                ir.AttributeType.TENSOR,
+                ir.AttributeType.TENSORS,
+            ):
+                payloads = (
+                    (attribute.as_tensor(),)
+                    if attribute.type is ir.AttributeType.TENSOR
+                    else tuple(attribute.as_tensors())
+                )
+                for tensor in payloads:
+                    tensors[id(tensor)] = tensor
+                attributes[key] = ir.Attr(
+                    attribute.name,
+                    attribute.type,
+                    (
+                        payloads[0]
+                        if attribute.type is ir.AttributeType.TENSOR
+                        else payloads
+                    ),
+                    doc_string=attribute.doc_string,
+                )
+            else:
+                attributes[key] = ir.from_proto(ir.to_proto(attribute))
+
+    def freeze_graph(graph: ir.Graph) -> None:
+        if graph in graphs:
+            return
+        graphs.add(graph)
+        for value in graph.initializers.values():
+            if value.const_value is not None:
+                initializer_tensors.add(id(value.const_value))
+        for value in (*graph.inputs, *graph.outputs, *graph.initializers.values()):
+            freeze_value(value)
+        for node in graph:
+            for operand in (*node.inputs, *node.outputs):
+                if operand is not None:
+                    freeze_value(operand)
+            freeze_attributes(node.attributes)
+
+    freeze_graph(frozen.graph)
+    for function in iter_ir_functions(frozen.functions):
+        freeze_graph(function.graph)
+        freeze_attributes(function.attributes)
+    guards = []
+    for tensor in tensors.values():
+        proto = ir.to_proto(tensor)
+        guards.append(
+            _SourceTensorGuard(
+                tensor,
+                _source_artifact_fingerprint(proto),
+                tensor.name,
+                id(tensor) in initializer_tensors,
+                (
+                    proto.HasField("name")
+                    if isinstance(tensor, ir.TensorProtoTensor)
+                    else None
+                ),
+            )
+        )
+        del proto
+    return frozen, tuple(guards)
+
+
+def _recheck_source_tensors(
+    guards: tuple[_SourceTensorGuard, ...],
+) -> None:
+    for guard in guards:
+        proto = ir.to_proto(guard.tensor)
+        if _source_artifact_fingerprint(proto) != guard.fingerprint:
+            raise RuntimeError(
+                "SOURCE serialization integrity: "
+                "shared tensor changed after audit capture"
+            )
+        del proto
+
+
+def _restore_source_initializer_names(guards: tuple[_SourceTensorGuard, ...]) -> None:
+    # Only the reference codec's initializer-name side effect is scoped. Actual
+    # serialization keeps its established behavior. No payload/other field is
+    # restored, and a codec or restoration exception still fails the export.
+    for guard in guards:
+        if guard.initializer:
+            if guard.proto_name_present is False:
+                assert isinstance(guard.tensor, ir.TensorProtoTensor)
+                guard.tensor.raw.ClearField("name")
+            else:
+                guard.tensor.name = guard.name
 
 
 def _normalize_return_mode(value: str) -> ReturnMode:
@@ -123,13 +334,7 @@ def _normalize_export_mode(value: str) -> ExportMode:
 
 
 def _normalize_normalization_mode(value: str) -> NormalizationMode:
-    mode = value.lower().strip()
-    if mode not in _VALID_NORMALIZATION_MODES:
-        raise ValueError(
-            "Unsupported normalization_mode "
-            f"'{value}'. Expected one of: {sorted(_VALID_NORMALIZATION_MODES)}"
-        )
-    return cast(NormalizationMode, mode)
+    return normalize_normalization_mode(value)
 
 
 @runtime_checkable
@@ -161,7 +366,11 @@ def _normalize_shape_tuple(candidate: Sequence[Any]) -> ShapeTupleSpec:
     return tuple(dims)
 
 
-def _normalize_input_specs(raw_inputs: Sequence[UserInputSpec]) -> List[InputSpec]:
+def _normalize_input_specs(
+    raw_inputs: Sequence[UserInputSpec],
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+) -> List[InputSpec]:
     normalized: List[InputSpec] = []
     for item in raw_inputs:
         if isinstance(item, jax.ShapeDtypeStruct):
@@ -169,23 +378,58 @@ def _normalize_input_specs(raw_inputs: Sequence[UserInputSpec]) -> List[InputSpe
                 int(dim) if isinstance(dim, np.integer) else dim
                 for dim in tuple(item.shape)
             )
-            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            normalized.append(
+                jax.ShapeDtypeStruct(
+                    dims,
+                    item.dtype,
+                    weak_type=(
+                        item.weak_type
+                        if precision_policy is PrecisionPolicy.SOURCE
+                        else False
+                    ),
+                )
+            )
             continue
         if isinstance(item, core.ShapedArray):
             dims = tuple(
                 int(dim) if isinstance(dim, np.integer) else dim for dim in item.shape
             )
-            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            normalized.append(
+                jax.ShapeDtypeStruct(
+                    dims,
+                    item.dtype,
+                    weak_type=(
+                        item.weak_type
+                        if precision_policy is PrecisionPolicy.SOURCE
+                        else False
+                    ),
+                )
+            )
             continue
         if isinstance(item, _SupportsShapeAndDtype):
             dims = tuple(
                 int(dim) if isinstance(dim, np.integer) else dim
                 for dim in tuple(item.shape)
             )
-            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            normalized.append(
+                jax.ShapeDtypeStruct(
+                    dims,
+                    item.dtype,
+                    weak_type=(
+                        bool(getattr(item, "weak_type", False))
+                        if precision_policy is PrecisionPolicy.SOURCE
+                        else False
+                    ),
+                )
+            )
             continue
         if isinstance(item, (list, tuple)):
-            normalized.append(_normalize_shape_tuple(item))
+            shape = _normalize_shape_tuple(item)
+            normalized.append(
+                jax.ShapeDtypeStruct(shape, np.float32)
+                if precision_policy is PrecisionPolicy.SOURCE
+                else shape
+            )
             continue
         raise TypeError(
             "Invalid 'inputs' entry. Expected a jax.ShapeDtypeStruct, "
@@ -338,6 +582,7 @@ def _apply_custom_io_names_on_ir(
     input_names: Optional[Sequence[str]],
     output_names: Optional[Sequence[str]],
     positional_input_count: int,
+    input_values: Optional[Sequence[ir.Value]] = None,
 ) -> None:
     if not input_names and not output_names:
         return
@@ -346,7 +591,11 @@ def _apply_custom_io_names_on_ir(
     rename_pairs: List[tuple[ir.Value, str]] = []
 
     if input_names is not None:
-        positional_inputs = _resolve_positional_inputs(graph, positional_input_count)
+        positional_inputs = (
+            list(input_values)
+            if input_values is not None
+            else _resolve_positional_inputs(graph, positional_input_count)
+        )
         if len(positional_inputs) != len(input_names):
             raise ValueError(
                 f"input_names length ({len(input_names)}) does not match positional graph inputs ({len(positional_inputs)})."
@@ -402,6 +651,553 @@ def _apply_custom_io_names_on_ir(
     )
     target_names = [target_by_value[id(value)] for value in rename_values]
     ir.convenience.rename_values(rename_values, target_names)
+    if DEPLOYMENT_METADATA_KEY in model.metadata_props:
+        refresh_matrix_names(model)
+
+
+def _finalize_source_deployment(model: ir.Model) -> None:
+    """Bind qualified equations to the final owned IR producer and source scope."""
+    payload = model.metadata_props.get(DEPLOYMENT_METADATA_KEY)
+    requirements = deployment_requirements_from_json(payload)
+    if requirements is None:
+        return
+    requirements, values = resolve_matrix_bindings(model)
+    index = 0
+    for graph in owned_graphs(model):
+        for node in graph:
+            node.name = f"jax2onnx_src_{index:06d}"
+            index += 1
+    scopes: dict[int, str] = {}
+
+    def visit(graph: ir.Graph, scope: str) -> None:
+        if id(graph) in scopes:
+            raise ValueError("Deployment Graph has ambiguous lexical ownership")
+        scopes[id(graph)] = scope
+        for node in graph:
+            tag = node.name
+            if tag is None:
+                raise ValueError("Deployment source node lost its tag")
+            for attribute in node.attributes.values():
+                if attribute.type is ir.AttributeType.GRAPH:
+                    visit(
+                        attribute.as_graph(),
+                        _deployment_child_scope(scope, tag, attribute.name, 0),
+                    )
+                elif attribute.type is ir.AttributeType.GRAPHS:
+                    for position, child in enumerate(attribute.as_graphs()):
+                        visit(
+                            child,
+                            _deployment_child_scope(
+                                scope, tag, attribute.name, position
+                            ),
+                        )
+
+    visit(model.graph, _deployment_graph_scope(str(model.graph.name)))
+    for function in iter_ir_functions(model.functions):
+        visit(
+            function.graph,
+            _deployment_function_scope(
+                function.domain, function.name, function.overload
+            ),
+        )
+    sites = []
+    for site, (logical, matrix) in zip(
+        requirements.matrix_precision, values, strict=True
+    ):
+        matrix_graph, producer = matrix.graph, matrix.producer()
+        if (
+            matrix_graph is None
+            or producer is None
+            or logical.graph is not matrix_graph
+        ):
+            raise ValueError("Deployment logical matrix result lost its actual scope")
+        descendant = logical
+        seen: set[int] = set()
+        while descendant is not matrix:
+            if id(descendant) in seen:
+                raise ValueError("Deployment logical result has cyclic provenance")
+            seen.add(id(descendant))
+            descendant_node = descendant.producer()
+            if (
+                descendant.graph is not matrix_graph
+                or descendant_node is None
+                or descendant_node.graph is not matrix_graph
+                or descendant_node.domain not in ("", "ai.onnx")
+                or descendant_node.op_type not in {"Identity", "Transpose", "Reshape"}
+                or not descendant_node.inputs
+                or descendant_node.inputs[0] is None
+            ):
+                raise ValueError(
+                    "Deployment logical result is not a layout-only matrix descendant"
+                )
+            descendant = descendant_node.inputs[0]
+        if producer.op_type != "MatMul" or producer.domain not in ("", "ai.onnx"):
+            raise ValueError(
+                "Deployment lowering remains unfinished for a non-MatMul precision site"
+            )
+        if any(
+            value is None or value.dtype is not ir.DataType.FLOAT
+            for value in (*producer.inputs, *producer.outputs)
+        ):
+            raise ValueError("Deployment source matrix producer is not exact FLOAT")
+        port = matrix.index()
+        if port is None or producer.outputs[port] is not matrix:
+            raise ValueError("Deployment source matrix lost its actual output port")
+        if not logical.name or not matrix.name:
+            raise ValueError("Deployment source matrix lost its final name")
+        sites.append(
+            replace(
+                site,
+                output=logical.name,
+                matrix_output=matrix.name,
+                matrix_scope=scopes[id(matrix_graph)],
+                matrix_tag=producer.name,
+            )
+        )
+    update_matrix_bindings(
+        model, DeploymentRequirements(requirements.target, tuple(sites))
+    )
+
+
+def _source_migration_gap(option: str, opset: int) -> None:
+    raise SourcePrecisionError(
+        f"{option} is an internal migration gap in this audited milestone",
+        phase="input",
+        category="profile-exclusion",
+        location="export options",
+        opset=opset,
+        requirement="the current private source-static-v1 admission scope",
+        action="omit this option for the internal comparison; broader existing functionality still requires migration",
+    )
+
+
+def _source_input_properties(
+    value: UserInputSpec, *, index: int, opset: int
+) -> TensorProperties:
+    shape_only = isinstance(value, (tuple, list))
+    typed = cast(_SupportsShapeAndDtype, value)
+    shape = tuple(value) if isinstance(value, (tuple, list)) else tuple(typed.shape)
+    dtype = None if shape_only else np.dtype(typed.dtype).name
+    try:
+        normalized_shape, _ = source_shape_contract(shape)
+    except ValueError as exc:
+        raise SourcePrecisionError(
+            f"input shape {shape} is outside this internal audited milestone",
+            phase="input",
+            category="profile-exclusion",
+            location=f"input {index}",
+            requested_dtypes=() if dtype is None else (dtype,),
+            opset=opset,
+            requirement=str(exc),
+            action="use static inputs or the audited shared leading rank-one through rank-four batch declaration; broader symbolic migration remains pending",
+        ) from exc
+    return TensorProperties(
+        None,
+        normalized_shape,
+        dtype,
+        None if shape_only else bool(getattr(value, "weak_type", False)),
+    )
+
+
+def _validate_source_inputs(
+    inputs: Sequence[InputSpec], opset: int, *, diagnostic: bool = False
+) -> None:
+    for index, spec in enumerate(inputs):
+        assert isinstance(spec, jax.ShapeDtypeStruct)
+        validate_source_input_dtype(spec.dtype, index=index, opset=opset)
+    if opset not in (16, 18, 21, 23, 24, 26, 27):
+        _source_migration_gap(f"opset={opset}", opset)
+    for index, spec in enumerate(inputs):
+        assert isinstance(spec, jax.ShapeDtypeStruct)
+        dtype = np.dtype(spec.dtype).name
+        shape = tuple(spec.shape)
+        if opset == 16 and dtype not in {
+            "float16",
+            "float32",
+            "float64",
+            "bool",
+            "int32",
+            "int64",
+        }:
+            _source_migration_gap(f"opset=16 input dtype={dtype}", opset)
+        requirement = "ordinary Boolean/integer/floating static or shared leading-batch inputs, or static complex64/complex128 inputs"
+        action = "use typed inputs within the finite audited shape contract; symbolic complex shapes remain pending"
+        if not diagnostic and dtype not in {
+            "float16",
+            "bfloat16",
+            "float32",
+            "float64",
+            "bool",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "complex64",
+            "complex128",
+        }:
+            raise SourcePrecisionError(
+                f"input shape {shape} and dtype {dtype} are outside the internal milestone",
+                phase="input",
+                category="profile-exclusion",
+                location=f"input {index}",
+                requested_dtypes=(dtype,),
+                opset=opset,
+                requirement=requirement,
+                action=action,
+            )
+        if (
+            not diagnostic
+            and dtype in {"complex64", "complex128"}
+            and source_shape_contract(shape)[1] is not None
+        ):
+            raise SourcePrecisionError(
+                "symbolic complex inputs are outside the internal milestone",
+                phase="input",
+                category="profile-exclusion",
+                location=f"input {index}",
+                requested_dtypes=(dtype,),
+                opset=opset,
+                requirement="static complex input shapes",
+                action="use static complex values; symbolic complex migration remains pending",
+            )
+    try:
+        validate_source_shapes(
+            [tuple(cast(jax.ShapeDtypeStruct, spec).shape) for spec in inputs]
+        )
+    except ValueError as exc:
+        raise SourcePrecisionError(
+            str(exc),
+            phase="input",
+            category="profile-exclusion",
+            location="inputs",
+            opset=opset,
+            requirement="static shapes or one shared atomic leading batch variable in rank two/three with positive static tails",
+            action="retain one unconstrained native scope and the same batch variable; broader symbolic migration remains pending",
+        ) from exc
+
+
+@contextmanager
+def _capture_source_warnings(captured: list[PrecisionWarning]) -> Iterator[None]:
+    # Existing warning filters apply once. Replay precisely the emitted warnings
+    # after restoring the caller's warning machinery, including on failure.
+    observed = []
+    try:
+        with warnings.catch_warnings(record=True) as observed:
+            yield
+    finally:
+        for item in observed:
+            captured.append(PrecisionWarning(item.category.__name__, str(item.message)))
+            warnings.showwarning(
+                item.message, item.category, item.filename, item.lineno, line=item.line
+            )
+
+
+def _separate_source_output_aliases(
+    model: ir.Model,
+    input_names: Optional[Sequence[str]],
+    output_names: Optional[Sequence[str]],
+) -> None:
+    if output_names is None:
+        return
+    graph = model.graph
+    assigned = {
+        id(value): input_names[index] if input_names is not None else value.name
+        for index, value in enumerate(graph.inputs)
+    }
+    occupied = set(_top_graph_value_map(graph)) | set(output_names)
+    if input_names is not None:
+        occupied.update(input_names)
+    for index, (value, target) in enumerate(
+        zip(tuple(graph.outputs), output_names, strict=True)
+    ):
+        prior = assigned.get(id(value))
+        if prior is not None and prior != target:
+            candidate = f"source_output_{index}"
+            suffix = 0
+            while candidate in occupied:
+                suffix += 1
+                candidate = f"source_output_{index}_{suffix}"
+            occupied.add(candidate)
+            output = ir.Value(name=candidate, type=value.type, shape=value.shape)
+            graph.append(
+                ir.Node(
+                    "",
+                    "Identity",
+                    [value],
+                    outputs=[output],
+                    name=f"{candidate}_identity",
+                )
+            )
+            graph.outputs[index] = output
+            value = output
+        assigned[id(value)] = target
+
+
+def _source_boundary_failure(
+    label: str, index: int, expected: Any, opset: int, *, nchw: bool = False
+) -> None:
+    representation = representation_for_aval(
+        expected, boundary_layout="NCHW" if nchw else None
+    )
+    raise SourcePrecisionError(
+        "exported boundary dtype or shape differs from the actual source trace",
+        phase="finalization",
+        category="lowering-defect",
+        location=f"{label} {index}",
+        requested_dtypes=(np.dtype(expected.dtype).name,),
+        opset=opset,
+        requirement=(
+            f"logical dtype {expected.dtype} and shape {tuple(expected.shape)} "
+            f"represented by dtype {representation.physical_dtype} and shape "
+            f"{representation.physical_shape}"
+        ),
+        action="report this exporter defect with the model and input specifications",
+    )
+
+
+def _assert_source_boundaries(
+    model: ir.Model | onnx.ModelProto,
+    trace: _TraceResult,
+    opset: int,
+    *,
+    input_names: Sequence[str] | None = None,
+    output_names: Sequence[str] | None = None,
+) -> None:
+    ir_model = isinstance(model, ir.Model)
+    graph_inputs: Sequence[Any]
+    graph_outputs: Sequence[Any]
+    if isinstance(model, ir.Model):
+        graph_inputs, graph_outputs = model.graph.inputs, model.graph.outputs
+    else:
+        graph_inputs, graph_outputs = model.graph.input, model.graph.output
+    for label, variables, values, names, layouts in (
+        ("input", trace.jaxpr.invars, graph_inputs, input_names, trace.inputs_as_nchw),
+        (
+            "output",
+            trace.jaxpr.outvars,
+            graph_outputs,
+            output_names,
+            trace.outputs_as_nchw,
+        ),
+    ):
+        if len(variables) != len(values):
+            raise SourcePrecisionError(
+                "exported boundary arity differs from the actual source trace",
+                phase="finalization",
+                category="lowering-defect",
+                location=label,
+                opset=opset,
+                requirement=f"{len(variables)} values",
+                action="report this exporter defect with a minimal reproduction",
+            )
+        if names is not None and tuple(value.name for value in values) != tuple(names):
+            raise SourcePrecisionError(
+                "exported boundary names/order differ from the finalized source bindings",
+                phase="finalization",
+                category="lowering-defect",
+                location=label,
+                opset=opset,
+                requirement=f"ordered names {tuple(names)!r}",
+                action="report this exporter defect with a minimal reproduction",
+            )
+        for index, (var, value) in enumerate(zip(variables, values, strict=True)):
+            expected = var.aval
+            representation = representation_for_aval(
+                expected, boundary_layout="NCHW" if index in layouts else None
+            )
+            dtype = representation.ir_dtype
+            shape = representation.physical_shape
+            if ir_model:
+                if not representation.matches_ir_value(value):
+                    _source_boundary_failure(
+                        label, index, expected, opset, nchw=index in layouts
+                    )
+            else:
+                tensor = value.type.tensor_type
+                expected_shape = normalized_shape_dimensions(shape)
+                actual_dims = tuple(tensor.shape.dim)
+                if (
+                    tensor.elem_type != int(dtype)
+                    or not tensor.HasField("shape")
+                    or len(actual_dims) != len(expected_shape)
+                    or any(
+                        (
+                            (
+                                not dim.HasField("dim_value")
+                                or dim.dim_value != expected_dim
+                            )
+                            if isinstance(expected_dim, int)
+                            else (
+                                not dim.HasField("dim_param")
+                                or dim.dim_param != expected_dim
+                            )
+                        )
+                        for dim, expected_dim in zip(actual_dims, expected_shape)
+                    )
+                ):
+                    _source_boundary_failure(
+                        label, index, expected, opset, nchw=index in layouts
+                    )
+
+
+def _source_value_properties(value: ir.Value) -> TensorProperties:
+    assert value.shape is not None and value.dtype is not None
+    return TensorProperties(
+        value.name,
+        normalized_shape_dimensions(tuple(value.shape)),
+        value.dtype.numpy().name,
+        None,
+    )
+
+
+def _source_aval_properties(aval: Any) -> TensorProperties:
+    return TensorProperties(
+        None,
+        normalized_shape_dimensions(aval.shape),
+        representation_for_aval(aval).logical_dtype.name,
+        bool(aval.weak_type),
+    )
+
+
+def _source_adaptations(model: ir.Model) -> tuple[str, ...]:
+    graphs = [model.graph, *(fn.graph for fn in iter_ir_functions(model.functions))]
+    for graph in graphs:
+        for node in RecursiveGraphIterator(graph):
+            if node.op_type != "MatMul" or len(node.inputs) != 2:
+                continue
+            casts = [
+                value.producer() if value is not None else None for value in node.inputs
+            ]
+            if all(
+                cast_node is not None
+                and cast_node.op_type == "Cast"
+                and cast_node.inputs[0] is not None
+                and cast_node.inputs[0].dtype == ir.DataType.FLOAT16
+                and cast_node.outputs[0].dtype == ir.DataType.FLOAT
+                for cast_node in casts
+            ):
+                return (
+                    "dot_general: FP16 operands widened locally to FP32 before MatMul; execution cost unmeasured",
+                )
+    return ()
+
+
+def _build_source_report(
+    model: ir.Model,
+    trace: _TraceResult,
+    supplied: Sequence[TensorProperties],
+    captured: Sequence[PrecisionWarning],
+    *,
+    caller_x64: bool,
+    caller_precision: str | None,
+    caller_dtype_promotion: str,
+    caller_rank_promotion: str,
+    opset: int,
+    diagnostic: bool,
+    named_supplied: Mapping[str, TensorProperties],
+    normalization_mode: NormalizationMode,
+) -> PrecisionReport:
+    representations = []
+    for role, variables, layouts in (
+        ("input", trace.jaxpr.invars, trace.inputs_as_nchw),
+        ("output", trace.jaxpr.outvars, trace.outputs_as_nchw),
+    ):
+        for index, var in enumerate(variables):
+            representation = representation_for_aval(
+                var.aval, boundary_layout="NCHW" if index in layouts else None
+            )
+            if representation.encoding == "complex-real-pair":
+                representations.append(
+                    f"{role} {index}: {representation.logical_dtype} "
+                    f"{representation.logical_shape} represented by "
+                    f"{representation.physical_dtype} {representation.physical_shape} "
+                    "real/imaginary channels"
+                )
+            if index in layouts:
+                pair_note = (
+                    "; complex pair axis unchanged"
+                    if representation.encoding == "complex-real-pair"
+                    else ""
+                )
+                representations.append(
+                    f"{role} {index}: logical NHWC {representation.logical_shape} "
+                    f"uses external NCHW storage {representation.physical_shape}{pair_note}"
+                )
+    return PrecisionReport(
+        exporter_version=model.producer_version or "unknown",
+        jax_version=jax.__version__,
+        opset=opset,
+        caller_x64_enabled=caller_x64,
+        caller_default_matmul_precision=caller_precision,
+        caller_numpy_dtype_promotion=caller_dtype_promotion,
+        caller_numpy_rank_promotion=caller_rank_promotion,
+        deployment_requirements=deployment_requirements_from_json(
+            model.metadata_props.get(DEPLOYMENT_METADATA_KEY)
+        ),
+        inputs=tuple(
+            PrecisionInputSummary(
+                binding.trace_index,
+                (
+                    supplied[binding.positional_index]
+                    if binding.positional_index is not None
+                    else named_supplied[cast(str, binding.keyword_name)]
+                ),
+                _source_aval_properties(binding.spec),
+                _source_aval_properties(binding.var.aval),
+                _source_value_properties(value),
+            )
+            for binding, value in zip(
+                trace.source_inputs,
+                _source_input_values(trace, model.graph.inputs),
+                strict=True,
+            )
+        ),
+        traced_outputs=tuple(
+            _source_aval_properties(var.aval) for var in trace.jaxpr.outvars
+        ),
+        exported_outputs=tuple(
+            _source_value_properties(value) for value in model.graph.outputs
+        ),
+        warnings=tuple(captured),
+        adaptations=(
+            *_source_adaptations(model),
+            *source_normalization_adaptations(
+                normalization_mode, diagnostic=diagnostic
+            ),
+            *representations,
+        ),
+        profile=SOURCE_DIAGNOSTIC_PROFILE if diagnostic else SOURCE_PRECISION_PROFILE,
+        checks=(
+            PrecisionCheck(
+                "representation",
+                CheckStatus.VALIDATED,
+                "Full ONNX checker passed; final boundaries match the declared logical-to-physical representation of this source trace.",
+            ),
+            PrecisionCheck(
+                "lowering",
+                CheckStatus.UNVERIFIED if diagnostic else CheckStatus.VALIDATED,
+                (
+                    "Diagnostic callback and strict representation checks passed; lowering audit_pending."
+                    if diagnostic
+                    else "Private audited profile, strict optimizer, and source result dtype checks passed; no runtime or numerical claim."
+                ),
+            ),
+            PrecisionCheck(
+                "runtime-execution",
+                CheckStatus.UNVERIFIED,
+                "No runtime execution was requested by export.",
+            ),
+            PrecisionCheck(
+                "numerical-acceptance",
+                CheckStatus.UNVERIFIED,
+                "No independent samples and numerical criteria were supplied to export.",
+            ),
+        ),
+    )
 
 
 if TYPE_CHECKING:
@@ -586,151 +1382,481 @@ def to_onnx(
         ```
     """
 
-    _LOGGER.info(
-        f"Converting JAX function to ONNX model with parameters: "
-        f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
-        f"input_params={input_params}, "
-        f"enable_double_precision={enable_double_precision}, "
-        f"record_primitive_calls_file={record_primitive_calls_file}, "
-        f"return_mode={return_mode}, output_path={output_path}, "
-        f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}, "
-        f"input_names={input_names}, output_names={output_names}, "
-        f"export_mode={export_mode}, normalization_mode={normalization_mode}"
+    return _to_onnx(
+        fn,
+        inputs,
+        input_params,
+        model_name,
+        opset,
+        enable_double_precision=enable_double_precision,
+        record_primitive_calls_file=record_primitive_calls_file,
+        return_mode=return_mode,
+        output_path=output_path,
+        inputs_as_nchw=inputs_as_nchw,
+        outputs_as_nchw=outputs_as_nchw,
+        input_names=input_names,
+        output_names=output_names,
+        export_mode=export_mode,
+        normalization_mode=normalization_mode,
     )
 
-    # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
-    normalized_mode = _normalize_return_mode(return_mode)
-    normalized_export_mode = _normalize_export_mode(export_mode)
-    normalized_normalization_mode = _normalize_normalization_mode(normalization_mode)
 
-    file_path: Optional[str] = None
-    if normalized_mode == "file":
-        if output_path is None:
-            raise ValueError(
-                "`output_path` must be provided when return_mode is 'file'."
-            )
-        file_path = os.fspath(output_path)
-
-    normalized_inputs: List[InputSpec] = []
-    if inputs:
-        normalized_inputs = _normalize_input_specs(inputs)
-
-    normalized_input_names = _normalize_io_names(input_names, kind="input_names")
-    normalized_output_names = _normalize_io_names(output_names, kind="output_names")
-
-    if normalized_input_names is not None and len(normalized_input_names) != len(
-        normalized_inputs
-    ):
-        raise ValueError(
-            f"input_names length ({len(normalized_input_names)}) must match "
-            f"the number of positional inputs ({len(normalized_inputs)})."
-        )
-
-    param_map: Dict[str, object] = {}
-    if input_params:
-        for key, value in input_params.items():
-            if not isinstance(key, str):
-                raise TypeError(
-                    "input_params must use string keys; "
-                    f"received key of type {type(key)}."
+def _to_onnx(
+    fn: Callable[..., Any],
+    inputs: Sequence[UserInputSpec],
+    input_params: Optional[Mapping[str, object]] = None,
+    model_name: str = "jax_model",
+    opset: int = 23,
+    *,
+    enable_double_precision: bool = False,
+    record_primitive_calls_file: Optional[str] = None,
+    return_mode: ReturnMode = "proto",
+    output_path: Optional[PathLikeStr] = None,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
+    input_names: Optional[Sequence[str]] = None,
+    output_names: Optional[Sequence[str]] = None,
+    export_mode: ExportMode = "standard",
+    normalization_mode: NormalizationMode = "auto",
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
+    deployment_target: DeploymentTarget | None = None,
+    source_structure_collector: _SourceStructureCollector | None = None,
+) -> Union[onnx.ModelProto, ir.Model, str]:
+    """One facade pipeline; SOURCE is a private, bounded migration experiment."""
+    source = precision_policy is PrecisionPolicy.SOURCE
+    with preserve_caller_configuration() if source else nullcontext():
+        diagnostic = diagnostic_jaxpr_validator is not None
+        if deployment_target is not None:
+            if not source or type(deployment_target) is not DeploymentTarget:
+                raise ValueError(
+                    "Deployment target requires a typed private SOURCE declaration"
                 )
-            param_map[key] = value
+        if diagnostic and not source:
+            raise ValueError("Diagnostic validation requires the private SOURCE policy")
+        if diagnostic and not callable(diagnostic_jaxpr_validator):
+            raise TypeError("diagnostic_jaxpr_validator must be callable")
+        caller_x64 = bool(jax.config.x64_enabled)
+        caller_precision = jax.config.jax_default_matmul_precision
+        caller_dtype_promotion = str(jax.config.jax_numpy_dtype_promotion)
+        caller_rank_promotion = str(jax.config.jax_numpy_rank_promotion)
+        captured_warnings: list[PrecisionWarning] = []
+        supplied: tuple[TensorProperties, ...] = ()
+        trace_result: _TraceResult | None = None
 
-    if normalized_input_names is not None:
-        collisions = sorted(set(normalized_input_names).intersection(param_map.keys()))
-        if collisions:
-            names = ", ".join(collisions)
-            raise ValueError(
-                f"input_names collide with names reserved by input_params: {names}."
-            )
+        def observe_trace(trace: _TraceResult) -> None:
+            nonlocal trace_result
+            trace_result = trace
 
-    if normalized_output_names is not None:
-        collisions = sorted(set(normalized_output_names).intersection(param_map.keys()))
-        if collisions:
-            names = ", ".join(collisions)
-            raise ValueError(
-                f"output_names collide with names reserved by input_params: {names}."
-            )
-
-    with _temporary_x64(enable_double_precision):
-        result = to_onnx_impl(
-            fn=fn,
-            inputs=normalized_inputs,
-            input_params=param_map,
-            model_name=model_name,
-            opset=opset,
-            enable_double_precision=enable_double_precision,
-            record_primitive_calls_file=record_primitive_calls_file,
-            protective_clone=(normalized_mode == "ir"),
-            inputs_as_nchw=inputs_as_nchw,
-            outputs_as_nchw=outputs_as_nchw,
-            input_names=normalized_input_names,
-            output_names=normalized_output_names,
-            normalization_mode=normalized_normalization_mode,
+        _LOGGER.info(
+            f"Converting JAX function to ONNX model with parameters: "
+            f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
+            f"input_params={input_params}, "
+            f"enable_double_precision={enable_double_precision}, "
+            f"record_primitive_calls_file={record_primitive_calls_file}, "
+            f"return_mode={return_mode}, output_path={output_path}, "
+            f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}, "
+            f"input_names={input_names}, output_names={output_names}, "
+            f"export_mode={export_mode}, normalization_mode={normalization_mode}"
         )
 
-        postprocess_ir_model(
-            result,
-            promote_to_double=enable_double_precision,
+        # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
+        normalized_mode = _normalize_return_mode(return_mode)
+        normalized_export_mode = _normalize_export_mode(export_mode)
+        normalized_normalization_mode = _normalize_normalization_mode(
+            normalization_mode
         )
+        if source:
+            if enable_double_precision:
+                _source_migration_gap("enable_double_precision", opset)
+            for item in inputs:
+                if not isinstance(item, (_SupportsShapeAndDtype, tuple, list)):
+                    _source_migration_gap(
+                        f"array-like input type {type(item).__name__}", opset
+                    )
+            supplied = tuple(
+                _source_input_properties(item, index=index, opset=opset)
+                for index, item in enumerate(inputs)
+            )
 
-    def _save_model_proto(
-        model_proto: onnx.ModelProto,
-        dest: str,
-        *,
-        mode: ExportMode,
-        external_threshold: int = 1_048_576,  # 1 MB default before spilling to .data
-    ) -> str:
-        dest_dir = os.path.dirname(dest)
-        if dest_dir:
-            os.makedirs(dest_dir, exist_ok=True)
-        data_location = os.path.basename(dest) + ".data"
-        data_path = os.path.join(dest_dir or ".", data_location)
+        file_path: Optional[str] = None
+        if normalized_mode == "file":
+            if output_path is None:
+                raise ValueError(
+                    "`output_path` must be provided when return_mode is 'file'."
+                )
+            file_path = os.fspath(output_path)
 
-        if mode == "web":
-            onnx.save_model(model_proto, dest, save_as_external_data=False)
-            # A previous standard export to the same path may have left a sidecar.
+        normalized_inputs: List[InputSpec] = []
+        if inputs:
+            normalized_inputs = _normalize_input_specs(
+                inputs, precision_policy=precision_policy
+            )
+        if source:
+            _validate_source_inputs(normalized_inputs, opset, diagnostic=diagnostic)
+
+        normalized_input_names = _normalize_io_names(input_names, kind="input_names")
+        normalized_output_names = _normalize_io_names(output_names, kind="output_names")
+
+        if normalized_input_names is not None and len(normalized_input_names) != len(
+            normalized_inputs
+        ):
+            raise ValueError(
+                f"input_names length ({len(normalized_input_names)}) must match "
+                f"the number of positional inputs ({len(normalized_inputs)})."
+            )
+
+        param_map: Dict[str, object] = {}
+        if input_params:
+            for key, value in input_params.items():
+                if not isinstance(key, str):
+                    raise TypeError(
+                        "input_params must use string keys; "
+                        f"received key of type {type(key)}."
+                    )
+                param_map[key] = value
+
+        if source:
+            named_specs = [
+                _source_named_input_spec(name, value, opset=opset)
+                for name, value in param_map.items()
+            ]
+            _validate_source_inputs(
+                [*normalized_inputs, *named_specs], opset, diagnostic=diagnostic
+            )
+
+        if normalized_input_names is not None:
+            collisions = sorted(
+                set(normalized_input_names).intersection(param_map.keys())
+            )
+            if collisions:
+                names = ", ".join(collisions)
+                raise ValueError(
+                    f"input_names collide with names reserved by input_params: {names}."
+                )
+
+        if normalized_output_names is not None:
+            collisions = sorted(
+                set(normalized_output_names).intersection(param_map.keys())
+            )
+            if collisions:
+                names = ", ".join(collisions)
+                raise ValueError(
+                    f"output_names collide with names reserved by input_params: {names}."
+                )
+
+        conversion = _convert_to_ir if source else to_onnx_impl
+        policy_options: dict[str, Any] = {}
+        if source:
+            policy_options = {
+                "precision_policy": precision_policy,
+                "jaxpr_validator": (
+                    diagnostic_jaxpr_validator
+                    if diagnostic_jaxpr_validator is not None
+                    else partial(
+                        validate_source_jaxpr, deployment_target=deployment_target
+                    )
+                ),
+                "trace_observer": observe_trace,
+                "deployment_target": deployment_target,
+            }
+        config_scope = (
+            preserve_caller_configuration()
+            if source
+            else _temporary_x64(enable_double_precision)
+        )
+        warning_scope = (
+            _capture_source_warnings(captured_warnings) if source else nullcontext()
+        )
+        with config_scope, warning_scope:
+            result = conversion(
+                fn=fn,
+                inputs=normalized_inputs,
+                input_params=param_map,
+                model_name=model_name,
+                opset=opset,
+                enable_double_precision=enable_double_precision,
+                record_primitive_calls_file=record_primitive_calls_file,
+                protective_clone=(normalized_mode == "ir"),
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
+                input_names=normalized_input_names,
+                output_names=normalized_output_names,
+                normalization_mode=normalized_normalization_mode,
+                **policy_options,
+            )
+
+            postprocess_ir_model(
+                result,
+                promote_to_double=enable_double_precision,
+            )
+
+        def _save_model_proto(
+            model_proto: onnx.ModelProto,
+            dest: str,
+            *,
+            mode: ExportMode,
+            external_threshold: int = 1_048_576,  # 1 MB default before spilling to .data
+        ) -> str:
+            dest_dir = os.path.dirname(dest)
+            if dest_dir:
+                os.makedirs(dest_dir, exist_ok=True)
+            data_location = os.path.basename(dest) + ".data"
+            data_path = os.path.join(dest_dir or ".", data_location)
+
+            if mode == "web":
+                onnx.save_model(model_proto, dest, save_as_external_data=False)
+                # A previous standard export to the same path may have left a sidecar.
+                try:
+                    if os.path.exists(data_path):
+                        os.remove(data_path)
+                except OSError:
+                    pass
+                return dest
+
+            # Function tensor attributes stay inline across supported ONNX versions.
+            # Some versions include them even when convert_attribute is False.
+            function_snapshots: list[tuple[onnx.FunctionProto, onnx.FunctionProto]] = []
+            for function in model_proto.functions:
+                snapshot = onnx.FunctionProto()
+                snapshot.CopyFrom(function)
+                function_snapshots.append((function, snapshot))
             try:
-                if os.path.exists(data_path):
-                    os.remove(data_path)
-            except OSError:
-                pass
+                onnx.convert_model_to_external_data(
+                    model_proto,
+                    all_tensors_to_one_file=True,
+                    location=data_location,
+                    size_threshold=external_threshold,
+                    convert_attribute=False,
+                )
+            finally:
+                for function, snapshot in function_snapshots:
+                    function.CopyFrom(snapshot)
+            onnx.save_model(model_proto, dest, save_as_external_data=False)
+            # Only keep the .data sidecar if the export actually referenced external data.
+            if not any(init.external_data for init in model_proto.graph.initializer):
+                # No external payloads; remove an empty sidecar if one was produced.
+                try:
+                    if os.path.exists(data_path) and os.path.getsize(data_path) == 0:
+                        os.remove(data_path)
+                except OSError:
+                    pass
             return dest
 
-        onnx.save_model(
-            model_proto,
-            dest,
-            save_as_external_data=True,
-            all_tensors_to_one_file=True,
-            location=data_location,
-            size_threshold=external_threshold,
-            convert_attribute=False,
+        source_values: tuple[ir.Value, ...] | None = None
+        final_input_names = normalized_input_names
+        named_supplied: dict[str, TensorProperties] = {}
+        if source:
+            assert trace_result is not None
+            expected_roles = [
+                *((index, None) for index in range(len(normalized_inputs))),
+                *((None, name) for name in param_map),
+            ]
+            if [
+                (binding.positional_index, binding.keyword_name)
+                for binding in trace_result.source_inputs
+            ] != expected_roles:
+                raise RuntimeError(
+                    "SOURCE input roles/names/order differ from the real call bindings"
+                )
+            source_values = _source_input_values(
+                trace_result, result.graph.inputs, require_internal_names=True
+            )
+            final_input_names = []
+            for binding, value in zip(
+                trace_result.source_inputs, source_values, strict=True
+            ):
+                if binding.positional_index is not None:
+                    final_input_names.append(
+                        normalized_input_names[binding.positional_index]
+                        if normalized_input_names is not None
+                        else cast(str, value.name)
+                    )
+                else:
+                    name = cast(str, binding.keyword_name)
+                    final_input_names.append(name)
+                    named_supplied[name] = TensorProperties(
+                        name,
+                        normalized_shape_dimensions(binding.spec.shape),
+                        np.dtype(binding.spec.dtype).name,
+                        bool(binding.spec.weak_type),
+                    )
+            _separate_source_output_aliases(
+                result, final_input_names, normalized_output_names
+            )
+        else:
+            _materialize_input_params_on_ir(result, param_map)
+        _apply_custom_io_names_on_ir(
+            result,
+            input_names=final_input_names,
+            output_names=normalized_output_names,
+            positional_input_count=len(normalized_inputs),
+            input_values=source_values,
         )
-        # Only keep the .data sidecar if the export actually referenced external data.
-        if not any(init.external_data for init in model_proto.graph.initializer):
-            # No external payloads; remove an empty sidecar if one was produced.
+        model_proto: onnx.ModelProto | None = None
+        source_structure_result: StructureResult | None = None
+        source_fingerprint: _SourceArtifactFingerprint | None = None
+        source_ir_fingerprint: _SourceArtifactFingerprint | None = None
+        if source:
+            _finalize_source_deployment(result)
+            assert trace_result is not None
+            source_output_names = tuple(
+                cast(str, value.name) for value in result.graph.outputs
+            )
+            boundary_names = {
+                "input_names": final_input_names,
+                "output_names": source_output_names,
+            }
+            _assert_source_boundaries(result, trace_result, opset, **boundary_names)
+            report = _build_source_report(
+                result,
+                trace_result,
+                supplied,
+                captured_warnings,
+                caller_x64=caller_x64,
+                caller_precision=(
+                    str(caller_precision) if caller_precision is not None else None
+                ),
+                caller_dtype_promotion=caller_dtype_promotion,
+                caller_rank_promotion=caller_rank_promotion,
+                opset=opset,
+                diagnostic=diagnostic,
+                named_supplied=named_supplied,
+                normalization_mode=normalized_normalization_mode,
+            )
+            attach_precision_report(result, report)
+
+            # Missing semantic rules remain UNVERIFIED. The mandatory boundary
+            # below only checks serialization integrity relative to this IR.
+            frozen_ir, tensor_guards = _freeze_source_ir(result)
+            source_structure_result = validate_source_structure(result)
+
+            # Freeze compact references BEFORE constructing the returned proto.
+            # IR return also needs the state after ordinary codec name updates.
+            # All passes use the official codec; identical permanent codec faults
+            # remain outside this serialization-integrity checkpoint.
+            _recheck_source_tensors(tensor_guards)
             try:
-                if os.path.exists(data_path) and os.path.getsize(data_path) == 0:
-                    os.remove(data_path)
-            except OSError:
-                pass
-        return dest
+                reference_proto = ir.to_proto(frozen_ir)
+                source_fingerprint = _source_artifact_fingerprint(reference_proto)
+                del reference_proto
+                if normalized_mode == "ir":
+                    reference_proto = ir.to_proto(frozen_ir)
+                    source_ir_fingerprint = _source_artifact_fingerprint(
+                        reference_proto
+                    )
+                    del reference_proto
+            finally:
+                _restore_source_initializer_names(tensor_guards)
+            _recheck_source_tensors(tensor_guards)
+            del frozen_ir, tensor_guards
+            if validate_source_structure(result) != source_structure_result:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: IR changed after its audit"
+                )
+            model_proto = ir.to_proto(result)
+            if _source_artifact_fingerprint(model_proto) != source_fingerprint:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: protobuf differs from audited IR"
+                )
+            _assert_source_boundaries(
+                model_proto, trace_result, opset, **boundary_names
+            )
+            check_source_schema(model_proto)
+            if get_precision_report(model_proto) != report:
+                raise RuntimeError(
+                    "Source precision metadata failed its serialization roundtrip"
+                )
 
-    _materialize_input_params_on_ir(result, param_map)
-    _apply_custom_io_names_on_ir(
-        result,
-        input_names=normalized_input_names,
-        output_names=normalized_output_names,
-        positional_input_count=len(normalized_inputs),
-    )
-    if normalized_mode == "ir":
-        return result
+        def observe_source_return(value: object) -> None:
+            if (
+                source
+                and not diagnostic
+                and source_structure_collector is not None
+                and trace_result is not None
+                and source_structure_result is not None
+            ):
+                # Private evidence cannot change ordinary export success.
+                try:
+                    source_structure_collector(
+                        trace_result, result, source_structure_result, value
+                    )
+                except Exception:
+                    pass
 
-    model_proto = ir.to_proto(result)
-    if normalized_mode == "file":
-        assert file_path is not None
-        return _save_model_proto(model_proto, file_path, mode=normalized_export_mode)
-    return model_proto
+        def recheck_source_ir() -> None:
+            if source and validate_source_structure(result) != source_structure_result:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: IR changed after its audit"
+                )
+
+        def source_snapshot(
+            path: str,
+        ) -> tuple[onnx.ModelProto, _SourceArtifactSnapshot]:
+            try:
+                return _source_artifact_snapshot(path)
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: "
+                    f"could not verify saved artifact: {exc}"
+                ) from exc
+
+        if normalized_mode == "ir":
+            observe_source_return(result)
+            if source:
+                recheck_source_ir()
+                # Release the ordinary serialization before checking the actual
+                # returned IR again; retain no second complete proto or weights.
+                model_proto = None
+                current_proto = ir.to_proto(result)
+                if _source_artifact_fingerprint(current_proto) != source_ir_fingerprint:
+                    raise RuntimeError(
+                        "SOURCE serialization integrity: returned IR changed"
+                    )
+            return result
+
+        if model_proto is None:
+            model_proto = ir.to_proto(result)
+        if normalized_mode == "file":
+            assert file_path is not None
+            saved_path = _save_model_proto(
+                model_proto, file_path, mode=normalized_export_mode
+            )
+            if source:
+                # The writer has changed this proto's external storage. Release
+                # it before parsing the actual saved artifact for verification.
+                del model_proto
+                assert trace_result is not None
+                reloaded, saved_snapshot = source_snapshot(saved_path)
+                if saved_snapshot.fingerprint != source_fingerprint:
+                    raise RuntimeError(
+                        "SOURCE serialization integrity: saved artifact differs from audited IR"
+                    )
+                _assert_source_boundaries(
+                    reloaded, trace_result, opset, **boundary_names
+                )
+                onnx.checker.check_model(saved_path, full_check=True)
+                if get_precision_report(reloaded) != report:
+                    raise RuntimeError(
+                        "Saved source precision metadata failed its roundtrip"
+                    )
+                del reloaded
+            observe_source_return(saved_path)
+            if source:
+                reloaded, current_snapshot = source_snapshot(saved_path)
+                if current_snapshot != saved_snapshot:
+                    raise RuntimeError(
+                        "SOURCE serialization integrity: saved artifact changed after verification"
+                    )
+                del reloaded
+            return saved_path
+        observe_source_return(model_proto)
+        if source:
+            if _source_artifact_fingerprint(model_proto) != source_fingerprint:
+                raise RuntimeError(
+                    "SOURCE serialization integrity: returned protobuf changed"
+                )
+        return model_proto
 
 
 @overload

@@ -10,7 +10,8 @@ import numpy.typing as npt
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx.ir_utils import ir_dtype_to_numpy, tensor_attr, tensor_to_numpy
 from jax2onnx.plugins._ir_shapes import (
     DimValue,
     _ensure_value_metadata,
@@ -130,6 +131,55 @@ def pack_native_complex(
         base_dtype = ir.DataType.DOUBLE
     dims = _shape_tuple(tensor)
     packed_shape = dims + (2,)
+
+    producer = tensor.producer()
+    constant_node = (
+        producer
+        if producer is not None
+        and producer.domain == ""
+        and producer.op_type == "Constant"
+        else None
+    )
+    storage = tensor.const_value
+    if constant_node is not None:
+        value_attr = constant_node.attributes.get("value")
+        if value_attr is None or value_attr.type is not ir.AttributeType.TENSOR:
+            raise ValueError(
+                "Native complex Constant requires a tensor value attribute"
+            )
+        storage = value_attr.as_tensor()
+    if storage is not None:
+        array = tensor_to_numpy(storage)
+        if (
+            array is None
+            or ir.DataType.from_numpy(array.dtype) != dtype
+            or array.shape != dims
+        ):
+            raise ValueError(
+                "Native complex constant payload disagrees with its metadata"
+            )
+        if constant_node is not None and tensor.const_value is not None:
+            cached = tensor_to_numpy(tensor.const_value)
+            if (
+                cached is None
+                or cached.dtype != array.dtype
+                or cached.shape != array.shape
+                or cached.tobytes(order="C") != array.tobytes(order="C")
+            ):
+                raise ValueError("Native complex Constant attribute and cache disagree")
+        if producer is not None and constant_node is None:
+            raise ValueError(
+                "Cannot pack a cached native complex value from a nonconstant op"
+            )
+        packed_array = (
+            representation_for_aval(array)
+            .encode_array(array)
+            .astype(base_dtype.numpy(), copy=False)
+        )
+        packed_storage = ir.tensor(packed_array)
+        tensor.const_value = packed_storage
+        if constant_node is not None:
+            constant_node.attributes["value"] = tensor_attr("value", packed_storage)
 
     tensor.dtype = base_dtype
     tensor.type = ir.TensorType(base_dtype)

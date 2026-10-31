@@ -1,0 +1,127 @@
+{
+  "arrays": {
+    "eager": {
+      "dtype": "<f4",
+      "order": "C",
+      "raw_hex": "ec04353fec04353feb04b5bf6fc49c3f000000006fc49cbf0000c07f0000c07f0000c07f5e1d26beb25991bf5e1da63f0000c07f0000c07f0000c07f0000000000000000000000005e1da6bfb259913f5d1d263e0000c07f0000c07f0000c07fec04353fec04353feb04b5bf6fc49c3f000000006fc49cbf0000c07f0000c07f0000c07f5e1d26beb25991bf5e1da63f0000c07f0000c07f0000c07f0000000000000000000000005e1da6bfb259913f5d1d263e0000c07f0000c07f0000c07fec04353fec04353feb04b5bf6fc49c3f000000006fc49cbf0000c07f0000c07f0000c07f5e1d26beb25991bf5e1da63f",
+      "sha256": "c505122b4b499da452bbeef95b69e77436d1ac388bb3a73efa462ba52d9d2057",
+      "shape": [
+        2,
+        10,
+        3
+      ]
+    },
+    "input": {
+      "dtype": "<f4",
+      "order": "C",
+      "raw_hex": "0000008000000000000000c0000040400000803f000080bf0000c07f000000000000008000000000000000c0000040400000803f000080bf0000c07f000000000000008000000000000000c0000040400000803f000080bf0000c07f000000000000008000000000000000c0000040400000803f000080bf0000c07f000000000000008000000000000000c0000040400000803f000080bf0000c07f000000000000008000000000000000c0000040400000803f000080bf0000c07f000000000000008000000000000000c0000040400000803f000080bf0000c07f000000000000008000000000000000c000004040",
+      "sha256": "49eb7279a82f4a27d47cebe9193868037c24c70f02b02eec746f55011a2f20ff",
+      "shape": [
+        2,
+        10,
+        3
+      ]
+    },
+    "jit": {
+      "dtype": "<f4",
+      "order": "C",
+      "raw_hex": "ec04353fec04353feb04b5bf6fc49c3f000000006fc49cbf0000c07f0000c07f0000c07f5e1d26beb25991bf5e1da63f0000c07f0000c07f0000c07f0000000000000080000000005e1da6bfb259913f5d1d263e0000c07f0000c07f0000c07fec04353fec04353feb04b5bf6fc49c3f000000006fc49cbf0000c07f0000c07f0000c07f5e1d26beb25991bf5e1da63f0000c07f0000c07f0000c07f0000000000000080000000005e1da6bfb259913f5d1d263e0000c07f0000c07f0000c07fec04353fec04353feb04b5bf6fc49c3f000000006fc49cbf0000c07f0000c07f0000c07f5e1d26beb25991bf5e1da63f",
+      "sha256": "d35705deaf5de0cb337cc9fdce6d9053415fc73493bdc399cd0a324592eda420",
+      "shape": [
+        2,
+        10,
+        3
+      ]
+    }
+  },
+  "provenance": {
+    "astra_data_audit_sha256": "f5850ce870a75fecbbc4e684b201b0e3a1bd5a1a181012f5235cb02a19ec670c",
+    "plan_sha256": "15f7a1b4ce58552cd08b373eede82f22a38404c7bb973e30d1d1e32b54310aa8",
+    "registration": [
+      "plugin::linen.layer_norm",
+      "jax2onnx.plugins.flax.linen.layer_norm",
+      "primitives.linen",
+      "layer_norm"
+    ],
+    "registration_source_file": "jax2onnx/plugins/flax/linen/layer_norm.py",
+    "registration_source_file_sha256": "6611cc7a7dbbf77669e6ffe0fbd964bc4cd378e106c8cc894440e5dd7993b59d",
+    "registration_source_lines": [
+      227,
+      244
+    ],
+    "root_release_sha256": "0c17289431e3a45a89ddaf6a64ecfa71d2b50bf4686fe3b530de37b6fa185b36",
+    "source_inventory_sha256": "8a8df8767c6c1dbec43309d23b1ff2943f264e2e696511efaa99aef226364113",
+    "source_row": [
+      382,
+      3,
+      "layer_norm_default_epsilon",
+      3712,
+      23,
+      1120
+    ],
+    "stacks": {
+      "primary": {
+        "cell_receipt_sha256": "dbbe3404a927ac9300ea69346523bb298e5c1fbc9d49a3fee26168e0a1f47af6",
+        "masks_npz_sha256": "dcd1aac8c9ec4eeace31bc7cf2c7181448c8144245e1c90ea4dc2bf905a02fee",
+        "native_npz_sha256": "c7b3a3ffffe0ecf0d65c3fcb990bac2f3dec2c69a379365254cb909a6de4d1c7",
+        "prepared_sha256": "f01285e05fa8786b02b4383e3a5a25bdce18115b4dd1a351289acdf21b9c4bc5",
+        "receipt_sha256": "05adabd98ec30658239639b01ecfdf2a2cfe1803ed9f98bbbcab592b279b7081",
+        "survey_sha256": "0462f7dcccc0d954a4fb76e68541d4c31b5e3229d550c8acec1f7396e8f49264",
+        "terminal_sha256": "107f81bafc243a0b3b39c5d8a170123033ddcee70bf7b9b3795858cfdd3e8bd7",
+        "versions": {
+          "equinox": "0.13.8",
+          "flax": "0.12.10",
+          "jax": "0.11.2",
+          "jaxlib": "0.11.2",
+          "numpy": "2.5.4"
+        }
+      },
+      "secondary": {
+        "cell_receipt_sha256": "7c4893fdc59551d31b7232667334fa00d83ae48fc486fd8697543b6ae778e5e7",
+        "masks_npz_sha256": "dcd1aac8c9ec4eeace31bc7cf2c7181448c8144245e1c90ea4dc2bf905a02fee",
+        "native_npz_sha256": "c7b3a3ffffe0ecf0d65c3fcb990bac2f3dec2c69a379365254cb909a6de4d1c7",
+        "prepared_sha256": "be990f050fed66b4ebb37b04274532cb735e54befb4352ec2102d7337717cabb",
+        "receipt_sha256": "f82d2577d600ee4102dbe342d214c616fe7eb9fcc573a0049b37268f20eb321d",
+        "survey_sha256": "ce0c949cd8d65cdd06f7594c47222d5a63f801fd4987edea391816e3051cabb3",
+        "terminal_sha256": "8250067b93cef94c31bcbf411ea7775d214d65a44121ee9e0b567ae1c38c8c1a",
+        "versions": {
+          "equinox": "0.13.8",
+          "flax": "0.12.8",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.4.6"
+        }
+      }
+    }
+  },
+  "schema_version": 1,
+  "witness": {
+    "caller_x64": false,
+    "cell_index": 14,
+    "contract_sha256": "ff13993a7b3a5172ae874ab70056b6c46839631a9b2dbee0448bfca8f43a5f8b",
+    "eager_word": 0,
+    "flat_indices": [
+      16,
+      40
+    ],
+    "jit_word": 2147483648,
+    "label": "B=2:signed-zero-nan",
+    "normalization_mode": "prefer_native",
+    "opset": 23,
+    "ordinal": 3,
+    "origin": "plugin::linen.layer_norm",
+    "output_index": 0,
+    "prepared_settings": {
+      "default_matmul_precision": null,
+      "jax_platforms": "cpu",
+      "numpy_dtype_promotion": "standard",
+      "numpy_rank_promotion": "allow",
+      "x64_enabled": false
+    },
+    "raw_criteria": {},
+    "registration_source_sha256": "db52bfd292e8cb4ff2c6240ee447ee87f8bca04cd02ecfc95f57539ce569ec55",
+    "sample_index": 3,
+    "scenario": "raw-x64-off",
+    "testcase": "layer_norm_default_epsilon"
+  }
+}

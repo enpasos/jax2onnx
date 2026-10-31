@@ -5,6 +5,7 @@ from jax2onnx._compat.jax import JaxprEqn
 import jax
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax.lax._source_elementary import lower_source_elementary
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -39,6 +40,9 @@ from jax2onnx.plugins.plugin_system import (
 )
 class SignPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if lower_source_elementary(ctx, eqn, operation="sign"):
+            return
+
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

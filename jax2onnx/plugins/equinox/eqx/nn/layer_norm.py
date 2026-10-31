@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Any, Callable, ClassVar
 
 import equinox as eqx
@@ -14,6 +15,10 @@ from jax.extend.core import Primitive
 from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
@@ -239,7 +244,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
     def _patch_call(
         orig: Callable[..., jax.Array] | None,
     ) -> Callable[..., Any]:
-        def wrapped(
+        def legacy(
             self: eqx.nn.LayerNorm,
             x: jax.Array,
             state: Any = None,
@@ -265,7 +270,16 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
             out = LayerNormPlugin._PRIM.bind(x, scale, bias, epsilon=float(self.eps))
             return out if state is None else (out, state)
 
-        return wrapped
+        def wrapped(self: eqx.nn.LayerNorm, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig is None:
+                    raise RuntimeError(
+                        "equinox.nn.LayerNorm.__call__ is not available."
+                    )
+                return orig(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
+
+        return wraps(orig)(wrapped) if orig is not None else wrapped
 
     @classmethod
     def ensure_abstract_eval_bound(cls) -> None:

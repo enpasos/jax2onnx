@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
+
 from typing import Callable, ClassVar, Final
 
 import jax
@@ -121,6 +123,8 @@ class ReluPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jax.nn.relu not found")
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig
             return lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
 
         return [

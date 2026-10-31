@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence as _Seq
+from functools import wraps
 from typing import Any, Callable, ClassVar, Final, Sequence, TypeAlias
 
 import numpy as np
@@ -18,6 +19,10 @@ from jax2onnx._compat.jax import (
 import jax.numpy as jnp
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.numpy._common import (
@@ -243,7 +248,7 @@ class JnpMeanPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.mean not found for monkey patching")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def _legacy(
                 a: ArrayLike,
                 axis: int | _Seq[int] | None = None,
                 dtype: np.dtype[Any] | type | None = None,
@@ -277,6 +282,12 @@ class JnpMeanPlugin(PrimitiveLeafPlugin):
                     keepdims=keepdims,
                     where=where,
                 )
+
+            @wraps(orig)
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 

@@ -9,6 +9,7 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -476,9 +477,10 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
     # ---------------- monkey-patch ----------------
     @staticmethod
     def get_monkey_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
-        AvgPoolPlugin._ORIG_CALL = orig_fn
+        original = getattr(orig_fn, "__j2o_nnx_avg_pool_original__", orig_fn)
+        AvgPoolPlugin._ORIG_CALL = original
 
-        def patched(
+        def legacy(
             inputs: Any,
             *,
             window_shape: Sequence[int],
@@ -497,6 +499,16 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
                 count_include_pad=bool(count_include_pad),
             )
 
+        def patched(*args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if original is None:
+                    raise TypeError(
+                        "SOURCE avg_pool requires the actual original callable"
+                    )
+                return original(*args, **kwargs)
+            return legacy(*args, **kwargs)
+
+        setattr(patched, "__j2o_nnx_avg_pool_original__", original)
         return patched
 
     @classmethod

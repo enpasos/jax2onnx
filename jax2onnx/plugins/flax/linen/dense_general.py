@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax.linen import linear as linen_linear
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import linear_general as nnx_linear_general
@@ -191,7 +192,7 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
                 raise RuntimeError("flax.linen.DenseGeneral.__call__ is not available.")
             return orig_fn(self, inputs)
 
-        def patched(self: Any, inputs: Any) -> Any:
+        def legacy(self: Any, inputs: Any) -> Any:
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
                 return call_orig(self, inputs)
@@ -231,6 +232,13 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
             rhs_contract = tuple(range(len(axis)))
             dn = ((axis, rhs_contract), ((), ()))
             return prim.bind(inputs, kernel, bias, dimension_numbers=dn)
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError("Original native module call is unavailable")
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 

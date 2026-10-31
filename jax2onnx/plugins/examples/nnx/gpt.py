@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from functools import wraps
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 from flax import nnx
 
@@ -57,6 +58,21 @@ def _no_cast_where(model: ir.Model) -> bool:
     return True
 
 
+_GPT_ATTENTION_FIXTURE_SEED: Final[int] = 0
+
+
+def _gpt_attention_fixture_inputs() -> list[npt.NDArray[Any]]:
+    """Build successive Gaussian q/k/v samples without touching application RNG."""
+    fixture_rng = np.random.default_rng(_GPT_ATTENTION_FIXTURE_SEED)
+    return [
+        *(
+            fixture_rng.standard_normal((1, 1024, 12, 64)).astype(np.float32)
+            for _ in range(3)
+        ),
+        np.tril(np.ones((1, 12, 1024, 1024), dtype=bool)),
+    ]
+
+
 register_example(
     component="GPT_Attention",
     description="A multi-head attention layer.",
@@ -68,12 +84,13 @@ register_example(
         {
             "testcase": "gpt_attention",
             "callable": _call_attention,
-            "input_values": [
-                np.random.randn(1, 1024, 12, 64).astype(np.float32),
-                np.random.randn(1, 1024, 12, 64).astype(np.float32),
-                np.random.randn(1, 1024, 12, 64).astype(np.float32),
-                np.tril(np.ones((1, 12, 1024, 1024), dtype=bool)),
-            ],
+            "input_values": _gpt_attention_fixture_inputs(),
+            "fixture_provenance": {
+                "recipe": "_gpt_attention_fixture_inputs",
+                "seed": _GPT_ATTENTION_FIXTURE_SEED,
+                "rng": "numpy.random.default_rng",
+                "draws": "successive standard_normal q/k/v, then float32",
+            },
             "expected_number_of_function_instances": 1,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": _no_cast_where,

@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import onnx_ir as ir
 from flax import nnx
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import (
@@ -254,11 +255,11 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         def _make_patch(
-            orig: Callable[[Any, Any], Any] | None,
-        ) -> Callable[[nnx.Einsum, Any], Any]:
+            orig: Callable[..., Any] | None,
+        ) -> Callable[..., Any]:
             cls._ORIG_CALL = orig
 
-            def _patched(self: nnx.Einsum, x: Any) -> Any:
+            def legacy(self: nnx.Einsum, x: Any) -> Any:
                 kernel = self.kernel.value
                 bias = self.bias.value if self.bias is not None else None
                 operands = [x, kernel]
@@ -272,6 +273,13 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
                     dtype=getattr(self, "dtype", None),
                     param_dtype=getattr(self, "param_dtype", None),
                 )
+
+            def _patched(self: nnx.Einsum, *args: Any, **kwargs: Any) -> Any:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    if orig is None:
+                        raise RuntimeError("Original native Einsum call is unavailable")
+                    return orig(self, *args, **kwargs)
+                return legacy(self, *args, **kwargs)
 
             return _patched
 

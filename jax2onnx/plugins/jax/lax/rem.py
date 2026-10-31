@@ -9,6 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax.lax._source_elementary import lower_source_elementary
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -100,6 +101,9 @@ class RemPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.rem`` (truncated remainder) using Mod or Div/Mul/Sub."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if lower_source_elementary(ctx, eqn, operation="rem"):
+            return
+
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 

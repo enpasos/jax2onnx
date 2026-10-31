@@ -48,6 +48,20 @@ from .ir_context import IRContext
 from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
+from .precision_policy import PrecisionPolicy, precision_policy_scope
+from .normalization_options import normalize_normalization_mode
+from .source_profile import SourcePrecisionError, validate_source_input_dtype
+from .source_deployment import DeploymentTarget
+from .source_deployment_bindings import attach_matrix_bindings
+from .source_structure import attach_source_structure
+from ._source_cast_planning import attach_cast_plan, prepare_root_cast_plan
+from ._source_cast_context import RootCastContextLease, attach_cast_acquisition
+from ._source_cast_authority import (
+    _begin_cast_transaction,
+    attach_cast_authority_audit,
+    finalize_selected_cast,
+)
+from .source_representation import representation_for_aval, validate_source_shapes
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
 
@@ -69,6 +83,19 @@ _staged_lowering_metadata: Callable[..., object] = (
 
 
 @dataclass(frozen=True)
+class _SourceInputBinding:
+    trace_index: int
+    positional_index: int | None
+    keyword_name: str | None
+    spec: jax.ShapeDtypeStruct
+    var: Any
+
+    @property
+    def internal_name(self) -> str:
+        return f"in_{self.trace_index}"
+
+
+@dataclass(frozen=True)
 class _TraceResult:
     closed_jaxpr: Any
     jaxpr: Any
@@ -76,6 +103,58 @@ class _TraceResult:
     frozen_params: dict[str, object]
     inputs_as_nchw: tuple[int, ...]
     outputs_as_nchw: tuple[int, ...]
+    source_inputs: tuple[_SourceInputBinding, ...] = ()
+
+
+def _source_named_input_spec(
+    name: str, value: object, *, opset: int
+) -> jax.ShapeDtypeStruct:
+    if not isinstance(name, str) or not name:
+        raise ValueError("SOURCE input_params names must be nonempty strings")
+    if isinstance(value, (jax.ShapeDtypeStruct, jax.Array, np.ndarray, np.generic)):
+        return jax.ShapeDtypeStruct(
+            tuple(value.shape),
+            value.dtype,
+            weak_type=bool(getattr(value, "weak_type", False)),
+        )
+    if type(value) in (bool, int, float, complex):
+        # Let JAX derive Python scalar dtype/weakness under the caller's settings.
+        # NumPy conversion here would invent a strong platform-default dtype.
+        return cast(jax.ShapeDtypeStruct, jax.eval_shape(lambda scalar: scalar, value))
+    raise SourcePrecisionError(
+        f"named parameter {name!r} requires a tensor or Python scalar declaration",
+        phase="input",
+        category="profile-exclusion",
+        location=f"input_params[{name!r}]",
+        opset=opset,
+        requirement="a typed array/ShapeDtypeStruct or a native Python numeric scalar",
+        action="declare a runtime tensor or bind intended fixed configuration with a closure or partial",
+    )
+
+
+def _source_input_values(
+    trace: _TraceResult,
+    values: Sequence[ir.Value],
+    *,
+    require_internal_names: bool = False,
+) -> tuple[ir.Value, ...]:
+    bindings = trace.source_inputs
+    if len(bindings) != len(trace.jaxpr.invars) or len(values) != len(bindings):
+        raise RuntimeError(
+            "SOURCE finalized input arity differs from its real root bindings"
+        )
+    for index, (binding, var, value) in enumerate(
+        zip(bindings, trace.jaxpr.invars, values, strict=True)
+    ):
+        if (
+            binding.trace_index != index
+            or binding.var is not var
+            or (require_internal_names and value.name != binding.internal_name)
+        ):
+            raise RuntimeError(
+                "SOURCE finalized input order differs from its real root bindings"
+            )
+    return tuple(values)
 
 
 # ---------------------------
@@ -160,10 +239,24 @@ def _convert_ir_attr(name: str, value: object) -> Optional[Attr]:
 
 
 def _as_sds_list(
-    inputs: Sequence[InputSpec], enable_double_precision: bool
+    inputs: Sequence[InputSpec],
+    enable_double_precision: bool,
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
 ) -> List["jax.ShapeDtypeStruct"]:
     """Normalize user 'inputs' to ShapeDtypeStructs for abstract tracing."""
     sds_list: List[jax.ShapeDtypeStruct] = []
+    source = precision_policy is PrecisionPolicy.SOURCE
+    native_scope = (
+        validate_source_shapes(
+            [
+                tuple(spec.shape) if isinstance(spec, jax.ShapeDtypeStruct) else spec
+                for spec in inputs
+            ]
+        )
+        if source
+        else None
+    )
 
     # 1) gather string symbols
     symnames: list[str] = []
@@ -179,7 +272,11 @@ def _as_sds_list(
 
     # 2) create symbolic sizes
     name2sym: dict[str, object] = {}
-    shared_scope = jax_export.SymbolicScope() if symnames else None
+    shared_scope = (
+        native_scope
+        if native_scope is not None
+        else jax_export.SymbolicScope() if symnames else None
+    )
     for n in symnames:
         syms = jax_export.symbolic_shape(n, scope=shared_scope)
         if not syms:
@@ -201,7 +298,17 @@ def _as_sds_list(
                     dims_list.append(int(dim))
                 else:
                     dims_list.append(dim)
-            sds_list.append(jax.ShapeDtypeStruct(tuple(dims_list), spec.dtype))
+            sds_list.append(
+                jax.ShapeDtypeStruct(
+                    tuple(dims_list),
+                    spec.dtype,
+                    weak_type=(
+                        spec.weak_type
+                        if precision_policy is PrecisionPolicy.SOURCE
+                        else False
+                    ),
+                )
+            )
             continue
 
         dims_tuple = tuple(
@@ -209,6 +316,8 @@ def _as_sds_list(
         )
         dt = jnp.float64 if enable_double_precision else jnp.float32
         sds_list.append(jax.ShapeDtypeStruct(dims_tuple, dt))
+    if source:
+        validate_source_shapes([spec.shape for spec in sds_list])
     return sds_list
 
 
@@ -266,9 +375,10 @@ def _optimize_graph_with_failure_policy(
     model: ir.Model,
     *,
     strict_optimizer_failures: Optional[bool],
+    precision_policy: PrecisionPolicy,
 ) -> None:
     try:
-        optimize_graph(model)
+        optimize_graph(model, precision_policy=precision_policy)
     except Exception as exc:
         if _resolve_strict_optimizer_failures(strict_optimizer_failures):
             raise
@@ -288,6 +398,28 @@ def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
     if not ir_funcs:
         return
 
+    local_domains: set[str] = set()
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        local_ids = {_function_store_identifier(function) for function in ir_funcs}
+        local_domains = {
+            domain for domain, _, _ in local_ids if domain not in {"", "ai.onnx"}
+        }
+        for graph in (ir_model.graph, *(function.graph for function in ir_funcs)):
+            for node in graph.all_nodes():
+                if (
+                    node.domain in local_domains
+                    and node.op_identifier() not in local_ids
+                ):
+                    raise SourcePrecisionError(
+                        "local Function domain contains an unresolved external operator",
+                        phase="finalization",
+                        category="lowering-defect",
+                        location="function import ownership",
+                        opset=ctx.builder.opset,
+                        requirement="every call in an attached local Function domain resolves to its exact domain/name/overload definition",
+                        action="separate the external operator domain or attach its actual local Function definition",
+                    )
+
     functions_store = ir_model.functions
     for fn_ir in ir_funcs:
         functions_store[_function_store_identifier(fn_ir)] = fn_ir
@@ -299,6 +431,13 @@ def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
         if dom and dom not in model_imports:
             model_imports[dom] = 1
     ir_model.opset_imports.update(model_imports)
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        # Attachment owns the complete actual local definitions and the model's
+        # declared custom-domain versions. Standard/external imports stay exact.
+        for function in ir_funcs:
+            for domain in function.graph.opset_imports:
+                if domain in local_domains:
+                    function.graph.opset_imports[domain] = model_imports[domain]
 
 
 def _iter_graph_values(gr: ir.Graph) -> Iterable[ir.Value]:
@@ -382,8 +521,33 @@ def _finalize_model_value_shapes(model_proto: ir.Model) -> None:
             _normalize_value_shape(value)
 
 
+def _source_finalization_error(
+    exc: Exception,
+    *,
+    stage: str,
+    location: str,
+    opset: int | None,
+    primitive: str | None = None,
+) -> SourcePrecisionError:
+    return SourcePrecisionError(
+        f"{stage} failed after {type(exc).__name__}: {exc}",
+        phase="finalization",
+        category="lowering-defect",
+        location=location,
+        primitive=primitive,
+        opset=opset,
+        requirement="required finalization and explicit node attributes must be applied successfully",
+        action="fix the converter or plugin finalization failure before exporting this program",
+    )
+
+
 def _apply_ir_attr_overrides_to_graph(
-    gr: ir.Graph, overrides: dict[str, dict[str, object]]
+    gr: ir.Graph,
+    overrides: dict[str, dict[str, object]],
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    location: str = "graph",
+    opset: int | None = None,
 ) -> None:
     if not overrides:
         return
@@ -396,9 +560,24 @@ def _apply_ir_attr_overrides_to_graph(
         if node is None or kv is None:
             continue
         for attr_name, attr_value in kv.items():
-            attr_obj = _convert_ir_attr(attr_name, attr_value)
-            if attr_obj is not None:
-                node.attributes[attr_name] = attr_obj
+            try:
+                attr_obj = _convert_ir_attr(attr_name, attr_value)
+                if attr_obj is not None:
+                    node.attributes[attr_name] = attr_obj
+                elif precision_policy is PrecisionPolicy.SOURCE:
+                    raise ValueError(
+                        f"Explicit attribute {attr_name!r} could not be converted"
+                    )
+            except Exception as exc:
+                if precision_policy is PrecisionPolicy.SOURCE:
+                    raise _source_finalization_error(
+                        exc,
+                        stage="explicit attribute override",
+                        location=f"{location}/node {nm}/attribute {attr_name}",
+                        opset=opset,
+                        primitive=node.op_type,
+                    ) from exc
+                raise
 
 
 def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
@@ -411,8 +590,27 @@ def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
 
 
 def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
-    _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
-    _fix_concat_axis_in_graph(ir_model.graph)
+    graph_location = f"graph {ir_model.graph.name}"
+    try:
+        _apply_ir_attr_overrides_to_graph(
+            ir_model.graph,
+            ctx.attr_overrides,
+            precision_policy=ctx.precision_policy,
+            location=graph_location,
+            opset=ctx.opset,
+        )
+        _fix_concat_axis_in_graph(ir_model.graph)
+    except SourcePrecisionError:
+        raise
+    except Exception as exc:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            raise _source_finalization_error(
+                exc,
+                stage="graph postprocess",
+                location=graph_location,
+                opset=ctx.opset,
+            ) from exc
+        raise
 
     missing_overrides = object()
     for fn in iter_ir_functions(ir_model.functions):
@@ -431,10 +629,25 @@ def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
                 )
             else:
                 fn_overrides = {}
-            _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
+            _apply_ir_attr_overrides_to_graph(
+                graph_obj,
+                fn_overrides,
+                precision_policy=ctx.precision_policy,
+                location=f"function {fn.name}",
+                opset=ctx.opset,
+            )
             _fix_concat_axis_in_graph(graph_obj)
         except Exception as exc:
             fn_name = getattr(fn, "name", "<unnamed function>")
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                if isinstance(exc, SourcePrecisionError):
+                    raise
+                raise _source_finalization_error(
+                    exc,
+                    stage="function postprocess",
+                    location=f"function {fn_name}",
+                    opset=ctx.opset,
+                ) from exc
             _log_nonfatal_stage_failure(f"function postprocess for {fn_name}", exc)
 
 
@@ -465,6 +678,7 @@ def _build_and_finalize_ir_model(
     _optimize_graph_with_failure_policy(
         ir_model,
         strict_optimizer_failures=strict_optimizer_failures,
+        precision_policy=ctx.precision_policy,
     )
 
     _apply_late_ir_attr_overrides(ir_model, ctx)
@@ -473,6 +687,13 @@ def _build_and_finalize_ir_model(
     try:
         _finalize_model_value_shapes(ir_model)
     except Exception as exc:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            raise _source_finalization_error(
+                exc,
+                stage="shape finalization",
+                location=f"model {model_name}",
+                opset=ctx.opset,
+            ) from exc
         _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
 
     return ir_model
@@ -499,20 +720,13 @@ def _activate_plugin_worlds() -> Iterator[None]:
 
 @contextmanager
 def _force_jax_x64(enable_double_precision: bool) -> Iterator[None]:
-    read_config = jax.config.read if hasattr(jax.config, "read") else None
-    previous: Optional[bool]
-    if callable(read_config):
-        previous = bool(read_config("jax_enable_x64"))
-    elif hasattr(jax.config, "jax_enable_x64"):
-        previous = bool(jax.config.jax_enable_x64)
-    else:
-        previous = None
-    jax.config.update("jax_enable_x64", bool(enable_double_precision))
+    # Config reads include a local override; restore the actual global value.
+    previous = jax.enable_x64.get_global()
     try:
+        jax.config.update("jax_enable_x64", bool(enable_double_precision))
         yield
     finally:
-        if previous is not None:
-            jax.config.update("jax_enable_x64", previous)
+        jax.config.update("jax_enable_x64", previous)
 
 
 def _create_ir_context(
@@ -523,12 +737,18 @@ def _create_ir_context(
     frozen_params: Mapping[str, object],
     record_primitive_calls_file: Optional[str],
     normalization_mode: str = "auto",
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    jaxpr_validator: Callable[[Any, int], None] | None = None,
+    deployment_target: DeploymentTarget | None = None,
 ) -> IRContext:
     ctx = IRContext(
         opset=opset,
         enable_double_precision=enable_double_precision,
         normalization_mode=normalization_mode,
         input_specs=input_specs,
+        precision_policy=precision_policy,
+        jaxpr_validator=jaxpr_validator,
+        deployment_target=deployment_target,
     )
     ctx._call_input_param_names = set(frozen_params.keys())
     ctx._call_input_param_literals = dict(frozen_params)
@@ -550,7 +770,19 @@ def _bind_closed_jaxpr_constants(
     default_float: np.dtype[Any],
     enable_double_precision: bool,
 ) -> None:
-    for cv, cval in zip(jpr.constvars, consts):
+    source_precision = ctx.precision_policy is PrecisionPolicy.SOURCE
+    for cv, cval in zip(jpr.constvars, consts, strict=source_precision):
+        if source_precision:
+            representation = representation_for_aval(cv.aval)
+            ctx.bind_const_for_var(
+                cv,
+                (
+                    cval
+                    if representation.encoding == "threefry-key-words"
+                    else np.asarray(cval, dtype=cv.aval.dtype)
+                ),
+            )
+            continue
         np_c = np.asarray(cval)
         target_dtype = None
         try:
@@ -603,6 +835,33 @@ class _LayoutAdapter:
         aval_shape = tuple(var.aval.shape)
         self._require_4d(aval_shape, kind="input", index=index)
 
+        if self.ctx.precision_policy is PrecisionPolicy.SOURCE:
+            canonical = representation_for_aval(var.aval)
+            boundary = representation_for_aval(var.aval, boundary_layout="NCHW")
+            external = ir.val(
+                f"in_{index}",
+                dtype=boundary.ir_dtype,
+                shape=ir_shape_from_dims(
+                    boundary.physical_shape, parse_integer_like=False
+                ),
+            )
+            self.ctx.add_graph_input_value(external)
+            restored = self.ctx.builder.op(
+                "Transpose",
+                [external],
+                {"perm": ir.AttrInt64s("perm", boundary.input_permutation)},
+                output=ir.val(
+                    f"in_{index}_nhwc_restored",
+                    dtype=canonical.ir_dtype,
+                    shape=ir_shape_from_dims(
+                        canonical.physical_shape, parse_integer_like=False
+                    ),
+                ),
+            )
+            self.ctx.bind_value_for_var_without_origins(var, restored)
+            self.ctx.record_symbolic_dim_origins(boundary.physical_shape, external)
+            return
+
         nchw_shape = tuple(aval_shape[p] for p in _NHWC_TO_NCHW_PERM)
         nchw_input_val = ir.Value(
             name=f"in_{index}_nchw",
@@ -635,6 +894,23 @@ class _LayoutAdapter:
         val = self.ctx.require_value_for_var(out_var)
         aval_shape = tuple(out_var.aval.shape)
         self._require_4d(aval_shape, kind="output", index=index)
+
+        if self.ctx.precision_policy is PrecisionPolicy.SOURCE:
+            boundary = representation_for_aval(out_var.aval, boundary_layout="NCHW")
+            external = self.ctx.builder.op(
+                "Transpose",
+                [val],
+                {"perm": ir.AttrInt64s("perm", boundary.output_permutation)},
+                output=ir.val(
+                    f"out_{index}_nchw_converted",
+                    dtype=boundary.ir_dtype,
+                    shape=ir_shape_from_dims(
+                        boundary.physical_shape, parse_integer_like=False
+                    ),
+                ),
+            )
+            self.ctx.add_graph_output_value(external)
+            return
 
         output_type = val.type
         if output_type is None:
@@ -710,6 +986,15 @@ def _bind_jaxpr_outputs(
     outputs_as_nchw: Sequence[int],
     enable_double_precision: bool,
 ) -> None:
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        for var in jpr.outvars:
+            value = ctx.require_value_for_var(var)
+            representation = representation_for_aval(var.aval)
+            if not representation.matches_ir_value(value):
+                raise RuntimeError(
+                    f"Source result type {representation.ir_dtype} became {value.dtype}; "
+                    f"required shape {representation.physical_shape}, received {value.shape}"
+                )
     _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_outputs(
         jpr, outputs_as_nchw=outputs_as_nchw
     )
@@ -725,15 +1010,46 @@ def _trace_to_jaxpr(
     outputs_as_nchw: Optional[Sequence[int]],
     input_names: Optional[Sequence[str]],
     output_names: Optional[Sequence[str]],
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    opset: int = 23,
 ) -> _TraceResult:
-    sds_list = _as_sds_list(inputs, enable_double_precision)
-    frozen_params: Dict[str, object] = dict(input_params or {})
+    source = precision_policy is PrecisionPolicy.SOURCE
+    positional_count = len(inputs)
+    named_params = dict(input_params or {}) if source else {}
+    declarations = list(inputs)
+    if source:
+        declarations.extend(
+            _source_named_input_spec(name, value, opset=opset)
+            for name, value in named_params.items()
+        )
+        for index, spec in enumerate(declarations):
+            assert isinstance(spec, jax.ShapeDtypeStruct)
+            validate_source_input_dtype(spec.dtype, index=index, opset=opset)
+    # Normalize the entire call together so named and positional B declarations
+    # share the actual native scope, rather than just its printed spelling.
+    sds_list = _as_sds_list(
+        declarations, enable_double_precision, precision_policy=precision_policy
+    )
+    frozen_params: Dict[str, object] = {} if source else dict(input_params or {})
 
     def _wrapped(*xs: Any) -> Any:
+        if source:
+            named_values = dict(zip(named_params, xs[positional_count:], strict=True))
+            return fn(*xs[:positional_count], **named_values)
         return fn(*xs, **frozen_params)
 
-    with _activate_plugin_worlds():
-        closed = jax.make_jaxpr(_wrapped)(*sds_list)
+    with precision_policy_scope(precision_policy), _activate_plugin_worlds():
+        try:
+            closed = jax.make_jaxpr(_wrapped)(*sds_list)
+        except jax.errors.TracerBoolConversionError as exc:
+            if source and named_params:
+                exc.add_note(
+                    "SOURCE named runtime arguments are real traced operands. For pure Python-if "
+                    "source, prepare an external jax.lax.cond adapter whose concrete True/False "
+                    "branches invoke the complete unchanged original callable; bind intended "
+                    "fixed configuration with a closure or functools.partial instead."
+                )
+            raise
     if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
         try:
             print(f"JAXPR: {closed.jaxpr.pretty_print()}")
@@ -741,9 +1057,9 @@ def _trace_to_jaxpr(
             pass
     jpr = closed.jaxpr
 
-    if input_names is not None and len(input_names) != len(jpr.invars):
+    if input_names is not None and len(input_names) != positional_count:
         raise ValueError(
-            f"input_names length ({len(input_names)}) must match traced positional inputs ({len(jpr.invars)})."
+            f"input_names length ({len(input_names)}) must match traced positional inputs ({positional_count})."
         )
     if output_names is not None and len(output_names) != len(jpr.outvars):
         raise ValueError(
@@ -752,7 +1068,7 @@ def _trace_to_jaxpr(
     validated_inputs_as_nchw = _validate_layout_indices(
         inputs_as_nchw,
         kind="inputs_as_nchw",
-        upper_bound=len(jpr.invars),
+        upper_bound=positional_count,
     )
     validated_outputs_as_nchw = _validate_layout_indices(
         outputs_as_nchw,
@@ -760,6 +1076,24 @@ def _trace_to_jaxpr(
         upper_bound=len(jpr.outvars),
     )
 
+    source_inputs = (
+        tuple(
+            _SourceInputBinding(
+                index,
+                index if index < positional_count else None,
+                (
+                    None
+                    if index < positional_count
+                    else tuple(named_params)[index - positional_count]
+                ),
+                spec,
+                var,
+            )
+            for index, (spec, var) in enumerate(zip(sds_list, jpr.invars, strict=True))
+        )
+        if source
+        else ()
+    )
     return _TraceResult(
         closed_jaxpr=closed,
         jaxpr=jpr,
@@ -767,6 +1101,7 @@ def _trace_to_jaxpr(
         frozen_params=frozen_params,
         inputs_as_nchw=validated_inputs_as_nchw,
         outputs_as_nchw=validated_outputs_as_nchw,
+        source_inputs=source_inputs,
     )
 
 
@@ -777,6 +1112,180 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
         registry=PLUGIN_REGISTRY,
         source="converter",
     )
+
+
+def _convert_to_ir(
+    *,
+    fn: Callable[..., Any],
+    inputs: Sequence[InputSpec],
+    input_params: Optional[Mapping[str, object]],
+    model_name: str,
+    opset: int,
+    enable_double_precision: bool,
+    record_primitive_calls_file: Optional[str],
+    protective_clone: bool = True,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
+    input_names: Optional[Sequence[str]] = None,
+    output_names: Optional[Sequence[str]] = None,
+    normalization_mode: str = "auto",
+    strict_optimizer_failures: Optional[bool] = None,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    jaxpr_validator: Callable[[Any, int], None] | None = None,
+    trace_observer: Callable[[_TraceResult], None] | None = None,
+    deployment_target: DeploymentTarget | None = None,
+) -> ir.Model:
+    """Trace, lower, and finalize through one private conversion pipeline.
+
+    The caller owns any legacy x64 override. SOURCE retains ambient JAX
+    configuration and requires a validator for its bounded audited subset.
+    """
+    normalization_mode = normalize_normalization_mode(normalization_mode)
+    if deployment_target is not None and precision_policy is not PrecisionPolicy.SOURCE:
+        raise ValueError("Deployment targets require the private SOURCE path")
+    if precision_policy is PrecisionPolicy.SOURCE:
+        if inputs_as_nchw is not None and len(inputs_as_nchw) == 0:
+            inputs_as_nchw = None
+        if outputs_as_nchw is not None and len(outputs_as_nchw) == 0:
+            outputs_as_nchw = None
+        strict_optimizer_failures = True
+        if enable_double_precision:
+            raise ValueError("Source precision cannot use legacy double promotion")
+        if jaxpr_validator is None:
+            raise ValueError("Private source conversion requires a subset validator")
+        for index, spec in enumerate(inputs):
+            if not isinstance(spec, jax.ShapeDtypeStruct):
+                raise ValueError("Private source conversion requires typed inputs")
+            validate_source_input_dtype(spec.dtype, index=index, opset=opset)
+        validate_source_shapes(
+            [cast(jax.ShapeDtypeStruct, spec).shape for spec in inputs]
+        )
+
+    # The nonce is born here, before tracing and before any acquisition lease.
+    # Boundary-layout bridges are outside this exact whole-root cast contract.
+    cast_nonce = object()
+    cast_transaction = (
+        _begin_cast_transaction(cast_nonce, opset)
+        if precision_policy is PrecisionPolicy.SOURCE
+        and inputs_as_nchw is None
+        and outputs_as_nchw is None
+        else None
+    )
+    try:
+        cast_lease = (
+            RootCastContextLease(
+                fn,
+                has_input_params=bool(input_params),
+                inputs=inputs,
+                transaction=cast_transaction,
+            )
+            if precision_policy is PrecisionPolicy.SOURCE
+            else None
+        )
+        acquisition = None
+        try:
+            trace = _trace_to_jaxpr(
+                fn=fn,
+                inputs=inputs,
+                input_params=input_params,
+                enable_double_precision=enable_double_precision,
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
+                input_names=input_names,
+                output_names=output_names,
+                precision_policy=precision_policy,
+                opset=opset,
+            )
+            if trace_observer is not None:
+                trace_observer(trace)
+            jpr = trace.jaxpr
+            if jaxpr_validator is not None:
+                jaxpr_validator(jpr, opset)
+            cast_plan = (
+                prepare_root_cast_plan(trace.closed_jaxpr)
+                if cast_lease is not None
+                else None
+            )
+            if cast_lease is not None and cast_plan is not None:
+                cast_plan = cast_lease.finish(cast_plan, closed=trace.closed_jaxpr)
+                acquisition = cast_lease.record
+        finally:
+            if cast_lease is not None:
+                cast_lease.close()
+                acquisition = cast_lease.record
+                if cast_lease.plan is not None:
+                    cast_plan = cast_lease.plan
+        ctx = _create_ir_context(
+            opset=opset,
+            enable_double_precision=enable_double_precision,
+            normalization_mode=normalization_mode,
+            input_specs=trace.sds_list,
+            frozen_params=trace.frozen_params,
+            record_primitive_calls_file=record_primitive_calls_file,
+            precision_policy=precision_policy,
+            jaxpr_validator=jaxpr_validator,
+            deployment_target=deployment_target,
+        )
+        ctx._source_cast_plan = cast_plan
+        _bind_closed_jaxpr_constants(
+            ctx,
+            jpr,
+            trace.closed_jaxpr.consts,
+            default_float=_np_float_dtype(enable_double_precision),
+            enable_double_precision=enable_double_precision,
+        )
+        _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=trace.inputs_as_nchw)
+        if cast_transaction is not None:
+            cast_transaction.bind(ctx, jpr)
+
+        _lower_jaxpr_equations(ctx, jpr)
+        _bind_jaxpr_outputs(
+            ctx,
+            jpr,
+            outputs_as_nchw=trace.outputs_as_nchw,
+            enable_double_precision=enable_double_precision,
+        )
+
+        model = _build_and_finalize_ir_model(
+            ctx,
+            model_name=model_name,
+            protective_clone=protective_clone,
+            strict_optimizer_failures=strict_optimizer_failures,
+        )
+        finalize_selected_cast(model, cast_transaction)
+        if precision_policy is PrecisionPolicy.SOURCE:
+            attach_cast_plan(model, cast_plan)
+            attach_cast_acquisition(model, acquisition)
+            attach_cast_authority_audit(model, cast_transaction)
+            attach_source_structure(
+                model,
+                ctx._source_structure,
+                boundary_layout=bool(trace.inputs_as_nchw or trace.outputs_as_nchw),
+            )
+            for label, variables, values, layouts in (
+                ("input", jpr.invars, model.graph.inputs, trace.inputs_as_nchw),
+                ("output", jpr.outvars, model.graph.outputs, trace.outputs_as_nchw),
+            ):
+                for index, (var, value) in enumerate(
+                    zip(variables, values, strict=True)
+                ):
+                    representation = representation_for_aval(
+                        var.aval, boundary_layout="NCHW" if index in layouts else None
+                    )
+                    if not representation.matches_ir_value(value):
+                        raise RuntimeError(
+                            f"Final {label} {value.name} lost source type {representation.ir_dtype} "
+                            f"or shape {representation.physical_shape}"
+                        )
+            _source_input_values(trace, model.graph.inputs, require_internal_names=True)
+            if deployment_target is not None:
+                attach_matrix_bindings(
+                    model, deployment_target, ctx.matrix_precision_bindings
+                )
+        return model
+    finally:
+        if cast_transaction is not None:
+            cast_transaction.discard()
 
 
 def to_onnx(
@@ -796,59 +1305,21 @@ def to_onnx(
     normalization_mode: str = "auto",
     strict_optimizer_failures: Optional[bool] = None,
 ) -> ir.Model:
-    """
-    Build an ONNX-IR model in three phases:
-    1) Trace JAX to ClosedJaxpr with symbolic shapes.
-    2) Lower to onnx_ir (plugins; function bodies allowed).
-    3) Run a single IR-wide optimization pass (cross-node cleanups).
-    """
+    """Build an ONNX-IR model using the legacy export precision rules."""
     with _force_jax_x64(enable_double_precision):
-        default_float = _np_float_dtype(enable_double_precision)
-        trace = _trace_to_jaxpr(
+        return _convert_to_ir(
             fn=fn,
             inputs=inputs,
             input_params=input_params,
+            model_name=model_name,
+            opset=opset,
             enable_double_precision=enable_double_precision,
+            record_primitive_calls_file=record_primitive_calls_file,
+            protective_clone=protective_clone,
             inputs_as_nchw=inputs_as_nchw,
             outputs_as_nchw=outputs_as_nchw,
             input_names=input_names,
             output_names=output_names,
-        )
-        closed = trace.closed_jaxpr
-        jpr = trace.jaxpr
-        sds_list = trace.sds_list
-        frozen_params = trace.frozen_params
-        validated_inputs_as_nchw = trace.inputs_as_nchw
-        validated_outputs_as_nchw = trace.outputs_as_nchw
-
-        ctx = _create_ir_context(
-            opset=opset,
-            enable_double_precision=enable_double_precision,
             normalization_mode=normalization_mode,
-            input_specs=sds_list,
-            frozen_params=frozen_params,
-            record_primitive_calls_file=record_primitive_calls_file,
-        )
-        _bind_closed_jaxpr_constants(
-            ctx,
-            jpr,
-            closed.consts,
-            default_float=default_float,
-            enable_double_precision=enable_double_precision,
-        )
-        _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=validated_inputs_as_nchw)
-
-        _lower_jaxpr_equations(ctx, jpr)
-        _bind_jaxpr_outputs(
-            ctx,
-            jpr,
-            outputs_as_nchw=validated_outputs_as_nchw,
-            enable_double_precision=enable_double_precision,
-        )
-
-        return _build_and_finalize_ir_model(
-            ctx,
-            model_name=model_name,
-            protective_clone=protective_clone,
             strict_optimizer_failures=strict_optimizer_failures,
         )

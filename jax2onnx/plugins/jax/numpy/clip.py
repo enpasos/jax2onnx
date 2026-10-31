@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
+
 from collections.abc import Callable
 from typing import Any, ClassVar, Final, TypeAlias, cast
 
@@ -286,6 +288,8 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.clip not found")
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(

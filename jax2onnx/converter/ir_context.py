@@ -31,6 +31,12 @@ from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
 from .typing_support import ConverterContext, SymbolicDimOrigin
+from .precision_policy import PrecisionPolicy
+from .source_deployment import DeploymentTarget, MatrixPrecisionRequirement
+from .source_deployment_bindings import MatrixSiteBinding, record_matrix_site
+from .source_representation import representation_for_aval
+from .source_structure import SourceStructureLedger
+from ._source_cast_planning import WholeRootCastPlan
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
@@ -38,6 +44,12 @@ from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from .function_scope import FunctionRegistry
+    from ._source_cast_authority import (
+        _CastPermit,
+        _CastExecutionSession,
+        SelectedCastContract,
+    )
+    from jax2onnx.plugins.jax._source_f64_f16_structure import SelectedF64F16Rule
 
 
 class _InitializerProxy(MutableSequence[ir.Value]):
@@ -179,7 +191,32 @@ class IRContext:
         normalization_mode: str = "auto",
         input_specs: Sequence[Any] | None = None,
         stacktrace_metadata: Optional[bool] = None,
+        precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+        jaxpr_validator: Callable[[Any, int], None] | None = None,
+        deployment_target: DeploymentTarget | None = None,
     ):
+        if precision_policy is PrecisionPolicy.SOURCE and enable_double_precision:
+            raise ValueError("Source precision cannot use legacy double promotion")
+        if (
+            deployment_target is not None
+            and precision_policy is not PrecisionPolicy.SOURCE
+        ):
+            raise ValueError("Deployment targets require the private SOURCE path")
+        self._deployment_target = deployment_target
+        self._matrix_precision_requirements: list[MatrixSiteBinding] = []
+        self._precision_policy = precision_policy
+        self._source_structure = (
+            SourceStructureLedger()
+            if precision_policy is PrecisionPolicy.SOURCE
+            else None
+        )
+        self._source_cast_plan: WholeRootCastPlan | None = None
+        self._source_cast_permit: _CastPermit | None = None
+        self._source_cast_audit: SelectedCastContract | None = None
+        self._source_cast_session: _CastExecutionSession | None = None
+        self._source_cast_rule: SelectedF64F16Rule | None = None
+        self._source_cast_selected = False
+        self._jaxpr_validator = jaxpr_validator
         if stacktrace_metadata is None:
             env_flag = os.getenv(_STACKTRACE_METADATA_ENV)
             if env_flag is None:
@@ -195,6 +232,7 @@ class IRContext:
             opset=opset,
             enable_double_precision=enable_double_precision,
             enable_stacktrace_metadata=bool(stacktrace_metadata),
+            precision_policy=precision_policy,
         )
         self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
         self._normalization_mode = normalization_mode
@@ -234,9 +272,11 @@ class IRContext:
         self._call_input_param_names: set[str] = set()
         self._call_input_param_literals: dict[str, object] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
-        # Root tracing receives declared input_params as Python values. Function
-        # retracing uses explicit formals, so its Python kwargs remain static.
-        self._promote_call_input_params: bool = True
+        # LEGACY promotes frozen root kwargs by name. SOURCE already owns its
+        # actual runtime operands and never enables that promotion.
+        self._promote_call_input_params: bool = (
+            precision_policy is not PrecisionPolicy.SOURCE
+        )
         self._implicit_capture_parent: IRContext | None = None
         self._external_flag_resolver: Callable[[str], ir.Value] | None = None
         self._const_folder = ConstantFolder()
@@ -281,6 +321,32 @@ class IRContext:
     def normalization_mode(self) -> str:
         return self._normalization_mode
 
+    @property
+    def precision_policy(self) -> PrecisionPolicy:
+        return self._precision_policy
+
+    @property
+    def deployment_target(self) -> DeploymentTarget | None:
+        return self._deployment_target
+
+    @property
+    def matrix_precision_bindings(self) -> tuple[MatrixSiteBinding, ...]:
+        return tuple(self._matrix_precision_requirements)
+
+    @property
+    def source_scope(self) -> str:
+        return self._name_prefix or "graph"
+
+    def record_matrix_precision_requirement(
+        self,
+        requirement: MatrixPrecisionRequirement,
+        output: ir.Value,
+        matrix_output: ir.Value,
+    ) -> None:
+        self._matrix_precision_requirements.append(
+            record_matrix_site(requirement, output, matrix_output)
+        )
+
     # ------------------------------- Function registry helpers ------------------
 
     def get_function_registry(self) -> Optional["FunctionRegistry"]:
@@ -312,7 +378,12 @@ class IRContext:
             normalization_mode=self.normalization_mode,
             input_specs=[],
             stacktrace_metadata=self.builder.stacktrace_metadata_enabled,
+            precision_policy=self.precision_policy,
+            jaxpr_validator=self._jaxpr_validator,
+            deployment_target=self.deployment_target,
         )
+        child._matrix_precision_requirements = self._matrix_precision_requirements
+        child._source_structure = self._source_structure
         child.record_primitive_calls_file = self.record_primitive_calls_file
         child._lowering_record_owner = self._lowering_record_owner
         child._primitive_call_records = (
@@ -416,6 +487,21 @@ class IRContext:
         Function and Loop bodies require explicit local bindings. If branches
         may capture an enclosing flag through a local Identity on first use.
         """
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            if var is None:
+                raise RuntimeError(
+                    "SOURCE runtime flags require an actual bound BOOL[] operand"
+                )
+            source_flag = self.require_value_for_var(var)
+            if (
+                source_flag.dtype != ir.DataType.BOOL
+                or source_flag.shape is None
+                or tuple(source_flag.shape) != ()
+            ):
+                raise RuntimeError(
+                    "SOURCE runtime flag operand must have dtype BOOL and scalar shape"
+                )
+            return source_flag
         if self._inside_function_scope:
             if var is None:
                 value = self._call_param_value_by_name.get(name)
@@ -456,11 +542,27 @@ class IRContext:
     def ensure_training_mode(self, flag_name: str, var: Any) -> ir.Value:
         """
         Return a BOOL[] Value for `training_mode`.
+        SOURCE resolves only the actual operand; literal folding uses its value.
         - Inside a function: if `var` is a JAX literal (has a `.val`), fold to a constant
           training_mode = not(var.val) and feed Dropout directly (NO Not).
         - Otherwise: route the flag through a Not: flag → Not → training_mode.
           (Top-level uses a single graph input named `flag_name`; function uses the local wire.)
         """
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            flag = self.ensure_external_flag(flag_name, var)
+            literal = _maybe_literal_value(var)
+            if literal is not None:
+                return self.builder.add_initializer_from_scalar(
+                    name=self.fresh_name("training_mode"),
+                    value=np.asarray(not np.asarray(literal).item(), dtype=np.bool_),
+                )
+            return self.builder.op(
+                "Not",
+                [flag],
+                output=ir.val(
+                    self.fresh_name("training_mode"), dtype=ir.DataType.BOOL, shape=()
+                ),
+            )
         # If we're inside a function body and the flag is a literal, fold now.
         if self._inside_function_scope:
             lit_obj = _maybe_literal_value(var)
@@ -545,14 +647,38 @@ class IRContext:
         )
         return out
 
-    def bind_const_for_var(self, var: Any, np_array: np.ndarray) -> ir.Value:
-        array = (
-            np.asarray(np_array) if not isinstance(np_array, np.ndarray) else np_array
-        )
-        self._const_folder.register_const(var, array)
+    def bind_const_for_var(self, var: Any, np_array: Any) -> ir.Value:
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            aval = _maybe_aval(var)
+            logical = (
+                np_array
+                if aval is None
+                and hasattr(np_array, "dtype")
+                and hasattr(np_array, "shape")
+                else np.asarray(np_array) if aval is None else aval
+            )
+            representation = representation_for_aval(logical)
+            array = representation.encode_array(np_array)
+            self._const_folder.register_const(
+                var,
+                (
+                    array
+                    if representation.encoding == "threefry-key-words"
+                    else np.asarray(np_array)
+                ),
+            )
+        else:
+            array = (
+                np.asarray(np_array)
+                if not isinstance(np_array, np.ndarray)
+                else np_array
+            )
+            self._const_folder.register_const(var, array)
         promote_flag = self.builder.enable_double_precision
         keep_float32 = self._keep_function_float32
-        if self._function_mode:
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            pass  # Already encoded before any NumPy coercion of a typed key.
+        elif self._function_mode:
             aval = _maybe_aval(var)
             aval_np_dtype = _maybe_dtype(aval)
             if (
@@ -591,6 +717,11 @@ class IRContext:
             )
         else:
             self.builder.initializers.append(value)
+
+        if self._source_structure is not None:
+            # `array` is the exact storage encoded directly from the original
+            # source constant/literal above, before any lowering can rewrite it.
+            self._source_structure.constant(value, array)
 
         try:
             self.builder._var2val[var] = value
@@ -674,9 +805,15 @@ class IRContext:
         shp = _maybe_shape(aval)
         if shp is None:
             raise TypeError("Aval missing shape")
-        aval_dtype = _maybe_dtype(aval)
-        if aval_dtype is None:
-            raise TypeError("Aval missing dtype")
+        aval_dtype: np.dtype[Any] | None
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            representation = representation_for_aval(aval)
+            aval_dtype = representation.physical_dtype
+            shp = representation.physical_shape
+        else:
+            aval_dtype = _maybe_dtype(aval)
+            if aval_dtype is None:
+                raise TypeError("Aval missing dtype")
         promote_flag = self.builder.enable_double_precision
         if (
             self._function_mode
@@ -727,7 +864,13 @@ class IRContext:
         if np.issubdtype(arr.dtype, np.floating):
             tgt = literal_dtype or np.dtype(self._default_float_dtype)
             arr = arr.astype(tgt, copy=False)
-        elif np.issubdtype(arr.dtype, np.integer) and literal_dtype is not None:
+        elif (
+            np.issubdtype(arr.dtype, np.integer)
+            or (
+                self.precision_policy is PrecisionPolicy.SOURCE
+                and np.issubdtype(arr.dtype, np.complexfloating)
+            )
+        ) and literal_dtype is not None:
             arr = arr.astype(literal_dtype, copy=False)
         return self.bind_const_for_var(var, arr)
 
@@ -782,6 +925,15 @@ class IRContext:
             return self._bind_literal_value_for_var(
                 var, prefer_np_dtype=prefer_np_dtype
             )
+        source_type = None
+        source_shape = None
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            source_aval = _maybe_aval(var)
+            if source_aval is None or not hasattr(source_aval, "dtype"):
+                raise TypeError("Source output aval missing dtype")
+            representation = representation_for_aval(source_aval)
+            source_type = ir.TensorType(representation.ir_dtype)
+            source_shape = _to_ir_shape(representation.physical_shape)
         value = self.lookup_value_for_var(var)
         if value is not None:
             if (
@@ -790,22 +942,34 @@ class IRContext:
                 and not value.is_initializer()
                 and value.const_value is None
             ):
+                if source_type is not None:
+                    value.type = source_type
+                    value.shape = source_shape
                 return value
             output_name = name_hint or self.fresh_name("v")
             if output_name == value.name:
                 output_name = self.fresh_name(output_name)
-            output = ir.Value(name=output_name, type=value.type, shape=value.shape)
+            output = ir.Value(
+                name=output_name,
+                type=source_type or value.type,
+                shape=source_shape if source_shape is not None else value.shape,
+            )
             self.bind_value_for_var(var, output)
             return output
 
         aval = _maybe_aval(var)
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
-        aval_dtype = _maybe_dtype(aval)
+        aval_dtype = (
+            representation.physical_dtype
+            if self.precision_policy is PrecisionPolicy.SOURCE
+            else _maybe_dtype(aval)
+        )
         if aval_dtype is None:
             raise TypeError("Aval missing dtype")
         if (
-            not self.builder.enable_double_precision
+            self.precision_policy is PrecisionPolicy.LEGACY
+            and not self.builder.enable_double_precision
             and np.issubdtype(aval_dtype, np.floating)
             and aval_dtype != np.dtype(np.float16)
             and aval_dtype.name != "bfloat16"
@@ -824,6 +988,10 @@ class IRContext:
         shape_tuple = _maybe_shape(aval)
         if shape_tuple is None:
             raise TypeError("Aval missing shape")
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            representation = representation_for_aval(aval)
+            aval_dtype = representation.physical_dtype
+            shape_tuple = representation.physical_shape
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
             type=ir.TensorType(_dtype_to_ir(aval_dtype, promote_flag)),
@@ -855,6 +1023,15 @@ class IRContext:
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for var in outvars:
             v = self.require_value_for_var(var)
+            if self.precision_policy is PrecisionPolicy.SOURCE:
+                representation = representation_for_aval(var.aval)
+                if not representation.matches_ir_value(v):
+                    raise RuntimeError(
+                        f"Source result requires {representation.ir_dtype} "
+                        f"{representation.physical_shape}; received {v.dtype} {v.shape}"
+                    )
+                self.builder.outputs.append(v)
+                continue
             target_enum: Optional[ir.DataType] = None
             aval = _maybe_aval(var)
             np_dtype = _maybe_dtype(aval)

@@ -149,18 +149,8 @@ echo "[${step}] Generating tests..."
 poetry run python scripts/generate_tests.py
 step=$((step + 1))
 
-if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
-  echo "[${step}] Running MaxText SotA tests..."
-  poetry run pytest -q tests/examples/test_maxtext.py "${PYTEST_DURATION_ARGS[@]}"
-  step=$((step + 1))
-fi
-
-if [[ "${RUN_MAXDIFFUSION_ACTIVE}" == "1" ]]; then
-  echo "[${step}] Running MaxDiffusion SotA tests..."
-  poetry run pytest -q tests/examples/test_maxdiffusion.py "${PYTEST_DURATION_ARGS[@]}"
-  step=$((step + 1))
-fi
-
+# Optional model preparation above makes these tests part of the full collection.
+# Execute them there once, with the same inputs and complete batch accounting.
 echo "[${step}] Running pytest..."
 if [[ -n "${ONNXRUNTIME_WEB_RUNNER}" ]]; then
   echo "Full pytest will run with onnxruntime-web runner: ${ONNXRUNTIME_WEB_RUNNER}"
@@ -170,12 +160,9 @@ if [[ -n "${ONNXRUNTIME_WEB_RUNNER}" ]]; then
   export JAX2ONNX_ONNXRUNTIME_WEB_RUNNER="${ONNXRUNTIME_WEB_RUNNER}"
 fi
 
-if poetry run python -c "import xdist" >/dev/null 2>&1; then
-  echo "Using pytest-xdist: -n auto --dist=loadscope"
-  poetry run pytest -n auto --dist=loadscope "${PYTEST_DURATION_ARGS[@]}"
-else
-  echo "pytest-xdist is not installed in the Poetry environment."
-  echo "Falling back to serial pytest."
-  echo "Install it with: poetry add --group dev pytest-xdist"
-  poetry run pytest "${PYTEST_DURATION_ARGS[@]}"
+echo "Using fresh serial pytest processes with complete collection accounting (at most 500 items each)."
+if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
+  poetry run python -B scripts/prepare_ci_download_cache.py \
+    --report "$RUNNER_TEMP/ci-download-cache-preparation.json"
 fi
+poetry run -- python scripts/run_pytest_batches.py -- "${PYTEST_DURATION_ARGS[@]}"

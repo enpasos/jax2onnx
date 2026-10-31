@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
+
 from typing import Callable, ClassVar, Final
 
 import jax
@@ -134,6 +136,8 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jax.nn.leaky_relu not found")
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig
 
             def _patched(x: ArrayLike, negative_slope: float = 0.01) -> ArrayLike:
                 return cls._PRIM.bind(x, negative_slope=negative_slope)

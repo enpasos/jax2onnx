@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
@@ -10,8 +11,16 @@ import numpy as np
 import jax
 
 from jax._src import core as jcore
-from jax2onnx._compat.jax import fresh_var_like
+from jax2onnx._compat.jax import ClosedJaxpr, fresh_var_like
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.plugins.jax.random._source_prng import (
+    emit_native_bernoulli,
+    emit_native_uniform,
+    native_bernoulli_uniform,
+    prove_native_uniform,
+    require_native_prng_opset,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
@@ -45,7 +54,7 @@ class JitPlugin(PrimitiveLeafPlugin):
     _PRIM: ClassVar[Any | None] = None
 
     @staticmethod
-    def _freshen_closed_jaxpr(closed: Any) -> jcore.ClosedJaxpr:
+    def _freshen_closed_jaxpr(closed: Any) -> ClosedJaxpr:
         """Clone a ClosedJaxpr with fresh Vars so multiple jit bodies don't alias."""
 
         inner_jaxpr = getattr(closed, "jaxpr", closed)
@@ -83,12 +92,10 @@ class JitPlugin(PrimitiveLeafPlugin):
             debug_info=inner_jaxpr.debug_info,
             is_high=getattr(inner_jaxpr, "is_high", False),
         )
-        return jcore.ClosedJaxpr(cloned, consts)
+        return ClosedJaxpr(cloned, consts)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: jcore.JaxprEqn) -> None:
-        closed: SimpleNamespace | jcore.ClosedJaxpr | None = eqn.params.get(
-            "call_jaxpr"
-        )
+        closed: SimpleNamespace | ClosedJaxpr | None = eqn.params.get("call_jaxpr")
         if closed is None:
             thunk = eqn.params.get("call_jaxpr_thunk")
             if thunk is not None:
@@ -96,13 +103,29 @@ class JitPlugin(PrimitiveLeafPlugin):
         if closed is None:
             maybe_jaxpr = eqn.params.get("jaxpr")
             # Newer JAX passes a ClosedJaxpr directly via `jaxpr`.
-            if isinstance(maybe_jaxpr, jcore.ClosedJaxpr):
+            if isinstance(maybe_jaxpr, ClosedJaxpr):
                 closed = maybe_jaxpr
             elif maybe_jaxpr is not None:
                 consts = eqn.params.get("consts", ())
                 closed = SimpleNamespace(jaxpr=maybe_jaxpr, consts=consts)
         if closed is None:
             raise ValueError("jit lowering requires call_jaxpr parameter")
+
+        if ctx.precision_policy is PrecisionPolicy.SOURCE and (
+            prove_native_uniform(eqn) is not None
+            or native_bernoulli_uniform(eqn) is not None
+        ):
+            require_native_prng_opset(ctx.opset, eqn)
+            # The shared proof reads the actual body and every caller binding.
+            # Freshen its variables just as for all other inlined JIT bodies.
+            source_params = dict(eqn.params)
+            source_params["jaxpr"] = self._freshen_closed_jaxpr(closed)
+            fresh_equation = eqn.replace(params=source_params)
+            if emit_native_uniform(ctx, fresh_equation) or emit_native_bernoulli(
+                ctx, fresh_equation
+            ):
+                return
+            raise ValueError("native PRNG carrier proof changed during freshening")
 
         fresh_closed = self._freshen_closed_jaxpr(
             closed
@@ -116,12 +139,45 @@ class JitPlugin(PrimitiveLeafPlugin):
         consts = fresh_closed.consts
 
         for const_var, const_val in zip(inner_jaxpr.constvars, consts):
-            ctx.bind_const_for_var(const_var, np.asarray(const_val))
+            ctx.bind_const_for_var(
+                const_var,
+                (
+                    const_val
+                    if ctx.precision_policy is PrecisionPolicy.SOURCE
+                    else np.asarray(const_val)
+                ),
+            )
 
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.require_value_for_var(outer_var))
 
-        lower_jaxpr_eqns(ctx, inner_jaxpr, source="jit")
+        source_structure = getattr(ctx, "_source_structure", None)
+        # The original binder above already materialized caller literals once.
+        # Literal lookup itself intentionally returns None; fresh formals retain
+        # the actual values, in every original operand position.
+        inline_operands: tuple[Any, ...] = (
+            tuple(ctx.lookup_value_for_var(var) for var in inner_jaxpr.invars)
+            if source_structure is not None
+            else ()
+        )
+        with (
+            source_structure.region("inline-body", inline_operands)
+            if source_structure is not None
+            else nullcontext(None)
+        ) as inline_region:
+            lower_jaxpr_eqns(ctx, inner_jaxpr, source="jit")
 
         for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
             ctx.bind_value_for_var(outer_var, ctx.require_value_for_var(inner_var))
+
+        if source_structure is not None and inline_region is not None:
+            from jax2onnx.plugins.jax.core._source_inline_structure import (
+                record_inline_attachment,
+            )
+
+            source_structure._observe(
+                "inline-attachment",
+                lambda: record_inline_attachment(
+                    ctx, eqn, inline_region, inner_jaxpr, inline_operands
+                ),
+            )

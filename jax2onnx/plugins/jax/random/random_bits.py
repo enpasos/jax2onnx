@@ -19,6 +19,8 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.plugins.jax.random._source_prng import emit_bits
 
 
 def _shape_from_params(shape_param: Sequence[int]) -> tuple[int, ...]:
@@ -80,6 +82,9 @@ class RandomBitsPlugin(PrimitiveLeafPlugin):
     """Lower ``random_bits`` via RandomUniformLike + scaling + cast."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            emit_bits(ctx, eqn)
+            return
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = getattr(eqn, "params", {})

@@ -14,13 +14,7 @@ from flax import nnx
 from flax.nnx import bridge
 
 
-class _LinenToNNXCallable:
-    def __init__(self, model: Callable[..., Any], rngs: Any) -> None:
-        self._model = model
-        self._rngs = rngs
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self._model(*args, rngs=self._rngs, **kwargs)
+from jax2onnx._linen_bridge import _LinenToNNXCallable as _LinenToNNXCallable
 
 
 def _filter_kwargs_for_signature(

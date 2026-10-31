@@ -9,6 +9,10 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
@@ -24,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-
 
 EMBED_PRIM: Final[Primitive] = Primitive("nnx.embed")
 EMBED_PRIM.multiple_results = False
@@ -171,9 +174,16 @@ class EmbedPlugin(PrimitiveLeafPlugin):
         def _make_patch(orig: Callable[..., Any] | None) -> Callable[..., Any]:
             cls._ORIG_CALL = orig
 
-            def _patched(self: nnx.Embed, indices: Any) -> Any:
+            def legacy(self: nnx.Embed, indices: Any) -> Any:
                 table = self.embedding.value
                 return cls._PRIM.bind(indices, table)
+
+            def _patched(self: nnx.Embed, *args: Any, **kwargs: Any) -> Any:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    if orig is None:
+                        raise RuntimeError("Original nnx.Embed.__call__ not captured")
+                    return orig(self, *args, **kwargs)
+                return legacy(self, *args, **kwargs)
 
             return _patched
 

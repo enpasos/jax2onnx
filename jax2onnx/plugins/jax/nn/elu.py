@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
+
 from typing import Callable, ClassVar, Final
 
 import jax
@@ -129,6 +131,8 @@ class EluPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jax.nn.elu not found")
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig
 
             def _patched(x: ArrayLike, alpha: float = 1.0) -> ArrayLike:
                 return cls._PRIM.bind(x, alpha=alpha)

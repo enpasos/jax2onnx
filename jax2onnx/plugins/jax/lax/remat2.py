@@ -10,6 +10,8 @@ from jax import lax
 import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
@@ -99,6 +101,44 @@ class Remat2Plugin(PrimitiveLeafPlugin):
         if jaxpr_like is None:
             raise ValueError("remat2 lowering requires 'jaxpr' in params")
         inner_jaxpr, consts = _unwrap_closed_jaxpr(jaxpr_like)
+
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            # The profile owns native primitive/flag/body validation. At this
+            # physical boundary, transport the actual typed values unchanged.
+            if (
+                len(eqn.invars) != len(inner_jaxpr.invars)
+                or len(eqn.outvars) != len(inner_jaxpr.outvars)
+                or inner_jaxpr.constvars
+                or tuple(consts)
+                or inner_jaxpr.effects
+            ):
+                raise ValueError(
+                    "SOURCE remat2 requires exact pure converted-capture body ports"
+                )
+            for outer, inner in zip(eqn.invars, inner_jaxpr.invars, strict=True):
+                value = ctx.require_value_for_var(outer)
+                if not (
+                    representation_for_aval(outer.aval).matches_ir_value(value)
+                    and representation_for_aval(inner.aval).matches_ir_value(value)
+                    and outer.aval.weak_type == inner.aval.weak_type
+                ):
+                    raise ValueError(
+                        "SOURCE remat2 operand differs from its native body representation"
+                    )
+                ctx.bind_value_for_var(inner, value)
+            lower_jaxpr_eqns(ctx, inner_jaxpr, source="remat2")
+            for outer, inner in zip(eqn.outvars, inner_jaxpr.outvars, strict=True):
+                value = ctx.require_value_for_var(inner)
+                if not (
+                    representation_for_aval(outer.aval).matches_ir_value(value)
+                    and representation_for_aval(inner.aval).matches_ir_value(value)
+                    and outer.aval.weak_type == inner.aval.weak_type
+                ):
+                    raise ValueError(
+                        "SOURCE remat2 result differs from its native body representation"
+                    )
+                ctx.bind_value_for_var(outer, value)
+            return
 
         for const_var, const_value in zip(inner_jaxpr.constvars, consts):
             ctx.bind_const_for_var(const_var, np.asarray(const_value))

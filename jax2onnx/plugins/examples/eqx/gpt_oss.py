@@ -15,6 +15,7 @@ from typing import Any, Optional, Sequence, cast
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 import numpy as np
 from jax import nn
 
@@ -71,7 +72,7 @@ def _swiglu(x: jnp.ndarray, *, limit: float, alpha: float = 1.702) -> jnp.ndarra
 
 
 def _build_causal_mask(
-    seq_len: int, *, sliding_window: int, dtype: jnp.dtype = jnp.float32
+    seq_len: int, *, sliding_window: int, dtype: DTypeLike = jnp.float32
 ) -> jnp.ndarray:
     """Return a causal + optional sliding-window mask suitable for attention logits."""
     seq_len_int = int(seq_len)
@@ -462,7 +463,7 @@ class AttentionBlock(eqx.Module):
     query_multiplicity: int = eqx.field(static=True)
     sliding_window: int = eqx.field(static=True)
     sm_scale: float = eqx.field(static=True)
-    param_dtype: jnp.dtype = eqx.field(static=True)
+    param_dtype: DTypeLike = eqx.field(static=True)
 
     norm: RMSNorm
     rope: RotaryEmbedding
@@ -476,7 +477,7 @@ class AttentionBlock(eqx.Module):
         layer_idx: int,
         *,
         key: jax.Array,
-        param_dtype: jnp.dtype = jnp.bfloat16,
+        param_dtype: DTypeLike = jnp.bfloat16,
     ):
         self.config = config
         self.layer_idx = int(layer_idx)
@@ -604,7 +605,7 @@ class MLPBlock(eqx.Module):
     swiglu_limit: float = eqx.field(static=True)
     hidden_size: int = eqx.field(static=True)
     intermediate_size: int = eqx.field(static=True)
-    param_dtype: jnp.dtype = eqx.field(static=True)
+    param_dtype: DTypeLike = eqx.field(static=True)
 
     norm: RMSNorm
     gate: eqx.nn.Linear
@@ -618,7 +619,7 @@ class MLPBlock(eqx.Module):
         config: GPTOSSConfig,
         *,
         key: jax.Array,
-        param_dtype: jnp.dtype = jnp.bfloat16,
+        param_dtype: DTypeLike = jnp.bfloat16,
     ):
         self.config = config
         self.num_experts = int(config.num_experts)
@@ -763,7 +764,7 @@ class TransformerBlock(eqx.Module):
         layer_idx: int,
         *,
         key: jax.Array,
-        param_dtype: jnp.dtype = jnp.bfloat16,
+        param_dtype: DTypeLike = jnp.bfloat16,
     ):
         attn_key, mlp_key = jax.random.split(key, 2)
         self.attn = AttentionBlock(
@@ -797,7 +798,7 @@ class Transformer(eqx.Module):
     """GPT-OSS Transformer using Equinox modules."""
 
     config: GPTOSSConfig = eqx.field(static=True)
-    param_dtype: jnp.dtype = eqx.field(static=True)
+    param_dtype: DTypeLike = eqx.field(static=True)
     embedding: eqx.nn.Embedding
     blocks: Sequence[TransformerBlock]
     norm: RMSNorm
@@ -808,7 +809,7 @@ class Transformer(eqx.Module):
         config: GPTOSSConfig = GPTOSSConfig(),
         *,
         key: jax.Array,
-        param_dtype: jnp.dtype = jnp.bfloat16,
+        param_dtype: DTypeLike = jnp.bfloat16,
     ):
         self.config = config
         self.param_dtype = param_dtype
@@ -939,7 +940,7 @@ def _config_from_torch_transformer(torch_model: Any) -> GPTOSSConfig:
     )
 
 
-def _torch_tensor_to_jax(tensor: Any, *, dtype: jnp.dtype | None) -> jnp.ndarray:
+def _torch_tensor_to_jax(tensor: Any, *, dtype: DTypeLike | None) -> jnp.ndarray:
     """Convert a torch tensor into a JAX array without mutating the source."""
 
     try:
@@ -961,7 +962,7 @@ def _tensor_from_checkpoint(
     checkpoint: Any,
     name: str,
     *,
-    dtype: jnp.dtype | None,
+    dtype: DTypeLike | None,
 ) -> jnp.ndarray:
     """Helper to fetch a tensor from a GPT-OSS checkpoint and convert to JAX."""
 
@@ -977,7 +978,7 @@ def _populate_eqx_from_checkpoint(
     checkpoint: Any,
     eqx_model: Transformer,
     *,
-    param_dtype: jnp.dtype,
+    param_dtype: DTypeLike,
 ) -> Transformer:
     """Copy parameters from a GPT-OSS checkpoint into the Equinox model."""
 
@@ -1145,7 +1146,7 @@ def _populate_eqx_from_torch(
     torch_model: Any,
     eqx_model: Transformer,
     *,
-    param_dtype: jnp.dtype,
+    param_dtype: DTypeLike,
 ) -> Transformer:
     """Copy parameters from the torch Transformer into the Equinox example."""
 
@@ -1273,7 +1274,7 @@ def load_pretrained_gpt_oss(
     checkpoint: str | Path,
     *,
     device: Any = "cpu",
-    param_dtype: jnp.dtype = jnp.bfloat16,
+    param_dtype: DTypeLike = jnp.bfloat16,
     seed: int = 0,
 ) -> Transformer:
     """Load a GPT-OSS checkpoint and mirror it into the Equinox example."""

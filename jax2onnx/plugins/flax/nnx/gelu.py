@@ -14,6 +14,7 @@ from flax import nnx
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -150,10 +151,15 @@ class GeluPlugin(PrimitiveLeafPlugin):
         def _make_value(
             orig: Callable[..., ArrayLike] | None,
         ) -> Callable[..., ArrayLike]:
-            del orig
-
-            def _patched(x: ArrayLike, approximate: bool = True) -> ArrayLike:
+            def _legacy(x: ArrayLike, approximate: bool = True) -> ArrayLike:
                 return cls._gelu(x, approximate=approximate)
+
+            def _patched(*args: Any, **kwargs: Any) -> ArrayLike:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    if orig is None:
+                        raise RuntimeError("Original flax.nnx.gelu not found")
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 

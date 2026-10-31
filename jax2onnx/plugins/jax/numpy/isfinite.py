@@ -129,7 +129,7 @@ class JnpIsFinitePlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME, source_native=True)
 
 
 @JnpIsFinitePlugin._PRIM.def_impl

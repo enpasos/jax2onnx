@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import (
     Callable,
@@ -22,6 +23,7 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
 from onnx_ir.passes import common as common_passes
+from onnx_ir.tape import Tape
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
     iter_ir_functions,
@@ -38,6 +40,7 @@ from .optimizer_graph_utils import (
     _v_name,
 )
 from .conv_transpose_bias_folding import fold_conv_transpose_constant_bias
+from .precision_policy import PrecisionPolicy
 
 # ---------------- Config ----------------
 
@@ -139,6 +142,7 @@ _has_input_name_or_obj: Callable[
 @dataclass(frozen=True)
 class _OptimizerPass:
     name: str
+    precision_policies: frozenset[PrecisionPolicy]
     model_runner: ModelOptimizer | None = None
     graph_runner: GraphOptimizer | None = None
     function_graph_runner: GraphOptimizer | None = None
@@ -677,9 +681,9 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                                     graph, out_val
                                 ) or _nested_graph_references_value(nodes, out_val)
                                 if intermediate_is_observed:
-                                    graph.remove(next_node)
+                                    graph.remove(next_node, safe=True)
                                 else:
-                                    graph.remove([n, next_node])
+                                    graph.remove([n, next_node], safe=True)
                                 changed = True
                                 break
                 if DEBUG:
@@ -696,7 +700,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
             ir.convenience.replace_all_uses_with(
                 out_val, src_val, replace_graph_outputs=True
             )
-            graph.remove(n)
+            graph.remove(n, safe=True)
             changed = True
             break
     return
@@ -877,13 +881,13 @@ def _collect_transpose_elementwise_chain(
         producer = producer_in_graph(graph, val)
         if producer is None:
             return None
-        if producer.op_type == "Transpose":
+        if _is_standard_onnx_node(producer, "Transpose"):
             if source_transpose is None:
                 source_transpose = producer
             elif source_transpose is not producer:
                 return None
             continue
-        if not _is_elementwise_node(producer):
+        if producer.domain != "" or not _is_elementwise_node(producer):
             return None
         if producer not in allowed_nodes:
             allowed_nodes.add(producer)
@@ -922,10 +926,10 @@ def _collect_transpose_elementwise_forest(
         producer = producer_in_graph(graph, val)
         if producer is None:
             return None
-        if producer.op_type == "Transpose":
+        if _is_standard_onnx_node(producer, "Transpose"):
             transpose_nodes.add(producer)
             continue
-        if not _is_elementwise_node(producer):
+        if producer.domain != "" or not _is_elementwise_node(producer):
             return None
         if producer not in elementwise_nodes:
             elementwise_nodes.add(producer)
@@ -1102,6 +1106,17 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             break
 
 
+def _transpose_value_has_observer(
+    graph: ir.Graph, value: ir.Value, allowed_users: set[ir.Node]
+) -> bool:
+    """Protect original-layout outputs, captures and uses outside a matched region."""
+    return (
+        value.is_graph_output()
+        or any(user not in allowed_users for user in consumers_in_graph(graph, value))
+        or _nested_graph_references_value(list(graph), value)
+    )
+
+
 def _collect_add_transpose_forest(
     graph: ir.Graph, start: ir.Node
 ) -> Optional[Tuple[List[ir.Node], List[int], List[int], Set[ir.Node], Set[ir.Node]]]:
@@ -1110,7 +1125,7 @@ def _collect_add_transpose_forest(
     Transpose(perm_fwd) and external outputs are wrapped by one
     Transpose(perm_inv). Returns None when the pattern does not match.
     """
-    if start.op_type != "Add":
+    if not _is_standard_onnx_node(start, "Add"):
         return None
 
     perm_fwd: Optional[List[int]] = None
@@ -1125,7 +1140,7 @@ def _collect_add_transpose_forest(
         node = queue.pop(0)
         if node in add_set:
             continue
-        if node.op_type != "Add":
+        if not _is_standard_onnx_node(node, "Add"):
             return None
 
         ins = _node_inputs(node)
@@ -1136,13 +1151,13 @@ def _collect_add_transpose_forest(
         transpose_input_count = 0
         for iv in ins:
             prod = producer_in_graph(graph, iv)
-            if prod is not None and prod.op_type == "Add":
+            if prod is not None and _is_standard_onnx_node(prod, "Add"):
                 add_input_count += 1
                 if prod not in add_set:
                     # Keep traversal strictly forward from the selected root.
                     return None
                 continue
-            if prod is None or prod.op_type != "Transpose":
+            if prod is None or not _is_standard_onnx_node(prod, "Transpose"):
                 return None
             perm = _transpose_perm(prod)
             if perm is None:
@@ -1166,11 +1181,11 @@ def _collect_add_transpose_forest(
             return None
         consumers = consumers_in_graph(graph, out)
         for consumer in consumers:
-            if consumer.op_type == "Add":
+            if _is_standard_onnx_node(consumer, "Add"):
                 if consumer not in add_set:
                     queue.append(consumer)
                 continue
-            if consumer.op_type != "Transpose":
+            if not _is_standard_onnx_node(consumer, "Transpose"):
                 return None
             perm = _transpose_perm(consumer)
             if perm is None:
@@ -1209,20 +1224,33 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
         changed = False
         nodes = list(graph)
         for start in nodes:
-            if start.op_type != "Add":
+            if not _is_standard_onnx_node(start, "Add"):
                 continue
 
             match = _collect_add_transpose_forest(graph, start)
             if match is None:
                 continue
             add_nodes, perm_fwd, _perm_inv, input_transposes, output_transposes = match
+            allowed_users = set(add_nodes) | output_transposes
+            if any(
+                _transpose_value_has_observer(graph, value, allowed_users)
+                for node in add_nodes
+                for value in node.outputs
+            ):
+                continue
+            if any(
+                _nested_graph_references_value(nodes, value)
+                for node in output_transposes
+                for value in node.outputs
+            ):
+                continue
 
             # Rewrite Add inputs from Transpose(perm_fwd)(x) to x.
             for add_node in add_nodes:
                 ins = _node_inputs(add_node)
                 for idx, iv in enumerate(ins):
                     prod = producer_in_graph(graph, iv)
-                    if prod is None or prod.op_type != "Transpose":
+                    if prod is None or not _is_standard_onnx_node(prod, "Transpose"):
                         continue
                     perm = _transpose_perm(prod)
                     if perm is None or perm != perm_fwd:
@@ -1250,9 +1278,7 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
                 if t_out is None:
                     removable_inputs.append(in_transpose)
                     continue
-                if consumers_in_graph(graph, t_out):
-                    continue
-                if t_out.is_graph_output():
+                if _transpose_value_has_observer(graph, t_out, set()):
                     continue
                 removable_inputs.append(in_transpose)
             if removable_inputs:
@@ -1286,7 +1312,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
         # Pass -1: collapse Add chains surrounded by transposes (NHWC <-> NCHW)
         visited_adds: Set[ir.Node] = set()
         for start in nodes:
-            if start.op_type != "Add":
+            if not _is_standard_onnx_node(start, "Add"):
                 continue
             if start in visited_adds:
                 continue
@@ -1299,7 +1325,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             prev: Optional[ir.Node] = None
             cur: Optional[ir.Node] = start
             while cur is not None:
-                if cur.op_type != "Add":
+                if not _is_standard_onnx_node(cur, "Add"):
                     ok = False
                     break
                 ins = _node_inputs(cur)
@@ -1317,7 +1343,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     if prod is not None and prod is prev:
                         has_prev_input = True
                         continue
-                    if prod is None or prod.op_type != "Transpose":
+                    if prod is None or not _is_standard_onnx_node(prod, "Transpose"):
                         ok = False
                         break
                     perm = _transpose_perm(prod)
@@ -1347,13 +1373,17 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     ok = False
                     break
                 consumers = consumers_in_graph(graph, out)
-                add_consumers = [c for c in consumers if c.op_type == "Add"]
-                other_consumers = [c for c in consumers if c.op_type != "Add"]
+                add_consumers = [
+                    c for c in consumers if _is_standard_onnx_node(c, "Add")
+                ]
+                other_consumers = [
+                    c for c in consumers if not _is_standard_onnx_node(c, "Add")
+                ]
                 if len(add_consumers) > 1:
                     ok = False
                     break
                 for consumer in other_consumers:
-                    if consumer.op_type != "Transpose":
+                    if not _is_standard_onnx_node(consumer, "Transpose"):
                         ok = False
                         break
                     perm = _transpose_perm(consumer)
@@ -1384,12 +1414,33 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             ):
                 continue
 
+            inverse_nodes = {
+                consumer
+                for node in add_chain
+                for value in node.outputs
+                for consumer in consumers_in_graph(graph, value)
+                if _is_standard_onnx_node(consumer, "Transpose")
+            }
+            allowed_users = set(add_chain) | inverse_nodes
+            if any(
+                _transpose_value_has_observer(graph, value, allowed_users)
+                for node in add_chain
+                for value in node.outputs
+            ):
+                continue
+            if any(
+                _nested_graph_references_value(nodes, value)
+                for node in inverse_nodes
+                for value in node.outputs
+            ):
+                continue
+
             # Rewrite: move Add chain to pre-transpose layout (NCHW).
             for node in add_chain:
                 ins = _node_inputs(node)
                 for idx, iv in enumerate(ins):
                     prod = producer_in_graph(graph, iv)
-                    if prod is None or prod.op_type != "Transpose":
+                    if prod is None or not _is_standard_onnx_node(prod, "Transpose"):
                         continue
                     perm = _transpose_perm(prod)
                     if perm is None or perm != perm_fwd:
@@ -1407,7 +1458,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 if out is None:
                     continue
                 for consumer in consumers_in_graph(graph, out):
-                    if consumer.op_type != "Transpose":
+                    if not _is_standard_onnx_node(consumer, "Transpose"):
                         continue
                     perm = _transpose_perm(consumer)
                     if perm is None or perm != perm_inv:
@@ -1430,7 +1481,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
         # Pass -0.5: fold inverse transpose around elementwise DAG with
         # multiple transpose inputs (e.g., scale + residual add).
         for t2_node in nodes:
-            if t2_node.op_type != "Transpose":
+            if not _is_standard_onnx_node(t2_node, "Transpose"):
                 continue
             t2_in = _first_input(t2_node)
             if not isinstance(t2_in, ir.Value):
@@ -1466,7 +1517,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 for consumer in consumers_in_graph(graph, out):
                     if consumer in elem_nodes:
                         continue
-                    if consumer.op_type != "Transpose":
+                    if not _is_standard_onnx_node(consumer, "Transpose"):
                         ok = False
                         break
                     perm = _transpose_perm(consumer)
@@ -1479,6 +1530,19 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             if not ok:
                 continue
             if t2_node not in output_transposes:
+                continue
+            allowed_users = elem_nodes | output_transposes
+            if any(
+                _transpose_value_has_observer(graph, value, allowed_users)
+                for node in elem_nodes
+                for value in node.outputs
+            ):
+                continue
+            if any(
+                _nested_graph_references_value(nodes, value)
+                for node in output_transposes
+                for value in node.outputs
+            ):
                 continue
 
             # Rewrite: replace transpose outputs feeding elementwise nodes with
@@ -1516,7 +1580,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 t_out = _node_output(t_node)
                 if t_out is None:
                     continue
-                if not consumers_in_graph(graph, t_out):
+                if not _transpose_value_has_observer(graph, t_out, set()):
                     graph.remove(t_node)
 
             changed = True
@@ -1525,7 +1589,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             continue
         # Pass 0: fold inverse transpose pairs around elementwise-only chains
         for t2_node in nodes:
-            if t2_node.op_type != "Transpose":
+            if not _is_standard_onnx_node(t2_node, "Transpose"):
                 continue
             t2_in = _first_input(t2_node)
             if not isinstance(t2_in, ir.Value):
@@ -1541,6 +1605,11 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 continue
             perm1 = _transpose_perm(T1)
             if perm1 is None or not _is_inverse_perm(perm1, perm2):
+                continue
+            if any(
+                _nested_graph_references_value(nodes, value)
+                for value in t2_node.outputs
+            ):
                 continue
             t1_out = _node_output(T1)
             if t1_out is None:
@@ -1568,6 +1637,12 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     break
             if not ok:
                 continue
+            if any(
+                _transpose_value_has_observer(graph, value, elem_nodes | {t2_node})
+                for node in elem_nodes
+                for value in node.outputs
+            ):
+                continue
             t1_in = _first_input(T1)
             if t1_in is None:
                 continue
@@ -1586,7 +1661,12 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             ir.convenience.replace_all_uses_with(
                 t2_out, new_src, replace_graph_outputs=True
             )
-            graph.remove([T1, t2_node])
+            graph.remove(t2_node)
+            if all(
+                not _transpose_value_has_observer(graph, value, set())
+                for value in T1.outputs
+            ):
+                graph.remove(T1)
             changed = True
             break
         if changed:
@@ -1594,7 +1674,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
         i = 0
         while i < len(nodes):
             n = nodes[i]
-            if n.op_type != "Transpose":
+            if not _is_standard_onnx_node(n, "Transpose"):
                 i += 1
                 continue
             T1 = n
@@ -1614,7 +1694,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 while steps < 8:
                     steps += 1
                     m = cur
-                    if m.op_type in ALLOWED_ELEMWISE:
+                    if m.domain == "" and m.op_type in ALLOWED_ELEMWISE:
                         chain_nodes.append(m)
                         allowed_nodes.append(m)
                         cur_val = _node_output(m)
@@ -1623,7 +1703,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                             break
                         cur = next_nodes[0]
                         continue
-                    if m.op_type == "Transpose":
+                    if _is_standard_onnx_node(m, "Transpose"):
                         chain_nodes.append(m)
                         T2 = m
                     break
@@ -1633,6 +1713,19 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 perm1 = _transpose_perm(T1)
                 perm2 = _transpose_perm(T2)
                 if perm1 is None or perm2 is None or not _is_inverse_perm(perm1, perm2):
+                    i += 1
+                    continue
+                if any(
+                    _transpose_value_has_observer(
+                        graph, value, set(allowed_nodes) | {T2}
+                    )
+                    for node in allowed_nodes
+                    for value in node.outputs
+                ):
+                    i += 1
+                    continue
+                old_out = _node_output(T2)
+                if old_out is None or _nested_graph_references_value(nodes, old_out):
                     i += 1
                     continue
                 if TRN_DEBUG:
@@ -1654,18 +1747,23 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     if t1_out is None:
                         i += 1
                         continue
-                    ir.convenience.replace_all_uses_with(
-                        t1_out, t1_in, replace_graph_outputs=True
-                    )
+                    for node in allowed_nodes:
+                        for index, value in enumerate(node.inputs):
+                            if value is t1_out:
+                                node.replace_input_with(index, t1_in)
+                        _refresh_elementwise_output_shape(node)
                     new_src = _node_output(last_allowed) or t1_in
                 else:
                     new_src = t1_in
-                old_out = _node_output(T2)
-                assert old_out is not None
                 ir.convenience.replace_all_uses_with(
                     old_out, new_src, replace_graph_outputs=True
                 )
-                graph.remove([T1, T2])
+                graph.remove(T2)
+                if all(
+                    not _transpose_value_has_observer(graph, value, set())
+                    for value in T1.outputs
+                ):
+                    graph.remove(T1)
                 changed = True
                 break
 
@@ -1684,11 +1782,16 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 # Find direct Transpose consumers that cancel with T1
                 removed_any = False
                 for consumer in consumers:
-                    if consumer.op_type != "Transpose":
+                    if not _is_standard_onnx_node(consumer, "Transpose"):
                         continue
                     T2 = consumer
                     perm2 = _transpose_perm(T2)
                     if perm2 is None or not _is_inverse_perm(perm1, perm2):
+                        continue
+                    old_out = _node_output(T2)
+                    if old_out is None or _nested_graph_references_value(
+                        nodes, old_out
+                    ):
                         continue
                     # Found a direct T2 that cancels with T1
                     if TRN_DEBUG:
@@ -1704,8 +1807,6 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                             perm2,
                         )
                     # Rewire T2's consumers to use T1's input directly
-                    old_out = _node_output(T2)
-                    assert old_out is not None
                     ir.convenience.replace_all_uses_with(
                         old_out, t1_in, replace_graph_outputs=True
                     )
@@ -2330,102 +2431,37 @@ def _read_scalar_bool_from_value_or_constant(
     return None
 
 
-def _constant_false_value() -> "ir.Value":
-    return ir.Value(
-        name="false_const",
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape(()),
-        const_value=ir.tensor(_as_ndarray(False, dtype=np.dtype(np.bool_))),
-    )
-
-
 def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
-    """
-    Constant-only inlining for Dropout.training_mode:
-      - If training_mode is a constant False → drop it (make input #2 missing)
-      - If training_mode is Not(True)        → drop it (make input #2 missing)
-    This preserves dynamic (graph-input) cases: they are NOT inlined.
-    """
-    nodes = list(graph)
-    if not nodes:
-        return
-    changed = False
-    del_not_names: Set[str] = set()
-    del_not_nodes: Set[ir.Node] = set()
+    """Omit a same-graph Not(True) used as Dropout's optional training input.
 
-    for idx, n in enumerate(nodes):
-        if n.op_type != "Dropout":
+    Missing training_mode defaults to false. Other uses and graph outputs keep
+    their original Not value; only unobserved Not nodes are removed. This pass
+    does not recurse into child graphs or inline already-direct false inputs.
+    """
+    candidates: set[ir.Node] = set()
+    for node in list(graph):
+        if node.domain != "" or node.op_type != "Dropout" or len(node.inputs) < 3:
             continue
-        ins = _node_inputs(n)
-        if len(ins) < 3:
+        producer = producer_in_graph(graph, node.inputs[2])
+        if producer is None or producer.domain != "" or producer.op_type != "Not":
             continue
-        tm = ins[2]
+        flag = _first_input(producer)
+        if isinstance(flag, ir.Value) and flag.is_graph_input():
+            continue
+        if _read_scalar_bool_from_value_or_constant(graph, flag) is True:
+            node.replace_input_with(2, None)
+            candidates.add(producer)
 
-        _dbg_tm(
-            "Dropout@",
-            idx,
-            "tm input:",
-            (tm if isinstance(tm, str) else _v_name(tm)),
-            "type:",
-            type(tm).__name__,
+    removable = [
+        node
+        for node in candidates
+        if all(
+            not value.uses() and not value.is_graph_output() for value in node.outputs
         )
-        # Prefer handling the Not(True) pattern so we can drop the Not producer.
-        producer = producer_in_graph(graph, tm)
-        if producer is not None:
-            if producer.op_type == "Not":
-                _dbg_tm("tm producer is Not")
-                not_in = _first_input(producer)
-                if isinstance(not_in, ir.Value) and not_in.is_graph_input():
-                    _dbg_tm("Not input is dynamic graph input; skipping")
-                    _dbg_tm("Not input could not be proven True; nv=", None)
-                    continue
-                nv = _read_scalar_bool_from_value_or_constant(graph, not_in)
-                if nv is not None and bool(nv) is True:
-                    rep_val = _constant_false_value()
-                    ins_new = list(ins)
-                    ins_new[2] = rep_val
-                    old_not_out = _node_output(producer)
-                    if old_not_out is None:
-                        continue
-                    ir.convenience.replace_all_uses_with(
-                        old_not_out, rep_val, replace_graph_outputs=True
-                    )
-                    _set_node_inputs(n, ins_new)
-                    changed = True
-                    out_v = _node_output(producer)
-                    out_name = _v_name(out_v)
-                    if out_name:
-                        del_not_names.add(out_name)
-                    del_not_nodes.add(producer)
-                    # We need to mark producer index as deleted if we track by index
-                    # But the current code uses del_not_nodes (set of nodes) and del_not_names.
-                    # The original code used del_not_idx.
-                    # We should probably stick to del_not_nodes which is safer.
-                    continue
-                _dbg_tm("Not input could not be proven True; nv=", nv)
-
-        # Case A removed: we only inline Not(True) patterns to preserve
-        # call-param wiring in inference graphs.
-    if changed:
-        _dbg_tm("changed detected; del_not_nodes=", len(del_not_nodes))
-        # Remove any Not nodes whose outputs have no remaining consumers
-        if del_not_nodes:
-            final_del_nodes = []
-            for not_node in del_not_nodes:
-                has_uses = False
-                for ov in _node_outputs(not_node):
-                    if ov.uses() or ov.is_graph_output():
-                        has_uses = True
-                        break
-                if not has_uses:
-                    final_del_nodes.append(not_node)
-
-            if final_del_nodes:
-                if TRN_DEBUG or os.getenv("JAX2ONNX_TM_DEBUG"):
-                    print(
-                        f"[tm-inline] removed {len(final_del_nodes)} orphan Not nodes"
-                    )
-                graph.remove(final_del_nodes)
+    ]
+    if removable:
+        _dbg_tm("removed", len(removable), "unobserved Not nodes")
+        graph.remove(removable)
 
 
 # ---------------- DCE ----------------
@@ -2441,7 +2477,10 @@ def remove_dead_nodes_ir(model: ir.Model) -> None:
         # Keep the graph intact when stacktrace metadata is requested so downstream
         # tooling (e.g. sandbox repros) can inspect unused nodes.
         return
-    common_passes.RemoveUnusedNodesPass()(model)
+    from ._source_identity_dce import observe_identity_dce
+
+    with observe_identity_dce(model):
+        common_passes.RemoveUnusedNodesPass()(model)
 
 
 # ---------------- Targeted cleanup: orphan Transpose nodes ----------------
@@ -2463,8 +2502,8 @@ def remove_orphan_transposes_ir(graph: ir.Graph) -> None:
     """
     Remove Transpose nodes whose outputs are not consumed and are not graph outputs.
 
-    This pass uses name-based consumer discovery to stay robust even when IR-level
-    consumer links are stale.
+    Preserve native uses and nested observations first; retain name-based
+    consumer discovery for graphs whose IR-level links are stale.
     """
     while True:
         nodes = list(graph)
@@ -2484,6 +2523,9 @@ def remove_orphan_transposes_ir(graph: ir.Graph) -> None:
 
             is_live = False
             for out in outputs:
+                if _transpose_value_has_observer(graph, out, set()):
+                    is_live = True
+                    break
                 out_name = _v_name(out)
                 if out_name is None:
                     continue
@@ -2555,20 +2597,123 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _snapshot_lexical_name_references(
+    graph: ir.Graph,
+    ancestors: dict[str, ir.Value | None],
+    references: dict[ir.Value, ir.Value],
+    non_references: set[ir.Value],
+) -> None:
+    """Remember proven lexical aliases that native naming sees as new values."""
+    initial_values = (*graph.inputs, *graph.initializers.values())
+    local_names = {
+        value.name
+        for value in (*initial_values, *(v for node in graph for v in node.outputs))
+        if value.name
+    }
+    visible = {
+        name: value for name, value in ancestors.items() if name not in local_names
+    }
+
+    def define(value: ir.Value) -> None:
+        name = value.name
+        if not name:
+            return
+        if name in visible and visible[name] is not value:
+            visible[name] = None
+        else:
+            visible[name] = value
+
+    def exclude(value: ir.Value) -> None:
+        if value in references:
+            raise ValueError(f"Ambiguous nested lexical reference {value.name!r}")
+        non_references.add(value)
+
+    def remember(value: ir.Value | None) -> None:
+        if value is None or value.producer() is not None:
+            return
+        name = value.name
+        if not name or name in local_names:
+            exclude(value)
+            return
+        definition = ancestors.get(name)
+        if name in ancestors and definition is None:
+            raise ValueError(f"Ambiguous nested lexical reference {name!r}")
+        if definition is None or definition is value:
+            exclude(value)
+            return
+        if value in non_references or (
+            value in references and references[value] is not definition
+        ):
+            raise ValueError(f"Ambiguous nested lexical reference {name!r}")
+        references[value] = definition
+
+    for value in initial_values:
+        exclude(value)
+        define(value)
+    for node in graph:
+        for input_value in node.inputs:
+            remember(input_value)
+        for attr in node.attributes.values():
+            if attr.type is IRAttrType.GRAPH:
+                _snapshot_lexical_name_references(
+                    attr.as_graph(), visible, references, non_references
+                )
+            elif attr.type is IRAttrType.GRAPHS:
+                for child in attr.as_graphs():
+                    _snapshot_lexical_name_references(
+                        child, visible, references, non_references
+                    )
+        # A node's results are not visible inside its own Graph attributes.
+        for value in node.outputs:
+            define(value)
+
+
 def _run_name_fix_pass(model: ir.Model) -> None:
+    references: dict[ir.Value, ir.Value] = {}
+    non_references: set[ir.Value] = set()
+    _snapshot_lexical_name_references(model.graph, {}, references, non_references)
+    for function in iter_ir_functions(model.functions):
+        _snapshot_lexical_name_references(
+            function.graph, {}, references, non_references
+        )
     common_passes.NameFixPass()(model)
+    for reference, definition in references.items():
+        reference.name = definition.name
 
 
-def _run_common_subexpression_elimination_pass(model: ir.Model) -> None:
-    common_passes.CommonSubexpressionEliminationPass()(model)
+def _run_common_subexpression_elimination_pass(
+    model: ir.Model, *, precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY
+) -> None:
+    from ._source_identity_cse import observe_identity_cse
+    from ._source_leaf_cse import observe_leaf_cse
+    from ._source_cse_output_aliases import capture
+
+    transaction = capture(model, precision_policy)
+    with observe_leaf_cse(model) as leaf_observation:
+        with observe_identity_cse(model) as identity_observation:
+            common_passes.CommonSubexpressionEliminationPass()(model)
+            transaction.prepare()
+            identity_observation.record(transaction)
+            leaf_observation.record(transaction)
+            transaction.finish()
 
 
 def _run_lift_constants_to_initializers_pass(model: ir.Model) -> None:
-    common_passes.LiftConstantsToInitializersPass(size_limit=0)(model)
+    from .source_structure import observe_constant_lifts
+
+    with observe_constant_lifts(model):
+        common_passes.LiftConstantsToInitializersPass(size_limit=0)(model)
 
 
-def _model_pass(name: str, runner: ModelOptimizer) -> _OptimizerPass:
-    return _OptimizerPass(name=name, model_runner=runner)
+def _model_pass(
+    name: str,
+    runner: ModelOptimizer,
+    *,
+    precision_policies: frozenset[PrecisionPolicy],
+) -> _OptimizerPass:
+    return _OptimizerPass(
+        name=name, model_runner=runner, precision_policies=precision_policies
+    )
 
 
 def _graph_pass(
@@ -2576,61 +2721,140 @@ def _graph_pass(
     runner: GraphOptimizer,
     *,
     function_bodies: bool = True,
+    precision_policies: frozenset[PrecisionPolicy],
 ) -> _OptimizerPass:
     return _OptimizerPass(
         name=name,
         graph_runner=runner,
         function_graph_runner=runner if function_bodies else None,
+        precision_policies=precision_policies,
     )
 
 
+# These passes change arithmetic boundaries or floating reduction order. They
+# remain available to LEGACY exports; SOURCE needs a separate numerical audit
+# before opting into them, even when a legacy environment flag requests one.
+_LEGACY_PRECISION_ONLY: frozenset[PrecisionPolicy] = frozenset({PrecisionPolicy.LEGACY})
+# Eligibility preserves structural cleanup for the bounded SOURCE experiment;
+# it does not certify every backend kernel or every possible input domain.
+_STRUCTURAL_PRECISION_POLICIES: frozenset[PrecisionPolicy] = frozenset(
+    {PrecisionPolicy.LEGACY, PrecisionPolicy.SOURCE}
+)
+
+
 _OPTIMIZER_PASSES: tuple[_OptimizerPass, ...] = (
-    _model_pass("name_fix", _run_name_fix_pass),
-    _graph_pass("remove_redundant_casts", remove_redundant_casts_ir),
+    _model_pass(
+        "name_fix",
+        _run_name_fix_pass,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "remove_redundant_casts",
+        remove_redundant_casts_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
     _graph_pass(
         "remove_redundant_transpose_reduce",
         remove_redundant_transpose_reduce_ir,
+        precision_policies=_LEGACY_PRECISION_ONLY,
     ),
     _graph_pass(
         "remove_redundant_transpose_add_forests",
         remove_redundant_transpose_add_forests_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
     _graph_pass(
-        "remove_redundant_transpose_pairs", remove_redundant_transpose_pairs_ir
+        "remove_redundant_transpose_pairs",
+        remove_redundant_transpose_pairs_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
-    _graph_pass("remove_redundant_reshape_pairs", remove_redundant_reshape_pairs_ir),
-    _graph_pass("remove_identity_reshapes", remove_identity_reshapes_ir),
+    _graph_pass(
+        "remove_redundant_reshape_pairs",
+        remove_redundant_reshape_pairs_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "remove_identity_reshapes",
+        remove_identity_reshapes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
     _model_pass(
         "common_subexpression_elimination",
         _run_common_subexpression_elimination_pass,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
     _model_pass(
-        "lift_constants_to_initializers", _run_lift_constants_to_initializers_pass
+        "lift_constants_to_initializers",
+        _run_lift_constants_to_initializers_pass,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
-    _graph_pass("fold_conv_transpose_constant_bias", fold_conv_transpose_constant_bias),
-    _graph_pass("rewrite_mul_sigmoid_as_swish", rewrite_mul_sigmoid_as_swish_ir),
-    _graph_pass("rewrite_mul_rsqrt_as_div", rewrite_mul_rsqrt_as_div_ir),
+    _graph_pass(
+        "fold_conv_transpose_constant_bias",
+        fold_conv_transpose_constant_bias,
+        precision_policies=_LEGACY_PRECISION_ONLY,
+    ),
+    _graph_pass(
+        "rewrite_mul_sigmoid_as_swish",
+        rewrite_mul_sigmoid_as_swish_ir,
+        precision_policies=_LEGACY_PRECISION_ONLY,
+    ),
+    _graph_pass(
+        "rewrite_mul_rsqrt_as_div",
+        rewrite_mul_rsqrt_as_div_ir,
+        precision_policies=_LEGACY_PRECISION_ONLY,
+    ),
     _graph_pass(
         "inline_dropout_training_mode_constants",
         inline_dropout_training_mode_constants_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
-    _graph_pass("propagate_elementwise_shapes", propagate_elementwise_shapes_ir),
-    _graph_pass("propagate_unary_shapes", propagate_unary_shapes_ir),
-    _graph_pass("remove_redundant_casts_after_propagation", remove_redundant_casts_ir),
-    _model_pass("remove_dead_nodes", remove_dead_nodes_ir),
-    _graph_pass("remove_orphan_transposes", remove_orphan_transposes_ir),
+    _graph_pass(
+        "propagate_elementwise_shapes",
+        propagate_elementwise_shapes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "propagate_unary_shapes",
+        propagate_unary_shapes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "remove_redundant_casts_after_propagation",
+        remove_redundant_casts_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _model_pass(
+        "remove_dead_nodes",
+        remove_dead_nodes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "remove_orphan_transposes",
+        remove_orphan_transposes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
     _graph_pass(
         "prune_unused_graph_inputs",
         prune_unused_graph_inputs_ir,
         function_bodies=False,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
 )
 
 
-def _run_top_level_optimizer_pass(opt_pass: _OptimizerPass, model: ir.Model) -> None:
+def _run_top_level_optimizer_pass(
+    opt_pass: _OptimizerPass,
+    model: ir.Model,
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+) -> None:
     if DEBUG:
         _dbg("running pass", opt_pass.name, "on top graph")
-    if opt_pass.model_runner is not None:
+    if opt_pass.model_runner is _run_common_subexpression_elimination_pass:
+        _run_common_subexpression_elimination_pass(
+            model, precision_policy=precision_policy
+        )
+    elif opt_pass.model_runner is not None:
         opt_pass.model_runner(model)
     if opt_pass.graph_runner is not None:
         opt_pass.graph_runner(model.graph)
@@ -2644,20 +2868,155 @@ def _run_function_optimizer_pass(opt_pass: _OptimizerPass, graph: ir.Graph) -> N
     opt_pass.function_graph_runner(graph)
 
 
-def optimize_graph(ir_model: ir.Model) -> ir.Model:
+@dataclass(frozen=True)
+class _FunctionOutputMetadata:
+    name: str | None
+    type: ir.TypeProtocol | None
+    shape: ir.Shape | None
+    doc_string: str | None
+    metadata_props: dict[str, str]
+
+
+def _preserve_function_output_bindings(
+    graph: ir.Graph, original: Sequence[_FunctionOutputMetadata]
+) -> None:
+    """Restore distinct formal results after all destructive Function passes."""
+    if len(graph.outputs) != len(original):
+        raise ValueError("Function optimization changed its output arity.")
+    definitions: dict[str, ir.Value] = {}
+    for value in (
+        *graph.inputs,
+        *graph.initializers.values(),
+        *(value for node in graph for value in node.outputs),
+    ):
+        if value.graph is not graph or not value.name:
+            raise ValueError("Function definition has invalid ownership or name.")
+        previous = definitions.get(value.name)
+        if previous is not None and previous is not value:
+            raise ValueError(f"Conflicting Function definitions named {value.name!r}.")
+        definitions[value.name] = value
+    input_ids = {id(value) for value in graph.inputs}
+    if len(input_ids) != len(graph.inputs):
+        raise ValueError("Function has repeated input definitions.")
+    occupied: set[str] = set(definitions)
+    for owner in (graph, *graph.subgraphs()):
+        for value in (
+            *owner.inputs,
+            *owner.outputs,
+            *owner.initializers.values(),
+            *(value for node in owner for value in node.outputs),
+            *(value for node in owner for value in node.inputs if value is not None),
+        ):
+            if value.name:
+                occupied.add(value.name)
+    seen: set[int] = set()
+    aliases: list[
+        tuple[int, ir.Value, _FunctionOutputMetadata, str, ir.Shape | None]
+    ] = []
+    for index, (value, descriptor) in enumerate(zip(graph.outputs, original)):
+        if (
+            value.graph is not graph
+            or not value.name
+            or definitions.get(value.name) is not value
+        ):
+            raise ValueError("Function result is not an actual local definition.")
+        if (
+            descriptor.type is not None
+            and value.type is not None
+            and descriptor.type != value.type
+        ):
+            raise ValueError(f"Function output {index} changed its declared type.")
+        shape = value.shape.copy() if value.shape is not None else descriptor.shape
+        if descriptor.shape is not None and shape is not None:
+            if len(descriptor.shape) != len(shape):
+                raise ValueError(f"Function output {index} changed its declared rank.")
+            for axis, (declared, optimized) in enumerate(zip(descriptor.shape, shape)):
+                declared_dim = declared if isinstance(declared, int) else declared.value
+                optimized_dim = (
+                    optimized if isinstance(optimized, int) else optimized.value
+                )
+                if (
+                    declared_dim is not None
+                    and optimized_dim is not None
+                    and declared_dim != optimized_dim
+                ):
+                    raise ValueError(
+                        f"Function output {index} changed its declared shape."
+                    )
+                if optimized_dim is None and declared_dim is not None:
+                    shape[axis] = declared
+        identity = id(value)
+        if identity in input_ids or identity in seen:
+            base = descriptor.name or f"function_output_{index}"
+            name = base
+            suffix = 0
+            while name in occupied:
+                suffix += 1
+                name = f"{base}_{suffix}"
+            occupied.add(name)
+            aliases.append((index, value, descriptor, name, shape))
+        seen.add(identity)
+    tape = Tape(graph)
+    for index, value, descriptor, name, shape in aliases:
+        alias = tape.op(
+            "Identity",
+            [value],
+            output=ir.Value(
+                name=name,
+                type=deepcopy(
+                    descriptor.type if descriptor.type is not None else value.type
+                ),
+                shape=deepcopy(shape),
+                doc_string=descriptor.doc_string,
+                metadata_props=dict(descriptor.metadata_props),
+            ),
+        )
+        graph.outputs[index] = alias
+
+
+def optimize_graph(
+    ir_model: ir.Model,
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+) -> ir.Model:
     _dbg("optimize_graph invoked")
-    for opt_pass in _OPTIMIZER_PASSES:
-        _run_top_level_optimizer_pass(opt_pass, ir_model)
+    # Model-wide passes can also rewrite Function results. Capture only the
+    # ordered signature metadata before any destructive pass, never tensor data.
+    function_outputs = [
+        (
+            function,
+            function.graph,
+            tuple(
+                _FunctionOutputMetadata(
+                    value.name,
+                    deepcopy(value.type),
+                    deepcopy(value.shape),
+                    value.doc_string,
+                    dict(value.metadata_props),
+                )
+                for value in function.outputs
+            ),
+        )
+        for function in iter_ir_functions(ir_model.functions)
+    ]
+    passes = tuple(
+        opt_pass
+        for opt_pass in _OPTIMIZER_PASSES
+        if precision_policy in opt_pass.precision_policies
+    )
+    for opt_pass in passes:
+        _run_top_level_optimizer_pass(
+            opt_pass, ir_model, precision_policy=precision_policy
+        )
 
     # The passes are destructive; might as well raise exceptions if they occur.
 
     # Function bodies – do NOT prune function inputs (signature!)
-    for fn in iter_ir_functions(ir_model.functions):
-        graph_obj = getattr(fn, "graph", None)
-        if graph_obj is None:
-            continue
-        fgr = cast(ir.Graph, graph_obj)
-        for opt_pass in _OPTIMIZER_PASSES:
+    for fn, fgr, original_outputs in function_outputs:
+        if fn.graph is not fgr:
+            raise ValueError("Function optimization replaced its owned graph.")
+        for opt_pass in passes:
             _run_function_optimizer_pass(opt_pass, fgr)
+        _preserve_function_output_bindings(fgr, original_outputs)
 
     return ir_model

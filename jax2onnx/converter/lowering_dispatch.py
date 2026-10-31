@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from collections.abc import Mapping
 from typing import Iterator, TypeVar
 
@@ -283,13 +283,23 @@ def _lower_registered_equation(
             primitive_name=primitive_name,
             eqn_index=eqn_index,
         )
-        entry.lower(ctx, eqn)
+        if ctx._source_structure is not None:
+            ctx._source_structure.before_equation(ctx, eqn, eqn_index)
+        structure_dispatch = (
+            ctx._source_structure.dispatch(eqn, eqn_index)
+            if ctx._source_structure is not None
+            else nullcontext()
+        )
+        with structure_dispatch:
+            entry.lower(ctx, eqn)
         assert_eqn_outputs_bound(
             ctx,
             eqn,
             primitive_name=primitive_name,
             eqn_index=eqn_index,
         )
+        if ctx._source_structure is not None:
+            ctx._source_structure.equation(ctx, eqn, eqn_index)
         _append_primitive_call_record(
             ctx,
             eqn,
@@ -309,8 +319,21 @@ def lower_jaxpr_with_plugins(
     missing_plugin_detail: str | None = None,
 ) -> None:
     """Lower equations through prepared ``(ctx, eqn) -> None`` plugins."""
+    if ctx._jaxpr_validator is not None:
+        ctx._jaxpr_validator(jaxpr, ctx.opset)
     lowerings = prepared_lowerings(registry, converter)
-    with primitive_recording_scope(ctx), ctx._const_folder.producer_scope(jaxpr):
+    structure_scope: AbstractContextManager[None] = nullcontext()
+    if ctx._source_structure is not None:
+        from jax2onnx.plugins._source_structure import freeze_source_structure_rule
+
+        structure_scope = ctx._source_structure.scope(
+            ctx, jaxpr, freeze_source_structure_rule
+        )
+    with (
+        primitive_recording_scope(ctx),
+        ctx._const_folder.producer_scope(jaxpr),
+        structure_scope,
+    ):
         for eqn_index, eqn in enumerate(jaxpr.eqns):
             primitive_name = eqn.primitive.name
             plugin = get_registered_lowering_plugin(

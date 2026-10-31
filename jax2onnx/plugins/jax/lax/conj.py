@@ -9,18 +9,59 @@ import jax
 from typing import Any, cast
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_profile import _Site, _tensor, _validate_complex_conj
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
+    coerce_dim_values,
     conjugate_packed_tensor,
     ensure_packed_real_pair,
     is_packed_complex_tensor,
 )
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
+
+
+def _lower_source_complex_conj(ctx: LoweringContextProtocol, eqn: Any) -> None:
+    site = _Site("complex conjugation lowering", ctx.builder.opset, eqn.primitive.name)
+    _validate_complex_conj(
+        eqn,
+        [_tensor(var, site) for var in eqn.invars],
+        [_tensor(var, site) for var in eqn.outvars],
+        site,
+    )
+    operand = ctx.require_value_for_var(eqn.invars[0])
+    if not representation_for_aval(eqn.invars[0].aval).matches_ir_value(operand):
+        raise TypeError(
+            "SOURCE complex conjugation physical storage differs from its declared real/imaginary pair"
+        )
+    out_var = eqn.outvars[0]
+    representation = representation_for_aval(out_var.aval)
+    output = ctx.allocate_value_for_var(
+        out_var, name_hint=ctx.fresh_name("source_complex_conj")
+    )
+    result = conjugate_packed_tensor(
+        ctx,
+        operand,
+        representation.ir_dtype,
+        prefix="source_complex_conj",
+        output_name=output.name or ctx.fresh_name("source_complex_conj"),
+    )
+    for value in (output, result):
+        value.type = ir.TensorType(representation.ir_dtype)
+        _stamp_type_and_shape(value, coerce_dim_values(representation.physical_shape))
+        _ensure_value_metadata(ctx, value)
+    if not representation.matches_ir_value(result):
+        raise TypeError("SOURCE complex conjugation changed its declared pair storage")
+    ctx.bind_value_for_var(out_var, result)
 
 
 @register_native_primitive(
@@ -66,6 +107,10 @@ class ConjPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.conj`` to ONNX ops."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            _lower_source_complex_conj(ctx, eqn)
+            return
+
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

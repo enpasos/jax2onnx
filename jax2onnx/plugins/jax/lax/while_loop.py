@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence, cast
+from contextlib import nullcontext
+from typing import Any, Iterable, Sequence, TYPE_CHECKING, cast
 
 import jax
 import jax.numpy as jnp
@@ -10,8 +11,14 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     LoopCallParameters,
@@ -26,6 +33,9 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
+
+if TYPE_CHECKING:
+    from jax2onnx.converter.source_structure import RegionKey
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -201,31 +211,57 @@ def _is_literal(var: Any) -> bool:
     return hasattr(var, "val")
 
 
+def _set_value_metadata_from_aval(
+    ctx: LoweringContextProtocol, value: ir.Value, aval: Any
+) -> None:
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        representation = representation_for_aval(aval)
+        shape = cast(tuple[DimInput, ...], representation.physical_shape)
+        dtype = representation.ir_dtype
+        if value.dtype is not None and value.dtype != dtype:
+            raise TypeError(
+                f"SOURCE while value requires {dtype}, received {value.dtype}"
+            )
+    else:
+        shape = tuple(getattr(aval, "shape", ()))
+        dtype = _dtype_to_ir(
+            np.dtype(getattr(aval, "dtype", np.float32)),
+            ctx.builder.enable_double_precision,
+        )
+    value.type = ir.TensorType(dtype)
+    _stamp_type_and_shape(value, shape)
+    _ensure_value_metadata(ctx, value)
+
+
+def _source_while_region(ctx: Any, role: str, operands: Sequence[ir.Value]) -> Any:
+    ledger = ctx._source_structure
+    if ctx.precision_policy is PrecisionPolicy.SOURCE and ledger is not None:
+        return ledger.region(role, operands)
+    return nullcontext(None)
+
+
 def _evaluate_closed_jaxpr(
     ctx: LoweringContextProtocol,
     closed_jaxpr: Any,
     inputs: Sequence[ir.Value],
     *,
     prefix: str,
+    source_regions: dict[str, Any] | None = None,
 ) -> list[ir.Value]:
     jaxpr, consts = _unwrap_closed_jaxpr(closed_jaxpr)
     _bind_closed_jaxpr_consts(ctx, jaxpr, consts)
     for var, val in zip(jaxpr.invars, inputs):
         ctx.bind_value_for_var(var, val)
-    lower_jaxpr_eqns(ctx, jaxpr, source="while_loop")
+    with _source_while_region(ctx, "initial-condition", inputs) as key:
+        lower_jaxpr_eqns(ctx, jaxpr, source="while_loop")
+    if source_regions is not None:
+        source_regions["initial-condition"] = key
     outputs: list[ir.Value] = []
     for out_var in jaxpr.outvars:
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name(prefix))
         aval = getattr(out_var, "aval", None)
         if aval is not None:
-            shape = tuple(getattr(aval, "shape", ()))
-            dtype_enum = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
-            out_val.type = ir.TensorType(dtype_enum)
-            _stamp_type_and_shape(out_val, shape)
-            _ensure_value_metadata(ctx, out_val)
+            _set_value_metadata_from_aval(ctx, out_val, aval)
         outputs.append(out_val)
     return outputs
 
@@ -276,6 +312,7 @@ def _build_loop_body_graph(
     state_template: Sequence[ir.Value],
     predicate_template: ir.Value | None = None,
     predicate_shape: tuple[Any, ...] = (),
+    source_regions: dict[str, Any] | None = None,
 ) -> tuple[ir.Graph, LoopCallParameters]:
     body_ctx = make_subgraph_context(ctx, prefix="while_body")
     call_parameters = LoopCallParameters(ctx, body_ctx)
@@ -344,7 +381,10 @@ def _build_loop_body_graph(
     else:  # pragma: no cover - defensive programming
         raise ValueError("while_loop body_jaxpr has more invars than expected")
 
-    lower_jaxpr_eqns(body_ctx, body_jaxpr, source="while_loop_body")
+    with _source_while_region(body_ctx, "body", [*const_inputs, *state_inputs]) as key:
+        lower_jaxpr_eqns(body_ctx, body_jaxpr, source="while_loop_body")
+    if source_regions is not None:
+        source_regions["body"] = key
 
     state_candidates = [
         body_ctx.get_value_for_var(
@@ -355,14 +395,7 @@ def _build_loop_body_graph(
     for out_var, out_val in zip(body_jaxpr.outvars, state_candidates):
         aval = getattr(out_var, "aval", None)
         if aval is not None:
-            shape = tuple(getattr(aval, "shape", ()))
-            dtype_enum = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
-            out_val.type = ir.TensorType(dtype_enum)
-            _stamp_type_and_shape(out_val, shape)
-            _ensure_value_metadata(body_ctx, out_val)
+            _set_value_metadata_from_aval(body_ctx, out_val, aval)
 
     if predicate_input is None:
         state_outputs = state_candidates
@@ -373,6 +406,8 @@ def _build_loop_body_graph(
             body_jaxpr.outvars, state_candidates, state_inputs
         ):
             state_shape = tuple(getattr(out_var.aval, "shape", ()))
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                state_shape = representation_for_aval(out_var.aval).physical_shape
             if len(state_shape) < predicate_rank:
                 raise NotImplementedError(
                     "vmapped while_loop state rank must be at least the predicate rank"
@@ -432,7 +467,10 @@ def _build_loop_body_graph(
     for var, val in zip(cond_jaxpr.invars, cond_inputs):
         body_ctx.bind_value_for_var(var, val)
 
-    lower_jaxpr_eqns(body_ctx, cond_jaxpr, source="while_loop_cond")
+    with _source_while_region(body_ctx, "next-condition", cond_inputs) as key:
+        lower_jaxpr_eqns(body_ctx, cond_jaxpr, source="while_loop_cond")
+    if source_regions is not None:
+        source_regions["next-condition"] = key
     cond_out = body_ctx.get_value_for_var(
         cond_jaxpr.outvars[0], name_hint=body_ctx.fresh_name("loop_cond_out")
     )
@@ -953,9 +991,14 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
                 "while_loop lowering requires at least one state variable"
             )
 
+        source_regions: dict[str, Any] = {}
         cond_inputs = list(cond_const_vals) + list(state_vals)
         cond_init = _evaluate_closed_jaxpr(
-            ctx, cond_cj, cond_inputs, prefix="while_cond"
+            ctx,
+            cond_cj,
+            cond_inputs,
+            prefix="while_cond",
+            source_regions=source_regions,
         )
         if not cond_init:
             raise RuntimeError("while_loop cond_jaxpr produced no outputs")
@@ -987,14 +1030,17 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             state_template=state_vals,
             predicate_template=predicate_init if batched_condition else None,
             predicate_shape=predicate_shape,
+            source_regions=source_regions,
         )
 
-        trip_count = ctx.builder.add_initializer_from_array(
-            name=ctx.fresh_name("while_trip_count"),
-            array=np.asarray(np.iinfo(np.int64).max, dtype=np.int64),
-        )
+        trip_count = None
+        if ctx.precision_policy is PrecisionPolicy.LEGACY:
+            trip_count = ctx.builder.add_initializer_from_array(
+                name=ctx.fresh_name("while_trip_count"),
+                array=np.asarray(np.iinfo(np.int64).max, dtype=np.int64),
+            )
 
-        loop_inputs = [trip_count, cond_init_val]
+        loop_inputs: list[ir.Value | None] = [trip_count, cond_init_val]
         if batched_condition:
             loop_inputs.append(predicate_init)
         loop_inputs.extend(body_const_vals)
@@ -1051,17 +1097,35 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             aval = getattr(var, "aval", None)
             if aval is None:
                 continue
-            shape = tuple(getattr(aval, "shape", ()))
-            dtype = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
-            val.type = ir.TensorType(dtype)
-            _stamp_type_and_shape(val, shape)
-            _ensure_value_metadata(ctx, val)
+            _set_value_metadata_from_aval(ctx, val, aval)
             ctx.bind_value_for_var(var, val)
 
-        if eqn.invars and all(_is_literal(v) for v in eqn.invars):
+        if (
+            ctx.precision_policy is PrecisionPolicy.SOURCE
+            and ctx._source_structure is not None
+        ):
+            from jax2onnx.plugins.jax.lax._source_loop_structure import (
+                record_while_attachment,
+            )
+
+            ctx._source_structure._observe(
+                "while-attachment",
+                lambda: record_while_attachment(
+                    ctx,
+                    eqn,
+                    cast("RegionKey", source_regions.get("initial-condition")),
+                    cast("RegionKey", source_regions.get("body")),
+                    cast("RegionKey", source_regions.get("next-condition")),
+                    body_graph,
+                    call_parameters,
+                ),
+            )
+
+        if (
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and eqn.invars
+            and all(_is_literal(v) for v in eqn.invars)
+        ):
             for var in eqn.outvars:
                 aval = getattr(var, "aval", None)
                 if aval is None:

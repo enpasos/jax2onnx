@@ -3,10 +3,14 @@
 import hashlib
 import inspect
 import logging
+import json
+from dataclasses import asdict, dataclass
+from collections.abc import Mapping
+from pathlib import Path
 import os
 import shutil
 from contextlib import contextmanager
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Literal
 
 import jax
 import jax.numpy as jnp
@@ -23,6 +27,7 @@ from jax2onnx.plugins.plugin_system import (
     import_all_plugins as import_all_plugins,
 )
 from jax2onnx.user_interface import to_onnx
+from scripts._source_inventory_epoch import validate_replay_manifest
 
 try:
     from onnx import mapping as _onnx_mapping
@@ -175,6 +180,7 @@ def extract_from_metadata(mds) -> list[dict[str, Any]]:
     for entry in mds:
         testcases = entry.get("testcases", [])
         for testcase in testcases:
+            testcase = dict(testcase)
             testcase["context"] = entry.get("context", "default")
             testcase["component"] = entry.get("component", "default")
             testcase["jax_doc"] = entry.get("jax_doc", "")
@@ -1559,3 +1565,379 @@ if __name__ == "__main__":
 
     logger.info("Running t_generator.py script...")
     generate_all_tests()
+
+
+@dataclass(frozen=True)
+class SourceMetadataEpoch:
+    """Exact source-text/environment epoch; no outcome is implied."""
+
+    source_sha256: str
+    environment_sha256: str
+
+
+@dataclass(frozen=True)
+class SourceMetadataCase:
+    identity: tuple[str, int, str]
+    display: tuple[str, str, str]
+    owner: str
+    selector: str
+    row_contract_sha256: str
+    baseline_sha256: str
+    epoch: SourceMetadataEpoch
+    requested_assertions: tuple[str, ...]
+    available: bool
+    adapter_json: str
+    adapter_sha256: str
+    scenario_sha256: str
+    _inventory_sha256: str | None
+
+    def record(self) -> dict[str, Any]:
+        result = asdict(self)
+        # Admission-only state stays outside the retained descriptor schema/hash.
+        result.pop("_inventory_sha256")
+        result["descriptor_sha256"] = _source_metadata_digest(result)
+        return result
+
+
+def _source_metadata_digest(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def source_metadata_epoch() -> SourceMetadataEpoch:
+    """Observe source text and installed versions, without invoking a model.
+
+    Caller-supplied source epochs are checked again immediately before and after
+    execution. The raw source contract separately binds the actual callable and
+    captured state. No Git command, export, trace or factory runs here.
+    """
+    from scripts.source_precision_probe import ProbeEnvironment, REPOSITORY_ROOT
+
+    paths = set((REPOSITORY_ROOT / "jax2onnx").rglob("*.py"))
+    paths.update(
+        REPOSITORY_ROOT / name
+        for name in (
+            "scripts/source_precision_probe.py",
+            "scripts/source_precision_inventory.py",
+            "scripts/_source_inventory_epoch.py",
+            "tests/t_generator.py",
+            "tests/extra_tests/converter/source_precision_support.py",
+            "tests/extra_tests/converter/source_precision_raw_replay.py",
+            "tests/extra_tests/converter/source_precision_diagnostics.py",
+        )
+    )
+    source = [
+        (
+            str(path.relative_to(REPOSITORY_ROOT)),
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+        )
+        for path in sorted(paths)
+    ]
+    return SourceMetadataEpoch(
+        _source_metadata_digest(source),
+        _source_metadata_digest(asdict(ProbeEnvironment.observe())),
+    )
+
+
+def source_metadata_cases(
+    plan: Any,
+    inventory: Mapping[str, Any],
+    registrations: Sequence[tuple[str, str, Mapping[str, Any]]],
+    *,
+    selection: Sequence[tuple[str, int, str]],
+    epoch: SourceMetadataEpoch,
+    adapters: Mapping[str, Any],
+) -> tuple[SourceMetadataCase, ...]:
+    """Describe an exact bounded raw selection; never construct or execute it.
+
+    Group/display labels are not identities. The complete plan remains the
+    denominator; unavailable optional rows can still be selected and reported.
+    Callers must choose the raw cells explicitly during migration. This helper
+    is not wired into ordinary default generated collection.
+    """
+    from scripts.source_precision_inventory import (
+        source_metadata_assertions,
+        source_metadata_selector,
+    )
+
+    validate_replay_manifest(adapters, plan.baseline_sha256)
+    inventory_sha256 = adapters.get("inventory_sha256")
+    if not selection:
+        raise ValueError(
+            "SOURCE metadata migration needs an explicit bounded selection"
+        )
+    identities = [tuple(item) for item in selection]
+    if len(set(identities)) != len(identities):
+        raise ValueError("Duplicate SOURCE metadata selection")
+    rows = {(row.origin, row.ordinal): row for row in plan.rows}
+    cells = {cell.identity: cell for cell in plan.cells}
+    if len(rows) != len(plan.rows) or len(cells) != len(plan.cells):
+        raise ValueError("Duplicate frozen SOURCE plan identities")
+    owners = {origin: module for origin, module, _, _ in inventory["registrations"]}
+    available = {origin for origin, _, _ in registrations}
+    if len(available) != len(registrations):
+        raise ValueError("Ambiguous raw registration provenance")
+    contracts = {
+        (inventory["registrations"][item[0]][0], item[1]): inventory["contracts"][
+            item[5]
+        ]
+        for item in inventory["cases"]
+    }
+    descriptors = []
+    selectors = set()
+    for identity in identities:
+        if identity not in cells or identity[:2] not in rows:
+            raise ValueError(
+                "Selected SOURCE metadata cell is absent from the frozen plan"
+            )
+        row = rows[identity[:2]]
+        contract = contracts[identity[:2]]
+        if _source_metadata_digest(contract) != row.contract_sha256:
+            raise ValueError("Frozen SOURCE metadata row contract drift")
+        selector = source_metadata_selector(identity, row.display)
+        if selector in selectors:
+            raise ValueError("Colliding SOURCE metadata selectors")
+        selectors.add(selector)
+        requested = source_metadata_assertions(contract)
+        adapter = adapters.get("rows", {}).get(f"{row.origin}::{row.ordinal}", {})
+        adapter_json = json.dumps(adapter, sort_keys=True, separators=(",", ":"))
+        adapter_sha = _source_metadata_digest(adapter)
+        scenario_sha = _source_metadata_digest(
+            {
+                "identity": identity,
+                "contract": row.contract_sha256,
+                "adapter": adapter,
+                "criteria": asdict(row.criteria) if row.criteria else None,
+            }
+        )
+        descriptors.append(
+            SourceMetadataCase(
+                identity,
+                row.display,
+                owners[row.origin],
+                selector,
+                row.contract_sha256,
+                plan.baseline_sha256,
+                epoch,
+                requested,
+                row.origin in available,
+                adapter_json,
+                adapter_sha,
+                scenario_sha,
+                inventory_sha256,
+            )
+        )
+    return tuple(descriptors)
+
+
+def _source_metadata_statuses(
+    cell: Any, descriptor: SourceMetadataCase
+) -> dict[str, Any]:
+    from scripts.source_precision_inventory import source_metadata_evidence_statuses
+
+    return source_metadata_evidence_statuses(
+        asdict(cell.history[-1]), descriptor.requested_assertions
+    )
+
+
+def make_source_test_function(
+    descriptor: SourceMetadataCase,
+    plan: Any,
+    registrations: Sequence[tuple[str, str, Mapping[str, Any]]],
+    *,
+    adapters: Mapping[str, Any],
+    evidence_directory: Path | None,
+    stage: Literal["prepare", "product"],
+    expected_statuses: Mapping[str, str],
+    runtime_optimization: Literal["disabled", "all"] | None = None,
+):
+    """Build a generated-test seam over the existing shared raw-cell executor.
+
+    Assertions are explicit stage contracts. Asserting an accurately reported
+    pending status is a harness test, never a validated metadata capability.
+    Outcomes stay attached even when a required assertion fails.
+    """
+    if stage not in {"prepare", "product"} or not expected_statuses:
+        raise ValueError("A SOURCE test needs an explicit stage and assertion contract")
+    if runtime_optimization not in {None, "disabled", "all"}:
+        raise ValueError("Unknown SOURCE sample optimization contract")
+    if runtime_optimization is not None and stage != "product":
+        raise ValueError("Runtime samples need a product contract")
+    allowed = set(descriptor.requested_assertions) | {
+        "source_reference",
+        "schema",
+        "artifact",
+        "lowering_audit",
+        "structure",
+        "runtime",
+        "numerics",
+        "raw_callback",
+        "reviewed_criteria",
+    }
+    expectations = dict(expected_statuses)
+    if set(expectations) - allowed or any(
+        value not in {"validated", "unverified", "failed"}
+        for value in expectations.values()
+    ):
+        raise ValueError("Unknown SOURCE assertion or expected evidence status")
+    rows = [
+        row for row in plan.rows if (row.origin, row.ordinal) == descriptor.identity[:2]
+    ]
+    cells = [cell for cell in plan.cells if cell.identity == descriptor.identity]
+    if (
+        len(rows) != 1
+        or len(cells) != 1
+        or rows[0].contract_sha256 != descriptor.row_contract_sha256
+    ):
+        raise ValueError(
+            "SOURCE descriptor no longer binds exactly one frozen row/cell"
+        )
+    if plan.baseline_sha256 != descriptor.baseline_sha256:
+        raise ValueError("SOURCE descriptor baseline epoch differs")
+
+    validate_replay_manifest(adapters, plan.baseline_sha256)
+    if adapters.get("inventory_sha256") != descriptor._inventory_sha256:
+        raise ValueError("SOURCE descriptor replay inventory binding differs")
+    frozen_adapter = json.loads(descriptor.adapter_json)
+    if _source_metadata_digest(frozen_adapter) != descriptor.adapter_sha256:
+        raise ValueError("SOURCE descriptor adapter/sample recipe hash differs")
+
+    def test_func(self=None):
+        from scripts.source_precision_probe import execute_raw_probe_cell
+
+        for name in ("_source_outcome", "_source_cell"):
+            if hasattr(test_func, name):
+                delattr(test_func, name)
+        validate_replay_manifest(adapters, descriptor.baseline_sha256)
+        if adapters.get("inventory_sha256") != descriptor._inventory_sha256:
+            raise AssertionError(
+                "SOURCE metadata inventory binding changed after collection"
+            )
+        current_adapter = adapters.get("rows", {}).get(
+            f"{descriptor.identity[0]}::{descriptor.identity[1]}", {}
+        )
+        if _source_metadata_digest(current_adapter) != descriptor.adapter_sha256:
+            raise AssertionError(
+                "SOURCE metadata adapter/sample recipe changed after collection"
+            )
+        if source_metadata_epoch() != descriptor.epoch:
+            raise AssertionError(
+                "SOURCE metadata source/environment epoch changed before execution"
+            )
+        directory = evidence_directory
+        if directory is None:
+            import tempfile
+
+            directory = Path(tempfile.mkdtemp(prefix="jax2onnx-source-metadata-"))
+        cell = execute_raw_probe_cell(
+            rows[0],
+            cells[0],
+            registrations,
+            stage=stage,
+            adapters=(
+                {
+                    "inventory_sha256": descriptor._inventory_sha256,
+                    "rows": {
+                        f"{descriptor.identity[0]}::{descriptor.identity[1]}": frozen_adapter
+                    },
+                }
+                if descriptor._inventory_sha256 is not None
+                else {}
+            ),
+            evidence_directory=directory,
+            runtime_optimization=runtime_optimization,
+            _inventory_sha256=descriptor.baseline_sha256,
+        )
+        record = cell.history[-1]
+        if record.scenario_sha256 != descriptor.scenario_sha256:
+            raise AssertionError(
+                "SOURCE metadata execution scenario differs from frozen adapter/sample recipe"
+            )
+        if (
+            source_metadata_epoch() != descriptor.epoch
+            or _source_metadata_digest(asdict(record.environment))
+            != descriptor.epoch.environment_sha256
+        ):
+            raise AssertionError(
+                "SOURCE metadata source/environment epoch changed during execution"
+            )
+        checks = _source_metadata_statuses(cell, descriptor)
+        requested = {name: checks[name] for name in descriptor.requested_assertions}
+        capability = (
+            "failed"
+            if any(item["status"] == "failed" for item in requested.values())
+            else (
+                "validated"
+                if all(item["status"] == "validated" for item in requested.values())
+                else "unverified"
+            )
+        )
+        outcome = {
+            **descriptor.record(),
+            "requested_stage": stage,
+            "stage_contract": dict(expectations),
+            "assertions": checks,
+            "capability_status": capability,
+            "evidence_sha256": record.sha256,
+            "evidence": asdict(record),
+            "artifact_sha256": record.artifact_sha256,
+            "scenario_sha256": record.scenario_sha256,
+            "stage_body_complete": True,
+            "stage_contract_passed": all(
+                checks[name]["status"] == expected
+                for name, expected in expectations.items()
+            ),
+        }
+        outcome["evidence_epoch_sha256"] = _source_metadata_digest(
+            {
+                name: outcome[name]
+                for name in (
+                    "identity",
+                    "baseline_sha256",
+                    "epoch",
+                    "descriptor_sha256",
+                    "artifact_sha256",
+                    "scenario_sha256",
+                    "evidence_sha256",
+                )
+            }
+        )
+        setattr(test_func, "_source_outcome", outcome)
+        setattr(test_func, "_source_cell", cell)
+        failures = [
+            f"{name}: requested {expected}, observed {checks[name]['status']} ({checks[name]['detail']})"
+            for name, expected in expectations.items()
+            if checks[name]["status"] != expected
+        ]
+        if failures:
+            raise AssertionError(
+                "SOURCE stage contract incomplete: " + "; ".join(failures)
+            )
+
+    test_func.__name__ = descriptor.selector
+    setattr(test_func, "_source_metadata_case", descriptor)
+    return test_func
+
+
+def source_metadata_collection_records(
+    items: Sequence[Any],
+) -> tuple[dict[str, Any], ...]:
+    """Read actual collected pytest items; never manufacture a collection claim."""
+    from pytest import Item
+
+    records = []
+    seen = set()
+    for item in items:
+        if not isinstance(item, Item):
+            raise ValueError(
+                "SOURCE collection accounting requires actual pytest items"
+            )
+        descriptor = getattr(getattr(item, "obj", None), "_source_metadata_case", None)
+        if descriptor is None:
+            continue
+        if descriptor.identity in seen:
+            raise ValueError("Duplicate actual SOURCE metadata collection")
+        seen.add(descriptor.identity)
+        records.append({**descriptor.record(), "nodeid": item.nodeid})
+    return tuple(records)

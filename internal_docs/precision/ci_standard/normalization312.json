@@ -1,0 +1,386 @@
+{
+  "schema": "jax2onnx-ci-support-cohort-v1",
+  "support_role": "normalization",
+  "python_minor": "3.12",
+  "baseline_commit": "81ad6ca2592635c8d2ced6dbd77292c487f0351b",
+  "collection_args": [
+    "tests/extra_tests/test_layer_norm_precision.py",
+    "tests/extra_tests/test_cos_precision.py"
+  ],
+  "baseline": {
+    "path": "normalization-baseline.json",
+    "sha256": "5c65fcf524006d446b6028439af3a7337a7c26eaef79845bffd985dfa8b6ee09"
+  },
+  "bindings": {
+    "poetry.lock": "49e55d96ce74249499fb796c36cf9e78cefce0a4441eaa5c801c017640b3a8ea",
+    "pyproject.toml": "688f6dcadae9f3cfaecd4eaf6f576a4f5758c0168b4d610a1376dde60b23f7ea"
+  },
+  "packages": {
+    "absl-py": "2.5.1",
+    "aiofiles": "25.1.0",
+    "ast-serialize": "0.13.1",
+    "babel": "2.18.0",
+    "backrefs": "8.1",
+    "black": "26.10.1",
+    "certifi": "2026.10.19",
+    "cfgv": "3.5.0",
+    "charset-normalizer": "3.5.2",
+    "chex": "0.1.92",
+    "click": "8.5.0",
+    "colorama": "0.4.6",
+    "coverage": "7.16.2",
+    "dataclasses-json": "0.6.7",
+    "distlib": "0.4.4",
+    "dm-pix": "0.4.5",
+    "einops": "0.8.2",
+    "equinox": "0.13.8",
+    "etils": "1.14.0",
+    "execnet": "2.1.2",
+    "filelock": "4.2.4",
+    "flatbuffers": "25.12.19",
+    "flax": "0.12.8",
+    "fsspec": "2026.6.0",
+    "ghp-import": "2.1.0",
+    "griffelib": "2.4.0",
+    "hf-xet": "1.7.0",
+    "huggingface-hub": "0.36.2",
+    "humanize": "4.16.0",
+    "identify": "2.6.20",
+    "idna": "3.20",
+    "iniconfig": "2.3.1",
+    "jax": "0.10.2",
+    "jax2onnx": "0.17.1",
+    "jaxlib": "0.10.2",
+    "jaxtyping": "0.3.11",
+    "jinja2": "3.1.6",
+    "librt": "0.16.0",
+    "markdown": "3.11.2",
+    "markdown-it-py": "4.2.0",
+    "markupsafe": "3.0.4",
+    "marshmallow": "3.26.2",
+    "mdurl": "0.1.2",
+    "mergedeep": "1.3.4",
+    "mkdocs": "1.6.1",
+    "mkdocs-autorefs": "1.4.4",
+    "mkdocs-get-deps": "0.2.2",
+    "mkdocs-material": "9.7.7",
+    "mkdocs-material-extensions": "1.3.1",
+    "mkdocstrings": "1.0.7",
+    "mkdocstrings-python": "2.0.9",
+    "ml-dtypes": "0.6.0",
+    "mpmath": "1.3.0",
+    "msgpack": "1.2.3",
+    "mypy": "2.3.1",
+    "mypy-extensions": "1.1.0",
+    "netron": "9.3.2",
+    "nodeenv": "1.11.0",
+    "numpy": "2.4.6",
+    "onnx": "1.23.2",
+    "onnx-ir": "1.1.0",
+    "onnxruntime": "1.31.0",
+    "opt-einsum": "3.4.0",
+    "optax": "0.2.8",
+    "orbax-checkpoint": "0.11.36",
+    "orbax-export": "0.0.8",
+    "packaging": "26.3",
+    "paginate": "0.5.7",
+    "pathspec": "1.1.1",
+    "pip": "26.2.2",
+    "platformdirs": "4.13.5",
+    "pluggy": "1.7.0",
+    "pre-commit": "4.7.0",
+    "protobuf": "7.36.2",
+    "psutil": "7.2.2",
+    "pygments": "2.21.0",
+    "pymdown-extensions": "12.3",
+    "pytest": "9.1.1",
+    "pytest-cov": "7.1.0",
+    "pytest-json-report": "1.5.0",
+    "pytest-metadata": "3.1.1",
+    "pytest-order": "1.5.0",
+    "pytest-xdist": "3.8.0",
+    "python-dateutil": "3.0.0",
+    "python-discovery": "1.6.4",
+    "pytokens": "0.4.1",
+    "pyyaml": "6.0.3",
+    "pyyaml-env-tag": "1.1",
+    "requests": "2.34.2",
+    "rich": "15.0.0",
+    "ruff": "0.16.10",
+    "scipy": "1.17.1",
+    "simplejson": "4.2.0",
+    "six": "1.17.0",
+    "sympy": "1.14.0",
+    "tensorstore": "0.1.85",
+    "toolz": "1.2.0",
+    "tqdm": "4.70.1",
+    "treescope": "0.1.10",
+    "types-pyyaml": "6.0.12.20260906",
+    "typing-extensions": "4.16.0",
+    "typing-inspect": "0.9.0",
+    "tzdata": "2026.5",
+    "urllib3": "2.8.0",
+    "uvloop": "0.23.0",
+    "virtualenv": "21.14.12",
+    "wadler-lindig": "0.1.7",
+    "watchdog": "6.0.0",
+    "zipp": "4.1.2"
+  },
+  "bootstrap": {
+    "pip": "26.2.2"
+  },
+  "plugins": [
+    {
+      "name": "jaxtyping",
+      "value": "jaxtyping._pytest_plugin",
+      "distribution": "jaxtyping",
+      "version": "0.3.11"
+    },
+    {
+      "name": "metadata",
+      "value": "pytest_metadata.plugin",
+      "distribution": "pytest-metadata",
+      "version": "3.1.1"
+    },
+    {
+      "name": "platformdirs",
+      "value": "platformdirs.pytest_plugin",
+      "distribution": "platformdirs",
+      "version": "4.13.5"
+    },
+    {
+      "name": "pytest_cov",
+      "value": "pytest_cov.plugin",
+      "distribution": "pytest-cov",
+      "version": "7.1.0"
+    },
+    {
+      "name": "pytest_jsonreport",
+      "value": "pytest_jsonreport.plugin",
+      "distribution": "pytest-json-report",
+      "version": "1.5.0"
+    },
+    {
+      "name": "pytest_order",
+      "value": "pytest_order.plugin",
+      "distribution": "pytest-order",
+      "version": "1.5.0"
+    },
+    {
+      "name": "xdist",
+      "value": "xdist.plugin",
+      "distribution": "pytest-xdist",
+      "version": "3.8.0"
+    },
+    {
+      "name": "xdist.looponfail",
+      "value": "xdist.looponfail",
+      "distribution": "pytest-xdist",
+      "version": "3.8.0"
+    }
+  ],
+  "environment": {
+    "JAX2ONNX_MAXDIFFUSION_MODELS": null,
+    "JAX2ONNX_MAXDIFFUSION_REF": null,
+    "JAX2ONNX_MAXDIFFUSION_SRC": null,
+    "JAX2ONNX_MAXTEXT_MODELS": null,
+    "JAX2ONNX_MAXTEXT_REF": null,
+    "JAX2ONNX_MAXTEXT_SRC": null,
+    "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": "${RUN}/native-model-artifacts",
+    "JAX2ONNX_RUN_MAXDIFFUSION": null,
+    "JAX2ONNX_RUN_MAXTEXT": null,
+    "JAX_ENABLE_X64": null,
+    "JAX_PLATFORMS": "cpu",
+    "JAX_PLATFORM_NAME": "cpu",
+    "LD_LIBRARY_PATH": null,
+    "LD_PRELOAD": null,
+    "MKL_DYNAMIC": null,
+    "MKL_NUM_THREADS": "1",
+    "NPY_DISABLE_CPU_FEATURES": null,
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "PYTEST_ADDOPTS": null,
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": null,
+    "PYTHONHASHSEED": null,
+    "PYTHONHOME": null,
+    "PYTHONNOUSERSITE": null,
+    "PYTHONPATH": "${CHECKOUT}",
+    "PYTHONPYCACHEPREFIX": null,
+    "PYTHONSAFEPATH": null,
+    "TF_NUM_INTEROP_THREADS": "1",
+    "TF_NUM_INTRAOP_THREADS": "1",
+    "XLA_FLAGS": null
+  },
+  "collection_transition": {
+    "startup_jax_config": {
+      "status": "NOT_LOADED",
+      "values": {}
+    },
+    "collected_environment": {
+      "JAX2ONNX_MAXDIFFUSION_MODELS": null,
+      "JAX2ONNX_MAXDIFFUSION_REF": null,
+      "JAX2ONNX_MAXDIFFUSION_SRC": null,
+      "JAX2ONNX_MAXTEXT_MODELS": null,
+      "JAX2ONNX_MAXTEXT_REF": null,
+      "JAX2ONNX_MAXTEXT_SRC": null,
+      "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": "${RUN}/native-model-artifacts",
+      "JAX2ONNX_RUN_MAXDIFFUSION": null,
+      "JAX2ONNX_RUN_MAXTEXT": null,
+      "JAX_ENABLE_X64": null,
+      "JAX_PLATFORMS": "cpu",
+      "JAX_PLATFORM_NAME": "cpu",
+      "LD_LIBRARY_PATH": null,
+      "LD_PRELOAD": null,
+      "MKL_DYNAMIC": null,
+      "MKL_NUM_THREADS": "1",
+      "NPY_DISABLE_CPU_FEATURES": null,
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_DYNAMIC": null,
+      "OMP_NUM_THREADS": "1",
+      "OMP_THREAD_LIMIT": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "PYTEST_ADDOPTS": null,
+      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": null,
+      "PYTEST_VERSION": "9.1.1",
+      "PYTHONHASHSEED": null,
+      "PYTHONHOME": null,
+      "PYTHONNOUSERSITE": null,
+      "PYTHONPATH": "${CHECKOUT}",
+      "PYTHONPYCACHEPREFIX": null,
+      "PYTHONSAFEPATH": null,
+      "TF_CPP_MIN_LOG_LEVEL": "1",
+      "TF_NUM_INTEROP_THREADS": "1",
+      "TF_NUM_INTRAOP_THREADS": "1",
+      "XLA_FLAGS": null
+    },
+    "collected_jax_config": {
+      "status": "OBSERVED",
+      "values": {
+        "x64_enabled": false,
+        "jax_disable_jit": false,
+        "jax_default_matmul_precision": null,
+        "jax_platforms": "cpu",
+        "jax_numpy_dtype_promotion": {
+          "type": "jax._src.config.NumpyDtypePromotion",
+          "member": "STANDARD",
+          "value": "standard"
+        },
+        "jax_numpy_rank_promotion": "allow"
+      }
+    },
+    "post_pytest_environment": {
+      "JAX2ONNX_MAXDIFFUSION_MODELS": null,
+      "JAX2ONNX_MAXDIFFUSION_REF": null,
+      "JAX2ONNX_MAXDIFFUSION_SRC": null,
+      "JAX2ONNX_MAXTEXT_MODELS": null,
+      "JAX2ONNX_MAXTEXT_REF": null,
+      "JAX2ONNX_MAXTEXT_SRC": null,
+      "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR": "${RUN}/native-model-artifacts",
+      "JAX2ONNX_RUN_MAXDIFFUSION": null,
+      "JAX2ONNX_RUN_MAXTEXT": null,
+      "JAX_ENABLE_X64": null,
+      "JAX_PLATFORMS": "cpu",
+      "JAX_PLATFORM_NAME": "cpu",
+      "LD_LIBRARY_PATH": null,
+      "LD_PRELOAD": null,
+      "MKL_DYNAMIC": null,
+      "MKL_NUM_THREADS": "1",
+      "NPY_DISABLE_CPU_FEATURES": null,
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_DYNAMIC": null,
+      "OMP_NUM_THREADS": "1",
+      "OMP_THREAD_LIMIT": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "PYTEST_ADDOPTS": null,
+      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": null,
+      "PYTHONHASHSEED": null,
+      "PYTHONHOME": null,
+      "PYTHONNOUSERSITE": null,
+      "PYTHONPATH": "${CHECKOUT}",
+      "PYTHONPYCACHEPREFIX": null,
+      "PYTHONSAFEPATH": null,
+      "TF_CPP_MIN_LOG_LEVEL": "1",
+      "TF_NUM_INTEROP_THREADS": "1",
+      "TF_NUM_INTRAOP_THREADS": "1",
+      "XLA_FLAGS": null
+    },
+    "post_pytest_jax_config": {
+      "status": "OBSERVED",
+      "values": {
+        "x64_enabled": false,
+        "jax_disable_jit": false,
+        "jax_default_matmul_precision": null,
+        "jax_platforms": "cpu",
+        "jax_numpy_dtype_promotion": {
+          "type": "jax._src.config.NumpyDtypePromotion",
+          "member": "STANDARD",
+          "value": "standard"
+        },
+        "jax_numpy_rank_promotion": "allow"
+      }
+    }
+  },
+  "allowed_skips": [],
+  "provenance": {
+    "data_base_commit": "38dfb1ffb2a7f677a2718834493b55b5a182d15e",
+    "observed_source_commit": "234df50e86d53f9268f9a50d6fed70979d782e3b",
+    "main_ordered_ids": {
+      "path": "/tmp/jax2onnx-main312-ordered-session-ids-v3.json",
+      "sha256": "c6cd5a0b518fba87bdbeafe5109e81b4ea9a3d99d600c9b56a56b79b5da50405"
+    },
+    "main_selection": "Concatenate literal Main81ad IDs per original CLI selector in that exact selector order; do not sort IDs or infer allowances.",
+    "bounded_observation": {
+      "summary": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/normalization312-234-v1/summary.json",
+        "sha256": "7ebfedd5bebf4c9bf25c89195a63b968d8ef26025324e962d2eccd0232c22a56"
+      },
+      "freeze": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/normalization312-234-v1/freeze.json",
+        "sha256": "aaa187c672f333654b050b23abd392b0fa5b226f5d246b27d1810dcd42f0ebfa"
+      },
+      "collection_receipt": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/normalization312-234-v1/collection/receipt.json",
+        "sha256": "981e37d0487eb1cba3a474fcd9131b5d85b5b16a666d4bd2bd3de02467ca438d"
+      },
+      "runtime_receipt": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/normalization312-234-v1/runtime/receipt.json",
+        "sha256": "d08275018129cb8457fd68cd6501984248496c1994a69b75d218c4539c119b2b"
+      },
+      "collection_terminal_observation": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/normalization312-234-v1/collection/terminal-observation.json",
+        "sha256": "0c341da8f79f6cb908660118d4e46f8aae623b3f65f5be51691b277fc98c0af8"
+      },
+      "runtime_terminal_observation": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/normalization312-234-v1/runtime/terminal-observation.json",
+        "sha256": "3e33006827cce4111911d2cb57a28a1426e4f991d9d7f3f2ac38ca0c783a2478"
+      }
+    },
+    "references": {
+      "authenticated_ordinary_metadata": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/full-install-v1/metadata/observation.json",
+        "sha256": "5fc969fa7f28692d2a021f043b25a08c750ccd0029d12d43636e9029d6844d26"
+      },
+      "installation_summary": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/full-install-v1/summary.json",
+        "sha256": "da9f5361a9c235b3931a344d871e90bb07139ddf1c7ea43b5664b7f7cce09302"
+      },
+      "installation_freeze": {
+        "path": "/mnt/d/jax2onnx-support-locked312-10c46eb2-20261030-v2/evidence/full-install-v1/freeze.json",
+        "sha256": "d935fb49a6ba47d7496a6765193a15818051fc257a7caec894203ebdd7edb6c1"
+      }
+    },
+    "transport": "Only existing prepare protocol path transport is applied: observed checkout paths become ${CHECKOUT}, and JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR=${RUN}/native-model-artifacts is declared at all three boundaries. The historical raw workers did not activate this evidence-directory key; its canonical transport requires fresh committed-data qualification. Other literal environment and JAX values are preserved.",
+    "setup": "No generation. tests/primitives and tests/examples must both be lexists-absent before setup and after closure; generated={} alone does not prove directory absence.",
+    "historical_counts": {
+      "C": 102,
+      "S": 102,
+      "A_unexecuted": 0,
+      "passed_native_phases": 306,
+      "skip_allowances": 0
+    },
+    "scope": "Prepared private support-cohort declaration at base 38dfb1ffb2a7f677a2718834493b55b5a182d15e. Historical bounded observations do not establish admission of the new committed data epoch, canonical support qualification, hosted whole-job timing, public SOURCE behavior or full B-F numerical acceptance. Commit these data and independently qualify them before use; no workflow is activated."
+  }
+}

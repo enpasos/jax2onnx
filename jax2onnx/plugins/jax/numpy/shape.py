@@ -17,6 +17,7 @@ from jax2onnx._compat.jax import (
 )
 from numpy.typing import ArrayLike
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -157,6 +158,8 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(a: ArrayLike) -> ArrayLike:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(a)
                 arr = jnp.asarray(a)
                 return cls._PRIM.bind(arr)
 

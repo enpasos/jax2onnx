@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Any, Callable, ClassVar, Optional, cast
 
 import equinox as eqx
@@ -14,6 +15,7 @@ from jax.core import ShapedArray
 from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -202,7 +204,9 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, not_val)
             return cast(ir.Value, not_val)
 
-        if call_time:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            training_val = ctx.ensure_training_mode(param_name, inference_var)
+        elif call_time:
             inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
             if param_name not in call_params and inference_bool is not None:
                 det_val = _const_tensor(
@@ -272,9 +276,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
     def _patch_call(
         orig: Callable[..., jax.Array] | None,
     ) -> Callable[..., jax.Array]:
-        del orig
-
-        def wrapped(
+        def legacy(
             self: eqx.nn.Dropout,
             x: jax.Array,
             *,
@@ -298,7 +300,14 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 x, inference_arg, p=float(self.p), call_time=call_time
             )
 
-        return wrapped
+        def wrapped(self: eqx.nn.Dropout, *args: Any, **kwargs: Any) -> jax.Array:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig is None:
+                    raise RuntimeError("equinox.nn.Dropout.__call__ is not available.")
+                return orig(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
+
+        return wraps(orig)(wrapped) if orig is not None else wrapped
 
     @classmethod
     def ensure_abstract_eval_bound(cls) -> None:

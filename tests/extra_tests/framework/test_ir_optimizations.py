@@ -20,7 +20,9 @@ from jax2onnx.converter.ir_optimizations import (
     _to_numpy_from_any,
     _as_scalar_bool,
     optimize_graph,
+    remove_redundant_casts_ir,
 )
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 
 from onnx_ir import AttributeType as IRAttrType
 
@@ -146,94 +148,191 @@ def V_ir(name, dtype=ir.DataType.FLOAT, shape=()):
 
 
 def build_graph_with_not_tm():
-    # graph IO
     x = ir.val("x", ir.DataType.FLOAT, (3, 30))
     ratio = ir.val("ratio", ir.DataType.FLOAT, ())
-    y = ir.val("y", ir.DataType.FLOAT, (3, 10))
-
-    # keep a dangling graph input 'deterministic' so prune pass can remove it
     det = ir.val("deterministic", ir.DataType.BOOL, ())
-
-    # intermediates
-    a = ir.val("after_gemm", ir.DataType.FLOAT, (3, 20))
-    b = ir.val("after_bn", ir.DataType.FLOAT, (3, 20))
-    not_out = ir.val("not_out", ir.DataType.BOOL, ())
-    d_out = ir.val("drop_out", ir.DataType.FLOAT, (3, 20))
-    g_out = ir.val("gelu_out", ir.DataType.FLOAT, (3, 20))
-
-    # Constant True for training-mode corridor, so Not(True) → can be inlined.
-    # Make the scalar readable in a build-agnostic way: attach it directly to
-    # the Value via `const_value`. The optimizer always checks this first.
+    y = ir.val("y", ir.DataType.FLOAT, (3, 10))
+    after_gemm = ir.val("after_gemm", ir.DataType.FLOAT, (3, 20))
+    after_bn = ir.val("after_bn", ir.DataType.FLOAT, (3, 20))
     const_true = V_ir("const_true", ir.DataType.BOOL, ())
-    # Attach constant payload directly; skip tricky Attr/Attributes handling.
-    const_true.const_value = ir.tensor(np.asarray(True, dtype=np.bool_))
-    const_node = ir.Node(
-        op_type="Constant",
-        domain="",
-        inputs=[],
-        outputs=[const_true],
-        name="Const_true",
-        attributes=[],  # payload is on Value.const_value
-        num_outputs=1,
-    )
+    not_out = ir.val("not_out", ir.DataType.BOOL, ())
+    drop_out = ir.val("drop_out", ir.DataType.FLOAT, (3, 20))
+    gelu_out = ir.val("gelu_out", ir.DataType.FLOAT, (3, 20))
 
-    n1 = ir.Node(op_type="Gemm", domain="", inputs=[x], outputs=[a], name="Gemm_1")
-    n2 = ir.Node(
-        op_type="BatchNormalization", domain="", inputs=[a], outputs=[b], name="BN_1"
-    )
-    n3 = ir.Node(
-        op_type="Not", domain="", inputs=[const_true], outputs=[not_out], name="Not_1"
-    )
-    n4 = ir.Node(
-        op_type="Dropout",
-        domain="",
-        inputs=[b, ratio, not_out],
-        outputs=[d_out],
-        name="Drop_1",
-    )
-    n5 = ir.Node(
-        op_type="Gelu", domain="", inputs=[d_out], outputs=[g_out], name="Gelu_1"
-    )
-    n6 = ir.Node(op_type="Gemm", domain="", inputs=[g_out], outputs=[y], name="Gemm_2")
+    def initializer(name, shape, fill):
+        return ir.val(
+            name,
+            ir.DataType.FLOAT,
+            shape,
+            const_value=ir.tensor(np.full(shape, fill, dtype=np.float32)),
+        )
 
-    g = ir.Graph(
+    gemm1_weight = initializer("gemm1_weight", (30, 20), 1)
+    gemm1_bias = initializer("gemm1_bias", (20,), 0)
+    bn_scale = initializer("bn_scale", (20,), 1)
+    bn_bias = initializer("bn_bias", (20,), 0)
+    bn_mean = initializer("bn_mean", (20,), 0)
+    bn_variance = initializer("bn_variance", (20,), 1)
+    gemm2_weight = initializer("gemm2_weight", (20, 10), 1)
+    gemm2_bias = initializer("gemm2_bias", (10,), 0)
+    constant = ir.tensor(np.asarray(True, dtype=np.bool_))
+    const_true.const_value = constant
+    graph = ir.Graph(
         name="g",
-        inputs=[x, det, ratio],  # 'det' is intentionally unused so it can be pruned
+        inputs=[x, det, ratio],
         outputs=[y],
-        nodes=[const_node, n1, n2, n3, n4, n5, n6],
+        initializers=[
+            gemm1_weight,
+            gemm1_bias,
+            bn_scale,
+            bn_bias,
+            bn_mean,
+            bn_variance,
+            gemm2_weight,
+            gemm2_bias,
+        ],
+        nodes=[
+            ir.Node(
+                "",
+                "Constant",
+                [],
+                outputs=[const_true],
+                name="Const_true",
+                attributes=[ir.AttrTensor("value", constant)],
+            ),
+            ir.Node(
+                "",
+                "Gemm",
+                [x, gemm1_weight, gemm1_bias],
+                outputs=[after_gemm],
+                name="Gemm_1",
+            ),
+            ir.Node(
+                "",
+                "BatchNormalization",
+                [after_gemm, bn_scale, bn_bias, bn_mean, bn_variance],
+                outputs=[after_bn],
+                name="BN_1",
+            ),
+            ir.Node("", "Not", [const_true], outputs=[not_out], name="Not_1"),
+            ir.Node(
+                "",
+                "Dropout",
+                [after_bn, ratio, not_out],
+                outputs=[drop_out],
+                name="Drop_1",
+            ),
+            ir.Node("", "Gelu", [drop_out], outputs=[gelu_out], name="Gelu_1"),
+            ir.Node(
+                "",
+                "Gemm",
+                [gelu_out, gemm2_weight, gemm2_bias],
+                outputs=[y],
+                name="Gemm_2",
+            ),
+        ],
     )
-    m = ir.Model(graph=g, ir_version=10)
-    m.opset_imports[""] = 21
-    return m
+    model = ir.Model(graph, ir_version=10)
+    model.opset_imports[""] = 21
+    return model
+
+
+def _assert_full_dropout_corridor(model):
+    corridor = [node for node in model.graph if node.op_type not in {"Constant", "Not"}]
+    assert [node.op_type for node in corridor] == [
+        "Gemm",
+        "BatchNormalization",
+        "Dropout",
+        "Gelu",
+        "Gemm",
+    ]
+    assert corridor[0].inputs[0] is model.graph.inputs[0]
+    assert tuple(model.graph.inputs[0].shape) == (3, 30)
+    for previous, following in zip(corridor, corridor[1:]):
+        assert following.inputs[0] is previous.outputs[0]
+        assert tuple(previous.outputs[0].shape) == (3, 20)
+    assert corridor[-1].outputs[0] is model.graph.outputs[0]
+    assert tuple(model.graph.outputs[0].shape) == (3, 10)
+    assert len(corridor[0].inputs) == len(corridor[-1].inputs) == 3
+    assert len(corridor[1].inputs) == 5
 
 
 def test_dropout_training_mode_inlined_constant_false_and_not_removed():
-    m = build_graph_with_not_tm()
-    m = optimize_graph(m)
-    g = m.graph
-    nodes = list(g)
+    model = build_graph_with_not_tm()
+    _assert_full_dropout_corridor(model)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    model = optimize_graph(model)
+    proto = ir.to_proto(model)
+    onnx.checker.check_model(proto, full_check=True)
+    _assert_full_dropout_corridor(model)
+    nodes = list(model.graph)
+    assert not any(node.op_type == "Not" for node in nodes)
+    dropouts = [node for node in nodes if node.op_type == "Dropout"]
+    assert len(dropouts) == 1
+    dropout = dropouts[0]
+    assert dropout.inputs[1] is next(
+        value for value in model.graph.inputs if value.name == "ratio"
+    )
+    assert len(dropout.inputs) == 2 or dropout.inputs[2] is None
+    assert [node.op_type for node in proto.graph.node] == [
+        "Gemm",
+        "BatchNormalization",
+        "Dropout",
+        "Gelu",
+        "Gemm",
+    ]
+    for previous, following in zip(proto.graph.node, proto.graph.node[1:]):
+        assert following.input[0] == previous.output[0]
+    assert proto.graph.node[0].input[0] == "x"
+    assert proto.graph.node[-1].output[0] == "y"
+    proto_dropout = next(node for node in proto.graph.node if node.op_type == "Dropout")
+    assert proto_dropout.input[1] == "ratio"
+    assert len(proto_dropout.input) == 2 or proto_dropout.input[2] == ""
+    assert {value.name for value in model.graph.inputs} == {"x", "ratio"}
 
-    # Not must be gone
-    assert "Not" not in [n.op_type for n in nodes]
 
-    # Dropout must remain and its 3rd input must be "missing" (empty name)
-    drops = [n for n in nodes if n.op_type == "Dropout"]
-    assert len(drops) == 1
-    d = drops[0]
-    ins = d.inputs
-    # If .input stores names instead of Values, normalize to names only
-    if ins and isinstance(ins[0], str):
-        third_name = ins[2]
-    else:
-        third = ins[2]
-        third_name = third.name
-    assert third_name == "false_const", f"expected missing tm input, got {third_name!r}"
+def _build_direct_dropout_graph_with_not_tm():
+    x = ir.val("x", ir.DataType.FLOAT, (3, 20))
+    ratio = ir.val("ratio", ir.DataType.FLOAT, ())
+    det = ir.val("deterministic", ir.DataType.BOOL, ())
+    y = ir.val("y", ir.DataType.FLOAT, (3, 20))
+    constant = ir.tensor(np.asarray(True, dtype=np.bool_))
+    const_true = V_ir("const_true", ir.DataType.BOOL, ())
+    not_out = V_ir("not_out", ir.DataType.BOOL, ())
+    graph = ir.Graph(
+        [x, det, ratio],
+        [y],
+        nodes=[
+            ir.Node(
+                "",
+                "Constant",
+                [],
+                outputs=[const_true],
+                attributes=[ir.AttrTensor("value", constant)],
+            ),
+            ir.Node("", "Not", [const_true], outputs=[not_out]),
+            ir.Node("", "Dropout", [x, ratio, not_out], outputs=[y]),
+        ],
+        name="g",
+        opset_imports={"": 23},
+    )
+    return ir.Model(graph, ir_version=10)
 
-    # Unused graph input 'deterministic' must be pruned; 'x' and 'ratio' must remain
-    in_names = {v.name for v in g.inputs}
-    assert "deterministic" not in in_names
-    assert "x" in in_names
-    assert "ratio" in in_names
+
+def test_direct_dropout_training_mode_inlined_constant_false_and_not_removed():
+    model = _build_direct_dropout_graph_with_not_tm()
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    model = optimize_graph(model)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    nodes = list(model.graph)
+    assert not any(node.op_type == "Not" for node in nodes)
+    dropout = next(node for node in nodes if node.op_type == "Dropout")
+    assert len(dropout.inputs) == 2 or dropout.inputs[2] is None
+    proto_dropout = next(
+        node for node in ir.to_proto(model).graph.node if node.op_type == "Dropout"
+    )
+    assert len(proto_dropout.input) == 2 or proto_dropout.input[2] == ""
+    assert {value.name for value in model.graph.inputs} == {"x", "ratio"}
 
 
 def test_prune_unused_input_not_kept_due_to_nested_graph_name_collision():
@@ -354,6 +453,260 @@ def test_identity_cast_removed_and_consumers_rewired():
     relu = nodes[0]
 
     assert relu.inputs[0].name == "x"
+
+
+@pytest.mark.parametrize(
+    "precision_policy",
+    [PrecisionPolicy.SOURCE, PrecisionPolicy.LEGACY],
+    ids=["source", "legacy"],
+)
+def test_removed_identity_cast_detaches_its_input_use(precision_policy) -> None:
+    model = build_graph_with_identity_cast()
+    removed_cast, relu = list(model.graph)
+    source = model.graph.inputs[0]
+    cast_output = removed_cast.outputs[0]
+    assert (removed_cast, 0) in source.uses()
+
+    remove_redundant_casts_ir(model.graph)
+
+    assert removed_cast not in list(model.graph)
+    assert tuple(removed_cast.inputs) == (None,)
+    assert source.uses() == ((relu, 0),)
+    assert not cast_output.uses()
+
+    optimized = optimize_graph(model, precision_policy=precision_policy)
+
+    assert list(optimized.graph) == [relu]
+    assert relu.inputs[0] is source
+    assert removed_cast.graph is None
+    assert tuple(removed_cast.inputs) == (None,)
+    assert source.uses() == ((relu, 0),)
+    assert not cast_output.uses()
+
+
+@pytest.mark.parametrize(
+    "precision_policy",
+    [PrecisionPolicy.SOURCE, PrecisionPolicy.LEGACY],
+    ids=["source", "legacy"],
+)
+def test_removed_nan_cast_allows_dce_to_prune_scalar_initializer(
+    precision_policy,
+) -> None:
+    # The broadcast has already materialized a singleton NaN. Its original
+    # scalar and same-dtype Cast must not survive through a stale input use.
+    payload = np.asarray(0x7FC00000, dtype=np.uint32).view(np.float32)
+    scalar = ir.val("nan_scalar", ir.DataType.FLOAT, (), const_value=ir.tensor(payload))
+    singleton = ir.val(
+        "nan_singleton",
+        ir.DataType.FLOAT,
+        (1,),
+        const_value=ir.tensor(payload.reshape(1)),
+    )
+    cast_output = ir.val("nan_cast", ir.DataType.FLOAT, ())
+    output = ir.val("output", ir.DataType.FLOAT, (1,))
+    removed_cast = ir.Node(
+        "",
+        "Cast",
+        [scalar],
+        attributes=[_cast_attr(ir.DataType.FLOAT)],
+        outputs=[cast_output],
+        name="Removed_nan_cast",
+    )
+    consumer = ir.Node(
+        "", "Identity", [singleton], outputs=[output], name="Live_singleton_consumer"
+    )
+    graph = ir.Graph(
+        inputs=[],
+        outputs=[output],
+        nodes=[removed_cast, consumer],
+        initializers=[scalar, singleton],
+        name="materialized_nan_broadcast",
+    )
+    model = ir.Model(graph=graph, ir_version=10)
+    model.opset_imports[""] = 21
+    scalar_name = scalar.name
+    singleton_name = singleton.name
+    assert (removed_cast, 0) in scalar.uses()
+    assert scalar.const_value.numpy().tobytes() == bytes.fromhex("0000c07f")
+
+    remove_redundant_casts_ir(model.graph)
+
+    assert removed_cast not in list(model.graph)
+    assert tuple(removed_cast.inputs) == (None,)
+    assert not scalar.uses()
+    assert not cast_output.uses()
+    assert model.graph.initializers[scalar_name] is scalar
+    assert singleton.uses() == ((consumer, 0),)
+
+    optimized = optimize_graph(model, precision_policy=precision_policy)
+
+    assert list(optimized.graph) == [consumer]
+    assert removed_cast.graph is None
+    assert tuple(removed_cast.inputs) == (None,)
+    assert not scalar.uses()
+    assert not cast_output.uses()
+    assert scalar_name not in optimized.graph.initializers
+    assert all(value is not scalar for value in optimized.graph.initializers.values())
+    assert singleton.name == singleton_name
+    assert optimized.graph.initializers[singleton_name] is singleton
+    assert consumer.inputs[0] is singleton
+    assert singleton.uses() == ((consumer, 0),)
+    retained = singleton.const_value.numpy()
+    assert retained.dtype == np.dtype(np.float32)
+    assert retained.shape == (1,)
+    assert retained.tobytes() == bytes.fromhex("0000c07f")
+
+
+def _initializer_lossless_cast_roundtrip():
+    source = ir.val(
+        "source",
+        ir.DataType.FLOAT16,
+        (4,),
+        const_value=ir.tensor(
+            np.asarray([0x8000, 0x3C01, 0x7E01, 0xFC00], dtype=np.uint16).view(
+                np.float16
+            )
+        ),
+    )
+    widened = ir.val("widened", ir.DataType.FLOAT, (4,))
+    restored = ir.val("restored", ir.DataType.FLOAT16, (4,))
+    first = ir.Node(
+        "",
+        "Cast",
+        [source],
+        attributes=[_cast_attr(ir.DataType.FLOAT)],
+        outputs=[widened],
+        name="Cast_widen",
+    )
+    second = ir.Node(
+        "",
+        "Cast",
+        [widened],
+        attributes=[_cast_attr(ir.DataType.FLOAT16)],
+        outputs=[restored],
+        name="Cast_restore",
+    )
+    graph = ir.Graph(
+        inputs=[],
+        outputs=[restored],
+        nodes=[first, second],
+        initializers=[source],
+        name="lossless_initializer_roundtrip",
+    )
+    model = ir.Model(graph=graph, ir_version=10)
+    model.opset_imports[""] = 21
+    return model, source, widened, first, second
+
+
+@pytest.mark.parametrize(
+    "precision_policy",
+    [PrecisionPolicy.SOURCE, PrecisionPolicy.LEGACY],
+    ids=["source", "legacy"],
+)
+def test_removed_lossless_cast_pair_detaches_both_input_uses(precision_policy) -> None:
+    model, source, widened, first, second = _initializer_lossless_cast_roundtrip()
+    source_bytes = source.const_value.numpy().tobytes()
+    source_name = source.name
+    assert (first, 0) in source.uses()
+    assert (second, 0) in widened.uses()
+
+    remove_redundant_casts_ir(model.graph)
+
+    assert first not in list(model.graph) and second not in list(model.graph)
+    assert tuple(first.inputs) == (None,)
+    assert tuple(second.inputs) == (None,)
+    assert not source.uses()
+    assert not widened.uses()
+    assert model.graph.initializers[source_name] is source
+
+    optimized = optimize_graph(model, precision_policy=precision_policy)
+
+    assert list(optimized.graph) == []
+    assert tuple(optimized.graph.outputs) == (source,)
+    assert source.name == source_name
+    assert optimized.graph.initializers[source_name] is source
+    assert source.const_value.numpy().tobytes() == source_bytes
+    assert first.graph is None and second.graph is None
+    assert tuple(first.inputs) == (None,)
+    assert tuple(second.inputs) == (None,)
+    assert not source.uses()
+    assert not widened.uses()
+
+
+@pytest.mark.parametrize(
+    "precision_policy",
+    [PrecisionPolicy.SOURCE, PrecisionPolicy.LEGACY],
+    ids=["source", "legacy"],
+)
+@pytest.mark.parametrize("observation", ["graph-output", "nested-capture"])
+def test_removed_roundtrip_tail_keeps_observed_first_cast_and_initializer(
+    precision_policy, observation
+) -> None:
+    model, source, widened, first, second = _initializer_lossless_cast_roundtrip()
+    source_bytes = source.const_value.numpy().tobytes()
+    source_name = source.name
+    capture_nodes = []
+    if observation == "graph-output":
+        model.graph.outputs.insert(0, widened)
+    else:
+        condition = ir.val("condition", ir.DataType.BOOL, ())
+        model.graph.inputs.append(condition)
+
+        def branch(name):
+            output = ir.val(name + "_output", ir.DataType.FLOAT, (4,))
+            capture = ir.Node(
+                "", "Identity", [widened], outputs=[output], name=name + "_capture"
+            )
+            capture_nodes.append(capture)
+            return ir.Graph(inputs=[], outputs=[output], nodes=[capture], name=name)
+
+        selected = ir.val("selected", ir.DataType.FLOAT, (4,))
+        model.graph.append(
+            ir.Node(
+                "",
+                "If",
+                [condition],
+                outputs=[selected],
+                name="Observe_widened",
+                attributes=[
+                    ir.Attr("then_branch", ir.AttributeType.GRAPH, branch("then")),
+                    ir.Attr("else_branch", ir.AttributeType.GRAPH, branch("else")),
+                ],
+            )
+        )
+        model.graph.outputs.append(selected)
+
+    remove_redundant_casts_ir(model.graph)
+
+    assert first in list(model.graph) and second not in list(model.graph)
+    assert first.inputs[0] is source
+    assert tuple(second.inputs) == (None,)
+    assert source.uses() == ((first, 0),)
+    assert (second, 0) not in widened.uses()
+    if observation == "graph-output":
+        assert model.graph.outputs[0] is widened
+    else:
+        assert set(widened.uses()) == {(capture, 0) for capture in capture_nodes}
+
+    optimized = optimize_graph(model, precision_policy=precision_policy)
+
+    assert [n for n in optimized.graph if n.op_type == "Cast"] == [first]
+    assert first.graph is optimized.graph
+    assert first.inputs[0] is source
+    assert second.graph is None
+    assert tuple(second.inputs) == (None,)
+    assert source.uses() == ((first, 0),)
+    assert (second, 0) not in widened.uses()
+    assert source.name == source_name
+    assert optimized.graph.initializers[source_name] is source
+    assert source.const_value.numpy().tobytes() == source_bytes
+    if observation == "graph-output":
+        assert tuple(optimized.graph.outputs) == (widened, source)
+        assert not widened.uses()
+    else:
+        assert optimized.graph.outputs[0] is source
+        assert all(capture.inputs[0] is widened for capture in capture_nodes)
+        assert set(widened.uses()) == {(capture, 0) for capture in capture_nodes}
 
 
 def test_lossy_cast_roundtrip_is_preserved_and_quantizes_values() -> None:

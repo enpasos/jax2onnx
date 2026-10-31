@@ -9,6 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -29,7 +30,7 @@ def lower_pow(ctx: LoweringContextProtocol, eqn: Any) -> None:
     target_dtype: np.dtype[Any] = np.dtype(getattr(base_var.aval, "dtype", np.float32))
     exp_dtype = np.dtype(getattr(exponent_var.aval, "dtype", target_dtype))
 
-    if exp_dtype != target_dtype:
+    if exp_dtype != target_dtype and ctx.precision_policy is PrecisionPolicy.LEGACY:
         cast_name = ctx.fresh_name("pow_exp_cast")
         cast_val = cast(
             ir.Value,

@@ -10,12 +10,15 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
+from jax2onnx.plugins.jax.lax._reduce_extrema import lower_source_float_extrema
 
 _REDUCESUM_INT64_WORK_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
     {
@@ -24,6 +27,86 @@ _REDUCESUM_INT64_WORK_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
         np.dtype(np.uint32),
     }
 )
+
+
+def _source_empty_reduction(
+    ctx: LoweringContextProtocol, eqn: JaxprEqn, *, operation: str
+) -> bool:
+    """Check physical SOURCE values and construct native empty identities.
+
+    Target ReduceMin/Max empty identities differ between kernels. Construct
+    the actual typed native identity without executing a target reduction over
+    an empty dimension; retain B through Shape/Gather, never a sample extent.
+    """
+    if ctx.precision_policy is not PrecisionPolicy.SOURCE:
+        return False
+    source_var, target_var = eqn.invars[0], eqn.outvars[0]
+    source = ctx.require_value_for_var(source_var)
+    target = ctx.allocate_value_for_var(
+        target_var, name_hint=ctx.fresh_name("empty_reduction")
+    )
+    for var, value in ((source_var, source), (target_var, target)):
+        if not representation_for_aval(var.aval).matches_ir_value(value):
+            raise ValueError(
+                "SOURCE reduction canonical representation differs from native typed value"
+            )
+    axes = eqn.params.get("axes")
+    rank = len(source_var.aval.shape)
+    if (
+        not isinstance(axes, tuple)
+        or any(
+            not isinstance(axis, (int, np.integer))
+            or isinstance(axis, bool)
+            or not 0 <= axis < rank
+            for axis in axes
+        )
+        or len(set(axes)) != len(axes)
+    ):
+        raise ValueError("SOURCE reduction requires distinct canonical integer axes")
+    empty = any(
+        type(source_var.aval.shape[axis]) is int and source_var.aval.shape[axis] == 0
+        for axis in axes
+    )
+    if not empty:
+        return False
+    dtype = np.dtype(target_var.aval.dtype)
+    if operation in {"ReduceSum", "reduce_or", "reduce_xor"}:
+        identity: Any = 0
+    elif operation in {"ReduceProd", "reduce_and"}:
+        identity = 1
+    elif operation in {"ReduceMin", "ReduceMax"}:
+        minimum = operation == "ReduceMin"
+        if np.issubdtype(dtype, np.floating) or dtype.name == "bfloat16":
+            identity = np.inf if minimum else -np.inf
+        else:
+            identity = np.iinfo(dtype).max if minimum else np.iinfo(dtype).min
+    else:
+        raise ValueError(f"unknown SOURCE empty reduction {operation}")
+    scalar = ctx.bind_const_for_var(object(), np.asarray(identity, dtype=dtype))
+    source_shape = ctx.builder.op(
+        "Shape",
+        [source],
+        output=ir.Value(
+            name=ctx.fresh_name("empty_source_shape"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((rank,)),
+        ),
+    )
+    retained = [axis for axis in range(rank) if axis not in axes]
+    indices = ctx.bind_const_for_var(object(), np.asarray(retained, dtype=np.int64))
+    output_shape = ctx.builder.op(
+        "Gather",
+        [source_shape, indices],
+        {"axis": 0},
+        output=ir.Value(
+            name=ctx.fresh_name("empty_result_shape"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((len(retained),)),
+        ),
+    )
+    result = ctx.builder.op("Expand", [scalar, output_shape], output=target)
+    ctx.bind_value_for_var(target_var, result)
+    return True
 
 
 def _normalize_axes(
@@ -40,6 +123,64 @@ def _normalize_axes(
             raise ValueError(f"reduction axis {ax} out of range for rank {rank}")
         normalized.append(ax_int)
     return tuple(normalized)
+
+
+def _source_int16_extrema(
+    ctx: LoweringContextProtocol, eqn: JaxprEqn, *, op_type: str
+) -> bool:
+    """Use an exact INT32 work representation for 16-bit integral extrema.
+
+    ONNX ReduceMin/Max omit INT16 and UINT16. Both entire native ranges fit
+    INT32, and selecting an extremum preserves an input value exactly. Keep
+    empty native identities and no-axis aliases on their existing typed paths.
+    """
+    if ctx.precision_policy is not PrecisionPolicy.SOURCE or op_type not in {
+        "ReduceMin",
+        "ReduceMax",
+    }:
+        return False
+    source_var, target_var = eqn.invars[0], eqn.outvars[0]
+    if np.dtype(source_var.aval.dtype) not in {
+        np.dtype(np.int16),
+        np.dtype(np.uint16),
+    }:
+        return False
+    axes = eqn.params["axes"]
+    if axes == ():
+        return False
+    source = ctx.require_value_for_var(source_var)
+    target = ctx.allocate_value_for_var(
+        target_var, name_hint=ctx.fresh_name("source_int16_extrema")
+    )
+    wide = ctx.builder.op(
+        "Cast",
+        [source],
+        {"to": int(ir.DataType.INT32.value)},
+        output=ir.Value(
+            name=ctx.fresh_name("source_int16_extrema_wide"),
+            type=ir.TensorType(ir.DataType.INT32),
+            shape=source.shape,
+        ),
+    )
+    reduced = builder_reduce_with_axes(
+        ctx,
+        wide,
+        op_type=op_type,
+        axes=axes,
+        keepdims=0,
+        name_hint="source_int16_extrema_reduce",
+    )
+    reduced.type = ir.TensorType(ir.DataType.INT32)
+    _stamp_type_and_shape(reduced, tuple(target_var.aval.shape))
+    _ensure_value_metadata(ctx, reduced)
+    result = ctx.builder.op(
+        "Cast",
+        [reduced],
+        {"to": int(representation_for_aval(target_var.aval).ir_dtype.value)},
+        output=target,
+    )
+    ctx.bind_value_for_var(target_var, result)
+    return True
 
 
 def _maybe_cast_input(
@@ -78,6 +219,12 @@ def lower_reduction(
     op_type: str,
     allow_dtype_param: bool = True,
 ) -> None:
+    if _source_empty_reduction(ctx, eqn, operation=op_type):
+        return
+    if _source_int16_extrema(ctx, eqn, op_type=op_type):
+        return
+    if lower_source_float_extrema(ctx, eqn, op_type=op_type):
+        return
     operand_var = eqn.invars[0]
     out_var = eqn.outvars[0]
 
@@ -226,6 +373,9 @@ def lower_boolean_reduction(
             "integer bitwise reduce_and/reduce_or/reduce_xor are not supported; "
             "the boolean reduction lowering only supports boolean outputs"
         )
+
+    if _source_empty_reduction(ctx, eqn, operation=mode):
+        return
 
     params = getattr(eqn, "params", {})
     axes = params.get("axes")

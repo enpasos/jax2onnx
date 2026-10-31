@@ -1,9 +1,11 @@
 # jax2onnx/converter/function_scope.py
 
 from __future__ import annotations
+from copy import copy, deepcopy
 from dataclasses import dataclass
 from typing import Literal
 import onnx_ir as ir
+from onnx_ir.convenience import rename_values
 
 from .typing_support import ConverterContext
 
@@ -13,6 +15,7 @@ class FunctionKey:
     qualified_name: str  # e.g. "pkg.module.SuperBlock"
     input_sig: tuple[tuple[tuple[object, ...], str], ...]
     capture_sig: tuple[object, ...]  # instance/config hash or tuple of static fields
+    tracing_sig: tuple[object, ...] = ()
 
 
 class FunctionRegistry:
@@ -46,7 +49,12 @@ class FunctionScope:
         self.name = name
         self.domain = domain
 
-        self.ctx = parent.create_child_context(scope="function")
+        # Hex encodes the exact pair without collapsing punctuation or Unicode.
+        namespace = (
+            f"function_d{domain.encode('utf-8').hex()}_n{name.encode('utf-8').hex()}"
+        )
+        self.ctx = parent.create_child_context(scope="function", prefix=namespace)
+        self._value_namespace = self.ctx.fresh_name("local")
         self._state: Literal["new", "building", "sealed"] = "new"
 
     def begin(self, inputs: list[ir.Value]) -> list[ir.Value]:
@@ -68,6 +76,74 @@ class FunctionScope:
                     self.ctx.record_symbolic_dim_origin(dim, fin, axis)
         return formals
 
+    def _namespace_owned_values(self) -> None:
+        """Rename local definitions by identity, retaining lexical outer captures."""
+        graph = self.ctx.builder.graph
+        graphs = [graph, *graph.subgraphs()]
+        formals = {id(value) for value in graph.inputs}
+        owned: list[ir.Value] = []
+        seen: set[int] = set()
+        for local_graph in graphs:
+            definitions = [
+                *local_graph.inputs,
+                *local_graph.initializers.values(),
+                *(value for node in local_graph for value in node.outputs),
+            ]
+            for value in definitions:
+                identity = id(value)
+                if (
+                    value.graph is local_graph
+                    and identity not in formals
+                    and identity not in seen
+                ):
+                    seen.add(identity)
+                    owned.append(value)
+
+        # Include parent definitions as well as all free operands/results. The
+        # latter can originate above the immediate parent, and must keep names.
+        visible = {value.name for value in graph.inputs if value.name}
+        parent_graph = self.parent.builder.graph
+        for local_graph in [parent_graph, *parent_graph.subgraphs(), *graphs]:
+            values = [
+                *local_graph.inputs,
+                *local_graph.outputs,
+                *local_graph.initializers.values(),
+                *(value for node in local_graph for value in node.outputs),
+                *(
+                    value
+                    for node in local_graph
+                    for value in node.inputs
+                    if value is not None
+                ),
+            ]
+            visible.update(
+                value.name for value in values if id(value) not in seen and value.name
+            )
+        namespace = self._value_namespace
+        names = [f"{namespace}_{index}" for index in range(len(owned))]
+        while visible.intersection(names):
+            namespace = self.ctx.fresh_name("local")
+            names = [f"{namespace}_{index}" for index in range(len(owned))]
+        self._value_namespace = namespace
+
+        # Value.name also renames const_value. Proto-backed tensors store the
+        # name in their backing proto, so those require an independent backing
+        # object; other public tensor wrappers keep the name on the wrapper.
+        for value in owned:
+            tensor = value.const_value
+            if tensor is not None:
+                detached = (
+                    deepcopy(tensor)
+                    if isinstance(tensor, ir.TensorProtoTensor)
+                    else copy(tensor)
+                )
+                if detached is tensor:
+                    raise TypeError(
+                        "Function-local tensor wrapper must be independent."
+                    )
+                value.const_value = detached
+        rename_values(owned, names)
+
     def end(self, outputs: list[ir.Value]) -> ir.Function:
         """Seal the body and return its final, independently owned IR function."""
         if self._state == "sealed":
@@ -76,6 +152,7 @@ class FunctionScope:
             raise RuntimeError("FunctionScope.begin() must be called before end().")
         self.ctx.builder.outputs.clear()
         self.ctx.builder.outputs.extend(outputs)
+        self._namespace_owned_values()
         body_graph = self.ctx.builder.graph.clone(allow_outer_scope_values=True)
         body_graph.name = self.name
         body_opset = int(self.ctx.builder.opset)

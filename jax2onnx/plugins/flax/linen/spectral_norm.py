@@ -10,6 +10,7 @@ from flax import linen as nn
 from flax.linen import linear as linen_linear
 
 from jax2onnx._compat.jax import Primitive, ShapedArray
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -257,7 +258,7 @@ class SpectralNormPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("flax.linen.SpectralNorm.__call__ is not available.")
             return orig_fn(self, *args, update_stats=update_stats, **kwargs)
 
-        def patched(
+        def legacy(
             self: Any,
             *args: Any,
             update_stats: bool,
@@ -326,5 +327,14 @@ class SpectralNormPlugin(PrimitiveLeafPlugin):
                     return out
 
             return call_orig(self, *args, update_stats=update_stats, **kwargs)
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError(
+                        "flax.linen.SpectralNorm.__call__ is not available."
+                    )
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched

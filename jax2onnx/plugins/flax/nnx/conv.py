@@ -26,6 +26,7 @@ from jax2onnx.converter.typing_support import (
     IRBuilderProtocol,
     LoweringContextProtocol,
 )
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -1488,19 +1489,23 @@ class ConvPlugin(PrimitiveLeafPlugin):
         ConvPlugin._ORIGINAL_CALL = real_orig
         prim = ConvPlugin._PRIM
 
-        def patched(self: nnx.Conv, x: Any, out_sharding: Any | None = None) -> Any:
-            original_x = x
+        def legacy(
+            self: nnx.Conv,
+            call_original: Callable[[], Any],
+            x: Any,
+            out_sharding: Any | None = None,
+        ) -> Any:
             kernel_size = getattr(self, "kernel_size", ())
             if isinstance(kernel_size, int):
                 kernel_size = (kernel_size,)
             else:
                 kernel_size = tuple(kernel_size)
             if not kernel_size:
-                return real_orig(self, original_x, out_sharding=out_sharding)
+                return call_original()
 
             num_batch_dimensions = x.ndim - (len(kernel_size) + 1)
             if num_batch_dimensions < 0:
-                return real_orig(self, original_x, out_sharding=out_sharding)
+                return call_original()
 
             input_batch_shape = None
             if num_batch_dimensions != 1:
@@ -1518,7 +1523,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 getattr(self, "input_dilation", 1), len(kernel_size)
             )
             if any(d != 1 for d in input_dilation):
-                return real_orig(self, original_x, out_sharding=out_sharding)
+                return call_original()
 
             dilations = _maybe_broadcast_conv_param(
                 getattr(self, "kernel_dilation", 1), len(kernel_size)
@@ -1590,6 +1595,15 @@ class ConvPlugin(PrimitiveLeafPlugin):
             if input_batch_shape is not None:
                 y = lax.reshape(y, input_batch_shape + y.shape[1:])
             return y
+
+        def patched(self: nnx.Conv, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return real_orig(self, *args, **kwargs)
+
+            def call_original() -> Any:
+                return real_orig(self, *args, **kwargs)
+
+            return legacy(self, call_original, *args, **kwargs)
 
         # Mark the shim so a subsequent patch can recover the original.
         # mypy: 'patched' is typed as a plain Callable, so attribute writes need an Any cast

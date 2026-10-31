@@ -5,10 +5,15 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, Tuple, Union, cast
 
 import numpy as np
+import numpy.typing as npt
 from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
@@ -23,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     _DynamicParamWrapper,
     register_native_primitive,
 )
-
 
 DimLike = Union[int, str]
 
@@ -63,6 +67,21 @@ def _builder_opset(builder: object) -> int:
     if opset is None:
         return 0
     return int(opset)
+
+
+_DPA_CAUSAL_FIXTURE_SEED: Final[int] = 0
+
+
+def _dpa_causal_fixture_inputs() -> list[npt.NDArray[Any]]:
+    """Build successive Gaussian q/k/v samples without touching application RNG."""
+    fixture_rng = np.random.default_rng(_DPA_CAUSAL_FIXTURE_SEED)
+    return [
+        *(
+            fixture_rng.standard_normal((1, 8, 4, 16)).astype(np.float32)
+            for _ in range(3)
+        ),
+        np.tril(np.ones((1, 4, 8, 8), dtype=bool)),
+    ]
 
 
 DPA_PRIM: Final[Primitive] = Primitive("nnx.dot_product_attention")
@@ -188,12 +207,13 @@ EXPECT_DPA_GQA_NATIVE: Final = EG(
             "callable": lambda q, k, v, mask: nnx.dot_product_attention(
                 q, k, v, mask=mask
             ),
-            "input_values": [
-                np.random.randn(1, 8, 4, 16).astype(np.float32),
-                np.random.randn(1, 8, 4, 16).astype(np.float32),
-                np.random.randn(1, 8, 4, 16).astype(np.float32),
-                np.tril(np.ones((1, 4, 8, 8), dtype=bool)),
-            ],
+            "input_values": _dpa_causal_fixture_inputs(),
+            "fixture_provenance": {
+                "recipe": "_dpa_causal_fixture_inputs",
+                "seed": _DPA_CAUSAL_FIXTURE_SEED,
+                "rng": "numpy.random.default_rng",
+                "draws": "successive standard_normal q/k/v, then float32",
+            },
             "opset_version": 21,
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
@@ -709,7 +729,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., Any]:
             cls._ORIG_CALL = orig
 
-            def patched(
+            def legacy(
                 q: Any,
                 k: Any,
                 v: Any,
@@ -736,6 +756,15 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     has_bias=has_bias,
                     **safe_kwargs,
                 )
+
+            def patched(*args: Any, **kwargs: Any) -> Any:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    if orig is None:
+                        raise RuntimeError(
+                            "Original nnx.dot_product_attention not captured"
+                        )
+                    return orig(*args, **kwargs)
+                return legacy(*args, **kwargs)
 
             return patched
 

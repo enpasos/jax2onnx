@@ -27,6 +27,10 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -591,7 +595,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.reshape not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def _legacy(
                 a: ArrayLike,
                 newshape: Sequence[int | object] | int | object,
                 order: str | None = "C",
@@ -607,6 +611,11 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                     dimensions=dimensions,
                     sharding=sharding,
                 )
+
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 

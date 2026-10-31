@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/reshape.py
 
 from __future__ import annotations
-from typing import Any, Dict, Final, Iterable, List, Optional, Union, cast
+from typing import Any, Dict, Final, Iterable, List, Optional, Sequence, Union, cast
 from functools import reduce
 import operator
 import os
@@ -11,6 +11,8 @@ import jax
 from jax import lax
 
 import onnx_ir as ir
+
+from jax2onnx.plugins.jax.lax._source_complex_layout import lower_source_complex_layout
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -33,6 +35,15 @@ from jax2onnx.utils.shape_poly import (
     is_dim_expr,
     symbolic_dim_eq,
 )
+
+
+def _propagate_shape_helper_dtype(output: ir.Value, inputs: Sequence[ir.Value]) -> None:
+    """Fill absent Unsqueeze/Concat type only from known actual operand types."""
+    if output.type is not None or not inputs:
+        return
+    dtype = inputs[0].dtype
+    if dtype is not None and all(value.dtype == dtype for value in inputs):
+        output.type = ir.TensorType(dtype)
 
 
 # --- helper for tests: forbid constant-only Concat as Reshape shape input ---
@@ -261,6 +272,9 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
     # ---------------- lowering (IR) ----------------
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if lower_source_complex_layout(ctx, eqn):
+            return
+
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
         new_sizes = tuple(eqn.params["new_sizes"])
@@ -272,6 +286,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
         # Inputs
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
+        original_x_val = x_val
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
 
         # Preserve original input meta if binder left it unknown
@@ -295,6 +310,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             unsqueezed = ctx.builder.Unsqueeze(
                 src, axes, _outputs=[ctx.fresh_name("unsq")]
             )
+            _propagate_shape_helper_dtype(unsqueezed, (src,))
             _stamp_type_and_shape(unsqueezed, (1,))
             _ensure_value_metadata(ctx, unsqueezed)
             return cast(ir.Value, unsqueezed)
@@ -452,6 +468,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     axis=0,
                     _outputs=[ctx.fresh_name("reshape_shape_tensor")],
                 )
+                _propagate_shape_helper_dtype(shape_tensor, shape_parts)
                 _stamp_type_and_shape(shape_tensor, (len(shape_parts),))
                 _ensure_value_metadata(ctx, shape_tensor)
 
@@ -461,9 +478,28 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         producer = getattr(out_spec, "producer", None)
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("Reshape")
+        dimensions = eqn.params.get("dimensions")
+        if dimensions is not None:
+            permutation = tuple(int(axis) for axis in dimensions)
+            x_val = ctx.builder.op(
+                "Transpose", [x_val], {"perm": ir.AttrInt64s("perm", permutation)}
+            )
+            _stamp_type_and_shape(x_val, tuple(x_shape[axis] for axis in permutation))
+            x_val.type = out_spec.type
+            _ensure_value_metadata(ctx, x_val)
+        # JAX new_sizes are literal extents. ONNX's default zero means "copy
+        # this input axis", which changes e.g. (2, 0, 3) -> (0, 6).
+        literal_zero = any(
+            isinstance(dim, (int, np.integer)) and int(dim) == 0 for dim in new_sizes
+        )
         reshape_val = ctx.builder.Reshape(
             x_val,
             shape_tensor,
+            **(
+                {"allowzero": 1}
+                if literal_zero and int(getattr(ctx.builder, "opset", 0)) >= 14
+                else {}
+            ),
             _outputs=[desired_name],
         )
         output_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
@@ -480,7 +516,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         sym_label_map: Dict[object, str] = {}
         for i, d in enumerate(x_shape):
             if not isinstance(d, (int, np.integer)):
-                label = _dim_label_from_value_or_aval(x_val, x_shape, i)
+                label = _dim_label_from_value_or_aval(original_x_val, x_shape, i)
                 sym_label_map[d] = (
                     label if isinstance(label, str) else ctx.fresh_name("dynamic")
                 )

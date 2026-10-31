@@ -5,6 +5,10 @@ from typing import Any
 from jax2onnx._compat.jax import JaxprEqn
 import jax
 import numpy as np
+import onnx_ir as ir
+
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
@@ -43,6 +47,27 @@ class GePlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
+
+        if ctx.precision_policy is PrecisionPolicy.SOURCE and np.dtype(
+            lhs_var.aval.dtype
+        ) == np.dtype(np.bool_):
+            lhs = ctx.require_value_for_var(lhs_var)
+            rhs = ctx.require_value_for_var(rhs_var)
+            output = ctx.allocate_value_for_var(
+                out_var, name_hint=ctx.fresh_name("ge_out")
+            )
+            # Boolean ordering is exact: False < True. Ordered ONNX numeric
+            # comparison schemas do not accept BOOL; never cast masks to floats.
+            inverted = ctx.builder.op("Not", [rhs])
+            inverted.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(inverted, tuple(rhs_var.aval.shape))
+            _ensure_value_metadata(ctx, inverted)
+            result = ctx.builder.op("Or", [lhs, inverted], output=output)
+            result.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(result, tuple(out_var.aval.shape))
+            _ensure_value_metadata(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("ge_lhs"))
         prefer_dtype: np.dtype[Any] = np.dtype(

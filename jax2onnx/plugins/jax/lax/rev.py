@@ -7,6 +7,8 @@ from typing import Any, cast
 import jax
 import onnx_ir as ir
 
+from jax2onnx.plugins.jax.lax._source_complex_layout import lower_source_complex_layout
+
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -62,6 +64,9 @@ class RevPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.rev`` to a sequence of Gather ops (no Flip dependency)."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if lower_source_complex_layout(ctx, eqn):
+            return
+
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

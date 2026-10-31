@@ -5,6 +5,10 @@ from typing import Any
 from jax2onnx._compat.jax import JaxprEqn
 import jax
 import numpy as np
+import onnx_ir as ir
+
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
@@ -66,6 +70,10 @@ class NePlugin(PrimitiveLeafPlugin):
 
         eq_val = ctx.builder.Equal(lhs_val, rhs_val, _outputs=[ctx.fresh_name("ne_eq")])
         eq_val.shape = lhs_val.shape
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            eq_val.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(eq_val, tuple(out_var.aval.shape))
+            _ensure_value_metadata(ctx, eq_val)
 
         result = ctx.builder.Not(eq_val, _outputs=[desired_name])
         if getattr(out_spec, "type", None) is not None:

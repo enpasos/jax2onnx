@@ -7,6 +7,7 @@ from typing import Any, Callable, ClassVar
 from flax import linen as nn
 
 from jax2onnx._compat.jax import Primitive
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import dropout as nnx_dropout
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
@@ -90,7 +91,7 @@ class DropoutPlugin(nnx_dropout.DropoutPlugin):
         DropoutPlugin._ORIGINAL_CALL = orig_fn
         prim = DropoutPlugin._PRIM
 
-        def patched(
+        def legacy(
             self: Any, x: Any, deterministic: bool | None = None, rng: Any = None
         ) -> Any:
             try:
@@ -101,6 +102,13 @@ class DropoutPlugin(nnx_dropout.DropoutPlugin):
                 return orig_fn(self, x, deterministic=deterministic, rng=rng)
             call_time = deterministic is not None
             return prim.bind(x, det, rate=float(self.rate), call_time=call_time)
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError("flax.linen.Dropout.__call__ is not available.")
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 

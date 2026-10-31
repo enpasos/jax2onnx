@@ -9,6 +9,7 @@ from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.jax._log1p_expm1 import emit_log1p
+from jax2onnx.plugins.jax.lax._source_elementary import lower_source_elementary
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -62,6 +63,9 @@ class Log1pPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.log1p`` with a compensated ``Log(1 + x)``."""
 
     def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
+        if lower_source_elementary(ctx, eqn, operation="log1p"):
+            return
+
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

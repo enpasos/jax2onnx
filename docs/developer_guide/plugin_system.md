@@ -326,6 +326,32 @@ during conversion. Abstract evaluation decodes parameters inside its tracing
 closure: only regular operands become JAX abstract inputs, while static modes,
 booleans, and shape configuration remain Python values.
 
+SOURCE result discovery and Function-body tracing return canonical tuples of
+flat leaves to native JAX tracing. Each wrapper invokes the original callable
+once, then preserves its leaf order and repetitions. Discovery retains the
+original result tree only in its lexical call frame and reconstructs primitive
+results with it. An NNX adapter's `(result, state)` pair follows the same rule.
+Body Jaxprs already have flat outputs. Keeping custom auxiliary owners out of
+native output-tree cache keys prevents added completed-export ownership.
+
+A plain SOURCE equation intentionally retains its exact callable and receiver
+for delayed implementation and batching. An NNX state adapter instead
+reconstructs fresh modules and carries explicit numeric state; its SOURCE trace
+has no bound-callable owner. Original and reconstructed result-owner modules
+must be released while a closed Jaxpr may legitimately retain state arrays as
+constants. With no other owners, dropping that Jaxpr and transient operand
+aliases must release the tracked arrays. Plugin fields and tracing context are
+restored lexically on success and failure; do not clear global JAX caches or
+scrub registries to make lifetime checks pass.
+
+The companion regressions cover completed exports, failure after genuine body
+tracing, and delayed implementation plus nested `vmap`. The NNX fixture is
+read-only: zero RNG draws, empty effects, and exact state/key/count passthrough.
+These ownership checks do not establish export ORT numerical equivalence,
+general mutable effects, RNG algorithms, broad AD, minimum-version target or
+complete B–F acceptance. Public LEGACY behavior and the coordinated public
+policy transition retain their existing obligations.
+
 The initial export trace may promote declared `input_params` to runtime flags.
 Function-body tracing already receives those flags as explicit operands, so
 explicit Python constants in that body remain constants. Control-flow children

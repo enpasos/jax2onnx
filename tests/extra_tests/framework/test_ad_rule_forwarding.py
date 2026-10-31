@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
+import jax
+import jax.numpy as jnp
 from jax import lax
 from jax.extend.core import Primitive
 from jax.interpreters import ad
+import numpy as np
 
+from jax2onnx._compat import jax as jax_compat
+from jax2onnx._compat.jax import native_tile_primitive
 from jax2onnx.converter.conversion_api import _activate_plugin_worlds
 from jax2onnx.plugins.jax import _autodiff_utils as ad_utils
 from jax2onnx.plugins.jax._autodiff_utils import (
@@ -23,7 +30,7 @@ from jax2onnx.plugins.jax.numpy.split import JnpSplitPlugin
 from jax2onnx.plugins.jax.numpy.stack import JnpStackPlugin
 from jax2onnx.plugins.jax.numpy.squeeze import JnpSqueezePlugin
 from jax2onnx.plugins.jax.numpy.take import JnpTakePlugin
-from jax2onnx.plugins.jax.numpy.tile import JnpTilePlugin
+from jax2onnx.plugins.jax.numpy.tile import JnpTilePlugin, _ORIG_TILE
 from jax2onnx.plugins.jax.numpy.transpose import JnpTransposePlugin
 from jax2onnx.plugins.jax.numpy.where import JnpWherePlugin
 from jax2onnx.plugins.plugin_system import import_all_plugins
@@ -269,9 +276,77 @@ def test_moveaxis_uses_forwarded_original_ad_rules() -> None:
 
 def test_tile_uses_forwarded_original_ad_rules() -> None:
     import_all_plugins()
+    primitive = native_tile_primitive()
+    if primitive is None:
+        # The original older native callable has no tile primitive to forward.
+        # Its actual decomposition is the differentiation reference instead.
+        value = jnp.asarray([[1, -2, 3], [-4, 5, 6]], dtype=jnp.float32) / 8
+        tangent = jnp.asarray([[7, -8, 9], [10, 11, -12]], dtype=jnp.float32) / 16
+        cotangent = jnp.asarray(np.arange(12).reshape(4, 3), dtype=jnp.float32) / 16
+
+        def observations(tile: Callable[..., jax.Array]) -> tuple[jax.Array, ...]:
+            def fn(x: jax.Array) -> jax.Array:
+                return tile(x, (2, 1))
+
+            primal, differential = jax.jvp(fn, (value,), (tangent,))
+            _, pullback = jax.vjp(fn, value)
+            (reverse,) = pullback(cotangent)
+            (transpose,) = jax.linear_transpose(fn, value)(cotangent)
+            gradient = jax.grad(lambda x: jnp.sum(fn(x) ** 2))(value)
+            batched = jax.vmap(lambda x: tile(x, 2))(value)
+            return primal, differential, reverse, transpose, gradient, batched
+
+        expected = observations(_ORIG_TILE)
+        native = jax.make_jaxpr(lambda x: _ORIG_TILE(x, (2, 1)))(value)
+        with _activate_plugin_worlds():
+            assert JnpTilePlugin._PRIM in ad.primitive_jvps
+            assert JnpTilePlugin._PRIM in ad.primitive_transposes
+            actual = observations(jnp.tile)
+        assert [equation.primitive for equation in native.jaxpr.eqns] == [
+            lax.reshape_p,
+            lax.broadcast_in_dim_p,
+            lax.reshape_p,
+        ]
+        for result, reference in zip(actual, expected, strict=True):
+            actual_array, expected_array = np.asarray(result), np.asarray(reference)
+            assert actual_array.dtype == expected_array.dtype
+            assert actual_array.shape == expected_array.shape
+            assert actual_array.tobytes() == expected_array.tobytes()
+        return
     with _activate_plugin_worlds():
         assert ad.primitive_jvps[JnpTilePlugin._PRIM] is ad.primitive_jvps[lax.tile_p]
         assert (
             ad.primitive_transposes[JnpTilePlugin._PRIM]
             is ad.primitive_transposes[lax.tile_p]
         )
+
+
+def test_native_tile_binding_faults_reject_and_restore_originals() -> None:
+    import_all_plugins()
+    primitive = native_tile_primitive()
+    public, defining = vars(jax_compat._native_lax), vars(jax_compat._native_lax_impl)
+    missing = object()
+    before = public.get("tile_p", missing), defining.get("tile_p", missing)
+    for fault in ("public-only", "defining-only", "wrong-type", "name-matching"):
+        foreign = Primitive("tile") if fault == "name-matching" else object()
+        with pytest.MonkeyPatch.context() as patch:
+            if fault == "public-only":
+                patch.setitem(public, "tile_p", foreign)
+                patch.delitem(defining, "tile_p", raising=False)
+            elif fault == "defining-only":
+                patch.delitem(public, "tile_p", raising=False)
+                patch.setitem(defining, "tile_p", foreign)
+            else:
+                patch.setitem(public, "tile_p", foreign)
+                patch.setitem(defining, "tile_p", foreign)
+            with pytest.raises(TypeError, match="native tile primitive bindings"):
+                native_tile_primitive()
+            assert (public.get("tile_p", missing) is foreign) == (
+                fault != "defining-only"
+            )
+            assert (defining.get("tile_p", missing) is foreign) == (
+                fault != "public-only"
+            )
+        assert public.get("tile_p", missing) is before[0]
+        assert defining.get("tile_p", missing) is before[1]
+        assert native_tile_primitive() is primitive

@@ -29,6 +29,10 @@ from jax2onnx._compat.jax import (
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins._attention_utils import expand_grouped_kv_heads
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _to_ir_dim_for_shape
@@ -46,7 +50,6 @@ from jax2onnx.plugins.jax.lax.scatter_utils import (
 from jax2onnx.plugins.jax.lax._index_utils import _builder_op
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-
 
 _DPA_PRIM: Final[Primitive] = Primitive("jax.nn.dot_product_attention")
 _DPA_PRIM.multiple_results = False
@@ -1430,7 +1433,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             if orig_fn is None:
                 raise RuntimeError("Original jax.nn.dot_product_attention not found")
 
-            def _bind(
+            def legacy(
                 q: jax.Array,
                 k: jax.Array,
                 v: jax.Array,
@@ -1543,6 +1546,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     operands.append(key_value_seq_lengths)
 
                 return cls._PRIM.bind(*operands, **params)
+
+            def _bind(*args: Any, **kwargs: Any) -> ArrayLike:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig_fn(*args, **kwargs)
+                return legacy(*args, **kwargs)
 
             return _bind
 

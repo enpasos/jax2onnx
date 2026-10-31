@@ -9,6 +9,8 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import normalized_shape_dimensions
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
@@ -724,6 +726,24 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
 
+        source = ctx.precision_policy is PrecisionPolicy.SOURCE
+        if source:
+            for value, var in (
+                (lhs_val, lhs_var),
+                (rhs_val, rhs_var),
+                (out_spec, out_var),
+            ):
+                if (
+                    np.dtype(var.aval.dtype) != np.dtype(np.float32)
+                    or value.dtype != ir.DataType.FLOAT
+                    or value.shape is None
+                    or normalized_shape_dimensions(value.shape.dims)
+                    != normalized_shape_dimensions(var.aval.shape)
+                ):
+                    raise TypeError(
+                        "SOURCE convolution storage differs from its native FP32 dtype or shape"
+                    )
+
         batch_group_count = int(params.get("batch_group_count", 1))
         if batch_group_count != 1:
             raise NotImplementedError(
@@ -891,12 +911,13 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             _perm(out_layout, target_input_layout) if need_output_transpose else None
         )
 
-        canonical_input = cast_real_tensor(
-            ctx, canonical_input, conv_dtype_enum, name_hint="conv_lhs_cast"
-        )
-        canonical_kernel = cast_real_tensor(
-            ctx, canonical_kernel, conv_dtype_enum, name_hint="conv_rhs_cast"
-        )
+        if not source:
+            canonical_input = cast_real_tensor(
+                ctx, canonical_input, conv_dtype_enum, name_hint="conv_lhs_cast"
+            )
+            canonical_kernel = cast_real_tensor(
+                ctx, canonical_kernel, conv_dtype_enum, name_hint="conv_rhs_cast"
+            )
 
         need_output_pad = any(output_pad_before) or any(output_pad_after)
         conv_output_name = (

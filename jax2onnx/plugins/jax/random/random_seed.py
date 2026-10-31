@@ -13,6 +13,12 @@ import jax
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.plugins.jax.random._source_prng import (
+    emit_seed,
+    require_native_prng_opset,
+    validate_selected_random_equation,
+)
 from jax2onnx.plugins._ir_shapes import DimInput
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.plugin_system import (
@@ -105,6 +111,9 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
     """Lower ``random_seed`` to a deterministic uint32 key pair [0, seed]."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            emit_seed(ctx, eqn)
+            return
         seed_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -160,6 +169,9 @@ class RandomUnwrapPlugin(PrimitiveLeafPlugin):
     """Forward the uint32 key produced by ``random_seed``."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            require_native_prng_opset(ctx.opset, eqn)
+            validate_selected_random_equation(eqn)
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         key_value = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("prng"))
@@ -184,6 +196,9 @@ class RandomWrapPlugin(PrimitiveLeafPlugin):
     """No-op wrapper around PRNG keys."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            require_native_prng_opset(ctx.opset, eqn)
+            validate_selected_random_equation(eqn)
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         key_value = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("prng"))

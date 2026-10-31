@@ -3,8 +3,10 @@
 
 import jax
 import numpy as np
+import onnx_ir as ir
 from jax2onnx._compat.jax import JaxprEqn
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -58,6 +60,25 @@ class IsFinitePlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("is_finite_out")
         )
+
+        if (
+            ctx.precision_policy is PrecisionPolicy.SOURCE
+            and x_val.dtype == ir.DataType.FLOAT16
+            and int(ctx.builder.opset) < 20
+        ):
+            # IsInf10 accepts only FP32/FP64. Every FP16 finite value widens
+            # exactly, including subnormals; NaN/Inf classification is unchanged.
+            # This value serves predicates only. Native data stays FP16.
+            x_val = ctx.builder.op(
+                "Cast",
+                [x_val],
+                {"to": int(ir.DataType.FLOAT.value)},
+                output=ir.Value(
+                    name=ctx.fresh_name("is_finite_predicate_float"),
+                    type=ir.TensorType(ir.DataType.FLOAT),
+                    shape=x_val.shape,
+                ),
+            )
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
             "is_finite_out"
