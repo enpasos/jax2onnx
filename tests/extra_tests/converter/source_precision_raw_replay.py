@@ -1016,45 +1016,85 @@ class RawReplayCapture:
         )
 
         record = self.records["source_structure"]
-        body = _structure_body(closed)
-        if body.effects or body.constvars or not body.eqns:
-            return
+        from jax2onnx.plugins.jax.lax._source_shape_structure import (
+            _ShapeRule,
+            _SliceRule,
+        )
+
+        discrete = {
+            "bool",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        }
+        allowed = (
+            jax.lax.and_p,
+            jax.lax.or_p,
+            jax.lax.xor_p,
+            jax.lax.not_p,
+            jax.lax.convert_element_type_p,
+            jax.lax.reshape_p,
+            jax.lax.broadcast_in_dim_p,
+            jax.lax.transpose_p,
+            jax.lax.slice_p,
+            jax.lax.stop_gradient_p,
+        )
         shapes = _ShapeFreezer()
-        for var in (*body.invars, *body.outvars):
-            if (
-                type(var) is not JaxVar
-                or type(var.aval) is not JaxShapedArray
-                or type(var.aval.weak_type) is not bool
-            ):
-                return
-        for equation in body.eqns:
-            if type(equation) is not JaxJaxprEqn:
-                return
-            if (
-                equation.primitive is not jax.lax.and_p
-                and equation.primitive is not jax.lax.not_p
-            ):
-                return
-            if any(
-                type(var) is not JaxVar
-                or type(var.aval) is not JaxShapedArray
-                or type(var.aval.weak_type) is not bool
-                for var in (*equation.invars, *equation.outvars)
-            ):
-                return
-            rule = freeze_source_structure_rule(
-                equation,
-                tuple(
-                    TensorContract.from_aval(var.aval, shapes)
-                    for var in equation.invars
-                ),
-                tuple(
-                    TensorContract.from_aval(var.aval, shapes)
-                    for var in equation.outvars
-                ),
+
+        def ports(values: Any) -> bool:
+            return all(
+                type(var) in {JaxVar, JaxLiteral}
+                and type(var.aval) is JaxShapedArray
+                and type(var.aval.weak_type) is bool
+                and isinstance(var.aval.dtype, np.dtype)
+                and var.aval.dtype.name in discrete
+                and all(
+                    type(dim) is int and 0 <= dim <= 2**63 - 1 for dim in var.aval.shape
+                )
+                for var in values
             )
-            if type(rule) is not _DirectRule:
-                return
+
+        def scope(value: Any, ancestors: frozenset[int]) -> bool:
+            body = _structure_body(value)
+            if id(body) in ancestors or len(ancestors) >= 32 or body.effects:
+                return False
+            ancestors = ancestors | {id(body)}
+            if not ports((*body.constvars, *body.invars, *body.outvars)):
+                return False
+            for equation in body.eqns:
+                if type(equation) is not JaxJaxprEqn:
+                    return False
+                if not ports((*equation.invars, *equation.outvars)):
+                    return False
+                child = _structure_plain_jit_child(equation)
+                if child is not None:
+                    if not scope(child[0], ancestors):
+                        return False
+                    continue
+                if not any(equation.primitive is primitive for primitive in allowed):
+                    return False
+                rule = freeze_source_structure_rule(
+                    equation,
+                    tuple(
+                        TensorContract.from_aval(var.aval, shapes)
+                        for var in equation.invars
+                    ),
+                    tuple(
+                        TensorContract.from_aval(var.aval, shapes)
+                        for var in equation.outvars
+                    ),
+                )
+                if type(rule) not in {_DirectRule, _ShapeRule, _SliceRule}:
+                    return False
+            return True
+
+        if not scope(closed, frozenset()):
+            return
         manifest, digest, pending = _structure_trace_manifest(closed)
         if pending or record["source_binding"].get("actual_trace_sha256") != digest:
             return

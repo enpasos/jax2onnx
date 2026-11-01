@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import prod
-from typing import Final, TypeAlias
+from typing import Final, TypeAlias, cast
 
 import jax
 import numpy as np
@@ -505,7 +505,12 @@ class _ShapeRule:
                 checker.source(transpose.inputs[0])
                 return checker.finish()
             reshape = checker.node(
-                result, "Reshape", 2, (), self.output.shape, self.output.dtype
+                result,
+                "Reshape",
+                2,
+                (("allowzero", 1),) if 0 in self.output.shape else (),
+                self.output.shape,
+                self.output.dtype,
             )
             checker.vector(reshape.inputs[1], self.output.shape)
             current = reshape.inputs[0]
@@ -555,7 +560,12 @@ class _ShapeRule:
                         checker.gaps.add("shape-broadcast-normalization-unavailable")
                 else:
                     reshape = checker.node(
-                        current, "Reshape", 2, (), tuple(aligned), self.source.dtype
+                        current,
+                        "Reshape",
+                        2,
+                        (("allowzero", 1),) if 0 in aligned else (),
+                        tuple(aligned),
+                        self.source.dtype,
                     )
                     checker.vector(reshape.inputs[1], tuple(aligned))
                     current = reshape.inputs[0]
@@ -568,6 +578,8 @@ def freeze_shape_structure_rule(
     inputs: tuple[TensorContract, ...],
     outputs: tuple[TensorContract, ...],
 ) -> EquationRule | None:
+    if type(eqn) is not JaxprEqn:
+        return None
     if eqn.primitive is jax.lax.slice_p:
         return _freeze_slice_structure_rule(eqn, inputs, outputs)
     reshape = eqn.primitive is jax.lax.reshape_p
@@ -592,16 +604,58 @@ def freeze_shape_structure_rule(
     ):
         return None
     source, output = inputs[0], outputs[0]
-    if (
+    discrete = {
+        "bool",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+    }
+    static_discrete = all(
+        value.logical_dtype in discrete
+        and value.dtype == ir.DataType.from_numpy(np.dtype(value.logical_dtype))
+        and value.encoding == "identity"
+        and value.shape == value.logical_shape
+        and value.symbol_token is None
+        and value.symbol_axis is None
+        and value.logical_symbol_axis is None
+        and type(value.weak_type) is bool
+        and all(type(dim) is int and 0 <= dim <= 2**63 - 1 for dim in value.shape)
+        # The preceding exact-int guard proves this tuple without coercion.
+        and prod(cast(tuple[int, ...], value.shape)) <= 2**63 - 1
+        for value in (source, output)
+    )
+    if static_discrete:
+        for var, value in zip(
+            (*eqn.invars, *eqn.outvars), (source, output), strict=True
+        ):
+            if (
+                type(var) not in {Var, Literal}
+                or type(var.aval) is not ShapedArray
+                or type(var.aval.weak_type) is not bool
+                or not isinstance(var.aval.dtype, np.dtype)
+                or var.aval.dtype.name != value.logical_dtype
+                or tuple(var.aval.shape) != value.shape
+                or var.aval.weak_type != value.weak_type
+            ):
+                return None
+    elif (
         any(
             value.encoding != "identity" or value.dtype not in _FLOATS
             for value in (source, output)
         )
-        or source.dtype != output.dtype
-        or source.logical_dtype != output.logical_dtype
-        or source.weak_type != output.weak_type
         or 0 in source.shape
         or 0 in output.shape
+    ):
+        return None
+    if (
+        source.dtype != output.dtype
+        or source.logical_dtype != output.logical_dtype
+        or source.weak_type != output.weak_type
         or any(
             type(dim) is int and dim > np.iinfo(np.int64).max
             for value in (source, output)
@@ -610,7 +664,11 @@ def freeze_shape_structure_rule(
     ):
         return None
     declared = eqn.params["new_sizes" if reshape else "shape"]
-    if not isinstance(declared, tuple):
+    if (
+        not isinstance(declared, tuple)
+        or static_discrete
+        and any(type(dim) is not int or not 0 <= dim <= 2**63 - 1 for dim in declared)
+    ):
         return None
     try:
         native = (
@@ -666,7 +724,7 @@ def freeze_shape_structure_rule(
     else:
         raw = eqn.params["broadcast_dimensions"]
         if (
-            not output.shape
+            (not output.shape and not static_discrete)
             or not isinstance(raw, tuple)
             or len(raw) != len(source.shape)
             or any(

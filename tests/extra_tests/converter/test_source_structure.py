@@ -1159,3 +1159,119 @@ def test_legacy_and_serialized_results_do_not_gain_structural_claims(
             item.key.startswith("jax2onnx.source.structure")
             for item in proto.metadata_props
         )
+
+
+@pytest.mark.parametrize("operation", ["or", "xor"])
+@pytest.mark.parametrize("dtype", [np.bool_, np.int32, np.uint32])
+def test_discrete_family_direct_broadcast_is_complete(operation, dtype):
+    primitive = jax.lax.bitwise_or if operation == "or" else jax.lax.bitwise_xor
+
+    def original(x, y):
+        return primitive(x, y)
+
+    model = ui._to_onnx(
+        original,
+        [jax.ShapeDtypeStruct((2, 3), dtype), jax.ShapeDtypeStruct((1, 3), dtype)],
+        precision_policy=PrecisionPolicy.SOURCE,
+        opset=23,
+        return_mode="ir",
+    )
+    result = model.meta[structure.RESULT_KEY]
+    assert (
+        result.status == "validated"
+        and result.expected_equations == result.checked_equations == 1
+    )
+    expected = (
+        ("Or" if operation == "or" else "Xor")
+        if dtype is np.bool_
+        else ("BitwiseOr" if operation == "or" else "BitwiseXor")
+    )
+    assert [node.op_type for node in model.graph] == [expected]
+    assert tuple(model.graph.outputs[0].shape) == (2, 3)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+@pytest.mark.parametrize("operation", ["or", "xor"])
+@pytest.mark.parametrize("fault", ["operator", "edge", "attribute"])
+def test_discrete_family_direct_final_mutations_fail(operation, fault):
+    primitive = jax.lax.bitwise_or if operation == "or" else jax.lax.bitwise_xor
+
+    def original(x, y, other):
+        return primitive(x, y), other
+
+    model = ui._to_onnx(
+        original,
+        [jax.ShapeDtypeStruct((3,), np.int32)] * 3,
+        precision_policy=PrecisionPolicy.SOURCE,
+        return_mode="ir",
+    )
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    node = next(n for n in model.graph if n.op_type in {"BitwiseOr", "BitwiseXor"})
+    if fault == "operator":
+        node.op_type = "BitwiseAnd"
+    elif fault == "edge":
+        assert model.graph.inputs[2] is model.graph.outputs[1]
+        node.replace_input_with(0, model.graph.inputs[2])
+    else:
+        node.attributes["unexpected"] = ir.AttrInt64("unexpected", 1)
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["params", "weakness", "shape", "encoding", "dtype", "placement", "primitive"],
+)
+def test_discrete_family_promotion_has_exact_contract(fault):
+    native = jax.make_jaxpr(lambda x: jax.lax.convert_element_type(x, np.int32))(
+        jax.ShapeDtypeStruct((3,), np.bool_)
+    ).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.outvars
+    )
+    assert rules.freeze_source_semantic_key(native, inputs, outputs) is not None
+    eqn = native
+    params = dict(native.params)
+    if fault == "params":
+        params["unreviewed"] = None
+    elif fault == "placement":
+        params["sharding"] = object()
+    elif fault == "primitive":
+        eqn = native.replace(primitive=Primitive("convert_element_type"))
+    else:
+        changes = {
+            "weakness": {"weak_type": not outputs[0].weak_type},
+            "shape": {"shape": (1,), "logical_shape": (1,)},
+            "encoding": {"encoding": "complex-real-pair"},
+            "dtype": {"logical_dtype": "float32", "dtype": ir.DataType.FLOAT},
+        }[fault]
+        outputs = (replace(outputs[0], **changes),)
+    if fault != "primitive":
+        eqn = eqn.replace(params=params)
+    assert rules.freeze_source_structure_rule(eqn, inputs, outputs) is None
+
+
+@pytest.mark.parametrize(
+    "operation", [jax.lax.bitwise_not, jax.lax.bitwise_or, jax.lax.bitwise_xor]
+)
+def test_discrete_family_native_weak_scalar_is_not_restamped(operation):
+    arity = 1 if operation is jax.lax.bitwise_not else 2
+    native = jax.make_jaxpr(operation)(*[3] * arity).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.outvars
+    )
+    assert all(value.weak_type is True for value in (*inputs, *outputs))
+    assert rules.freeze_source_structure_rule(native, inputs, outputs) is not None
+    forged_inputs = tuple(replace(value, weak_type=False) for value in inputs)
+    forged_outputs = tuple(replace(value, weak_type=False) for value in outputs)
+    assert (
+        rules.freeze_source_structure_rule(native, forged_inputs, forged_outputs)
+        is None
+    )

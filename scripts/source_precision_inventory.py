@@ -1353,26 +1353,35 @@ def _source_compact_trace_manifest(value: Any) -> Any:
 
 
 def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
-    """Prove one complete, constant-free flat Boolean/integer bitwise graph.
+    """Replay the closed discrete source/IR relation, including owned storage.
 
-    The native collector separately requires canonical primitive identities and
-    the existing plugin-owned rules. This same finite closure is replayed from
-    the retained typed trace and actual saved artifact by the evidence reader.
-    Constants and reordered/optimized compositions remain unverified here.
+    This remains a finite proof: bitwise expressions, discrete casts, reviewed
+    static data movement and pure plain-JIT bodies. Every final node/value and
+    initializer must be reached and semantically matched, including shape data.
     """
+    import math
+    import numpy as np
     import onnx
 
     types = {
-        "bool": onnx.TensorProto.BOOL,
-        "int8": onnx.TensorProto.INT8,
-        "int16": onnx.TensorProto.INT16,
-        "int32": onnx.TensorProto.INT32,
-        "int64": onnx.TensorProto.INT64,
-        "uint8": onnx.TensorProto.UINT8,
-        "uint16": onnx.TensorProto.UINT16,
-        "uint32": onnx.TensorProto.UINT32,
-        "uint64": onnx.TensorProto.UINT64,
+        name: onnx.helper.np_dtype_to_tensor_dtype(np.dtype(name))
+        for name in (
+            "bool",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        )
     }
+    limit = 2**63 - 1
+    expressions: list[dict[str, Any]] = []
+    source_scopes = []
+    source_equations = 0
+    source_storage = []
 
     def aval(value: Any) -> bool:
         return (
@@ -1381,167 +1390,727 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
             and type(value[0]) is str
             and value[0] in types
             and type(value[1]) in (list, tuple)
-            and all(type(dim) is int and dim >= 0 for dim in value[1])
+            and all(type(x) is int and 0 <= x <= limit for x in value[1])
+            and math.prod(value[1]) <= limit
             and type(value[2]) is bool
         )
 
-    if (
-        type(manifest) is not dict
-        or set(manifest)
-        != {
-            "inputs",
-            "outputs",
-            "consts",
-            "const_payloads",
-            "equations",
-            "effects",
-            "unresolved_parameters",
+    def add(operation: str, tensor: Any, args: list[int], params: Any) -> int:
+        if not aval(tensor):
+            raise ValueError("non-discrete-source-tensor")
+        index = len(expressions)
+        expressions.append(
+            {"operation": operation, "aval": tensor, "args": args, "params": params}
+        )
+        return index
+
+    def constant(payload: Any, tensor: Any, role: str) -> int:
+        if not aval(tensor):
+            raise ValueError("non-discrete-source-constant")
+        dtype, shape, _ = tensor
+        if type(payload) is dict and "array_dtype" in payload:
+            if payload["array_dtype"] != dtype or payload.get("shape") != list(shape):
+                raise ValueError("source-constant-type-differs")
+            digest = payload.get("sha256")
+            if type(digest) is not str or len(digest) != 64:
+                raise ValueError("source-constant-storage-unavailable")
+        else:
+            if type(payload) is dict:
+                if set(payload) != {"scalar_dtype", "dtype_str", "bytes_hex"} or shape:
+                    raise ValueError("source-literal-storage-unavailable")
+                if (
+                    payload["scalar_dtype"] != dtype
+                    or payload["dtype_str"] != np.dtype(dtype).str
+                ):
+                    raise ValueError("source-literal-type-differs")
+                raw = bytes.fromhex(payload["bytes_hex"])
+                if len(raw) != np.dtype(dtype).itemsize:
+                    raise ValueError("source-literal-size-differs")
+            else:
+                if type(payload) not in (bool, int) or shape:
+                    raise ValueError("source-literal-kind-unavailable")
+                raw = np.asarray(payload, dtype=np.dtype(dtype)).tobytes()
+            digest = hashlib.sha256(raw).hexdigest()
+        descriptor = {
+            "dtype": np.dtype(dtype).str,
+            "shape": list(shape),
+            "byte_count": math.prod(shape) * np.dtype(dtype).itemsize,
+            "sha256": digest,
         }
-        or any(type(manifest[key]) is not list for key in manifest)
-        or manifest["effects"]
-        or manifest["unresolved_parameters"]
-        or manifest["consts"]
-        or manifest["const_payloads"]
-        or not manifest["equations"]
-        or type(model) is not onnx.ModelProto
-        or model.functions
-        or model.training_info
-        or any(item.domain for item in model.opset_import)
-    ):
-        return None
-    graph = model.graph
-    if (
-        graph.initializer
-        or graph.sparse_initializer
-        or graph.quantization_annotation
-        or len(graph.input) != len(manifest["inputs"])
-        or len(graph.output) != len(manifest["outputs"])
-        or len(graph.node) != len(manifest["equations"])
-    ):
-        return None
-    values: dict[str, tuple[int, tuple[int, ...]]] = {}
-    for value in (*graph.input, *graph.value_info, *graph.output):
-        if not value.name or value.type.WhichOneof("value") != "tensor_type":
-            return None
-        tensor = value.type.tensor_type
+        source_storage.append(
+            {
+                "role": role,
+                "logical_dtype": dtype,
+                "weak_type": tensor[2],
+                "logical": descriptor,
+                "physical": descriptor,
+                "encoding": "identity",
+            }
+        )
+        return add("constant", tensor, [], digest)
+
+    def body(
+        value: Any, arguments: list[int], scope: str, ancestors: frozenset[int]
+    ) -> list[int]:
+        nonlocal source_equations
         if (
-            tensor.elem_type not in types.values()
-            or not tensor.HasField("shape")
-            or any(
-                not dim.HasField("dim_value") or dim.dim_value < 0
-                for dim in tensor.shape.dim
+            type(value) is not dict
+            or id(value) in ancestors
+            or len(ancestors) >= 32
+            or set(value)
+            != {
+                "inputs",
+                "outputs",
+                "consts",
+                "const_payloads",
+                "equations",
+                "effects",
+                "unresolved_parameters",
+            }
+            or any(type(value[k]) is not list for k in value)
+            or value["effects"]
+            or value["unresolved_parameters"]
+            or len(arguments) != len(value["inputs"])
+            or len(value["consts"]) != len(value["const_payloads"])
+        ):
+            raise ValueError("source-scope-unavailable")
+        ancestors = ancestors | {id(value)}
+        mapping = {}
+        for i, (tensor, payload) in enumerate(
+            zip(value["consts"], value["const_payloads"], strict=True)
+        ):
+            mapping[i] = constant(payload, tensor, scope + f"constant:{i}")
+        for i, (tensor, expr) in enumerate(
+            zip(value["inputs"], arguments, strict=True), len(mapping)
+        ):
+            if not aval(tensor) or expressions[expr]["aval"] != tensor:
+                raise ValueError("source-child-input-differs")
+            mapping[i] = expr
+
+        def port(item: Any, role: str) -> int:
+            if type(item) is not dict or not aval(item.get("aval")):
+                raise ValueError("source-port-unavailable")
+            if set(item) == {"literal", "aval"}:
+                return constant(item["literal"], item["aval"], scope + role)
+            if (
+                set(item) != {"var", "aval"}
+                or type(item["var"]) is not int
+                or item["var"] not in mapping
+            ):
+                raise ValueError("source-var-unbound")
+            expr = mapping[item["var"]]
+            if expressions[expr]["aval"] != item["aval"]:
+                raise ValueError("source-port-type-differs")
+            return expr
+
+        count = 0
+        for ordinal, equation in enumerate(value["equations"]):
+            if (
+                type(equation) is not dict
+                or set(equation)
+                != {"primitive", "inputs", "outputs", "params", "effects"}
+                or type(equation["params"]) is not dict
+                or equation["effects"]
+                or type(equation["inputs"]) is not list
+                or type(equation["outputs"]) is not list
+            ):
+                raise ValueError("source-equation-unavailable")
+            name, params = equation["primitive"], equation["params"]
+            args = [
+                port(item, f"equation:{ordinal}:input:{i}")
+                for i, item in enumerate(equation["inputs"])
+            ]
+            outs = equation["outputs"]
+            source_equations += 1
+            count += 1
+            if name == "jit":
+                fields = {
+                    "jaxpr",
+                    "in_shardings",
+                    "out_shardings",
+                    "in_layouts",
+                    "out_layouts",
+                    "donated_invars",
+                    "ctx_mesh",
+                    "name",
+                    "keep_unused",
+                    "inline",
+                    "compiler_options_kvs",
+                }
+                if (
+                    set(params) != fields
+                    or type(params["name"]) is not str
+                    or type(params["keep_unused"]) is not bool
+                ):
+                    raise ValueError("source-jit-schema-differs")
+                for side, arity in (("in", len(args)), ("out", len(outs))):
+                    if (
+                        params[side + "_shardings"]
+                        != [{"placement": "unspecified"}] * arity
+                        or params[side + "_layouts"] != [None] * arity
+                    ):
+                        raise ValueError("source-jit-placement-unavailable")
+                inline = params["inline"]
+                if not (
+                    type(inline) is bool
+                    or inline
+                    in (
+                        {"enum": "jax._src.api.Inline", "name": "AUTO"},
+                        {"enum": "jax._src.api.Inline", "name": "JAX_LATE"},
+                    )
+                ):
+                    raise ValueError("source-jit-inline-unavailable")
+                mesh = params["ctx_mesh"]
+                if (
+                    params["donated_invars"] != [False] * len(args)
+                    or params["compiler_options_kvs"] != []
+                    or type(mesh) is not dict
+                    or set(mesh)
+                    != {"mesh_type", "axis_names", "axis_sizes", "axis_types"}
+                    or mesh["mesh_type"]
+                    not in {"jax._src.mesh.Mesh", "jax._src.mesh.AbstractMesh"}
+                    or mesh["axis_names"] != []
+                    or mesh["axis_sizes"] != {}
+                    or mesh["axis_types"] not in (None, [])
+                ):
+                    raise ValueError("source-jit-metadata-unavailable")
+                results = body(
+                    params["jaxpr"], args, scope + f"equation:{ordinal}:jit/", ancestors
+                )
+                if len(results) != len(outs):
+                    raise ValueError("source-jit-output-arity-differs")
+            else:
+                if len(outs) != 1 or not aval(outs[0].get("aval")):
+                    raise ValueError("source-output-unavailable")
+                tensor = outs[0]["aval"]
+                operands = [expressions[i]["aval"] for i in args]
+                if name in {"and", "or", "xor", "not"}:
+                    if (
+                        params
+                        or len(args) != (1 if name == "not" else 2)
+                        or any(x[0] != tensor[0] for x in operands)
+                    ):
+                        raise ValueError("source-bitwise-contract-differs")
+                    ranks = {len(x[1]) for x in operands if x[1]}
+                    rank = max(ranks, default=0)
+                    shape = []
+                    for axis in range(rank):
+                        extents = {
+                            x[1][axis] for x in operands if x[1] and x[1][axis] != 1
+                        }
+                        if len(extents) > 1:
+                            raise ValueError("source-broadcast-differs")
+                        shape.append(next(iter(extents), 1))
+                    if (
+                        len(ranks) > 1
+                        or shape != list(tensor[1])
+                        or tensor[2] != all(x[2] for x in operands)
+                    ):
+                        raise ValueError("source-bitwise-shape-or-weakness-differs")
+                elif name == "convert_element_type":
+                    if (
+                        len(args) != 1
+                        or set(params)
+                        not in (
+                            {"new_dtype", "weak_type"},
+                            {"new_dtype", "weak_type", "sharding"},
+                        )
+                        or params.get("sharding") is not None
+                        or params["new_dtype"] != {"dtype": tensor[0]}
+                        or type(params["weak_type"]) is not bool
+                        or params["weak_type"] != tensor[2]
+                        or operands[0][1] != tensor[1]
+                    ):
+                        raise ValueError("source-discrete-cast-differs")
+                elif name in {
+                    "reshape",
+                    "broadcast_in_dim",
+                    "transpose",
+                    "slice",
+                    "stop_gradient",
+                }:
+                    if (
+                        len(args) != 1
+                        or operands[0][0] != tensor[0]
+                        or operands[0][2] != tensor[2]
+                    ):
+                        raise ValueError("source-shape-type-differs")
+                    source_shape, target_shape = list(operands[0][1]), list(tensor[1])
+                    if name == "reshape":
+                        if (
+                            set(params)
+                            - {"new_sizes", "dimensions", "sharding", "out_sharding"}
+                            or params.get("sharding") is not None
+                            or params.get("out_sharding") is not None
+                        ):
+                            raise ValueError("source-reshape-placement-unavailable")
+                        permutation = params.get("dimensions")
+                        if (
+                            params.get("new_sizes") != target_shape
+                            or math.prod(source_shape) != math.prod(target_shape)
+                            or permutation is not None
+                            and (
+                                type(permutation) is not list
+                                or any(type(x) is not int for x in permutation)
+                                or sorted(permutation) != list(range(len(source_shape)))
+                            )
+                        ):
+                            raise ValueError("source-reshape-geometry-differs")
+                    elif name == "broadcast_in_dim":
+                        dimensions = params.get("broadcast_dimensions")
+                        if (
+                            set(params)
+                            - {
+                                "shape",
+                                "broadcast_dimensions",
+                                "sharding",
+                                "out_sharding",
+                            }
+                            or params.get("sharding") is not None
+                            or params.get("out_sharding") is not None
+                            or params.get("shape") != target_shape
+                            or type(dimensions) is not list
+                            or len(dimensions) != len(source_shape)
+                            or any(
+                                type(x) is not int or not 0 <= x < len(target_shape)
+                                for x in dimensions
+                            )
+                            or sorted(set(dimensions)) != dimensions
+                            or any(
+                                size not in (1, target_shape[axis])
+                                for size, axis in zip(
+                                    source_shape, dimensions, strict=True
+                                )
+                            )
+                        ):
+                            raise ValueError("source-broadcast-geometry-differs")
+                    elif name == "transpose":
+                        permutation = params.get("permutation")
+                        if (
+                            set(params) != {"permutation"}
+                            or type(permutation) is not list
+                            or any(type(x) is not int for x in permutation)
+                            or sorted(permutation) != list(range(len(source_shape)))
+                            or [source_shape[x] for x in permutation] != target_shape
+                        ):
+                            raise ValueError("source-transpose-geometry-differs")
+                    elif name == "slice":
+                        if set(params) != {"start_indices", "limit_indices", "strides"}:
+                            raise ValueError("source-slice-schema-differs")
+                        starts, ends = params["start_indices"], params["limit_indices"]
+                        steps = (
+                            params["strides"]
+                            if params["strides"] is not None
+                            else [1] * len(source_shape)
+                        )
+                        if (
+                            any(
+                                type(x) is not list or len(x) != len(source_shape)
+                                for x in (starts, ends, steps)
+                            )
+                            or any(
+                                type(x) is not int or not 0 <= x <= limit
+                                for x in (*starts, *ends, *steps)
+                            )
+                            or any(
+                                not (0 <= a <= b <= size and step > 0)
+                                for a, b, size, step in zip(
+                                    starts, ends, source_shape, steps, strict=True
+                                )
+                            )
+                            or [
+                                (b - a + step - 1) // step
+                                for a, b, step in zip(starts, ends, steps, strict=True)
+                            ]
+                            != target_shape
+                        ):
+                            raise ValueError("source-slice-geometry-differs")
+                    elif params or source_shape != target_shape:
+                        raise ValueError("source-identity-differs")
+                else:
+                    raise ValueError("source-operation-unavailable")
+                results = [add(name, tensor, args, params)]
+            for item, expr in zip(outs, results, strict=True):
+                if (
+                    type(item) is not dict
+                    or set(item) != {"var", "aval"}
+                    or type(item["var"]) is not int
+                    or item["var"] != len(mapping)
+                    or item["aval"] != expressions[expr]["aval"]
+                ):
+                    raise ValueError("source-result-port-differs")
+                mapping[item["var"]] = expr
+        results = [port(item, f"output:{i}") for i, item in enumerate(value["outputs"])]
+        # Every source equation must contribute to a returned result, even if IR
+        # contains a matching dead expression.
+        live = {item["var"] for item in value["outputs"] if "var" in item}
+        for equation in reversed(value["equations"]):
+            if not any(item.get("var") in live for item in equation["outputs"]):
+                raise ValueError("dead-source-equation")
+            live.update(item["var"] for item in equation["inputs"] if "var" in item)
+        if any(i not in live for i in range(len(value["consts"]))):
+            raise ValueError("unused-source-constant")
+        source_scopes.append({"scope": scope, "equations": count})
+        return results
+
+    try:
+        if type(manifest) is not dict or type(model) is not onnx.ModelProto:
+            return None
+        if (
+            model.functions
+            or model.training_info
+            or any(item.domain for item in model.opset_import)
+        ):
+            return None
+        arguments = [
+            add("input", tensor, [], i) for i, tensor in enumerate(manifest["inputs"])
+        ]
+        results = body(manifest, arguments, "", frozenset())
+        if not source_equations:
+            return None
+        graph = model.graph
+        if (
+            graph.sparse_initializer
+            or graph.quantization_annotation
+            or len(graph.input) != len(arguments)
+            or len(graph.output) != len(results)
+        ):
+            return None
+        values = {}
+        for value in (*graph.input, *graph.value_info, *graph.output):
+            if not value.name or value.type.WhichOneof("value") != "tensor_type":
+                return None
+            tensor = value.type.tensor_type
+            if (
+                tensor.elem_type not in types.values()
+                or not tensor.HasField("shape")
+                or any(
+                    not x.HasField("dim_value") or x.dim_value < 0
+                    for x in tensor.shape.dim
+                )
+            ):
+                return None
+            descriptor = (
+                tensor.elem_type,
+                tuple(x.dim_value for x in tensor.shape.dim),
             )
-        ):
-            return None
-        descriptor = (
-            tensor.elem_type,
-            tuple(dim.dim_value for dim in tensor.shape.dim),
-        )
-        if value.name in values and values[value.name] != descriptor:
-            return None
-        values[value.name] = descriptor
-    source: dict[int, Any] = {}
-    edges: dict[int, str] = {}
-
-    def matches(name: str, expected: Any) -> bool:
-        return aval(expected) and values.get(name) == (
-            types[expected[0]],
-            tuple(expected[1]),
-        )
-
-    for index, (expected, value) in enumerate(
-        zip(manifest["inputs"], graph.input, strict=True)
-    ):
-        if not matches(value.name, expected) or value.name in edges.values():
-            return None
-        source[index], edges[index] = expected, value.name
-    nodes = []
-    for equation, node in zip(manifest["equations"], graph.node, strict=True):
-        if (
-            type(equation) is not dict
-            or set(equation) != {"primitive", "inputs", "outputs", "params", "effects"}
-            or equation["primitive"] not in {"and", "not"}
-            or equation["params"] != {}
-            or type(equation["params"]) is not dict
-            or type(equation["inputs"]) is not list
-            or type(equation["outputs"]) is not list
-            or type(equation["effects"]) is not list
-            or equation["effects"]
-            or node.domain
-            or node.overload
-            or node.attribute
-            or len(node.output) != 1
-            or len(equation["outputs"]) != 1
-        ):
-            return None
-        inputs = equation["inputs"]
-        output = equation["outputs"][0]
-        arity = 2 if equation["primitive"] == "and" else 1
-        if len(inputs) != arity or len(node.input) != arity:
-            return None
-        for port in (*inputs, output):
+            if value.name in values and values[value.name] != descriptor:
+                return None
+            values[value.name] = descriptor
+        initializers = {}
+        producers = {}
+        for value in graph.initializer:
             if (
-                type(port) is not dict
-                or set(port) != {"var", "aval"}
-                or type(port["var"]) is not int
-                or not aval(port["aval"])
+                not value.name
+                or value.name in initializers
+                or value.data_location != onnx.TensorProto.DEFAULT
+                or value.external_data
+                or value.data_type not in types.values()
             ):
                 return None
-        expected = output["aval"]
-        logical = expected[0] == "bool"
-        op = (
-            ("And" if logical else "BitwiseAnd")
-            if arity == 2
-            else ("Not" if logical else "BitwiseNot")
-        )
-        if (
-            node.op_type != op
-            or output["var"] != len(source)
-            or not node.output[0]
-            or node.output[0] in edges.values()
-            or not matches(node.output[0], expected)
-            or expected[2] != all(port["aval"][2] for port in inputs)
+            initializers[value.name] = value
+            descriptor = (value.data_type, tuple(value.dims))
+            if value.name in values and values[value.name] != descriptor:
+                return None
+            values[value.name] = descriptor
+        input_names = [value.name for value in graph.input]
+        if len(set(input_names)) != len(input_names) or set(input_names) & set(
+            initializers
         ):
             return None
-        for port, name in zip(inputs, node.input, strict=True):
+        for index, node in enumerate(graph.node):
             if (
-                source.get(port["var"]) != port["aval"]
-                or edges.get(port["var"]) != name
-                or port["aval"][:2] != expected[:2]
+                node.domain
+                or node.overload
+                or len(node.output) != 1
+                or not node.output[0]
+                or node.output[0] in {*input_names, *initializers, *producers}
             ):
                 return None
-        source[output["var"]], edges[output["var"]] = expected, node.output[0]
-        nodes.append(
-            {"op": op, "inputs": list(node.input), "outputs": list(node.output)}
-        )
-    for port, value in zip(manifest["outputs"], graph.output, strict=True):
+            producers[node.output[0]] = (index, node)
+        declared = set(input_names) | set(initializers) | set(producers)
+        if set(values) != declared:
+            return None
+        used_nodes: set[int] = set()
+        used_constants: set[str] = set()
+        active: set[str] = set()
+
+        def typed(name: str, tensor: Any) -> bool:
+            return aval(tensor) and values.get(name) == (
+                types[tensor[0]],
+                tuple(tensor[1]),
+            )
+
+        def node(name: str, operation: str, arity: int, attrs: dict[str, Any]) -> Any:
+            index, current = producers[name]
+            if (
+                current.op_type != operation
+                or len(current.input) != arity
+                or any(not x for x in current.input)
+            ):
+                raise ValueError("final-node-form-differs")
+            attributes = {
+                x.name: onnx.helper.get_attribute_value(x) for x in current.attribute
+            }
+            if len(attributes) != len(current.attribute) or attributes != attrs:
+                raise ValueError("final-node-attributes-differ")
+            used_nodes.add(index)
+            return current
+
+        def storage(name: str) -> Any:
+            if name in initializers:
+                value = initializers[name]
+            else:
+                index, current = producers[name]
+                if (
+                    current.op_type != "Constant"
+                    or current.input
+                    or len(current.attribute) != 1
+                    or current.attribute[0].name != "value"
+                    or current.attribute[0].type != onnx.AttributeProto.TENSOR
+                ):
+                    raise ValueError("unowned-final-constant")
+                used_nodes.add(index)
+                value = current.attribute[0].t
+                if (
+                    value.external_data
+                    or value.data_location != onnx.TensorProto.DEFAULT
+                ):
+                    raise ValueError("external-final-constant")
+            if value.data_type not in types.values() or (
+                value.data_type,
+                tuple(value.dims),
+            ) != values.get(name):
+                raise ValueError("final-constant-type-differs")
+            array = onnx.numpy_helper.to_array(value)
+            used_constants.add(name)
+            return array
+
+        def vector(name: str, expected: list[int]) -> None:
+            if name in producers and producers[name][1].op_type == "Concat":
+                if not expected or values.get(name) != (
+                    types["int64"],
+                    (len(expected),),
+                ):
+                    raise ValueError("final-shape-concat-type-differs")
+                concat = node(name, "Concat", len(expected), {"axis": 0})
+                if concat.attribute[0].type != onnx.AttributeProto.INT:
+                    raise ValueError("final-shape-concat-axis-type-differs")
+                for edge, word in zip(concat.input, expected, strict=True):
+                    piece = storage(edge)
+                    if (
+                        piece.dtype != np.dtype("int64")
+                        or piece.shape != (1,)
+                        or piece.tolist() != [word]
+                    ):
+                        raise ValueError("final-shape-concat-piece-differs")
+                return
+            array = storage(name)
+            if (
+                array.dtype != np.dtype("int64")
+                or list(array.shape) != [len(expected)]
+                or array.tolist() != expected
+            ):
+                raise ValueError("final-shape-constant-differs")
+
+        def match(expr: int, name: str) -> None:
+            if name in active:
+                raise ValueError("cyclic-final-graph")
+            expected = expressions[expr]
+            tensor = expected["aval"]
+            operation = expected["operation"]
+            if not typed(name, tensor):
+                raise ValueError("final-source-type-differs")
+            if operation == "input":
+                if name != input_names[expected["params"]]:
+                    raise ValueError("final-original-input-edge-differs")
+                return
+            if operation == "constant":
+                if (
+                    hashlib.sha256(storage(name).tobytes(order="C")).hexdigest()
+                    != expected["params"]
+                ):
+                    raise ValueError("final-source-constant-words-differ")
+                return
+            active.add(name)
+            args, params = expected["args"], expected["params"]
+            if operation in {"and", "or", "xor", "not"}:
+                operations = {
+                    "and": ("And", "BitwiseAnd"),
+                    "or": ("Or", "BitwiseOr"),
+                    "xor": ("Xor", "BitwiseXor"),
+                    "not": ("Not", "BitwiseNot"),
+                }
+                current = node(
+                    name, operations[operation][tensor[0] != "bool"], len(args), {}
+                )
+                for child, edge in zip(args, current.input, strict=True):
+                    match(child, edge)
+            else:
+                source = expressions[args[0]]["aval"]
+                identity = (
+                    operation == "stop_gradient"
+                    or operation == "convert_element_type"
+                    and source[0] == tensor[0]
+                )
+                if operation == "reshape":
+                    identity = source[1] == tensor[1] and params.get("dimensions") in (
+                        None,
+                        list(range(len(source[1]))),
+                    )
+                if operation == "broadcast_in_dim":
+                    identity = source[1] == tensor[1] and params[
+                        "broadcast_dimensions"
+                    ] == list(range(len(source[1])))
+                if operation == "slice":
+                    identity = (
+                        params["start_indices"] == [0] * len(source[1])
+                        and params["limit_indices"] == list(source[1])
+                        and (
+                            params["strides"] is None
+                            or params["strides"] == [1] * len(source[1])
+                        )
+                    )
+                if operation == "transpose":
+                    identity = params["permutation"] == list(range(len(source[1])))
+                if identity:
+                    if name in producers and producers[name][1].op_type == "Identity":
+                        current = node(name, "Identity", 1, {})
+                        match(args[0], current.input[0])
+                    else:
+                        # Distinct expression identity, so allow the same actual
+                        # value without treating its name as a cycle.
+                        active.remove(name)
+                        match(args[0], name)
+                        return
+                elif operation == "convert_element_type":
+                    current = node(name, "Cast", 1, {"to": types[tensor[0]]})
+                    match(args[0], current.input[0])
+                elif operation == "transpose":
+                    current = node(
+                        name, "Transpose", 1, {"perm": params["permutation"]}
+                    )
+                    match(args[0], current.input[0])
+                elif operation == "reshape":
+                    permutation = params["dimensions"]
+                    if (
+                        permutation is not None
+                        and [source[1][i] for i in permutation] == list(tensor[1])
+                        and producers[name][1].op_type == "Transpose"
+                    ):
+                        current = node(name, "Transpose", 1, {"perm": permutation})
+                        match(args[0], current.input[0])
+                    else:
+                        current = node(
+                            name,
+                            "Reshape",
+                            2,
+                            {"allowzero": 1} if 0 in tensor[1] else {},
+                        )
+                        vector(current.input[1], list(tensor[1]))
+                        edge = current.input[0]
+                        if permutation is not None and permutation != list(
+                            range(len(source[1]))
+                        ):
+                            if values[edge] != (
+                                types[source[0]],
+                                tuple(source[1][i] for i in permutation),
+                            ):
+                                raise ValueError(
+                                    "final-transpose-intermediate-type-differs"
+                                )
+                            transposed = node(
+                                edge, "Transpose", 1, {"perm": permutation}
+                            )
+                            edge = transposed.input[0]
+                        match(args[0], edge)
+                elif operation == "broadcast_in_dim":
+                    current = node(name, "Expand", 2, {})
+                    vector(current.input[1], list(tensor[1]))
+                    edge = current.input[0]
+                    dimensions = params["broadcast_dimensions"]
+                    if source[1] and len(source[1]) != len(tensor[1]):
+                        aligned = [1] * len(tensor[1])
+                        for size, destination in zip(
+                            source[1], dimensions, strict=True
+                        ):
+                            aligned[destination] = size
+                        if (
+                            edge in producers
+                            and producers[edge][1].op_type == "Reshape"
+                        ):
+                            if values[edge] != (types[source[0]], tuple(aligned)):
+                                raise ValueError(
+                                    "final-broadcast-intermediate-type-differs"
+                                )
+                            reshaped = node(
+                                edge,
+                                "Reshape",
+                                2,
+                                {"allowzero": 1} if 0 in aligned else {},
+                            )
+                            vector(reshaped.input[1], aligned)
+                            edge = reshaped.input[0]
+                        elif dimensions != list(
+                            range(len(tensor[1]) - len(source[1]), len(tensor[1]))
+                        ):
+                            raise ValueError("final-broadcast-axis-differs")
+                    match(args[0], edge)
+                elif operation == "slice":
+                    current = producers[name][1]
+                    arity = len(current.input)
+                    if arity not in (4, 5):
+                        raise ValueError("final-slice-arity-differs")
+                    current = node(name, "Slice", arity, {})
+                    steps = params["strides"] or [1] * len(source[1])
+                    for edge, expected_vector in zip(
+                        current.input[1:4],
+                        (
+                            params["start_indices"],
+                            params["limit_indices"],
+                            list(range(len(source[1]))),
+                        ),
+                        strict=True,
+                    ):
+                        vector(edge, expected_vector)
+                    if arity == 5:
+                        vector(current.input[4], steps)
+                    elif any(x != 1 for x in steps):
+                        raise ValueError("final-slice-steps-missing")
+                    match(args[0], current.input[0])
+                else:
+                    raise ValueError("final-operation-unavailable")
+            active.remove(name)
+
+        for expr, value in zip(arguments, graph.input, strict=True):
+            if not typed(value.name, expressions[expr]["aval"]):
+                return None
+        for expr, value in zip(results, graph.output, strict=True):
+            match(expr, value.name)
         if (
-            type(port) is not dict
-            or set(port) != {"var", "aval"}
-            or type(port["var"]) is not int
-            or source.get(port["var"]) != port["aval"]
-            or edges.get(port["var"]) != value.name
-            or not matches(value.name, port["aval"])
+            used_nodes != set(range(len(graph.node)))
+            or set(initializers) - used_constants
         ):
             return None
-    if set(values) != set(edges.values()):
+        return {
+            "source_trace_sha256": _contract_hash(manifest),
+            "source_values": [[i, x["aval"]] for i, x in enumerate(expressions)],
+            "source_equation_count": source_equations,
+            "source_scopes": source_scopes,
+            "source_storage": source_storage,
+            "ir_nodes": [
+                {"op": x.op_type, "inputs": list(x.input), "outputs": list(x.output)}
+                for x in graph.node
+            ],
+            "ir_values": [
+                [name, dtype, list(shape)]
+                for name, (dtype, shape) in sorted(values.items())
+            ],
+            "constant_count": len(used_constants),
+            "function_count": 0,
+        }
+    except (ValueError, TypeError, KeyError, IndexError, OverflowError, RecursionError):
         return None
-    live = {port["var"] for port in manifest["outputs"]}
-    for equation in reversed(manifest["equations"]):
-        if equation["outputs"][0]["var"] not in live:
-            return None
-        live.update(port["var"] for port in equation["inputs"])
-    return {
-        "source_trace_sha256": _contract_hash(manifest),
-        "source_values": [[key, value] for key, value in source.items()],
-        "ir_nodes": nodes,
-        "ir_values": [
-            [name, dtype, list(shape)]
-            for name, (dtype, shape) in sorted(values.items())
-        ],
-        "constant_count": 0,
-        "function_count": 0,
-    }
 
 
 def _source_metadata_protocol_checks(
@@ -2116,7 +2685,8 @@ def _source_metadata_protocol_checks(
             }
             or type(structure.get("collector_calls")) is not int
             or structure.get("collector_calls") != 1
-            or source.get("native_primitive_relation") != "identical-flat-sequence"
+            or source.get("native_primitive_relation")
+            not in {"identical-flat-sequence", "bounded-plain-jit-tree"}
             or source.get("prepared_trace_pending") is not False
             or artifact_binding.get("fenced_after_callback") is not True
         ):
@@ -2155,16 +2725,28 @@ def _source_metadata_protocol_checks(
             raise ValueError(
                 "Bitwise applicability complete exported trace content differs"
             )
-        if any(
-            source.get(key) != trace_sha
-            for key in (
-                "prepared_trace_sha256",
-                "actual_trace_sha256",
-                "fresh_prepared_trace_sha256",
+        if (
+            any(
+                source.get(key) != trace_sha
+                for key in (
+                    "prepared_trace_sha256",
+                    "actual_trace_sha256",
+                    "fresh_prepared_trace_sha256",
+                )
             )
-        ) or any(
-            source.get(key) != []
-            for key in ("prepared_storage", "actual_storage", "fresh_prepared_storage")
+            or not all(
+                type(source.get(key)) is list
+                for key in (
+                    "prepared_storage",
+                    "actual_storage",
+                    "fresh_prepared_storage",
+                )
+            )
+            or not (
+                source["prepared_storage"]
+                == source["actual_storage"]
+                == source["fresh_prepared_storage"]
+            )
         ):
             raise ValueError(
                 "Bitwise applicability original typed trace/storage differs"
@@ -2195,8 +2777,10 @@ def _source_metadata_protocol_checks(
             or ir_result.get("reasons") != []
             or type(ir_result.get("expected_equations")) is not int
             or type(ir_result.get("checked_equations")) is not int
-            or ir_result.get("expected_equations") != len(closure["ir_nodes"])
-            or ir_result.get("checked_equations") != len(closure["ir_nodes"])
+            or ir_result.get("expected_equations") != closure["source_equation_count"]
+            or ir_result.get("checked_equations") != closure["source_equation_count"]
+            or _contract_hash(source["prepared_storage"])
+            != _contract_hash(closure["source_storage"])
         ):
             raise ValueError(
                 "Bitwise applicability lacks complete canonical source/final-IR coverage"

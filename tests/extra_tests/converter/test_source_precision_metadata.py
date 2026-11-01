@@ -4095,7 +4095,8 @@ def test_conditional_discrete_criterion_retains_original_jit_and_all_samples(
     ):
         assert scientific[name]["status"] == "validated"
     for name in ("operation_rounding", "required_internal_fp64"):
-        assert scientific[name]["status"] == "unverified"
+        assert scientific[name]["status"] == "validated"
+        assert scientific[name]["applicability"] == "not-applicable"
     for name in ("component_nan_masks", "zero_signs"):
         assert scientific[name]["status"] == "validated"
         assert scientific[name]["applicability"] == "not-applicable"
@@ -5235,3 +5236,685 @@ def test_metadata_cli_selects_both_only_for_the_reviewed_discrete_path(
     assert calls == [expected_runtime]
     assert state["configured"] is True
     assert state["identities"] == ((row.origin, row.ordinal, "raw-x64-off"),)
+
+
+def _family_discrete_protocol(tmp_path, *, supplied_jit=False):
+    captured = np.asarray([[7, 3], [1, 0]], dtype=np.int32)
+
+    def original(x, y):
+        left = jax.lax.reshape(x, (2, 2))
+        promoted = jax.lax.convert_element_type(y, np.int32)
+        right = jax.lax.broadcast_in_dim(promoted, (2, 2), (1,))
+        bits = jax.lax.bitwise_xor(jax.lax.bitwise_or(left, right), captured)
+        result = jax.lax.bitwise_and(jax.lax.bitwise_not(bits), np.int32(3))
+        return jax.lax.transpose(result, (1, 0))
+
+    target = jax.jit(original) if supplied_jit else original
+    scope = _discrete_protocol_scope(
+        {
+            "testcase": "composed-discrete-family",
+            "callable": target,
+            "input_values": [
+                np.asarray([1, 2, 3, 4], np.int32),
+                np.asarray([True, False]),
+            ],
+            "runtime_input_values": [
+                [np.asarray([5, 6, 7, 8], np.int32), np.asarray([False, True])]
+            ],
+        }
+    )
+    if supplied_jit:
+        scope[3]["rows"]["plugin::synthetic::0"]["capture_original_object"] = True
+    descriptor = _descriptors(
+        scope, selection=[("plugin::synthetic", 0, "raw-x64-on")]
+    )[0]
+    function = _function(
+        scope,
+        descriptor,
+        tmp_path,
+        runtime="both",
+        expected={"runtime": "validated", "numerics": "validated"},
+    )
+    return scope, function, captured
+
+
+@pytest.mark.parametrize("supplied_jit", [False, True])
+def test_discrete_family_complete_constants_shapes_and_plain_jit(
+    tmp_path, monkeypatch, supplied_jit
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    targets, witnesses, invoked_targets = [], [], []
+    original_bind = raw.RawReplayCapture.bind_target
+    original_sample = raw.RawReplayCapture.native_sample
+
+    def nested_code(parent, name):
+        matches = [
+            code
+            for code in parent.co_consts
+            if type(code) is types.CodeType and code.co_name == name
+        ]
+        assert len(matches) == 1
+        return matches[0]
+
+    primary_code = nested_code(raw.prepare_raw_source_case.__code__, "original")
+    alternate_code = nested_code(
+        nested_code(probe._raw_metadata_runtime_protocol.__code__, "run_reference"),
+        "original",
+    )
+
+    def bind(capture, target):
+        targets.append(target)
+        result = original_bind(capture, target)
+        witnesses.append(capture.target_witness)
+        return result
+
+    def sample(capture, original, arguments, **kwargs):
+        assert type(original) is types.FunctionType
+        assert original.__code__ is (
+            primary_code if kwargs["label"] == "" else alternate_code
+        )
+        cells = dict(
+            zip(original.__code__.co_freevars, original.__closure__, strict=True)
+        )
+        primary = kwargs["label"] == ""
+        assert set(cells) == (
+            {"arguments", "names", "target"}
+            if primary
+            else {"fn", "names", "positional"}
+        )
+        owner = (
+            raw.prepare_raw_source_case
+            if primary
+            else probe._raw_metadata_runtime_protocol
+        )
+        assert (
+            original.__globals__ is owner.__globals__
+            and original.__builtins__ is owner.__builtins__
+        )
+        target = cells["target" if primary else "fn"].cell_contents
+        positional = cells["arguments" if primary else "positional"].cell_contents
+        assert target is supplied is capture.target
+        assert cells["names"].cell_contents == ()
+        assert len(arguments) == len(positional) == 2
+        assert all(
+            actual is bound for actual, bound in zip(arguments, positional, strict=True)
+        )
+        testcase = scope[2][0][2]["testcases"][0]
+        expected_inputs = (
+            testcase["input_values"] if primary else testcase["runtime_input_values"][0]
+        )
+        for actual, expected in zip(arguments, expected_inputs, strict=True):
+            actual, expected = np.asarray(actual), np.asarray(expected)
+            assert actual.dtype == expected.dtype and actual.shape == expected.shape
+            assert actual.tobytes() == expected.tobytes()
+        invoked_targets.append(target)
+        return original_sample(capture, original, arguments, **kwargs)
+
+    monkeypatch.setattr(raw.RawReplayCapture, "bind_target", bind)
+    monkeypatch.setattr(raw.RawReplayCapture, "native_sample", sample)
+    scope, function, captured = _family_discrete_protocol(
+        tmp_path, supplied_jit=supplied_jit
+    )
+    supplied = scope[2][0][2]["testcases"][0]["callable"]
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    proof = capture["source_structure"]["floating_applicability"]
+    assert record.source_reference is CheckStatus.VALIDATED
+    assert record.structure is CheckStatus.VALIDATED
+    assert record.lowering_audit is CheckStatus.VALIDATED
+    assert proof["status"] == "validated" and proof["closure"]["function_count"] == 0
+    assert json.loads(json.dumps(proof["closure"]["source_storage"])) == json.loads(
+        json.dumps(capture["source_structure"]["source_binding"]["prepared_storage"])
+    )
+    assert any(
+        item["logical"]["shape"] == [2, 2]
+        for item in proof["closure"]["source_storage"]
+    )
+    assert any(
+        item["logical"]["shape"] == [] for item in proof["closure"]["source_storage"]
+    )
+    assert proof["closure"]["constant_count"] >= 2
+    assert targets == [supplied] and targets[0] is supplied
+    assert len(invoked_targets) == 2 and all(
+        target is supplied for target in invoked_targets
+    )
+    if supplied_jit:
+        original = vars(supplied)["_fun"]
+        assert vars(supplied)["__wrapped__"] is original
+        assert any(cell.cell_contents is captured for cell in original.__closure__)
+        witness = witnesses[0]
+        assert witness is not None
+        for actual in (supplied, original, captured):
+            assert any(value is actual for _, value in witness.edges)
+        assert any(value is original for value in witness.native_references)
+        assert any(value is captured for value in witness.native_references)
+    expected = np.bitwise_and(
+        np.bitwise_not(
+            np.bitwise_xor(
+                np.bitwise_or(
+                    np.asarray([[1, 2], [3, 4]], np.int32), np.asarray([1, 0], np.int32)
+                ),
+                captured,
+            )
+        ),
+        np.int32(3),
+    ).T
+    for role in [
+        "eager",
+        "fresh-jit",
+        "warm-jit",
+        "metadata-ort-disabled-0",
+        "metadata-ort-all-0",
+    ]:
+        with np.load(capture[role]["path"], allow_pickle=False) as actual:
+            assert len(actual.files) == 1
+            np.testing.assert_array_equal(actual[actual.files[0]], expected)
+    checks = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    for name in ("operation_rounding", "required_internal_fp64"):
+        assert (
+            checks[name]["status"] == "validated"
+            and checks[name]["applicability"] == "not-applicable"
+        )
+    assert checks["same_artifact_and_feeds_both_modes"]["status"] == "validated"
+    retained = _retained_stage_record(function)
+    assert retained["replay_capture"]["source_structure"][
+        "floating_applicability"
+    ] == json.loads(json.dumps(proof))
+
+
+@pytest.mark.parametrize("mutation", ["word", "equal-array"])
+def test_original_jit_owned_array_mutation_stops_before_next_role(
+    tmp_path, monkeypatch, mutation
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+    from tests.extra_tests.converter.source_precision_support import SourceSettings
+
+    captured = np.asarray([[7, 3], [1, 0]], np.int32)
+
+    def original(x):
+        return jax.lax.bitwise_xor(x, captured)
+
+    supplied = jax.jit(original)
+    capture = raw.RawReplayCapture(tmp_path / mutation)
+    recipe = raw._capture_recipe(supplied)
+    capture.bind_target(supplied)
+    assert capture.target is supplied and capture.check_target("unchanged")
+    cell = original.__closure__[0]
+    assert cell.cell_contents is captured
+    if mutation == "word":
+        captured[0, 0] ^= np.int32(1)
+        assert cell.cell_contents is captured
+    else:
+        replacement = np.array(captured, copy=True)
+        assert (
+            replacement is not captured and replacement.tobytes() == captured.tobytes()
+        )
+        monkeypatch.setattr(cell, "cell_contents", replacement)
+    attempted = []
+
+    def forbidden(*args, **kwargs):
+        attempted.append(True)
+        pytest.fail("Changed owned array must not reach a native role")
+
+    monkeypatch.setattr(capture, "invoke", forbidden)
+    with pytest.raises(raw.SourcePreparationError, match="state is not preserved"):
+        capture.native_sample(
+            supplied,
+            (np.asarray([[1, 2], [3, 4]], np.int32),),
+            label="",
+            settings=SourceSettings.observe(),
+            metadata={},
+            three_roles=True,
+        )
+    assert attempted == [] and capture.records["native_outcomes"] == {}
+    assert raw._capture_recipe(supplied) != recipe
+
+
+def test_original_jit_unsupported_owned_capture_still_rejects_before_native(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    opaque = object()
+
+    def original(x):
+        return x if opaque is not None else x
+
+    supplied = jax.jit(original)
+    attempted = []
+
+    def forbidden(*args, **kwargs):
+        attempted.append(True)
+        pytest.fail("Unsupported owned state must not reach native execution")
+
+    monkeypatch.setattr(raw.RawReplayCapture, "invoke", forbidden)
+    with pytest.raises(raw.SourcePreparationError):
+        raw._capture_recipe(supplied)
+    capture = raw.RawReplayCapture(tmp_path / "unsupported")
+    with pytest.raises(raw.SourcePreparationError):
+        capture.bind_target(supplied)
+    assert attempted == [] and capture.records["native_outcomes"] == {}
+
+
+def test_generic_native_capture_graph_still_rejects_user_array():
+    captured = np.asarray([[7, 3], [1, 0]], np.int32)
+    with pytest.raises(ValueError, match="unsupported native callable state type"):
+        compat._NativeCaptureGraph().take(captured)
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.uint32])
+@pytest.mark.parametrize("caller", ["raw-x64-off", "raw-x64-on"])
+def test_discrete_family_high_words_retain_exact_native_and_target_outputs(
+    tmp_path, dtype, caller
+):
+    if dtype is np.int32:
+        left = (-2147483648, 2147483647, -1, 0)
+        right = (2147483647, -2147483648, 0, -1)
+    else:
+        left = (0, 2147483648, 4294967295, 1)
+        right = (4294967295, 1, 2147483648, 0)
+    samples = ((left, right), (right, left))
+
+    def original(x, y):
+        return (
+            jax.lax.bitwise_and(x, y),
+            jax.lax.bitwise_or(x, y),
+            jax.lax.bitwise_xor(x, y),
+            jax.lax.bitwise_not(x),
+        )
+
+    scope = _discrete_protocol_scope(
+        {
+            "testcase": "discrete-family-high-words",
+            "callable": original,
+            "input_values": [np.asarray(value, dtype=dtype) for value in samples[0]],
+            "runtime_input_values": [
+                [np.asarray(value, dtype=dtype) for value in samples[1]]
+            ],
+        }
+    )
+    descriptor = _descriptors(scope, selection=[("plugin::synthetic", 0, caller)])[0]
+    function = _function(
+        scope,
+        descriptor,
+        tmp_path,
+        runtime="both",
+        expected={"runtime": "validated", "numerics": "validated"},
+    )
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    assert record.source_reference is CheckStatus.VALIDATED
+    assert record.structure is CheckStatus.VALIDATED
+    assert record.lowering_audit is CheckStatus.VALIDATED
+    for index, (x, y) in enumerate(samples):
+        # Python integer words form the independent fixed-width oracle. No
+        # NumPy/JAX bitwise operation supplies the expected target values.
+        mask = (1 << 32) - 1
+        xwords = [word & mask for word in x]
+        ywords = [word & mask for word in y]
+        expected_words = (
+            [a & b for a, b in zip(xwords, ywords)],
+            [a | b for a, b in zip(xwords, ywords)],
+            [a ^ b for a, b in zip(xwords, ywords)],
+            [(~a) & mask for a in xwords],
+        )
+        prefix = "" if index == 0 else f"metadata-runtime-reference-{index - 1}-"
+        roles = [prefix + role for role in ("eager", "fresh-jit", "warm-jit")]
+        roles.extend(f"metadata-ort-{mode}-{index}" for mode in ("disabled", "all"))
+        for role in roles:
+            assert capture[role]["status"] == "captured"
+            with np.load(capture[role]["path"], allow_pickle=False) as actual:
+                assert actual.files == [f"value_{leaf}" for leaf in range(4)]
+                for leaf, words in enumerate(expected_words):
+                    array = actual[f"value_{leaf}"]
+                    assert array.dtype == np.dtype(dtype) and array.shape == (4,)
+                    assert array.view(np.uint32).tolist() == words
+    checks = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    for name in ("operation_rounding", "required_internal_fp64"):
+        assert checks[name]["status"] == "validated"
+        assert checks[name]["applicability"] == "not-applicable"
+    assert checks["native_three_role_agreement"]["status"] == "validated"
+    assert checks["same_artifact_and_feeds_both_modes"]["status"] == "validated"
+    _retained_stage_record(function)
+
+
+def test_discrete_family_full_artifact_rejects_unclaimed_storage_and_wrong_words(
+    tmp_path,
+):
+    import onnx
+
+    scope, function, _ = _family_discrete_protocol(tmp_path)
+    function()
+    record = asdict(function._source_cell.history[-1])
+    capture = record["replay_capture"]
+    manifest = json.loads(record["original_trace_json"])
+    original = onnx.load(capture["artifact"]["path"], load_external_data=False)
+    accepted = inventory_owner._source_bitwise_closure(manifest, original)
+    assert accepted is not None and accepted["source_storage"]
+    concats = [
+        index
+        for index, node in enumerate(original.graph.node)
+        if node.op_type == "Concat"
+    ]
+    assert len(concats) == 2
+    initializers = {value.name: value for value in original.graph.initializer}
+    actual_vectors = []
+    for index in concats:
+        node = original.graph.node[index]
+        pieces = [onnx.numpy_helper.to_array(initializers[name]) for name in node.input]
+        assert all(
+            value.dtype == np.dtype("int64") and value.shape == (1,) for value in pieces
+        )
+        actual_vectors.append(tuple(int(value[0]) for value in pieces))
+        for mutation in (
+            "axis",
+            "axis-type",
+            "output-type",
+            "output-rank",
+            "arity",
+            "piece-type",
+            "piece-rank",
+            "word",
+            "runtime",
+            "unknown",
+            "nested",
+        ):
+            model = copy.deepcopy(original)
+            concat = model.graph.node[index]
+            piece_name = concat.input[0]
+            piece = next(
+                value for value in model.graph.initializer if value.name == piece_name
+            )
+            word = int(onnx.numpy_helper.to_array(piece)[0])
+            if mutation == "axis":
+                concat.attribute[0].i = 1
+            elif mutation == "axis-type":
+                # FLOAT zero compares equal to integer zero in Python; the
+                # actual ONNX attribute type is part of this finite contract.
+                concat.attribute[0].CopyFrom(onnx.helper.make_attribute("axis", 0.0))
+            elif mutation in {"output-type", "output-rank"}:
+                output = next(
+                    value
+                    for value in model.graph.value_info
+                    if value.name == concat.output[0]
+                )
+                output.CopyFrom(
+                    onnx.helper.make_tensor_value_info(
+                        output.name,
+                        (
+                            onnx.TensorProto.INT32
+                            if mutation == "output-type"
+                            else onnx.TensorProto.INT64
+                        ),
+                        [2] if mutation == "output-type" else [1, 2],
+                    )
+                )
+            elif mutation == "arity":
+                del concat.input[-1]
+            elif mutation in {"piece-type", "piece-rank", "word"}:
+                dtype = (
+                    onnx.TensorProto.INT32
+                    if mutation == "piece-type"
+                    else onnx.TensorProto.INT64
+                )
+                shape = [] if mutation == "piece-rank" else [1]
+                piece.CopyFrom(
+                    onnx.helper.make_tensor(
+                        piece_name, dtype, shape, [word + (mutation == "word")]
+                    )
+                )
+                declared = next(
+                    (
+                        value
+                        for value in model.graph.value_info
+                        if value.name == piece_name
+                    ),
+                    None,
+                )
+                if declared is not None:
+                    declared.CopyFrom(
+                        onnx.helper.make_tensor_value_info(piece_name, dtype, shape)
+                    )
+            else:
+                edge = "unowned-shape-piece"
+                if mutation == "runtime":
+                    # No extra model input or arity mismatch: these runtime
+                    # data edges remain disallowed even with exact INT64[1].
+                    indices = onnx.helper.make_tensor(
+                        "unowned-shape-index", onnx.TensorProto.INT64, [1], [word - 1]
+                    )
+                    model.graph.initializer.append(indices)
+                    producers = [
+                        onnx.helper.make_node(
+                            "Gather",
+                            [model.graph.input[0].name, indices.name],
+                            ["runtime-shape-word"],
+                            axis=0,
+                        ),
+                        onnx.helper.make_node(
+                            "Cast",
+                            ["runtime-shape-word"],
+                            [edge],
+                            to=onnx.TensorProto.INT64,
+                        ),
+                    ]
+                    model.graph.value_info.append(
+                        onnx.helper.make_tensor_value_info(
+                            "runtime-shape-word", onnx.TensorProto.INT32, [1]
+                        )
+                    )
+                else:
+                    producers = [
+                        onnx.helper.make_node(
+                            (
+                                "Concat"
+                                if mutation == "nested"
+                                else "UnreviewedShapeProducer"
+                            ),
+                            [piece_name],
+                            [edge],
+                            **({"axis": 0} if mutation == "nested" else {}),
+                        )
+                    ]
+                model.graph.value_info.append(
+                    onnx.helper.make_tensor_value_info(
+                        edge, onnx.TensorProto.INT64, [1]
+                    )
+                )
+                concat.input[0] = edge
+                for offset, producer in enumerate(producers):
+                    model.graph.node.insert(index + offset, producer)
+            assert inventory_owner._source_bitwise_closure(manifest, model) is None, (
+                index,
+                mutation,
+            )
+    assert sorted(actual_vectors) == [(1, 2), (2, 2)]
+    unclaimed = copy.deepcopy(original)
+    unclaimed.graph.node.append(
+        onnx.helper.make_node(
+            "Identity", [unclaimed.graph.input[0].name], ["unclaimed-discrete-node"]
+        )
+    )
+    unclaimed.graph.value_info.append(
+        onnx.helper.make_tensor_value_info(
+            "unclaimed-discrete-node", onnx.TensorProto.INT32, [4]
+        )
+    )
+    assert inventory_owner._source_bitwise_closure(manifest, unclaimed) is None
+    for dtype in (onnx.TensorProto.INT32, onnx.TensorProto.FLOAT):
+        model = copy.deepcopy(original)
+        model.graph.initializer.append(
+            onnx.helper.make_tensor("unclaimed-initializer", dtype, [1], [0])
+        )
+        assert inventory_owner._source_bitwise_closure(manifest, model) is None
+    storage = copy.deepcopy(manifest)
+
+    def alter_constant(body):
+        if body["const_payloads"]:
+            body["const_payloads"][0]["sha256"] = "0" * 64
+            return True
+        for eqn in body["equations"]:
+            if eqn["primitive"] == "jit" and alter_constant(eqn["params"]["jaxpr"]):
+                return True
+        return False
+
+    assert alter_constant(storage)
+    assert inventory_owner._source_bitwise_closure(storage, original) is None
+    for mutation in ("scope", "word", "weakness"):
+        forged = copy.deepcopy(record)
+        witness = forged["replay_capture"]["source_structure"]
+        for key in ("prepared_storage", "actual_storage", "fresh_prepared_storage"):
+            item = witness["source_binding"][key][0]
+            if mutation == "scope":
+                item["role"] = "unowned/constant:0"
+            elif mutation == "word":
+                item["logical"]["sha256"] = "0" * 64
+                item["physical"]["sha256"] = "0" * 64
+            else:
+                item["weak_type"] = not item["weak_type"]
+        proof = witness["floating_applicability"]
+        proof["source_structure_sha256"] = inventory_owner._contract_hash(
+            {k: v for k, v in witness.items() if k != "floating_applicability"}
+        )
+        proof["closure"]["source_storage"] = copy.deepcopy(
+            witness["source_binding"]["prepared_storage"]
+        )
+        path = tmp_path / ("forged-family-" + mutation + ".json")
+        path.write_text(json.dumps(proof, sort_keys=True, separators=(",", ":")) + "\n")
+        forged["replay_capture"]["source-bitwise-applicability"] = {
+            "status": "captured",
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        with pytest.raises(ValueError):
+            inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], forged)
+
+
+@pytest.mark.parametrize("name", ["bitwise_or", "bitwise_xor"])
+def test_discrete_family_native_owners_have_complete_reducer_binding(name):
+    target = vars(compat._native_numpy)[name]
+    assert target is vars(compat._native_ufuncs)[name] is vars(jnp)[name]
+    selected = compat.selected_native_capture(target)
+    assert selected is not None and type(target) is compat._NATIVE_CAPTURE_UFUNC_TYPE
+    nodes = selected["state"]["nodes"]
+    props = vars(target)["_ufunc__static_props"]
+    assert set(props) == compat._NATIVE_CAPTURE_STATIC_FIELDS
+    assert (props["nin"], props["nout"], props["nargs"], props["identity"]) == (
+        2,
+        1,
+        2,
+        0,
+    )
+    assert props["func"] is props["call"]
+    assert props["at"] is props["accumulate"] is props["reduceat"] is None
+    reducer = props["reduce"]
+    function = vars(reducer)["_fun"]
+    owner = sys.modules[function.__module__]
+    assert vars(owner)["_reduce_" + name] is reducer
+    for value in (
+        target,
+        props,
+        props["func"],
+        reducer,
+        function,
+        vars(reducer)["_jit_info"],
+    ):
+        assert str(id(value)) in nodes
+    assert any(
+        module is owner and key == "_reduce_" + name and original is reducer
+        for module, key, original in compat._NATIVE_CAPTURE_BINDINGS[id(target)]
+    )
+
+
+@pytest.mark.parametrize("name", ["bitwise_or", "bitwise_xor"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "func",
+        "call",
+        "reduce",
+        "nin",
+        "nout",
+        "nargs",
+        "identity",
+        "accumulate",
+        "at",
+        "reduceat",
+        "public",
+        "defining",
+        "reducer-alias",
+        "reducer-code",
+        "reducer-config",
+        "unknown",
+        "equal-dict",
+        "foreign",
+    ],
+)
+def test_discrete_family_native_owner_state_mutations_stop_before_call(
+    tmp_path, monkeypatch, name, mutation
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = vars(compat._native_numpy)[name]
+    assert compat.selected_native_capture(target) is not None
+    props = vars(target)["_ufunc__static_props"]
+    capture = raw.RawReplayCapture(tmp_path / name / mutation)
+    capture.bind_target(target)
+    invoked = []
+
+    def replacement(*args, **kwargs):
+        invoked.append(True)
+        pytest.fail("Changed native state must never execute")
+
+    if mutation in compat._NATIVE_CAPTURE_STATIC_FIELDS:
+        values = {"nin": 3, "nout": 2, "nargs": 3, "identity": -1}
+        changed = values.get(mutation, replacement)
+        assert props[mutation] is not changed
+        monkeypatch.setitem(props, mutation, changed)
+    elif mutation in {"public", "defining", "foreign"}:
+        foreign = _same_identity_ufunc(target)
+        assert (
+            foreign is not target
+            and foreign == target
+            and hash(foreign) == hash(target)
+        )
+        if mutation == "foreign":
+            assert compat.selected_native_capture(foreign) is None
+            assert capture.target is target and invoked == []
+            return
+        monkeypatch.setattr(
+            compat._native_numpy if mutation == "public" else compat._native_ufuncs,
+            name,
+            foreign,
+        )
+    elif mutation == "unknown":
+        monkeypatch.setattr(target, "unreviewed_field", None, raising=False)
+    elif mutation == "equal-dict":
+        monkeypatch.setattr(target, "_ufunc__static_props", dict(props))
+    else:
+        reducer = props["reduce"]
+        function = vars(reducer)["_fun"]
+        if mutation == "reducer-alias":
+            monkeypatch.setattr(
+                sys.modules[function.__module__], "_reduce_" + name, replacement
+            )
+        elif mutation == "reducer-code":
+            monkeypatch.setattr(function, "__code__", function.__code__.replace())
+        else:
+            info = vars(reducer)["_jit_info"]
+            monkeypatch.setitem(
+                vars(reducer),
+                "_jit_info",
+                info._replace(keep_unused=not info.keep_unused),
+            )
+    with pytest.raises(ValueError):
+        compat.selected_native_capture(target)
+    assert not capture.check_target("changed-family-native-owner")
+    assert capture.target is target and invoked == []

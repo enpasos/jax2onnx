@@ -1,27 +1,34 @@
 # Precision migration handoff — 2026-11-01
 
-## Finite original-row SOURCE checkpoint
+## Local registered bitwise family checkpoint
 
-The local Source composition preserves the accepted Native3/ORT2 producer and
-conditional discrete exact rule, then adds a bound applicability proof for a
-complete constant-free canonical `and`/`not` source graph and its final saved IR.
-It retains every actual source value, operator, edge and tensor type; dead,
-hidden, floating, nested or otherwise unsupported content cannot discharge the
-floating-rounding/internal-FP64 obligations. No public criteria API or global
-acceptance gate changes.
+The local successor to `bfff9d88` qualifies all **26 registered AND/OR/XOR/NOT
+rows / 52 caller cells** on locked Python 3.11/3.13 and the existing Python 3.11
+minimum stack with ORT 1.24.1. Focused guards pass **150 cases per locked
+family**. Each genuine family run has 52 passing Items and 156 passing phases,
+44 passing original callbacks and eight callback-absent vmap contracts, with
+source/schema/lowering/structure and exact Native3/ORT2 artifact/feed bindings.
+The same 52 caller identities are tested on three stacks; these are not 156
+distinct inventory obligations.
 
-Actual focused checks pass **50 cases per official Python 3.11/3.13 family**.
-The unchanged original bitwise-and row passes both caller Items and all phases
-on each official stack and the existing Python 3.11 / ORT 1.24.1 minimum stack,
-with exact Native3/ORT2 outputs `[1, 0, 2]` and audited SOURCE/schema/callback
-bindings. Each complete report validates those **two numerical cells** while
-retaining **3,710** unverified raw cells, the full **3,712** denominator and all
-side obligations, **1,838** missing pairs and global inventory `ERROR`/exit `1`.
-The newer-family minimum and full scientific acceptance remain open. The first
-32-pass/one-failed weak-sentinel fixture is preserved; its reviewed correction
-changes only construction of a fresh native test object, and all 50 controls
-then pass. The original callables, inputs, criteria and earlier failures remain
-unchanged. This checkpoint supplies no CI-gate or publication waiver.
+The implementation preserves exact native ufunc and supplied-JIT ownership,
+including captured-array identity/words and state fences; static shape and
+constant proofs cover only their checked source semantics. SOURCE-marked
+Reshape results retain their original value witness, while unmarked/LEGACY
+identity reshapes still optimize. The independent saved-IR matcher accepts
+only bound static singleton-Concat geometry and requires literal-zero
+semantics for zero-alignment reshapes. The original callables, samples,
+callbacks, criteria and earlier ordinary failures remain intact.
+
+Each complete report records **52 numerically validated / 3,660 unverified**
+raw cells, all **3,712** obligations, **1,838** missing frozen criterion pairs
+and the manual/metadata-free/LEGACY ledgers. Global inventory `ERROR` and
+pytest `0` followed by strict gate `1` remain literal. Newer-family minimum
+coverage and full scientific migration remain open. This local checkpoint
+supplies no publication waiver: CI 601's inconsistent timing metadata keeps
+the strict union gate on hold, and the mandatory native BF16 TopK failure
+remains unresolved. The branch development rule and demonstrated LEGACY
+reference bridges below are unchanged.
 
 ## Current CI qualification and scheduling work
 

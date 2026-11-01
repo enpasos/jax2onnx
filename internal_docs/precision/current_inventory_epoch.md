@@ -1,25 +1,28 @@
 # Current inventory after main #279
 
-## Finite original bitwise row qualification
+## Finite registered bitwise family qualification
 
-The unchanged `plugin::jax.numpy.bitwise_and`, ordinal 0, now has numerical
-evidence for both original caller contexts on the official Python 3.11/3.13
-stacks and the existing Python 3.11 / ORT 1.24.1 minimum stack. Each run retains
-the original int32 inputs `[1, 2, 3]` and `[3, 1, 2]`, graph callback, three native
-roles and both ORT modes on the same saved artifact/feeds; every output is
-exactly `[1, 0, 2]`. The source-bound conditional exact criterion does not change
-the frozen row or supply a floating default. A complete constant-free canonical
-bitwise source graph and its checked final IR prove floating rounding and
-internal FP64 inapplicable for these two cells. Unknown, nested, floating,
-constant-bearing or hidden graph content receives no such proof.
+The complete registered AND/OR/XOR/NOT family now has finite numerical evidence:
+**26 original rows / 52 caller cells**, on both locked Python 3.11/3.13 stacks
+and the existing Python 3.11 / ORT 1.24.1 minimum stack. The 52-cell runs retain the original Boolean/integer, mixed Boolean/integer,
+broadcast and vmap cases, full inputs and opset 23. Separate focused guards
+cover weak values, supplied-JIT captures and additional high-word inputs.
+All 52 Items and 156 setup/call/teardown phases pass per cohort; 44 original
+graph callbacks pass and eight vmap contracts have no callback. Original eager, first/warm calls of one fresh JIT wrapper per
+sample and both ORT modes agree exactly on the same saved artifact and feeds.
+The source-bound conditional exact criterion changes no frozen row or floating
+criterion. Canonical typed source and complete saved-IR proofs cover the
+admitted bitwise, discrete promotion, static geometry, bound constants and
+plain-JIT fragments; unproved floating, opaque, effectful, dead or hidden
+content cannot discharge rounding/internal-FP64 obligations.
 
-The new reports validate **two selected numerical cells**, leaving **3,710 raw
-cells unverified**. They still retain all **3,712** raw obligations, manual and
-metadata-free anchors, LEGACY preparation obligations and **1,838** missing
-criterion pairs. MaxText source drift, plus the older cohort's remat2 contract
-difference, keeps global acceptance `ERROR` and the strict exit status `1`.
-This finite result neither qualifies the newer family's minimum ORT nor closes
-full migration. Historical zero-cell reports and failed fixtures remain literal.
+Each report validates **52 numerical cells**, leaving **3,660 unverified** in
+the unchanged **3,712-cell** ledger, plus 104 metadata-free, 752 original manual
+and 3,250 LEGACY preparation obligations. The **1,838** missing frozen criterion
+pairs remain factual. MaxText source drift and the older cohort's remat2
+contract difference retain global `ERROR` and strict exit `1`. Newer-family
+minimum coverage and full B–F acceptance remain open; earlier two-cell reports
+and all failed predecessors are unchanged.
 
 The current live metadata inventory is
 [`source_migration_inventory_current.json`](source_migration_inventory_current.json):

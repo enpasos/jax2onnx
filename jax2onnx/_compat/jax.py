@@ -367,7 +367,15 @@ _NATIVE_CAPTURE_OWNERS = (
     ),
     *(
         (vars(_native_numpy)[name], ((_native_numpy, name), (_native_ufuncs, name)))
-        for name in ("add", "maximum", "minimum", "logical_xor", "bitwise_and")
+        for name in (
+            "add",
+            "maximum",
+            "minimum",
+            "logical_xor",
+            "bitwise_and",
+            "bitwise_or",
+            "bitwise_xor",
+        )
     ),
 )
 _NATIVE_CAPTURE_UFUNC_TYPE = _native_ufunc_api.ufunc
@@ -5296,6 +5304,44 @@ def source_original_jit_capture(
         raise ValueError(
             "original JIT function/configuration differs from actual cache-miss edges"
         )
+    # Only this proven user function delegates owned data to raw replay's
+    # mandatory recipe/state traversal. Native functions and owners still use
+    # the unchanged finite graph, including every other wrapper/callback edge.
+    cells = function.__closure__ or ()
+    contents = tuple(cell.cell_contents for cell in cells)
+    attributes = vars(function)
+    for edge in (
+        function,
+        function.__code__,
+        function.__globals__,
+        function.__builtins__,
+        function.__closure__,
+        function.__defaults__,
+        function.__kwdefaults__,
+        attributes,
+        *cells,
+        *contents,
+    ):
+        graph.retain(edge)
+    graph.nodes[str(id(function))] = {
+        "type": graph.typename(function),
+        "code_identity": id(function.__code__),
+        "globals_identity": id(function.__globals__),
+        "builtins_identity": id(function.__builtins__),
+        "closure_identity": id(function.__closure__),
+        "cell_identities": [id(cell) for cell in cells],
+        "code_sha256": canonical_code_fingerprint(function.__code__),
+        "name": graph.take(function.__name__),
+        "qualname": graph.take(function.__qualname__),
+        "module": graph.take(function.__module__),
+        "doc": graph.take(function.__doc__),
+        "annotations": graph._annotation(function.__annotations__),
+        "defining_namespace": graph._record_bindings(function),
+        "defaults": {"source_owned_data_identity": id(function.__defaults__)},
+        "kwdefaults": {"source_owned_data_identity": id(function.__kwdefaults__)},
+        "attributes": {"source_owned_data_identity": id(attributes)},
+        "closure": [{"source_owned_data_identity": id(item)} for item in contents],
+    }
     roots = [graph.take(value)]
     return (
         NativeTransformedSnapshot(
