@@ -1,31 +1,31 @@
 # Private STANDARD and support provisioning
 
-## Current profiles and bounded repair
+## Current profiles and scheduling qualification
 
-Published `76564657` is qualifying the existing fixed-parts layout in CI588.
-All eleven compute jobs and three strict unions have terminal success at the
-retained 23:23:44 UTC observation; complete raw-receipt and aggregate compressed
-artifact verification remain pending. Four focused jobs
-fail in one stale hook-owner fixture. Its local test-only correction targets
-actual part-a rows while preserving every old pytest ID and strict failure
-assertion. The complete affected owner passes 115 cases per official 3.11/3.13
-family, with exact ordered owner collections. Workflow, runner and literal
-F=1,567 are unchanged. Fresh hosted F and complete STANDARD budgets are pending.
-See [current evidence and limits](../ci_execution_plan.md#current-ci588-repair-checkpoint).
+Published `30ff0c80` has independently verified STANDARD and focused EXTRA
+success in CI589. Raw source/context, phase/JUnit, strict-union and resource
+receipts meet their declared budgets. F-only results do not execute the remaining
+added tests or assert scientific equivalence. The following table binds the new owner projection to the retained exact
+`30ff0c80` global collections. Genuine collection on all four existing official
+runtimes preserves every original ID and main-baseline order. Only the two
+changed test-owner vectors are replaced; this is not another global collection.
+See [current evidence and limits](../ci_execution_plan.md#current-routine-and-exhaustive-execution-checkpoint).
 
-| Global profile | Original observed C | Projected C | Original S | Projected A | Literal F | R |
+| Global profile | Retained global C | Projected C | Original S | Projected A | Literal F | R |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `py311-extra.json` | 20,668 | 20,703 | 4,571 | 16,132 | 1,567 | 14,565 |
-| `py312-extra.json` | 20,722 | 20,757 | 4,621 | 16,136 | 1,567 | 14,569 |
-| `py313-extra.json` | 20,673 | 20,708 | 4,573 | 16,135 | 1,567 | 14,568 |
-| `py314-extra.json` | 20,670 | 20,705 | 4,573 | 16,132 | 1,567 | 14,565 |
+| `py311-extra.json` | 20,703 | 20,752 | 4,571 | 16,181 | 1,650 | 14,531 |
+| `py312-extra.json` | 20,757 | 20,806 | 4,621 | 16,185 | 1,650 | 14,535 |
+| `py313-extra.json` | 20,708 | 20,757 | 4,573 | 16,184 | 1,650 | 14,534 |
+| `py314-extra.json` | 20,705 | 20,754 | 4,573 | 16,181 | 1,650 | 14,531 |
 
-Each original full C remains at its recorded exact622 source epoch. All four
-existing official runtimes genuinely collect the three changed owners; their
-ordered IDs agree. Replacing only those owner declarations is an explicit
-projection, not another global collection. Every original ID and S order is
-preserved. All new and affected selected controls join F; unmatched A remains R.
-Counts are observations, never limits. Expanded F must pass at its final head.
+The changed owners collect 447 IDs each. Their original cohort-specific Node
+parameters remain distinct: the 3.12 ordered F hash differs from the other
+cohorts. All 49 new declarations and 34 affected existing controls join F;
+unmatched A remains R, including all seven scientific BF16 cases. Counts are
+observations, never limits. Local controls pass 178 cases each on official
+3.11/3.13 and 17 support fixtures on 3.12; 3.14 collection executes no bodies.
+Expanded F and the added minimum/browser owners remain unqualified at the new
+head until actual campaigns and independent resource/outcome review close.
 
 The profiles preserve baseline, packages/plugins, generated and optional-source
 contracts. Both opt-in flags bind startup, collected and final environments.
@@ -36,13 +36,19 @@ through their exact existing preworker guard. No general skip rule is added.
 
 Focused uses `--ci-lane extra --ci-extra-scope focused` with the GLOBAL extra
 profile, no test-path and no part. Focused 3.12 retains both pinned optional
-sources and all original models during setup/collection. Complete milestone,
-final and affected-assumption campaigns use `--ci-extra-scope all`, retaining
-every R and all seven scientific BF16 cases. F-only native success is
+sources and all original models during setup/collection. The existing canonical
+`--ci-extra-scope all` interface retains every R and all seven scientific BF16
+cases. The workflow's milestone/final fallback currently preserves original
+full-C `run_all_checks.sh` execution instead of a canonical global ALL_A job;
+its zero exit requires strict raw phase/skip/xfail review and cannot establish
+strict A or numerical acceptance. The tracked activation switch stays false,
+retaining original and replacement owners plus focused work for qualification. F-only native success is
 NOT_ASSERTED numerically and B–F UNVERIFIED; default-strict extrema, Native3/ORT2,
 3,712 caller obligations, replay, model artifacts and web contexts remain separate.
-Minimum312 retains its unchanged full command and A=146; minimum311 and nightly
-Node/Chrome with exact active-branch SHA remain required. The expanded local
+The added minimum312-extra row uses its unchanged full support command and strict
+EXTRA/all, retaining all actual A (currently146, never a cap). Minimum311 retains
+all seventeen original selectors under its ordinary guarded job. Full Node/Chrome
+use one exact active acceptance SHA and remain required. The expanded local
 profiles and candidate wiring do not activate gates.
 
 ## Historical provisioning observations

@@ -3519,6 +3519,8 @@ def test_real_extra_campaign_executes_complete_ordered_A_with_full_collection(
         runner_args=(
             "--ci-lane",
             "extra",
+            "--ci-extra-scope",
+            "all",
             "--ci-main-baseline",
             str(manifest),
             option,
@@ -5272,3 +5274,149 @@ def test_real_large_C_receipt_preserves_campaign_closure_and_rejects_late_tamper
         path.write_bytes(original)
         terminal.write_bytes(original_terminal)
     campaign.recheck()
+
+
+@pytest.mark.parametrize(
+    "fault", ["foreign-selector", "source-drift", "unexpected-skip"]
+)
+def test_real_complete_support_extra_keeps_authority_and_native_failures_closed(
+    tmp_path, monkeypatch, fault
+):
+    # The existing normalization fixture is genuinely provisionable on312/313.
+    # 311 uses the supplied support contract instead; its unsupported provision
+    # admission remains covered separately and is never waived by this control.
+    provision = sys.version_info[:2] in {(3, 12), (3, 13)}
+    arguments = {"support": True, "extra": True}
+    if fault == "unexpected-skip":
+        arguments["extra_source"] = (
+            "def test_extra():\n    pytest.skip('unreviewed support EXTRA skip')\n"
+        )
+    if provision:
+        suite, manifest, environment, authority, inventory = _prepare_provision_suite(
+            tmp_path, monkeypatch, **arguments
+        )
+        option = "--_ci-provision-campaign"
+    else:
+        suite, manifest, environment, authority, inventory = _prepare_campaign_suite(
+            tmp_path, monkeypatch, "allowed-skip", **arguments
+        )
+        option = "--ci-campaign-contract"
+    selectors = json.loads(manifest.read_text())["collection_args"]
+    if fault == "foreign-selector":
+        selectors = [*selectors, "test_foreign.py"]
+    elif fault == "source-drift":
+        source = suite / "test_cases.py"
+        source.write_text(source.read_text() + "\n# changed after authority freeze\n")
+    if fault == "foreign-selector":
+        receipts = tmp_path / "receipts"
+        command = [
+            sys.executable,
+            str(_RUNNER),
+            "--output-dir",
+            str(receipts),
+            "--ci-lane",
+            "extra",
+            "--ci-extra-scope",
+            "all",
+            "--ci-main-baseline",
+            str(manifest),
+            option,
+            str(authority),
+        ]
+        for selector in selectors:
+            command.extend(("--test-path", selector))
+        result = subprocess.run(
+            [*command, "--", "-q"],
+            cwd=suite,
+            env=environment,
+            text=True,
+            capture_output=True,
+            timeout=120,
+        )
+        assert (
+            result.returncode == 2
+            and "selectors differ from authority" in result.stderr
+        )
+        assert not receipts.exists() and not (suite / "base-ran").exists()
+        return
+    result, run, receipts = _run_prepared_suite(
+        tmp_path,
+        suite,
+        runner_args=(
+            "--ci-lane",
+            "extra",
+            "--ci-extra-scope",
+            "all",
+            "--ci-main-baseline",
+            str(manifest),
+            option,
+            str(authority),
+        ),
+        test_paths=tuple(selectors),
+        environment=environment,
+    )
+    assert result.returncode != 0 and run["status"] == "FAIL"
+    assert (
+        run["numerical_acceptance"] == "NOT_ASSERTED"
+        and run["full_B_to_F_acceptance"] == "UNVERIFIED"
+    )
+    assert not (suite / "base-ran").exists()
+    if fault == "unexpected-skip":
+        batch = json.loads((receipts / "batch-0001/receipt.json").read_text())
+        assert batch["assigned_ids"] == ["test_cases.py::test_extra"]
+        assert [
+            phase["when"] + ":" + phase["outcome"]
+            for phase in batch["phases"]["test_cases.py::test_extra"]
+        ] == ["setup:passed", "call:skipped", "teardown:passed"]
+        assert "phases/skip" in run["failure"]["message"]
+        assert batch["selected_ids"] == batch["completed"] == batch["assigned_ids"]
+        assert [item["nodeid"] for item in batch["items"]] == batch["assigned_ids"]
+        assert set(batch["phases"]) == {"test_cases.py::test_extra"}
+        assert batch["exitstatus"] == 0
+        assert batch["collection_skips"] == inventory["collection_skips"]
+        assert len(inventory["collection_skips"]) == 1
+        collection_skip = inventory["collection_skips"][0]
+        assert collection_skip["nodeid"] == "test_collection_skip.py"
+        cases = ET.parse(receipts / "batch-0001/junit.xml").findall(".//testcase")
+        keyed = {(case.get("classname", ""), case.get("name")): case for case in cases}
+        assert len(cases) == len(keyed) == 2
+        assert set(keyed) == {
+            ("", "test_collection_skip"),
+            ("test_cases", "test_extra"),
+        }
+        assert all(
+            case.find("failure") is None and case.find("error") is None
+            for case in cases
+        )
+        original = keyed["", "test_collection_skip"].find("skipped")
+        assert original is not None
+        assert original.get("type") is None
+        assert original.get("message") == "collection skipped"
+        assert original.text == collection_skip["longrepr"]
+        call_skip = keyed["test_cases", "test_extra"].find("skipped")
+        assert call_skip is not None and call_skip.get("type") == "pytest.skip"
+        reason = "unreviewed support EXTRA skip"
+        assert call_skip.get("message") == reason
+        source, line, message = ast.literal_eval(
+            batch["phases"]["test_cases.py::test_extra"][1]["longrepr"]
+        )
+        assert source == str(suite / "test_cases.py")
+        assert message == "Skipped: " + reason
+        assert (
+            line
+            == (suite / "test_cases.py")
+            .read_text()
+            .splitlines()
+            .index("    pytest.skip('unreviewed support EXTRA skip')")
+            + 1
+        )
+        assert call_skip.text == f"{source}:{line}: {reason}"
+    else:
+        assert run["processes"] == run["completed"] == []
+        assert not (receipts / "collection").exists() and not list(
+            receipts.glob("batch-*")
+        )
+        assert (
+            "source" in run["failure"]["message"]
+            or "bytes" in run["failure"]["message"]
+        )

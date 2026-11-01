@@ -7,12 +7,123 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      acceptance_mode:
+        description: Full milestone/final acceptance or routine checks
+        type: choice
+        options: [full, routine]
+        default: full
+
 
 permissions:
   contents: read
 
+# Remains a nonreplacement qualification campaign until every new owner is
+# accepted. Only a subsequent reviewed ordinary commit may change this literal.
+env:
+  PRECISION_ROUTINE_ACTIVATED: 'false'
+
 jobs:
+  acceptance-context:
+    name: Resolve acceptance commit and scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      head_sha: ${{ steps.mode.outputs.head_sha }}
+      full_acceptance: ${{ steps.mode.outputs.full_acceptance }}
+      routine_activated: ${{ steps.mode.outputs.routine_activated }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    - name: Resolve exact commit and exhaustive triggers
+      id: mode
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        REQUESTED_ACCEPTANCE_MODE: ${{ inputs.acceptance_mode || '' }}
+      run: |
+        set -euo pipefail
+        python -B scripts/run_with_resources.py \
+          --output-dir "$RUNNER_TEMP/acceptance-context-resources" \
+          --timeout-seconds 240 --max-rss-mib 4096 --min-available-mib 2048 \
+          --min-disk-free-mib 4096 --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
+          python -B - <<'PY_MODE'
+        import json
+        import os
+        from pathlib import Path
+        import re
+        import subprocess
+
+        def git(*arguments):
+            return subprocess.check_output(["git", *arguments])
+
+        activated = os.environ["PRECISION_ROUTINE_ACTIVATED"]
+        if activated not in {"true", "false"}:
+            raise SystemExit("Invalid tracked routine activation state")
+        head = os.environ["EXPECTED_CHECKOUT_SHA"]
+        if not re.fullmatch(r"[0-9a-f]{40}", head):
+            raise SystemExit("Acceptance requires one exact commit SHA")
+        if git("rev-parse", "HEAD").decode().strip() != head:
+            raise SystemExit("Acceptance checkout differs from the selected commit")
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+        message = git("show", "-s", "--format=%B", head).decode()
+        full = True
+        reason = "conservative exhaustive fallback"
+        if re.search(r"(?m)^Precision-Acceptance: full[ \t]*$", message):
+            reason = "reviewed full acceptance commit marker"
+        elif os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
+            requested = os.environ["REQUESTED_ACCEPTANCE_MODE"]
+            if requested not in {"routine", "full"}:
+                raise SystemExit("Unknown acceptance mode")
+            full = requested == "full"
+            reason = "explicit manual " + requested + " acceptance"
+        elif os.environ["GITHUB_EVENT_NAME"] == "pull_request" and event.get("action") == "synchronize":
+            before = event.get("before", "")
+            if re.fullmatch(r"[0-9a-f]{40}", before) and event.get("after") == head:
+                present = subprocess.run(["git", "cat-file", "-e", before + "^{commit}"], capture_output=True).returncode == 0
+                if not present:
+                    present = subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", before]).returncode == 0
+                if present:
+                    changed = git("diff", "--name-only", "-z", before, head).decode().split("\0")[:-1]
+                    # Only reviewed orchestration/docs edits can reuse unrelated
+                    # exhaustive evidence. New/unknown production, runtime,
+                    # reference, criterion, model and test paths force full work.
+                    routine_files = {
+                        "README.md", ".github/workflows/ci.yml", ".github/workflows/nightly-qs.yml",
+                        "scripts/run_with_resources.py", "scripts/_ci_standard_execution.py",
+                        "scripts/run_pytest_batches.py", "scripts/prepare_ci_standard.py",
+                        "scripts/prepare_ci_download_cache.py",
+                        "tests/extra_tests/framework/test_ci_download_cache.py",
+                        "tests/extra_tests/framework/test_ci_lane_selection.py",
+                        "tests/extra_tests/framework/test_ci_standard_parts.py",
+                        "tests/extra_tests/framework/test_prepare_ci_standard.py",
+                        "tests/extra_tests/framework/test_run_with_resources.py",
+                        "tests/extra_tests/framework/test_pytest_batches.py",
+                    }
+                    full = any(name not in routine_files and not (name.endswith(".md") and name.startswith(("docs/", "internal_docs/"))) for name in changed)
+                    reason = "changed acceptance assumptions" if full else "reviewed routine orchestration/docs transition"
+        if git("rev-parse", "HEAD").decode().strip() != head:
+            raise SystemExit("Acceptance head changed while resolving scope")
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+            output.write("head_sha=" + head + "\n")
+            output.write("full_acceptance=" + str(full).lower() + "\n")
+            output.write("routine_activated=" + activated + "\n")
+        print("Acceptance commit:", head, "; full:", full, "; reason:", reason)
+        PY_MODE
+        cp -- "$GITHUB_OUTPUT" "$RUNNER_TEMP/acceptance-context-resources/outputs.txt"
+    - name: Upload shared STANDARD resolver observations
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-standard-acceptance-context-${{ job.status }}
+        path: ${{ runner.temp }}/acceptance-context-resources/
+        retention-days: ${{ job.status == 'success' && 7 || 14 }}
+        compression-level: 6
+        if-no-files-found: warn
+
   onnxruntime-web-smoke:
+    needs: acceptance-context
+    if: needs.acceptance-context.outputs.full_acceptance == 'true' || needs.acceptance-context.outputs.routine_activated != 'true'
     name: onnxruntime-web smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -20,11 +131,11 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        ref: ${{ needs.acceptance-context.outputs.head_sha }}
 
     - name: Verify checked-out commit
       env:
-        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
       run: |
         set -eu
         expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
@@ -60,18 +171,19 @@ jobs:
       run: scripts/run_onnxruntime_web_smoke.sh
 
   minimum-dependencies:
+    needs: acceptance-context
     name: minimum dependency versions (Python 3.11)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        ref: ${{ needs.acceptance-context.outputs.head_sha }}
 
     - name: Verify checked-out commit
       env:
-        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
       run: |
         set -eu
         expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
@@ -85,17 +197,25 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install Poetry
-      run: pip install "poetry>=2.0,<3.0"
-
-    - name: Install dependencies
+    - name: Observe minimum-version setup and compatibility checks
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
       run: |
+        set -euo pipefail
+        python -B scripts/run_with_resources.py \
+          --output-dir "$RUNNER_TEMP/minimum311-work-resources" \
+          --timeout-seconds 1100 --max-rss-mib 4096 --min-available-mib 2048 \
+          --min-disk-free-mib 4096 --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
+          bash -euo pipefail - <<'BASH_MINIMUM'
+        set -euo pipefail
+        exec > >(tee "$RUNNER_TEMP/minimum311-controlled.log") 2>&1
+        mkdir -m 700 "$RUNNER_TEMP/minimum311-tmp"
+        export TMPDIR="$RUNNER_TEMP/minimum311-tmp"
+        printf 'Minimum311 exact acceptance commit: %s\n' "$EXPECTED_CHECKOUT_SHA"
+        pip install "poetry>=2.0,<3.0"
         poetry install --no-interaction
         poetry run python scripts/install_minimum_dependencies.py
         poetry run pip check
-
-    - name: Report dependency versions
-      run: |
         poetry run python - <<'PY'
         import platform
         import sys
@@ -126,16 +246,10 @@ jobs:
         print(f"onnx-ir=={onnx_ir.__version__}")
         print(f"onnxruntime=={onnxruntime.__version__}")
         PY
-
-    - name: Generate tests
-      run: poetry run python scripts/generate_tests.py
-
-    - name: Run minimum-version compatibility checks
-      env:
-        JAX_PLATFORMS: cpu
-        JAX_ENABLE_X64: "True"
-      run: |
-        poetry run pytest -q \
+        poetry run pip list --format=json > "$RUNNER_TEMP/minimum311-installed-packages.json"
+        poetry run python scripts/generate_tests.py
+        JAX_PLATFORMS=cpu JAX_ENABLE_X64=True poetry run pytest -q \
+          --junitxml "$RUNNER_TEMP/minimum311-junit.xml" \
           tests/extra_tests/framework/test_jax_compat.py \
           tests/extra_tests/framework/test_minimum_dependency_installer.py \
           tests/extra_tests/framework/test_onnx_ir_surface.py \
@@ -153,8 +267,38 @@ jobs:
           tests/extra_tests/test_cos_precision.py \
           tests/extra_tests/test_float16_cpu_inference.py \
           tests/extra_tests/test_log1p_expm1_precision.py
+        BASH_MINIMUM
+
+    - name: Upload minimum311 STANDARD receipts
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-standard-minimum311-${{ job.status }}
+        path: |
+          ${{ runner.temp }}/minimum311-work-resources/
+          ${{ runner.temp }}/minimum311-controlled.log
+          ${{ runner.temp }}/minimum311-junit.xml
+          ${{ runner.temp }}/minimum311-installed-packages.json
+        retention-days: ${{ job.status == 'success' && 7 || 14 }}
+        compression-level: 6
+        if-no-files-found: warn
+
+    - name: Preserve complete minimum311 failure models and temporary outputs
+      if: failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: candidate-standard-minimum311-failure-payloads
+        path: |
+          ${{ github.workspace }}/onnx/
+          ${{ runner.temp }}/minimum311-tmp/
+        include-hidden-files: true
+        retention-days: 14
+        compression-level: 0
+        if-no-files-found: warn
 
   normalization-accuracy:
+    needs: acceptance-context
+    if: needs.acceptance-context.outputs.full_acceptance == 'true' || needs.acceptance-context.outputs.routine_activated != 'true'
     name: normalization accuracy (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -167,11 +311,11 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        ref: ${{ needs.acceptance-context.outputs.head_sha }}
 
     - name: Verify checked-out commit
       env:
-        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
       run: |
         set -eu
         expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
@@ -231,9 +375,13 @@ jobs:
           tests/extra_tests/test_cos_precision.py
 
   test:
+    needs: acceptance-context
+    if: needs.acceptance-context.outputs.full_acceptance == 'true' || needs.acceptance-context.outputs.routine_activated != 'true'
     runs-on: ubuntu-latest
     env:
       PYTEST_ADDOPTS: '-v --tb=short -x'
+      JAX2ONNX_TEST_CI_LANE_XDIST: '1'
+      JAX2ONNX_RUN_FIXED_PARTS_SMOKE: '1'
     strategy:
       fail-fast: false
       matrix:
@@ -242,11 +390,11 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        ref: ${{ needs.acceptance-context.outputs.head_sha }}
 
     - name: Verify checked-out commit
       env:
-        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
       run: |
         set -eu
         expected_commit="$(git rev-parse --verify "${EXPECTED_CHECKOUT_SHA}^{commit}")"
@@ -257,7 +405,7 @@ jobs:
 
     - name: Fetch frozen original SOURCE history
       env:
-        EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
       run: |
         set -euo pipefail
         source_anchor=ccc861b0dff5042958a267addc43b622a4b61d49
@@ -382,14 +530,15 @@ jobs:
         if-no-files-found: ignore
 
 
-  # One PR qualification milestone only. The eight jobs above remain authoritative.
-  # Eleven STANDARD roles plus four nonreplacement focused EXTRA roles.
+  # Qualification keeps original owners and all focused rows alongside new
+  # owners. After independent acceptance, the tracked switch enables routine
+  # scheduling and full acceptance suppresses duplicate focused bodies.
   # Locked311/312/313 STANDARD close only through their fixed joins below.
   candidate-standard:
-    name: candidate ${{ matrix.lane == 'extra' && 'focused EXTRA' || 'STANDARD' }} (${{ matrix.label || matrix.id }})
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 277
+    name: candidate ${{ matrix.scope == 'all' && 'support EXTRA all' || matrix.lane == 'extra' && 'focused EXTRA' || 'STANDARD' }} (${{ matrix.label || matrix.id }})
+    needs: acceptance-context
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.lane == 'extra' && 35 || 20 }}
+    timeout-minutes: ${{ matrix.scope == 'focused' && 35 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -402,6 +551,7 @@ jobs:
         - {id: locked313-b, part: b, python: '3.13', cohort: py313-owners, role: locked, label: 'locked313 serial part b'}
         - {id: locked314, python: '3.14', cohort: py314, role: locked}
         - {id: minimum312, python: '3.12', cohort: minimum312, role: minimum}
+        - {id: minimum312-extra, python: '3.12', cohort: minimum312, role: minimum, lane: extra, scope: all}
         - {id: normalization312, python: '3.12', cohort: normalization312, role: normalization}
         - {id: normalization313, python: '3.13', cohort: normalization313, role: normalization}
         - {id: node312, python: '3.12', cohort: node312, role: node-smoke}
@@ -410,7 +560,7 @@ jobs:
         - {id: focused313, python: '3.13', cohort: py313-extra, role: locked, lane: extra, scope: focused}
         - {id: focused314, python: '3.14', cohort: py314-extra, role: locked, lane: extra, scope: focused}
     env:
-      EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
       CANDIDATE_ID: ${{ matrix.id }}
       CANDIDATE_PART: ${{ matrix.part || '' }}
       CANDIDATE_ROLE: ${{ matrix.role }}
@@ -420,15 +570,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      if: matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true'
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        ref: ${{ needs.acceptance-context.outputs.head_sha }}
 
     - name: Set up Python ${{ matrix.python }}
+      if: matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true'
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
         python-version: ${{ matrix.python }}
 
     - name: Observe original setup and canonical lane execution
+      if: matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true'
       id: work
       env:
         CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}
@@ -513,7 +666,7 @@ jobs:
         # Render only the tracked profile's declared values and existing slots.
         # Explicit SOURCE diagnostics require the frozen original tests archive.
         # Keep the existing STANDARD/support/join preparation unchanged.
-        if [[ "$CANDIDATE_LANE" == extra ]]; then
+        if [[ "$CANDIDATE_LANE" == extra && "$CANDIDATE_ROLE" == locked ]]; then
           source_anchor=ccc861b0dff5042958a267addc43b622a4b61d49
           source_head="$(git rev-parse --verify 'HEAD^{commit}')"
           test "$source_head" = "$EXPECTED_CHECKOUT_SHA"
@@ -687,10 +840,25 @@ jobs:
         if [[ -n "$CANDIDATE_PART" ]]; then
           part_args=(--ci-standard-part "$CANDIDATE_PART")
         fi
+        if [[ "$CANDIDATE_ID" == minimum312-extra ]]; then
+          test "$CANDIDATE_LANE" = extra
+          test "$CANDIDATE_ROLE" = minimum
+          test "$CANDIDATE_SCOPE" = all
+          test -z "$CANDIDATE_PART"
+          test "$CANDIDATE_COHORT" = internal_docs/precision/ci_standard/minimum312.json
+        fi
         lane_args=(--ci-lane "$CANDIDATE_LANE")
         if [[ "$CANDIDATE_LANE" == extra ]]; then
-          test "$CANDIDATE_SCOPE" = focused
           test -z "$CANDIDATE_PART"
+          if [[ "$CANDIDATE_SCOPE" == focused ]]; then
+            test "$CANDIDATE_ROLE" = locked
+            case "$CANDIDATE_ID" in focused311|focused312|focused313|focused314) ;; *) exit 2 ;; esac
+          else
+            test "$CANDIDATE_ID" = minimum312-extra
+            test "$CANDIDATE_ROLE" = minimum
+            test "$CANDIDATE_SCOPE" = all
+            test "$CANDIDATE_COHORT" = internal_docs/precision/ci_standard/minimum312.json
+          fi
           lane_args+=(--ci-extra-scope "$CANDIDATE_SCOPE")
         fi
         python -B scripts/run_pytest_batches.py "${part_args[@]}" \
@@ -706,7 +874,7 @@ jobs:
 
     - name: Upload primary canonical results before bulk packing
       id: primary
-      if: always()
+      if: (matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true') && (always())
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ matrix.lane == 'extra' && 'candidate-extra-primary' || 'candidate-primary' }}-${{ matrix.id }}-${{ job.status }}
@@ -721,7 +889,7 @@ jobs:
 
     - name: Observe output inventory and evidence compression
       id: pack
-      if: always()
+      if: (matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true') && (always())
       env:
         CANDIDATE_DIR: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}
         CANDIDATE_TOOLS: ${{ runner.temp }}/ci-candidate-${{ matrix.id }}-tools
@@ -811,10 +979,11 @@ jobs:
 
         archive = Path(os.environ["CANDIDATE_DIR"] + ".tar.gz")
         failure = Path(os.environ["CANDIDATE_DIR"] + "-failure-payloads.tar.gz")
-        focused_extra = os.environ["CANDIDATE_LANE"] == "extra"
+        extra = os.environ["CANDIDATE_LANE"] == "extra"
+        focused_extra = extra and os.environ["CANDIDATE_SCOPE"] == "focused"
         accounting = {
             "candidate": os.environ["CANDIDATE_ID"],
-            "campaign_family": "EXTRA" if focused_extra else "STANDARD",
+            "campaign_family": "EXTRA" if extra else "STANDARD",
             "ci_lane": os.environ["CANDIDATE_LANE"],
             "ci_extra_scope": os.environ.get("CANDIDATE_SCOPE") or None,
             "expected_head": os.environ["EXPECTED_CHECKOUT_SHA"],
@@ -827,14 +996,16 @@ jobs:
             "campaign_budgets": (
                 "Four focused EXTRA spans <=2100s each; separate aggregate <=9600s (160 job-minutes); separate successful uploaded artifacts <=104857600 bytes"
                 if focused_extra else
-                "All eleven STANDARD compute spans and three fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes"
+                "Complete minimum312 support EXTRA span <=1200s; same separate EXTRA aggregate <=9600s (160 job-minutes); separate successful uploaded artifacts <=104857600 bytes"
+                if extra else
+                "All eleven STANDARD compute spans, minimum311, shared acceptance resolver and three fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes"
             ),
             "work_timeout_seconds": 2000 if focused_extra else 1100,
             "whole_job_timeout_seconds": 2100 if focused_extra else 1200,
             "failure_evidence": "Complete retained model/temp/setup payloads counted separately; raw fallback on pack/upload failure; missing/interrupted evidence cannot qualify",
         }
         accounting["execution_rss_mib"] = 5120 if os.environ["CANDIDATE_ID"] in {"locked312-a", "locked312-b"} else 4096
-        accounting["extra_acceptance_rss_mib" if focused_extra else "standard_acceptance_rss_mib"] = accounting["execution_rss_mib"]
+        accounting["extra_acceptance_rss_mib" if extra else "standard_acceptance_rss_mib"] = accounting["execution_rss_mib"]
         accounting["standard_part"] = os.environ.get("CANDIDATE_PART") or None
         Path(os.environ["CANDIDATE_DIR"] + "-accounting.json").write_text(json.dumps(accounting, indent=2) + "\n")
         PY
@@ -842,7 +1013,7 @@ jobs:
 
     - name: Upload candidate receipts and resource observations
       id: receipts
-      if: always() && steps.pack.outcome == 'success'
+      if: (matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true') && (always() && steps.pack.outcome == 'success')
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ matrix.lane == 'extra' && 'candidate-extra' || 'candidate-standard' }}-${{ matrix.id }}-${{ job.status }}
@@ -856,7 +1027,7 @@ jobs:
 
     - name: Upload complete retained failure models and temporary outputs
       id: failure_payloads
-      if: always() && (steps.work.outcome != 'success' || steps.primary.outcome != 'success') && steps.pack.outcome == 'success'
+      if: (matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true') && (always() && (steps.work.outcome != 'success' || steps.primary.outcome != 'success') && steps.pack.outcome == 'success')
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ matrix.lane == 'extra' && 'candidate-extra' || 'candidate-standard' }}-${{ matrix.id }}-failure-payloads
@@ -866,7 +1037,7 @@ jobs:
         if-no-files-found: error
 
     - name: Upload raw failure evidence when packing or upload is incomplete
-      if: always() && (steps.pack.outcome != 'success' || steps.receipts.outcome != 'success' || ((steps.work.outcome != 'success' || steps.primary.outcome != 'success') && steps.failure_payloads.outcome != 'success'))
+      if: (matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true') && (always() && (steps.pack.outcome != 'success' || steps.receipts.outcome != 'success' || ((steps.work.outcome != 'success' || steps.primary.outcome != 'success') && steps.failure_payloads.outcome != 'success')))
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ matrix.lane == 'extra' && 'candidate-extra' || 'candidate-standard' }}-${{ matrix.id }}-raw-failure-evidence
@@ -886,8 +1057,8 @@ jobs:
 
   candidate-standard-locked312-join:
     name: candidate STANDARD ${{ matrix.id }} complete union
-    needs: candidate-standard
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.number == 277
+    needs: [acceptance-context, candidate-standard]
+    if: always() && needs.acceptance-context.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -901,7 +1072,7 @@ jobs:
       contents: read
       actions: read
     env:
-      EXPECTED_CHECKOUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
       CANDIDATE_ID: ${{ matrix.id }}-join
       CANDIDATE_STANDARD_ID: ${{ matrix.id }}
       CANDIDATE_COHORT: internal_docs/precision/ci_standard/${{ matrix.cohort }}.json
@@ -922,7 +1093,7 @@ jobs:
 
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        ref: ${{ needs.acceptance-context.outputs.head_sha }}
 
     - name: Set up Python ${{ matrix.python }}
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -1191,7 +1362,7 @@ jobs:
             "standard_acceptance_rss_mib": 4096,
             "managed_actions_resource_intervals": "UNOBSERVED: checkout, setup-python, downloads, uploads, post hooks",
             "whole_job_timing": "UNVERIFIED until actual Actions started_at/completed_at including post hooks",
-            "campaign_budgets": "All eleven STANDARD compute spans and three fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
+            "campaign_budgets": "All eleven STANDARD compute spans, minimum311, shared acceptance resolver and three fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
         }, indent=2) + "\n")
         PY
 
@@ -1227,3 +1398,15 @@ jobs:
         include-hidden-files: true
         compression-level: 0
         if-no-files-found: warn
+
+  exhaustive-web:
+    name: Required exhaustive browser validation
+    needs: acceptance-context
+    if: needs.acceptance-context.outputs.full_acceptance == 'true' || needs.acceptance-context.outputs.routine_activated != 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/nightly-qs.yml
+    with:
+      head_sha: ${{ needs.acceptance-context.outputs.head_sha }}
+      full_acceptance: true

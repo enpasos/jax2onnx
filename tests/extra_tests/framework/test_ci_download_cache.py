@@ -1,6 +1,6 @@
 # tests/extra_tests/framework/test_ci_download_cache.py
 
-"""Hosted cache safety and separate STANDARD/focused EXTRA transport."""
+"""Hosted cache safety, exact acceptance routing and bounded CI transport."""
 
 from copy import deepcopy
 from importlib.util import module_from_spec, spec_from_file_location
@@ -198,7 +198,7 @@ def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp
     assert steps[position - 1]["name"] == "Verify checked-out commit"
     assert steps[position + 1]["uses"].startswith("actions/setup-python@")
     assert history["env"]["EXPECTED_CHECKOUT_SHA"] == (
-        "${{ github.event.pull_request.head.sha || github.sha }}"
+        "${{ needs.acceptance-context.outputs.head_sha }}"
     )
     assert workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"] == [
         "3.11",
@@ -208,6 +208,24 @@ def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp
     ]
     assert "continue-on-error" not in history
     script = history["run"]
+    for name in ("onnxruntime-web-full", "onnxruntime-web-chrome-full"):
+        browser_steps = _nightly_workflow()["jobs"][name]["steps"]
+        browser_history = next(
+            step
+            for step in browser_steps
+            if step.get("name") == "Fetch frozen original SOURCE history"
+        )
+        index = browser_steps.index(browser_history)
+        assert browser_steps[index - 1]["name"] == "Verify selected acceptance commit"
+        assert browser_steps[index + 1]["uses"].startswith("actions/setup-python@")
+        assert (
+            browser_history["env"]["EXPECTED_CHECKOUT_SHA"]
+            == "${{ needs.check-changes.outputs.head_sha }}"
+        )
+        assert (
+            browser_history["run"] == script
+            and "continue-on-error" not in browser_history
+        )
     anchor = "ccc861b0dff5042958a267addc43b622a4b61d49"
     fetch = 'git fetch --no-tags --depth=1 origin "$source_anchor"'
     assert script.splitlines()[0] == "set -euo pipefail"
@@ -224,7 +242,11 @@ def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp
     candidate = workflow["jobs"]["candidate-standard"]
     work = next(step["run"] for step in candidate["steps"] if step.get("id") == "work")
     body = "\n".join("  " + line for line in script.splitlines()[1:])
-    guarded = 'if [[ "$CANDIDATE_LANE" == extra ]]; then\n' + body + "\nfi"
+    guarded = (
+        'if [[ "$CANDIDATE_LANE" == extra && "$CANDIDATE_ROLE" == locked ]]; then\n'
+        + body
+        + "\nfi"
+    )
     assert work.count(guarded) == 1
     assert (
         work.index("bash -euo pipefail - <<'BASH'")
@@ -237,7 +259,8 @@ def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp
     for name, job in workflow["jobs"].items():
         if name not in {"test", "candidate-standard"}:
             assert all(
-                "source_anchor=" not in step.get("run", "") for step in job["steps"]
+                "source_anchor=" not in step.get("run", "")
+                for step in job.get("steps", [])
             )
 
     environment = {
@@ -555,7 +578,7 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
         and "execution_work_seconds=1100" in work
     )
     assert "required = 12288 * 1024 * 1024" in work
-    assert job["timeout-minutes"] == "${{ matrix.lane == 'extra' && 35 || 20 }}"
+    assert job["timeout-minutes"] == "${{ matrix.scope == 'focused' && 35 || 20 }}"
     assert '--_ci-provision-campaign "$CANDIDATE_COHORT" "${selection_args[@]}"' in work
     assert 'render_args+=(--ci-standard-part "$CANDIDATE_PART")' in work
     assert 'part_args=(--ci-standard-part "$CANDIDATE_PART")' in work
@@ -577,8 +600,8 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
 def test_focused_extra_rows_add_four_global_cohorts_with_separate_job_limits():
     job = _workflow()["jobs"]["candidate-standard"]
     matrix = job["strategy"]["matrix"]["include"]
-    assert len(matrix) == 15 and job["strategy"]["fail-fast"] is False
-    focused = [entry for entry in matrix if entry.get("lane") == "extra"]
+    assert len(matrix) == 16 and job["strategy"]["fail-fast"] is False
+    focused = [entry for entry in matrix if entry.get("scope") == "focused"]
     assert focused == [
         {
             "id": "focused" + minor,
@@ -599,9 +622,10 @@ def test_focused_extra_rows_add_four_global_cohorts_with_separate_job_limits():
         assert "standard_parts" not in profile
     assert job["env"]["CANDIDATE_LANE"] == "${{ matrix.lane || 'standard' }}"
     assert job["env"]["CANDIDATE_SCOPE"] == "${{ matrix.scope || '' }}"
-    assert job["timeout-minutes"] == "${{ matrix.lane == 'extra' && 35 || 20 }}"
+    assert job["timeout-minutes"] == "${{ matrix.scope == 'focused' && 35 || 20 }}"
     assert job["name"] == (
-        "candidate ${{ matrix.lane == 'extra' && 'focused EXTRA' || 'STANDARD' }} "
+        "candidate ${{ matrix.scope == 'all' && 'support EXTRA all' || "
+        "matrix.lane == 'extra' && 'focused EXTRA' || 'STANDARD' }} "
         "(${{ matrix.label || matrix.id }})"
     )
 
@@ -653,6 +677,7 @@ def test_focused_resource_extension_requires_its_exact_lane_role_scope_and_no_pa
         "locked313",
         "locked314",
         "minimum312",
+        "minimum312-extra",
         "normalization312",
         "normalization313",
         "node312",
@@ -696,6 +721,10 @@ def test_canonical_dispatch_preserves_standard_parts_and_explicit_focused_scope(
             "CANDIDATE_PART": entry.get("part", ""),
             "CANDIDATE_LANE": entry.get("lane", "standard"),
             "CANDIDATE_SCOPE": entry.get("scope", ""),
+            "CANDIDATE_ROLE": entry["role"],
+            "CANDIDATE_COHORT": "internal_docs/precision/ci_standard/"
+            + entry.get("cohort", "unused")
+            + ".json",
         },
         text=True,
         capture_output=True,
@@ -705,7 +734,7 @@ def test_canonical_dispatch_preserves_standard_parts_and_explicit_focused_scope(
     if entry.get("part"):
         expected = ["--ci-standard-part", entry["part"], *expected]
     if entry.get("lane") == "extra":
-        expected += ["--ci-extra-scope", "focused"]
+        expected += ["--ci-extra-scope", entry["scope"]]
     assert result.stdout.splitlines() == expected
     assert '"${lane_args[@]}" --ci-main-baseline "$CANDIDATE_DIR/main.json"' in work
     assert '--_ci-provision-campaign "$CANDIDATE_COHORT"' in work
@@ -822,7 +851,7 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
         < work.index("python -B scripts/prepare_ci_standard.py")
     )
     assert "execution_work_seconds=1100" in work
-    assert job["timeout-minutes"] == "${{ matrix.lane == 'extra' && 35 || 20 }}"
+    assert job["timeout-minutes"] == "${{ matrix.scope == 'focused' && 35 || 20 }}"
     assert "--all-files" in commands and "--hook-stage" not in commands
     assert "continue-on-error" not in next(
         step for step in job["steps"] if step.get("id") == "work"
@@ -967,7 +996,46 @@ def test_primary_results_precede_bulk_receipts_without_changing_archive_layout()
     pack = next(step for step in steps if step.get("id") == "pack")
     receipts = next(step for step in steps if step.get("id") == "receipts")
     assert steps.index(primary) < steps.index(pack) < steps.index(receipts)
-    assert primary["if"] == "always()"
+    active = (
+        "matrix.scope != 'focused' || "
+        "needs.acceptance-context.outputs.full_acceptance != 'true' || "
+        "needs.acceptance-context.outputs.routine_activated != 'true'"
+    )
+    assert primary["if"] == "(" + active + ") && (always())"
+    for scope in ("", "all", "focused"):
+        for activated, full in (
+            ("false", "false"),
+            ("false", "true"),
+            ("true", "false"),
+            ("true", "true"),
+        ):
+
+            def condition(expression):
+                return (
+                    expression.replace("matrix.scope", repr(scope))
+                    .replace(
+                        "needs.acceptance-context.outputs.full_acceptance",
+                        repr(full),
+                    )
+                    .replace(
+                        "needs.acceptance-context.outputs.routine_activated",
+                        repr(activated),
+                    )
+                    .replace("always()", "True")
+                    .replace("||", " or ")
+                    .replace("&&", " and ")
+                )
+
+            # always() remains true even after failed work. Qualification never
+            # drops its primary before packing; later inactive full-mode F has
+            # no executing step and cannot emit a manufactured acceptance file.
+            required = scope != "focused" or full != "true" or activated != "true"
+            assert eval(condition(primary["if"]), {"__builtins__": {}}, {}) is required
+            if not required:
+                assert all(
+                    eval(condition(step["if"]), {"__builtins__": {}}, {}) is False
+                    for step in steps
+                )
     assert primary["with"]["name"] == (
         "${{ matrix.lane == 'extra' && 'candidate-extra-primary' "
         "|| 'candidate-primary' }}"
@@ -1092,7 +1160,8 @@ def test_bulk_pack_separates_routine_sources_and_preserves_full_failure_payload(
 
 
 @pytest.mark.parametrize(
-    "candidate", ["locked311-a", "locked312-a", "locked313-a", "focused312"]
+    "candidate",
+    ["locked311-a", "locked312-a", "locked313-a", "focused312", "minimum312-extra"],
 )
 def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
     tmp_path, candidate
@@ -1103,15 +1172,16 @@ def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
     evidence = tmp_path / ("ci-candidate-" + candidate)
     Path(str(evidence) + ".tar.gz").write_bytes(b"bounded receipt archive")
     focused = candidate == "focused312"
+    extra = focused or candidate == "minimum312-extra"
     result = subprocess.run(
         [sys.executable, "-B", "-c", code],
         env={
             **os.environ,
             "CANDIDATE_DIR": str(evidence),
             "CANDIDATE_ID": candidate,
-            "CANDIDATE_LANE": "extra" if focused else "standard",
-            "CANDIDATE_SCOPE": "focused" if focused else "",
-            "CANDIDATE_PART": "" if focused else "a",
+            "CANDIDATE_LANE": "extra" if extra else "standard",
+            "CANDIDATE_SCOPE": "focused" if focused else "all" if extra else "",
+            "CANDIDATE_PART": "" if extra else "a",
             "EXPECTED_CHECKOUT_SHA": "a" * 40,
             "CANDIDATE_PRIOR_STATUS": "success",
             "CANDIDATE_PRIMARY_OUTCOME": "success",
@@ -1121,13 +1191,15 @@ def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
     )
     assert result.returncode == 0, result.stderr
     accounting = json.loads(Path(str(evidence) + "-accounting.json").read_text())
-    assert accounting["campaign_family"] == ("EXTRA" if focused else "STANDARD")
-    assert accounting["ci_extra_scope"] == ("focused" if focused else None)
+    assert accounting["campaign_family"] == ("EXTRA" if extra else "STANDARD")
+    assert accounting["ci_extra_scope"] == (
+        "focused" if focused else "all" if extra else None
+    )
     assert accounting["work_timeout_seconds"] == (2000 if focused else 1100)
     assert accounting["whole_job_timeout_seconds"] == (2100 if focused else 1200)
     expected_rss = 5120 if candidate == "locked312-a" else 4096
     assert accounting["execution_rss_mib"] == expected_rss
-    assert accounting["standard_part"] == (None if focused else "a")
+    assert accounting["standard_part"] == (None if extra else "a")
     assert "<=9600s (160 job-minutes)" in accounting["campaign_budgets"]
     assert "<=104857600 bytes" in accounting["campaign_budgets"]
     if focused:
@@ -1136,9 +1208,17 @@ def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
         )
         assert accounting["extra_acceptance_rss_mib"] == 4096
         assert "standard_acceptance_rss_mib" not in accounting
+    elif extra:
+        assert (
+            "Complete minimum312 support EXTRA span <=1200s"
+            in accounting["campaign_budgets"]
+        )
+        assert accounting["extra_acceptance_rss_mib"] == 4096
+        assert "standard_acceptance_rss_mib" not in accounting
     else:
-        assert "eleven STANDARD compute spans and three fixed joins <=1200s each" in (
-            accounting["campaign_budgets"]
+        assert (
+            "eleven STANDARD compute spans, minimum311, shared acceptance resolver and three fixed joins <=1200s each"
+            in accounting["campaign_budgets"]
         )
         assert accounting["standard_acceptance_rss_mib"] == expected_rss
         assert "extra_acceptance_rss_mib" not in accounting
@@ -1146,7 +1226,10 @@ def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
 
 def test_fixed_join_requires_both_complete_parts_and_original_authority_paths():
     job = _workflow()["jobs"]["candidate-standard-locked312-join"]
-    assert job["needs"] == "candidate-standard" and "always()" in job["if"]
+    assert (
+        job["needs"] == ["acceptance-context", "candidate-standard"]
+        and "always()" in job["if"]
+    )
     assert job["timeout-minutes"] == 20
     assert job["strategy"]["fail-fast"] is False
     assert job["strategy"]["matrix"]["include"] == [
@@ -1348,3 +1431,689 @@ def test_ordinary_fixed_union_paths_use_real_runner_temp_and_exact_cohort(
         in work
     )
     _assert_early_env_has_no_runner_context(_workflow())
+
+
+def _workflow_python(body, marker):
+    opening = "python -B - <<'" + marker + "'\n"
+    assert body.count(opening) == 1
+    return body.split(opening, 1)[1].split("\n" + marker, 1)[0]
+
+
+def _acceptance_repository(tmp_path, changed, message, *, old=False):
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+
+    environment = dict(os.environ)
+    if old:
+        environment.update(
+            GIT_AUTHOR_DATE="2000-01-01T00:00:00+00:00",
+            GIT_COMMITTER_DATE="2000-01-01T00:00:00+00:00",
+        )
+
+    def git(*arguments):
+        return (
+            subprocess.check_output(
+                ["git", "-C", str(repo), *arguments], env=environment
+            )
+            .decode()
+            .strip()
+        )
+
+    git("init", "-q")
+    (repo / "README.md").write_text("original\n")
+    git("add", ".")
+    identity = (
+        "-c",
+        "commit.gpgSign=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "user.name=CI",
+        "-c",
+        "user.email=ci@example.invalid",
+    )
+    git(*identity, "commit", "-q", "-m", "original")
+    before = git("rev-parse", "HEAD")
+    target = repo / changed
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("changed\n")
+    git("add", ".")
+    git(*identity, "commit", "-q", "-m", message)
+    return repo, before, git("rev-parse", "HEAD"), git
+
+
+@pytest.mark.parametrize(
+    "case,changed,event_name,action,requested,full",
+    [
+        (
+            "routine-ci",
+            ".github/workflows/ci.yml",
+            "pull_request",
+            "synchronize",
+            "",
+            False,
+        ),
+        (
+            "routine-control",
+            "tests/extra_tests/framework/test_ci_download_cache.py",
+            "pull_request",
+            "synchronize",
+            "",
+            False,
+        ),
+        ("routine-docs", "docs/guide.md", "pull_request", "synchronize", "", False),
+        (
+            "production",
+            "jax2onnx/plugins/primitive.py",
+            "pull_request",
+            "synchronize",
+            "",
+            True,
+        ),
+        (
+            "science",
+            "tests/extra_tests/converter/test_reference.py",
+            "pull_request",
+            "synchronize",
+            "",
+            True,
+        ),
+        ("lock", "poetry.lock", "pull_request", "synchronize", "", True),
+        (
+            "cohort",
+            "internal_docs/precision/ci_standard/py311-extra.json",
+            "pull_request",
+            "synchronize",
+            "",
+            True,
+        ),
+        (
+            "unknown",
+            "new_acceptance_input.bin",
+            "pull_request",
+            "synchronize",
+            "",
+            True,
+        ),
+        ("marker", "docs/guide.md", "pull_request", "synchronize", "", True),
+        ("opened", "docs/guide.md", "pull_request", "opened", "", True),
+        (
+            "unavailable-before",
+            "docs/guide.md",
+            "pull_request",
+            "synchronize",
+            "",
+            True,
+        ),
+        ("wrong-after", "docs/guide.md", "pull_request", "synchronize", "", True),
+        ("push", "docs/guide.md", "push", "", "", True),
+        ("manual-full", "docs/guide.md", "workflow_dispatch", "", "full", True),
+        ("manual-routine", "docs/guide.md", "workflow_dispatch", "", "routine", False),
+    ],
+)
+def test_acceptance_mode_uses_real_commit_transition_and_fail_closed_full_fallback(
+    tmp_path, case, changed, event_name, action, requested, full
+):
+    message = (
+        "reviewed change\n\nPrecision-Acceptance: full"
+        if case == "marker"
+        else "reviewed change"
+    )
+    repo, before, head, git = _acceptance_repository(tmp_path, changed, message)
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps(
+            {
+                "action": action,
+                "before": "f" * 40 if case == "unavailable-before" else before,
+                "after": "0" * 40 if case == "wrong-after" else head,
+            }
+        )
+    )
+    output = tmp_path / "outputs"
+    step = _workflow()["jobs"]["acceptance-context"]["steps"][1]
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", _workflow_python(step["run"], "PY_MODE")],
+        cwd=repo,
+        env={
+            **os.environ,
+            "EXPECTED_CHECKOUT_SHA": head,
+            "GITHUB_EVENT_PATH": str(event),
+            "GITHUB_EVENT_NAME": event_name,
+            "REQUESTED_ACCEPTANCE_MODE": requested,
+            "GITHUB_OUTPUT": str(output),
+            "PRECISION_ROUTINE_ACTIVATED": "false",
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output.read_text().splitlines() == [
+        "head_sha=" + head,
+        "full_acceptance=" + str(full).lower(),
+        "routine_activated=false",
+    ]
+    assert git("rev-parse", "HEAD") == head and git("status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize(
+    "fault", ["checkout", "malformed-sha", "manual-mode", "activation-mode"]
+)
+def test_acceptance_mode_rejects_wrong_authority_before_output(tmp_path, fault):
+    repo, before, head, _ = _acceptance_repository(tmp_path, "docs/guide.md", "change")
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"action": "synchronize", "before": before, "after": head})
+    )
+    output = tmp_path / "outputs"
+    step = _workflow()["jobs"]["acceptance-context"]["steps"][1]
+    selected = (
+        "not-a-commit"
+        if fault == "malformed-sha"
+        else "0" * 40 if fault == "checkout" else head
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", _workflow_python(step["run"], "PY_MODE")],
+        cwd=repo,
+        env={
+            **os.environ,
+            "EXPECTED_CHECKOUT_SHA": selected,
+            "GITHUB_EVENT_PATH": str(event),
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "REQUESTED_ACCEPTANCE_MODE": (
+                "unreviewed" if fault == "manual-mode" else "full"
+            ),
+            "GITHUB_OUTPUT": str(output),
+            "PRECISION_ROUTINE_ACTIVATED": (
+                "unknown" if fault == "activation-mode" else "false"
+            ),
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0 and not output.exists()
+
+
+def test_exhaustive_and_routine_owners_share_exact_head_without_focused_replay():
+    workflow = _workflow()
+    jobs = workflow["jobs"]
+    resolver = jobs["acceptance-context"]
+    resolver_work = resolver["steps"][1]["run"]
+    assert (
+        "--timeout-seconds 240 --max-rss-mib 4096 --min-available-mib 2048"
+        in resolver_work
+    )
+    assert "--min-disk-free-mib 4096" in resolver_work
+    upload = resolver["steps"][2]
+    assert upload["if"] == "always()" and upload["with"]["name"].startswith(
+        "candidate-standard-acceptance-context-"
+    )
+    assert resolver["outputs"] == {
+        "head_sha": "${{ steps.mode.outputs.head_sha }}",
+        "full_acceptance": "${{ steps.mode.outputs.full_acceptance }}",
+        "routine_activated": "${{ steps.mode.outputs.routine_activated }}",
+    }
+    full = "needs.acceptance-context.outputs.full_acceptance == 'true' || needs.acceptance-context.outputs.routine_activated != 'true'"
+    assert workflow["env"]["PRECISION_ROUTINE_ACTIVATED"] == "false"
+    for name in ("test", "normalization-accuracy", "onnxruntime-web-smoke"):
+        assert jobs[name]["needs"] == "acceptance-context" and jobs[name]["if"] == full
+    assert jobs["test"]["strategy"]["matrix"]["python-version"] == [
+        "3.11",
+        "3.12",
+        "3.13",
+        "3.14",
+    ]
+    assert jobs["test"]["env"]["JAX2ONNX_TEST_CI_LANE_XDIST"] == "1"
+    assert jobs["test"]["env"]["JAX2ONNX_RUN_FIXED_PARTS_SMOKE"] == "1"
+    original_full = [
+        step
+        for step in jobs["test"]["steps"]
+        if step.get("name", "").startswith("Run full checks")
+    ]
+    assert len(original_full) == 2 and all(
+        step["run"] == "./scripts/run_all_checks.sh" for step in original_full
+    )
+    assert original_full[0]["env"] == {
+        "JAX2ONNX_RUN_MAXTEXT": "1",
+        "JAX2ONNX_RUN_MAXDIFFUSION": "1",
+    }
+    for name, job in jobs.items():
+        if name == "acceptance-context":
+            continue
+        for step in job.get("steps", []):
+            if step.get("uses", "").startswith("actions/checkout@"):
+                assert (
+                    step["with"]["ref"]
+                    == "${{ needs.acceptance-context.outputs.head_sha }}"
+                )
+    active = "matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true'"
+    assert all(active in step["if"] for step in jobs["candidate-standard"]["steps"])
+    assert jobs["exhaustive-web"]["uses"] == "./.github/workflows/nightly-qs.yml"
+    assert jobs["exhaustive-web"]["if"] == full
+    assert jobs["exhaustive-web"]["with"] == {
+        "head_sha": "${{ needs.acceptance-context.outputs.head_sha }}",
+        "full_acceptance": True,
+    }
+    assert "concurrency" not in workflow
+
+
+def test_minimum312_extra_uses_complete_support_authority_and_ordinary_limits():
+    job = _workflow()["jobs"]["candidate-standard"]
+    entry = next(
+        row
+        for row in job["strategy"]["matrix"]["include"]
+        if row["id"] == "minimum312-extra"
+    )
+    assert entry == {
+        "id": "minimum312-extra",
+        "python": "3.12",
+        "cohort": "minimum312",
+        "role": "minimum",
+        "lane": "extra",
+        "scope": "all",
+    }
+    profile = json.loads(
+        (ROOT / "internal_docs/precision/ci_standard/minimum312.json").read_text()
+    )
+    assert profile["support_role"] == "minimum" and profile["allowed_skips"] == []
+    assert len(profile["collection_args"]) == 17 and "focused_extra_ids" not in profile
+    work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
+    prelude = work.split("python -B scripts/run_with_resources.py", 1)[0]
+    result = subprocess.run(
+        [
+            "bash",
+            "-euo",
+            "pipefail",
+            "-c",
+            prelude
+            + '\nprintf "%s\\n" "$execution_work_seconds" "$execution_rss_mib" "$live_available_mib" "${#execution_profile_args[@]}" "${execution_profile_args[@]}"',
+        ],
+        env={
+            **os.environ,
+            "CANDIDATE_ID": entry["id"],
+            "CANDIDATE_ROLE": entry["role"],
+            "CANDIDATE_LANE": "extra",
+            "CANDIDATE_SCOPE": "all",
+            "CANDIDATE_PART": "",
+            "CANDIDATE_COHORT": "internal_docs/precision/ci_standard/minimum312.json",
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0 and result.stdout.splitlines() == [
+        "1100",
+        "4096",
+        "2048",
+        "0",
+    ]
+    assert (
+        "--focused-extra-profile" not in result.stdout
+        and "--locked312-standard-profile" not in result.stdout
+    )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("CANDIDATE_ID", "foreign-extra"),
+        ("CANDIDATE_LANE", "standard"),
+        ("CANDIDATE_ROLE", "locked"),
+        ("CANDIDATE_SCOPE", "focused"),
+        ("CANDIDATE_PART", "a"),
+        ("CANDIDATE_COHORT", "internal_docs/precision/ci_standard/py312-extra.json"),
+    ],
+)
+def test_complete_support_extra_rejects_foreign_dispatch_before_runner(key, value):
+    work = next(
+        step["run"]
+        for step in _workflow()["jobs"]["candidate-standard"]["steps"]
+        if step.get("id") == "work"
+    )
+    dispatch = (
+        "part_args=()"
+        + work.split("part_args=()", 1)[1].split(
+            "python -B scripts/run_pytest_batches.py", 1
+        )[0]
+    )
+    environment = {
+        **os.environ,
+        "CANDIDATE_ID": "minimum312-extra",
+        "CANDIDATE_ROLE": "minimum",
+        "CANDIDATE_LANE": "extra",
+        "CANDIDATE_SCOPE": "all",
+        "CANDIDATE_PART": "",
+        "CANDIDATE_COHORT": "internal_docs/precision/ci_standard/minimum312.json",
+    }
+    environment[key] = value
+    result = subprocess.run(
+        [
+            "bash",
+            "-euo",
+            "pipefail",
+            "-c",
+            dispatch + '\nprintf "unexpected-runner\\n"',
+        ],
+        env=environment,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0 and "unexpected-runner" not in result.stdout
+
+
+@pytest.mark.parametrize("failure", ["none", "minimum-install", "pip-check", "pytest"])
+def test_minimum311_monitors_original_seventeen_selectors_and_stops_on_failure(
+    tmp_path, failure
+):
+    job = _workflow()["jobs"]["minimum-dependencies"]
+    assert job["timeout-minutes"] == 20 and job["needs"] == "acceptance-context"
+    step = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Observe minimum-version setup and compatibility checks"
+    )
+    commands = r"""
+    python() {
+      printf 'observer'; printf ' %q' "$@"; printf '\n'
+      while [[ "$1" != -- ]]; do shift; done
+      shift
+      "$@"
+    }
+    pip() { printf 'pip'; printf ' %q' "$@"; printf '\n'; }
+    poetry() {
+      printf 'poetry' >> "$EVENTS"; printf ' %q' "$@" >> "$EVENTS"; printf '\n' >> "$EVENTS"
+      case "$*" in
+        'run python -') cat > /dev/null ;;
+        'run python scripts/install_minimum_dependencies.py') [[ "$FAIL_STAGE" != minimum-install ]] || return 71 ;;
+        'run pip check') [[ "$FAIL_STAGE" != pip-check ]] || return 72 ;;
+        'run pytest '*) [[ "$JAX_PLATFORMS" == cpu && "$JAX_ENABLE_X64" == True ]]; [[ "$FAIL_STAGE" != pytest ]] || return 73 ;;
+      esac
+    }
+    export -f python pip poetry
+    """
+    events = tmp_path / "events"
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", commands + "\n" + step["run"]],
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_WORKSPACE": str(tmp_path),
+            "EXPECTED_CHECKOUT_SHA": "a" * 40,
+            "EVENTS": str(events),
+            "FAIL_STAGE": failure,
+        },
+        text=True,
+        capture_output=True,
+    )
+    lines = [shlex.split(line) for line in events.read_text().splitlines()]
+    assert lines[:2] == [
+        ["poetry", "install", "--no-interaction"],
+        ["poetry", "run", "python", "scripts/install_minimum_dependencies.py"],
+    ]
+    assert (
+        "--timeout-seconds 1100 --max-rss-mib 4096 --min-available-mib 2048"
+        in result.stdout
+    )
+    assert "--min-disk-free-mib 4096" in result.stdout
+    expected = {"none": 0, "minimum-install": 71, "pip-check": 72, "pytest": 73}[
+        failure
+    ]
+    assert result.returncode == expected, result.stdout + result.stderr
+    generation = [
+        line
+        for line in lines
+        if line == ["poetry", "run", "python", "scripts/generate_tests.py"]
+    ]
+    selected = [line for line in lines if line[:3] == ["poetry", "run", "pytest"]]
+    if failure in {"minimum-install", "pip-check"}:
+        assert generation == selected == []
+    else:
+        assert len(generation) == len(selected) == 1
+        profile = json.loads(
+            (ROOT / "internal_docs/precision/ci_standard/minimum312.json").read_text()
+        )
+        assert selected[0] == [
+            "poetry",
+            "run",
+            "pytest",
+            "-q",
+            "--junitxml",
+            str(tmp_path / "minimum311-junit.xml"),
+            *profile["collection_args"],
+        ]
+        assert lines.index(generation[0]) < lines.index(selected[0])
+    receipts = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Upload minimum311 STANDARD receipts"
+    )
+    assert receipts["if"] == "always()" and receipts["with"]["name"].startswith(
+        "candidate-standard-minimum311-"
+    )
+    failure_payload = next(
+        step
+        for step in job["steps"]
+        if step.get("name", "").startswith("Preserve complete minimum311")
+    )
+    assert (
+        failure_payload["if"] == "failure()"
+        and "minimum311-tmp/" in failure_payload["with"]["path"]
+    )
+
+
+def _nightly_workflow():
+    return yaml.safe_load((ROOT / ".github/workflows/nightly-qs.yml").read_text())
+
+
+@pytest.mark.parametrize(
+    "case", ["open", "closed", "explicit", "foreign", "malformed", "unavailable"]
+)
+def test_browser_head_resolver_uses_one_exact_active_commit_without_token_output(
+    tmp_path, monkeypatch, capsys, case
+):
+    import io
+    import urllib.request
+
+    workflow = _nightly_workflow()
+    step = workflow["jobs"]["check-changes"]["steps"][0]
+    script = _workflow_python(step["run"], "PY_HEAD")
+    calls = []
+    head, main = "a" * 40, "b" * 40
+    output = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("GITHUB_REPOSITORY", "enpasos/jax2onnx")
+    monkeypatch.setenv("GH_TOKEN", "synthetic-secret-not-logged")
+    monkeypatch.setenv("REQUESTED_HEAD_SHA", head if case == "explicit" else "")
+
+    def response(request, timeout):
+        assert (
+            timeout == 30
+            and request.get_header("Authorization")
+            == "Bearer synthetic-secret-not-logged"
+        )
+        calls.append(request.full_url)
+        if case == "unavailable":
+            raise OSError("synthetic API failure")
+        if request.full_url.endswith("/pulls/277"):
+            value = {
+                "state": "closed" if case == "closed" else "open",
+                "base": {"ref": "main"},
+                "head": {
+                    "sha": "not-an-exact-sha" if case == "malformed" else head,
+                    "repo": {
+                        "full_name": (
+                            "foreign/fork" if case == "foreign" else "enpasos/jax2onnx"
+                        )
+                    },
+                },
+            }
+        else:
+            assert request.full_url.endswith("/commits/main")
+            value = {"sha": main}
+        return io.BytesIO(json.dumps(value).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", response)
+    if case in {"foreign", "malformed", "unavailable"}:
+        with pytest.raises((SystemExit, OSError)):
+            exec(compile(script, "actual-nightly-head-resolver", "exec"), {})
+        assert not output.exists()
+    else:
+        exec(compile(script, "actual-nightly-head-resolver", "exec"), {})
+        assert output.read_text().splitlines() == [
+            "head_sha=" + (main if case == "closed" else head)
+        ]
+    expected = (
+        []
+        if case == "explicit"
+        else ["https://api.github.com/repos/enpasos/jax2onnx/pulls/277"]
+    )
+    if case == "closed":
+        expected.append("https://api.github.com/repos/enpasos/jax2onnx/commits/main")
+    assert calls == expected
+    assert "synthetic-secret-not-logged" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "full,wrong_head", [(True, False), (False, False), (True, True)]
+)
+def test_browser_full_acceptance_cannot_age_skip_or_drift_from_selected_head(
+    tmp_path, full, wrong_head
+):
+    repo, _, head, _ = _acceptance_repository(
+        tmp_path, "docs/guide.md", "old acceptance input", old=True
+    )
+    # Both actual commits predate the age window; no fake git-log output.
+    output = tmp_path / "outputs"
+    workflow = _nightly_workflow()
+    check = next(
+        step
+        for step in workflow["jobs"]["check-changes"]["steps"]
+        if step.get("id") == "check"
+    )
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", check["run"]],
+        cwd=repo,
+        env={
+            **os.environ,
+            "EXPECTED_CHECKOUT_SHA": "0" * 40 if wrong_head else head,
+            "FULL_ACCEPTANCE": str(full).lower(),
+            "GITHUB_OUTPUT": str(output),
+        },
+        text=True,
+        capture_output=True,
+    )
+    if wrong_head:
+        assert result.returncode != 0 and not output.exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert output.read_text().splitlines() == ["should_run=" + str(full).lower()]
+    for job, timeout, command in [
+        ("onnxruntime-web-full", 180, "scripts/run_onnxruntime_web_full.sh"),
+        (
+            "onnxruntime-web-chrome-full",
+            240,
+            "scripts/run_onnxruntime_web_chrome_full.sh",
+        ),
+    ]:
+        value = workflow["jobs"][job]
+        assert value["timeout-minutes"] == timeout
+        checkout = next(
+            step
+            for step in value["steps"]
+            if step.get("uses", "").startswith("actions/checkout@")
+        )
+        assert checkout["with"]["ref"] == "${{ needs.check-changes.outputs.head_sha }}"
+        assert any(
+            step.get("run") == command + " -n auto --dist=loadscope -q --ff -x"
+            for step in value["steps"]
+        )
+    assert workflow["concurrency"]["cancel-in-progress"] is False
+
+
+@pytest.mark.parametrize(
+    "activated,full", [(False, False), (False, True), (True, False), (True, True)]
+)
+def test_tracked_qualification_switch_preserves_every_owner_until_later_activation(
+    tmp_path, activated, full
+):
+    workflow = _workflow()
+    events = workflow.get("on", workflow.get(True))  # PyYAML's YAML1.1 spelling of on.
+    assert set(events["workflow_dispatch"]["inputs"]) == {"acceptance_mode"}
+    assert workflow["env"]["PRECISION_ROUTINE_ACTIVATED"] == "false"
+    repo, before, head, _ = _acceptance_repository(
+        tmp_path, "docs/guide.md", "reviewed transition"
+    )
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"before": before, "after": head}))
+    output = tmp_path / "outputs"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            _workflow_python(
+                workflow["jobs"]["acceptance-context"]["steps"][1]["run"], "PY_MODE"
+            ),
+        ],
+        cwd=repo,
+        env={
+            **os.environ,
+            "EXPECTED_CHECKOUT_SHA": head,
+            "GITHUB_EVENT_PATH": str(event),
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "REQUESTED_ACCEPTANCE_MODE": "full" if full else "routine",
+            "PRECISION_ROUTINE_ACTIVATED": str(activated).lower(),
+            "GITHUB_OUTPUT": str(output),
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    actual = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert actual == {
+        "head_sha": head,
+        "full_acceptance": str(full).lower(),
+        "routine_activated": str(activated).lower(),
+    }
+    # These are the actual fixed Actions predicates. Only the synthetic future
+    # source value varies here; no manual workflow input can activate retirement.
+    legacy = "needs.acceptance-context.outputs.full_acceptance == 'true' || needs.acceptance-context.outputs.routine_activated != 'true'"
+    focused = "matrix.scope != 'focused' || needs.acceptance-context.outputs.full_acceptance != 'true' || needs.acceptance-context.outputs.routine_activated != 'true'"
+    replaced = (
+        legacy.replace(
+            "needs.acceptance-context.outputs.full_acceptance",
+            repr(actual["full_acceptance"]),
+        )
+        .replace(
+            "needs.acceptance-context.outputs.routine_activated",
+            repr(actual["routine_activated"]),
+        )
+        .replace("||", " or ")
+    )
+    legacy_runs = eval(replaced, {"__builtins__": {}}, {})
+    assert legacy_runs is (full or not activated)
+    for name in [
+        "test",
+        "normalization-accuracy",
+        "onnxruntime-web-smoke",
+        "exhaustive-web",
+    ]:
+        assert workflow["jobs"][name]["if"] == legacy
+    assert "if" not in workflow["jobs"]["minimum-dependencies"]
+    steps = workflow["jobs"]["candidate-standard"]["steps"]
+    assert all(focused in step["if"] for step in steps)
+    for scope in ["focused", "all", ""]:
+        replaced = (
+            focused.replace("matrix.scope", repr(scope))
+            .replace(
+                "needs.acceptance-context.outputs.full_acceptance",
+                repr(actual["full_acceptance"]),
+            )
+            .replace(
+                "needs.acceptance-context.outputs.routine_activated",
+                repr(actual["routine_activated"]),
+            )
+            .replace("||", " or ")
+        )
+        assert eval(replaced, {"__builtins__": {}}, {}) is (
+            scope != "focused" or not full or not activated
+        )

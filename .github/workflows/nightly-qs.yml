@@ -4,6 +4,23 @@ on:
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
+    inputs:
+      head_sha:
+        description: Exact acceptance commit (otherwise active PR277, then main)
+        type: string
+        default: ''
+      full_acceptance:
+        description: Run complete web validation regardless of commit age
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      head_sha:
+        required: true
+        type: string
+      full_acceptance:
+        type: boolean
+        default: true
 
 concurrency:
   group: nightly-qs-${{ github.ref }}
@@ -11,23 +28,70 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   check-changes:
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
     steps:
+    - name: Resolve one active acceptance commit
+      id: resolve
+      env:
+        REQUESTED_HEAD_SHA: ${{ inputs.head_sha || '' }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        python -B - <<'PY_HEAD'
+        import json
+        import os
+        from pathlib import Path
+        import re
+        import urllib.request
+
+        def api(path):
+            request = urllib.request.Request(
+                "https://api.github.com/repos/" + os.environ["GITHUB_REPOSITORY"] + path,
+                headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                         "Accept": "application/vnd.github+json"},
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.load(response)
+
+        head = os.environ["REQUESTED_HEAD_SHA"]
+        if not head:
+            pull = api("/pulls/277")
+            if pull["state"] == "open":
+                if pull["base"]["ref"] != "main" or pull["head"]["repo"]["full_name"] != os.environ["GITHUB_REPOSITORY"]:
+                    raise SystemExit("Active precision PR authority differs")
+                head = pull["head"]["sha"]
+            else:
+                head = api("/commits/main")["sha"]
+        if not re.fullmatch(r"[0-9a-f]{40}", head):
+            raise SystemExit("Web acceptance requires one exact commit SHA")
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+            output.write("head_sha=" + head + "\n")
+        print("Web acceptance commit:", head)
+        PY_HEAD
+
     - name: Check out code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
+        ref: ${{ steps.resolve.outputs.head_sha }}
         fetch-depth: 0
 
     - name: Check for recent commits
       id: check
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ steps.resolve.outputs.head_sha }}
+        FULL_ACCEPTANCE: ${{ inputs.full_acceptance && 'true' || 'false' }}
       run: |
-        if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-          echo "Manual run requested. Full QS will start."
+        set -euo pipefail
+        test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_CHECKOUT_SHA"
+        if [[ "$FULL_ACCEPTANCE" == true ]]; then
+          echo "Full milestone/final acceptance requested. Commit age cannot skip it."
           echo "should_run=true" >> "${GITHUB_OUTPUT}"
           exit 0
         fi
@@ -53,6 +117,30 @@ jobs:
     steps:
     - name: Check out code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ needs.check-changes.outputs.head_sha }}
+
+    - name: Verify selected acceptance commit
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ needs.check-changes.outputs.head_sha }}
+      run: |
+        set -euo pipefail
+        test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_CHECKOUT_SHA"
+
+    - name: Fetch frozen original SOURCE history
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ needs.check-changes.outputs.head_sha }}
+      run: |
+        set -euo pipefail
+        source_anchor=ccc861b0dff5042958a267addc43b622a4b61d49
+        source_head="$(git rev-parse --verify 'HEAD^{commit}')"
+        test "$source_head" = "$EXPECTED_CHECKOUT_SHA"
+        git fetch --no-tags --depth=1 origin "$source_anchor"
+        test "$(git rev-parse --verify 'ccc861b0^{commit}')" = "$source_anchor"
+        git archive "$source_anchor" tests > /dev/null
+        test "$(git rev-parse --verify 'HEAD^{commit}')" = "$source_head"
+        test -z "$(git status --porcelain --untracked-files=no)"
+        printf 'Frozen SOURCE history: %s; checked-out head: %s\n' "$source_anchor" "$source_head"
 
     - name: Set up Python 3.12
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -92,6 +180,30 @@ jobs:
     steps:
     - name: Check out code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ needs.check-changes.outputs.head_sha }}
+
+    - name: Verify selected acceptance commit
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ needs.check-changes.outputs.head_sha }}
+      run: |
+        set -euo pipefail
+        test "$(git rev-parse --verify 'HEAD^{commit}')" = "$EXPECTED_CHECKOUT_SHA"
+
+    - name: Fetch frozen original SOURCE history
+      env:
+        EXPECTED_CHECKOUT_SHA: ${{ needs.check-changes.outputs.head_sha }}
+      run: |
+        set -euo pipefail
+        source_anchor=ccc861b0dff5042958a267addc43b622a4b61d49
+        source_head="$(git rev-parse --verify 'HEAD^{commit}')"
+        test "$source_head" = "$EXPECTED_CHECKOUT_SHA"
+        git fetch --no-tags --depth=1 origin "$source_anchor"
+        test "$(git rev-parse --verify 'ccc861b0^{commit}')" = "$source_anchor"
+        git archive "$source_anchor" tests > /dev/null
+        test "$(git rev-parse --verify 'HEAD^{commit}')" = "$source_head"
+        test -z "$(git status --porcelain --untracked-files=no)"
+        printf 'Frozen SOURCE history: %s; checked-out head: %s\n' "$source_anchor" "$source_head"
 
     - name: Set up Python 3.12
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0

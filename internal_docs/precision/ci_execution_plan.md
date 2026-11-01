@@ -1,62 +1,95 @@
 # Precision migration CI execution plan
 
-## Current CI588 repair checkpoint
+## Current routine and exhaustive execution checkpoint
 
-Published `76564657` runs [CI588](https://github.com/enpasos/jax2onnx/actions/runs/41250900672).
-At the retained 23:23:44 UTC observation, all eleven STANDARD compute jobs and
-three strict union jobs have terminal success, including 3.14 at 1,076 whole-job
-seconds. The four original full suites are still running. Original raw receipts,
-exact-union/source/resource and complete compressed-upload accounting still
-require independent verification; green job checks alone do not qualify them.
+Published `30ff0c80` closes the reviewed STANDARD and focused EXTRA candidates
+in [CI589](https://github.com/enpasos/jax2onnx/actions/runs/41252793502).
+Independent raw receipt, source/context, phase/JUnit, strict-union and resource
+review qualifies fourteen STANDARD jobs at 97.08 job-minutes, a 1,022-second
+maximum and 64,385,792 successful-upload bytes. Four focused campaigns close
+6,265 passes and three exact original applicability skips, at 38.88 job-minutes
+and 39,695,241 successful-upload bytes. The four original full jobs remain
+separate live predecessors at the retained observation. Failed and interrupted
+predecessors remain failed; diagnostic failure payloads remain fully retained
+and separate from the successful-evidence budget.
 
-All four focused EXTRA jobs fail at the same existing workflow control,
-`test_candidate_quality_failure_stops_work_before_optional_setup`: its direct
-lookup still names retired matrix row `locked311`. This is a fixture regression,
-not a converter or numerical counterexample. The same adjacent consumer was
-already in the older literal F and was missed by the previous focused subset.
-The minimal correction supplies actual `locked311-a` / `locked313-a` values
-with explicit historical pytest IDs. It still performs a direct current-row
-lookup, proves locked/STANDARD/part-a ownership (3.14 remains unsplit), and
-requires exact marker73/hooks74 failure before optional setup. No fallback row,
-weaker failure expectation, skip or production change is introduced.
+Local scheduling qualification closes 178 selected controls without skips on
+each official Python 3.11/3.13 family and 17 supported support-EXTRA fixtures
+on 3.12. Python 3.14 performs declaration collection only. The two changed
+owners collect 447 IDs on every cohort, retaining cohort-specific Node IDs and
+every original declaration. Their additive projection keeps S unchanged and
+expands literal F from 1,567 to 1,650: 49 new IDs plus 34 affected existing IDs.
+The seven scientific BF16 cases remain in R. Original global source epochs and
+three failed local assertion predecessors are preserved; this does not qualify
+new-head global collection, timed F, the added jobs or numerical acceptance.
 
-The complete affected workflow owner passes 115 cases without skips on each
-official 3.11/3.13 family. Fresh phase-free owner collections preserve exactly
-the retained ordered 115 IDs. Decorator values changed; collection-declaration
-AST identity is not claimed. Global collection receipts keep their actual
-source epoch. No new global collection, F-data update, serial-parts/model rerun
-or scientific acceptance follows from these local controls. Literal F remains
-1,567 and all unmatched A remains R, including the seven scientific BF16 cases.
+This checkpoint defines routine and exhaustive scheduling through the existing
+workflow. One immutable event-head SHA is resolved and passed to every checkout.
+A reviewed commit containing the standalone line `Precision-Acceptance: full`
+requests exhaustive acceptance. The existing manual workflow has an explicit
+`full` / `routine` choice, defaulting to `full`. New PRs, main/tag pushes, unknown
+transitions, and changed production, dependencies, reference, criterion, model
+or otherwise unrecognized paths conservatively require full acceptance. Only
+the explicit reviewed orchestration files and Markdown documentation changes
+can reuse unrelated exhaustive evidence during an ordinary PR update. This
+scheduling decision is not a numerical verdict.
 
-The existing layout has eleven STANDARD compute jobs and three strict joins.
-Exact full S is reconstructed from 1,658 + 2,913 / 2,915 on 3.11/3.13 and the
-unchanged 216 + 4,405 on 3.12. Each part retains genuine complete C/O, original
-within-case behavior and skip/numerical criteria; part a owns all-files hooks
-once. The reviewed layout supersedes the historical 2026-10-30 eight-candidate /
-"Do not shard" scheduling amendment below. All parts and joins are one STANDARD
-campaign: report their complete actual whole-job spans and all compressed
-uploads against 160 job-minutes / 100 MiB, with every whole job at most 1,200
-seconds and WORK at most 1,100 seconds. Per-part timings alone do not qualify it.
-Ordinary parts stay at 4 GiB; the sole 3.12 profile-bound exception stays at 5 GiB.
-EXTRA retains its separate 2,000-second WORK / 35-minute whole / 4-GiB and
-160-minute / 100-MiB campaign limits. No limits or model inputs are reduced or
-raised by this fixture repair.
+The original four full-collection Python jobs retain their complete commands,
+framework cohorts, hooks, model inputs, optional MaxText/MaxDiffusion contexts,
+assertions and failure artifacts. Both existing harness opt-ins are enabled.
+Full acceptance executes this complete collection once per cohort; its added
+tests are not inferred from separate routine STANDARD/focused runs. Focused
+rows execute no setup or bodies in full mode only after activation. Their
+empty/skipped Actions checks are never F receipts or focused qualification.
+The tracked `PRECISION_ROUTINE_ACTIVATED` literal remains false: qualification
+runs every original owner, STANDARD, new minimum owners, focused EXTRA and the
+same-head browsers together. It cannot be changed through a manual input.
+Only a later independently accepted ordinary commit can enable retirement.
+The original full-C runner remains raw-audit dependent: zero exit alone is not
+strict A acceptance, reviewed skip/xfail qualification or numerical equivalence. Routine STANDARD retains
+full S and the fixed strict unions; minimum Python 3.11 remains an additional
+required job with its exact original seventeen selectors.
 
-Historical CI587 at `62276cd8` qualified four complete F=1,506 native campaigns:
-6,021 PASS / three original applicability skips, 38.68 whole-job minutes and
-37,972,019 compressed bytes. STANDARD 3.14 closed 4,573 assignments with 4,562
-PASS / 11 original skips, WORK 1,063.071 seconds and whole job 1,075 seconds.
-The 3.11/3.13 deadline and cancellation outcomes remain failed; their final
-453-case assignments were unaccepted. These historical successes do not prove
-the current F=1,567 or replacement aggregate budgets. Earlier local O discovery
-was slower than C, and adds initial work; no collection-speed saving is claimed.
+Minimum 3.11 setup, minimum installation, generation and tests now share the
+ordinary 1,100-second WORK / 4-GiB observer and 20-minute whole-job limit. Its
+successful receipts and entire job, plus the shared head/mode resolver and its
+ordinary controlled resource observations, count toward STANDARD's unchanged
+160 job-minute / 100-MiB successful-evidence budget. The sole profile-bound 5-GiB
+exception remains locked 3.12 STANDARD parts. The additional `minimum312-extra`
+row uses the unchanged minimum profile, all seventeen literal selectors, and
+strict `--ci-lane extra --ci-extra-scope all`: it executes the complete observed
+support complement, currently 146 cases, without a case-count cap. It uses the
+ordinary 1,100-second / 4-GiB / 20-minute envelope and the separate EXTRA budget;
+it never receives the trusted focused 2,000-second extension. The four focused
+rows retain their existing 35-minute / 4-GiB envelope and share EXTRA's separate
+160-minute / 100-MiB successful-evidence aggregate with this support job.
 
-Complete A/R, default-strict extrema, Native3/ORT2, current 3,712 caller
-obligations, frozen replay, models/artifacts and Node/Chrome remain required.
-The named SOURCE publication exception waives no new CI regression or scientific
-criterion. Temporary LEGACY bridges serve demonstrated CI/reference needs;
-the complete contract is a merge gate, not a blanket barrier to reviewed work
-inside this unmerged branch. Gate activation remains unqualified.
+Full Node and Chrome retain their original contexts. The existing nightly
+workflow can also be called by the full-acceptance CI route at the same resolved
+SHA; no agent dispatch is needed. Scheduled/manual standalone execution resolves
+the open precision PR's head, or main after it closes, once for both browsers.
+Explicit full acceptance bypasses the age filter. The existing browser worker
+settings and long limits remain unqualified until actual resource and outcome
+review; no prospective 12-GiB / 45-minute complete-CPU allowance is implemented
+or claimed here.
+
+The scheduling patch, expanded control ownership, new minimum-runtime guard and
+browser wiring require their own local tests, actual next-head receipts and
+independent ownership review before old routine checks retire. Passing current
+candidates does not prequalify these new owners. Controlled work/pack resource
+intervals are measured; managed Actions setup/upload intervals remain explicitly
+unobserved while whole-job clocks are measured. Full A/R, default-strict extrema,
+Native3/ORT2, all 3,712 caller obligations, replay, models/artifacts and Node/Chrome
+remain required. Temporary LEGACY bridges serve demonstrated CI/reference needs;
+complete compatibility and numerical validation are merge gates, not blanket
+barriers to reviewed implementation in this unmerged branch.
+
+The fixed layout remains eleven STANDARD compute roles and three strict unions:
+1,658 + 2,913 / 2,915 on 3.11/3.13, and 216 + 4,405 on 3.12. Each part retains
+genuine C/O, original within-case behavior and skip/numerical criteria; part a
+owns original hooks once. This reviewed layout supersedes the historical
+2026-10-30 eight-candidate / "Do not shard" scheduling amendment below. Cases'
+internal samples and comparison phases are never split.
 
 ## Historical CI585 STANDARD result and initial EXTRA profile data
 

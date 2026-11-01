@@ -1,38 +1,46 @@
-# Precision migration handoff — 2026-10-31
+# Precision migration handoff — 2026-11-01
 
-## Current published CI and local repair
+## Current CI qualification and scheduling work
 
-Published `76564657` runs CI588. All eleven STANDARD compute jobs and three
-strict union jobs have terminal success at the retained 23:23:44 UTC observation.
-Four original full-suite jobs remain live. Complete STANDARD phase/source/resource
-proof and all compressed-upload accounting remain to be qualified; green job
-checks alone do not complete that review.
+Published `30ff0c80` has independently reviewed STANDARD and focused EXTRA
+success in CI589. Exact assignments, original skips, raw phases/JUnit, source
+and runtime context, strict unions, controlled resources and successful-evidence
+budgets close in that limited scope. The original full jobs remain separate;
+F-only success asserts neither complete added coverage nor numerical acceptance.
+The failed hosted fixture and earlier deadline/cancellation outcomes remain
+retained. See [the execution plan](ci_execution_plan.md#current-routine-and-exhaustive-execution-checkpoint).
 
-All four focused EXTRA jobs fail at the same existing hook-failure control:
-it looks up the retired `locked311` matrix row instead of current quality owner
-`locked311-a`. The local test-only repair maps the 3.11/3.13 values to actual
-part-a rows while preserving the historical pytest IDs. Direct lookup and all
-marker/hook failure-before-optional-setup assertions remain strict, with explicit
-role/lane/part ownership checks. The entire affected owner passes all 115 cases
-on each official 3.11/3.13 family; genuine collections preserve exactly the old
-ordered 115 IDs. Workflow, runner, profiles, F=1,567, inputs, pins, skips and
-scientific criteria are unchanged. The four failed hosted outcomes remain failed;
-a fresh exact-head focused campaign is still required.
+The scheduling controls now pass all 178 selected cases on each official
+Python 3.11/3.13 family and all 17 supported support-EXTRA fixtures on 3.12.
+All four runtimes genuinely collect the two changed test owners; every original
+ID and main-baseline order is preserved. The resulting literal F has 1,650
+cases per cohort, including 49 new declarations and 34 affected existing cases.
+This is an owner projection over retained `30ff0c80` global collections, not a
+new global collection or full-F campaign. Three earlier local test-oracle
+failures remain retained. New minimum jobs, browser wiring, aggregate budgets
+and full F still need exact-head hosted qualification.
 
-At predecessor `62276cd8`, CI587's four F=1,506 campaigns and STANDARD 3.14 were
-independently qualified in their narrow native-pytest scope. The retained 3.11/
-3.13 deadline failures led to the current fixed-parts layout; neither those old
-successes nor this local fixture repair qualify the current replacement.
-See [the execution plan](ci_execution_plan.md#current-ci588-repair-checkpoint).
+The next scheduling checkpoint retains the original four full Python contexts
+for milestones/final acceptance, adds complete minimum 3.12 support EXTRA, and
+monitors minimum 3.11's original seventeen-selector job under STANDARD limits.
+One exact SHA feeds all jobs and both full browser contexts. A reviewed
+`Precision-Acceptance: full` commit marker or manual full mode forces exhaustive
+work; uncertain or changed numerical/runtime assumptions also select it.
+Routine orchestration/docs fixes can reuse unrelated exhaustive evidence.
+The tracked activation switch remains false, so all original and replacement
+owners, focused work and exact-head browsers run together for qualification.
+New owner/resource/trigger behavior needs actual qualification and independent
+review before a later ordinary commit can enable retirement. The preserved
+raw full-C runner still needs strict outcome review; zero exit does not prove
+strict A or numerical acceptance. A renamed green check is not coverage evidence. Human-readable PR text stays separate from this technical
+execution record.
 
-Current LEGACY behavior is a fact, not a blanket restriction on development.
 Keep a LEGACY bridge only for a demonstrated CI/reference comparison, with its
 removal purpose recorded. Reviewed work in the unmerged branch needs no extra
-approval solely because the complete contract is unfinished. Full compatibility,
+approval merely because the complete contract is unfinished. Full compatibility,
 numerical validation and independent B–F acceptance remain required before merge.
 Native3/ORT2, 3,712 caller obligations, default-strict extrema, complete A/R,
-replay, models/artifacts and Node/Chrome remain independently owned; current
-F-only outcomes do not assert scientific equivalence.
+replay, models/artifacts and full Node/Chrome remain independently required.
 
 ## Strict metadata accounting checkpoint — local implementation qualification
 

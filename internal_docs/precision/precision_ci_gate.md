@@ -1,6 +1,6 @@
 # CI gates for the precision migration
 
-These are the acceptance rules for PR #277, updated 2026-10-31. They preserve
+These are the acceptance rules for PR #277, updated 2026-11-01. They preserve
 the complete [migration work plan](precision_implementation_work_plan.md).
 The [execution plan](ci_execution_plan.md) owns literal selections, commands,
 resource measurements and activation evidence; the [handoff](implementation_handoff.md)
@@ -27,20 +27,21 @@ release requirements. These documentation changes switch no code or CI gate.
 
 ## Current qualification
 
-At the 2026-10-31 22:35 UTC observation of
-[CI587 on published `62276cd8`](https://github.com/enpasos/jax2onnx/actions/runs/41243854804),
-the four focused EXTRA cohorts had succeeded. Their verdict is `F_ONLY`: the
-remaining added tests and scientific acceptance did not run in those lanes.
-Python 3.14 STANDARD completed within the whole-job limit, and Python 3.12's
-strict two-part execution and join succeeded. Python 3.11 and 3.13 STANDARD
-stopped at their work deadlines and exceeded the whole-job limit. The four
-original complete Python jobs were still running at that observation.
+Published `30ff0c80` has independently verified STANDARD and focused EXTRA
+success in [CI589](https://github.com/enpasos/jax2onnx/actions/runs/41252793502).
+The existing fourteen STANDARD jobs meet their whole-job, aggregate-time and
+successful-evidence budgets; all four focused cohorts pass their assigned
+selection. These establish native-pytest and focused coverage only. Complete
+added coverage, numerical acceptance and the four original full jobs remain
+separate obligations. Earlier failed and cancelled campaigns remain retained.
 
-Consequently, the STANDARD budget and replacement-gate activation are **not
-qualified**. A repair using the existing balanced two-part execution and strict
-join is being qualified for Python 3.11 and 3.13. Its local controls and later
-hosted outcomes must be assessed separately. Do not describe this snapshot as
-all green, final acceptance or completed migration.
+The scheduling successor has passing local workflow and support-authority
+controls. Its expanded literal F, newly guarded minimum 3.11 job, complete
+minimum 3.12 support EXTRA, shared resolver and same-head browser wiring still
+need actual next-head qualification. The tracked activation switch remains
+false, so original and replacement owners run together. Routine retirement
+requires that evidence and independent review; current green checks alone do
+not activate the new ownership or close the complete migration.
 
 ## The 20-minute STANDARD budget
 
@@ -62,7 +63,7 @@ owned-process memory and uploaded bytes. The former relative timing campaigns,
 | Reviewed Python 3.12 optional-model exception | Its existing 5 GiB limit and two-part join remain specific to that profile. This does not raise other cohorts' limits. |
 | STANDARD campaign | Existing 160 job-minute aggregate and 100 MiB compressed successful-evidence budgets; record complete failure evidence separately. |
 | Local native execution | Retain the existing one-job/one-native-worker, thread, CPU, available-memory and free-disk guards. Hosted success does not close a local model resource hold. |
-| Focused EXTRA | Separate provisional 35-minute job / 160 job-minute aggregate / 100 MiB successful-evidence targets. These do not consume or extend the STANDARD allowance. |
+| EXTRA | Focused jobs retain the separate provisional 35-minute limit; minimum 3.12 complete support EXTRA keeps the ordinary 20-minute limit. Both share the separate 160 job-minute aggregate / 100 MiB successful-evidence targets and never extend STANDARD. |
 | Expensive complete validation | Separate measured runtime, memory and artifact budgets in the execution plan. Provisional targets are not achieved results or permission to raise local caps. |
 
 Measure all controlled project-work intervals and their descendants. Label
@@ -124,6 +125,20 @@ SOURCE pushes despite the retained official-native BF16 TopK failure. That case
 remains mandatory and **FAILED** where observed. The exception waives neither a
 new CI regression nor scientific, milestone or final acceptance. A later passing
 sample does not erase the failed predecessor or establish an upstream repair.
+
+The workflow's explicit full mode and standalone reviewed commit marker
+`Precision-Acceptance: full` select the original exhaustive Python contexts and
+full browser route at one exact commit. Unknown or changed production/runtime/
+reference/criterion inputs conservatively select that route. Reviewed routine
+orchestration or documentation changes may reuse unrelated exhaustive evidence.
+Minimum Python 3.11 keeps all original selectors under STANDARD resources;
+minimum 3.12 also owns its complete support EXTRA selection. New wiring and
+resource behavior need actual qualification before routine checks retire.
+The tracked activation switch stays false during the nonreplacement campaign;
+all old/new owners and focused work run together. Only a later independently
+accepted ordinary commit may enable retirement. Preserved raw full-C execution
+still requires strict receipt/skip/xfail review; zero exit is not strict A or
+numerical acceptance.
 
 Full validation is required at significant migration milestones, when changed
 assumptions invalidate it, and on the exact final commit. Ordinary fixes need
