@@ -155,6 +155,10 @@ def freeze_source_metadata_acceptance(state):
 
 def configure_source_metadata_acceptance(config, owner, state):
     """Install only explicit raw cells in this existing pytest collection owner."""
+    from tests.extra_tests.converter.source_precision_raw_replay import (
+        _conditional_discrete_criteria_choice,
+    )
+
     if state["configured"]:
         return
     evidence_directory = state["report"].parent / (state["report"].name + ".evidence")
@@ -233,7 +237,13 @@ def configure_source_metadata_acceptance(config, owner, state):
             adapters=adapters,
             evidence_directory=evidence_directory,
             stage="product",
-            runtime_optimization="all",
+            runtime_optimization=(
+                "both"
+                if _conditional_discrete_criteria_choice(
+                    json.loads(descriptor.adapter_json)
+                )
+                else "all"
+            ),
             expected_statuses={
                 "source_reference": "validated",
                 "schema": "validated",
@@ -408,12 +418,42 @@ def _function(
         descriptor,
         scope[1],
         scope[2],
-        adapters={},
+        adapters=scope[3] if len(scope) > 3 else {},
         evidence_directory=tmp_path,
         stage=stage,
         expected_statuses=expected or {"source_reference": "validated"},
         runtime_optimization=runtime,
     )
+
+
+def _protocol_scope(scope):
+    row = scope[1].rows[0]
+    adapters = {
+        "inventory_sha256": scope[1].baseline_sha256,
+        "rows": {
+            f"{row.origin}::{row.ordinal}": {
+                "contract_sha256": row.contract_sha256,
+                "native_protocol": {
+                    "mode": "stateless-three-role-v1",
+                    "reviewed": True,
+                },
+            }
+        },
+    }
+    return (*scope[:3], adapters)
+
+
+def _retained_stage_record(function):
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    anchor = capture.get("artifact", capture.get("eager"))
+    path = Path(anchor["path"]).parent / "stage-evidence.json"
+    retained = json.loads(path.read_bytes())
+    canonical = json.dumps(retained, sort_keys=True, separators=(",", ":")).encode()
+    assert hashlib.sha256(canonical).hexdigest() == record.sha256
+    assert retained == json.loads(json.dumps(asdict(record)))
+    assert "stage-evidence" not in retained["replay_capture"]
+    return retained
 
 
 def _collect_record(descriptor):
@@ -1292,7 +1332,9 @@ def test_unhandled_requests_remain_pending_even_after_returned_artifact(tmp_path
     assert function._source_outcome["capability_status"] == "unverified"
 
 
-def test_complete_explicit_criterion_uses_same_artifact_and_retained_target(tmp_path):
+def test_complete_explicit_criterion_uses_same_artifact_and_retained_target(
+    tmp_path, monkeypatch
+):
     def fn(x):
         return x + jnp.asarray(1, dtype=jnp.float32)
 
@@ -1309,11 +1351,40 @@ def test_complete_explicit_criterion_uses_same_artifact_and_retained_target(tmp_
             "runtime_input_values": [[np.asarray([2.0, -2.0], dtype=np.float32)]],
         }
     )
+    scope = _protocol_scope(scope)
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    exported, wrappers, results = [], [], []
+    original_export = raw._export_prepared
+    original_sample = raw.RawReplayCapture.native_sample
+    original_runtime = probe._raw_metadata_runtime_protocol
+
+    def export_once(*args, **kwargs):
+        exported.append(args[0].fn)
+        return original_export(*args, **kwargs)
+
+    def observe_sample(self, *args, **kwargs):
+        value = original_sample(self, *args, **kwargs)
+        label = kwargs["label"]
+        role = (label + "-" if label else "") + "fresh-jit-wrapper"
+        wrappers.append(
+            (self.native_values[role], self.native_samples[label]["wrapper_calls"])
+        )
+        return value
+
+    def observe_runtime(*args, **kwargs):
+        value = original_runtime(*args, **kwargs)
+        results.append(value)
+        return value
+
+    monkeypatch.setattr(raw, "_export_prepared", export_once)
+    monkeypatch.setattr(raw.RawReplayCapture, "native_sample", observe_sample)
+    monkeypatch.setattr(probe, "_raw_metadata_runtime_protocol", observe_runtime)
     function = _function(
         scope,
         _descriptors(scope)[1],
         tmp_path,
-        runtime="disabled",
+        runtime="both",
         expected={
             "structure": "validated",
             "runtime": "validated",
@@ -1325,17 +1396,58 @@ def test_complete_explicit_criterion_uses_same_artifact_and_retained_target(tmp_
     )
     function()
     outcome = function._source_outcome
+    retained_record = _retained_stage_record(function)
     runtime = function._source_cell.history[-1].replay_capture["metadata_runtime"]
+    assert retained_record["replay_capture"]["metadata_runtime"] == json.loads(
+        json.dumps(runtime)
+    )
     assert runtime["artifact_sha256"] == outcome["artifact_sha256"]
-    assert runtime["reference_role"] == "original-prepared-eager"
+    assert (
+        runtime["reference_role"] == "original-eager-first-warm-same-wrapper-per-sample"
+    )
+    assert len(exported) == 1 and exported[0] is fn
+    assert len(wrappers) == 2 and wrappers[0][0] is not wrappers[1][0]
+    assert [calls for _, calls in wrappers] == [2, 2]
+    for sample in (
+        function._source_cell.history[-1]
+        .replay_capture["native_protocol"]["samples"]
+        .values()
+    ):
+        assert (
+            sample["roles"]["fresh-jit"]["jit_wrapper_identity"]
+            == sample["roles"]["warm-jit"]["jit_wrapper_identity"]
+            == sample["wrapper_identity"]
+        )
+        assert sample["roles"]["eager"]["jit_wrapper_identity"] is None
+    assert len(results) == 1 and len(results[0].validations) == 2
+    assert results[0].validation is results[0].validations[0]
+    assert results[0].validations[0].target.optimization == "ORT_DISABLE_ALL"
+    assert results[0].validations[1].target.optimization == "ORT_ENABLE_ALL"
+    saved_artifact = Path(
+        function._source_cell.history[-1].replay_capture["artifact"]["path"]
+    )
+    assert all(report._artifact == saved_artifact for report in results[0].validations)
+    assert [sample.sample_sha256 for sample in results[0].validations[0].samples] == [
+        sample.sample_sha256 for sample in results[0].validations[1].samples
+    ]
     assert runtime["criteria"] == {
         "mode": "tolerant",
         "rtol": 0.0,
         "atol": 0.0,
         "equal_nan": True,
     }
-    assert len(runtime["samples"]) == 2
-    assert runtime["target"]["providers"] == ("CPUExecutionProvider",)
+    assert set(runtime["modes"]) == {"disabled", "all"}
+    assert runtime["artifact_sha256"] == runtime["loaded_artifact_sha256"]
+    for mode, record in runtime["modes"].items():
+        assert len(record["samples"]) == len(record["output_captures"]) == 2
+        assert record["target"]["providers"] == ("CPUExecutionProvider",)
+        assert record["sample_identities"] == runtime["sample_identities"]
+        assert record["artifact_sha256"] == outcome["artifact_sha256"]
+        for index in range(2):
+            saved = function._source_cell.history[-1].replay_capture[
+                f"metadata-ort-{mode}-{index}"
+            ]
+            assert saved["status"] == "captured" and Path(saved["path"]).is_file()
     assert outcome["capability_status"] == "validated"
     scientific = inventory_owner.source_metadata_numerical_checks(
         scope[1].rows[0], asdict(function._source_cell.history[-1])
@@ -1351,9 +1463,9 @@ def test_complete_explicit_criterion_uses_same_artifact_and_retained_target(tmp_
         "same_artifact_and_feeds_both_modes",
         "component_nan_masks",
         "zero_signs",
-        "operation_rounding",
-        "required_internal_fp64",
     ):
+        assert scientific[name]["status"] == "validated"
+    for name in ("reviewed_criteria", "operation_rounding", "required_internal_fp64"):
         assert scientific[name]["status"] == "unverified"
 
 
@@ -2276,6 +2388,175 @@ def _same_identity_ufunc(target, *, cls=None):
     )
 
 
+def _original_native_bitwise_and():
+    target = compat._native_numpy.bitwise_and
+    assert target is compat._native_ufuncs.bitwise_and and target is jnp.bitwise_and
+    assert type(target) is compat._NATIVE_CAPTURE_UFUNC_TYPE
+    assert compat.selected_native_capture(target) is not None
+    return target
+
+
+def test_native_bitwise_and_snapshot_retains_all_fields_and_reducer_alias():
+    target = _original_native_bitwise_and()
+    selected = compat.selected_native_capture(target)
+    nodes = selected["state"]["nodes"]
+    assert set(nodes[str(id(target))]["members"]) == set(vars(type(target)))
+    assert set(vars(target)) == compat._NATIVE_CAPTURE_UFUNC_FIELDS
+    props = vars(target)["_ufunc__static_props"]
+    assert set(props) == compat._NATIVE_CAPTURE_STATIC_FIELDS
+    assert (props["nin"], props["nout"], props["nargs"], props["identity"]) == (
+        2,
+        1,
+        2,
+        -1,
+    )
+    assert props["func"] is props["call"]
+    assert props["accumulate"] is props["at"] is props["reduceat"] is None
+    reducer = props["reduce"]
+    function = vars(reducer)["_fun"]
+    owner = sys.modules[function.__module__]
+    assert vars(owner) is function.__globals__
+    assert vars(owner)["_reduce_bitwise_and"] is reducer
+    for value in (props, props["func"], reducer, function, vars(reducer)["_jit_info"]):
+        assert str(id(value)) in nodes
+    assert any(
+        module is owner and name == "_reduce_bitwise_and" and original is reducer
+        for module, name, original in compat._NATIVE_CAPTURE_BINDINGS[id(target)]
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "func",
+        "nin",
+        "nout",
+        "nargs",
+        "identity",
+        "call",
+        "reduce",
+        "accumulate",
+        "at",
+        "reduceat",
+        "equal-dict",
+        "instance-field",
+        "private-field",
+        "class-field",
+        "public-binding",
+        "defining-binding",
+        "reducer-alias",
+        "reducer-code",
+        "reducer-config",
+        "reducer-cache",
+    ],
+)
+def test_native_bitwise_and_state_mutations_stop_before_invocation(
+    mutation, monkeypatch, tmp_path
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = _original_native_bitwise_and()
+    props = vars(target)["_ufunc__static_props"]
+    capture = raw.RawReplayCapture(tmp_path / mutation)
+    capture.bind_target(target)
+    invoked = []
+
+    def replacement(*args, **kwargs):
+        invoked.append(True)
+        pytest.fail("Changed bitwise owner state must reject before invocation")
+
+    expected = "selected native callable behavior/state changed"
+    if mutation in compat._NATIVE_CAPTURE_STATIC_FIELDS:
+        values = {"nin": 3, "nout": 2, "nargs": 3, "identity": 0}
+        monkeypatch.setitem(props, mutation, values.get(mutation, replacement))
+    elif mutation == "equal-dict":
+        monkeypatch.setattr(target, "_ufunc__static_props", dict(props))
+    elif mutation == "instance-field":
+        monkeypatch.setattr(target, "unreviewed_field", None, raising=False)
+        expected = "native ufunc instance/static schema changed"
+    elif mutation == "private-field":
+        monkeypatch.setitem(props, "unreviewed_field", None)
+        expected = "native ufunc instance/static schema changed"
+    elif mutation == "class-field":
+        monkeypatch.setattr(type(target), "unreviewed_field", None, raising=False)
+        expected = "native capture class schema changed"
+    elif mutation in {"public-binding", "defining-binding"}:
+        owner = (
+            compat._native_numpy
+            if mutation == "public-binding"
+            else compat._native_ufuncs
+        )
+        foreign = _same_identity_ufunc(target)
+        assert (
+            foreign == target
+            and hash(foreign) == hash(target)
+            and foreign is not target
+        )
+        monkeypatch.setattr(owner, "bitwise_and", foreign)
+        expected = "selected native public/defining binding changed"
+    else:
+        reducer = props["reduce"]
+        function = vars(reducer)["_fun"]
+        if mutation == "reducer-alias":
+            monkeypatch.setattr(
+                sys.modules[function.__module__], "_reduce_bitwise_and", replacement
+            )
+            expected = "selected native implementation binding changed"
+        elif mutation == "reducer-code":
+            monkeypatch.setattr(function, "__code__", function.__code__.replace())
+        elif mutation == "reducer-config":
+            info = vars(reducer)["_jit_info"]
+            monkeypatch.setitem(
+                vars(reducer),
+                "_jit_info",
+                info._replace(keep_unused=not info.keep_unused),
+            )
+        else:
+            callback = compat._NATIVE_CAPTURE_CPP_BOUNDARY[-1](reducer)
+            assert callback.__closure__
+            monkeypatch.setattr(callback.__closure__[0], "cell_contents", None)
+    with pytest.raises(ValueError, match=expected):
+        compat.selected_native_capture(target)
+    assert not capture.check_target("changed-bitwise-and-state")
+    assert capture.target is target and invoked == []
+
+
+@pytest.mark.parametrize("kind", ["same-hash", "frompyfunc", "subclass"])
+def test_native_bitwise_and_foreign_ufuncs_remain_unselected(kind, tmp_path):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+    from tests.extra_tests.converter.source_precision_support import (
+        SourcePreparationError,
+    )
+
+    target = _original_native_bitwise_and()
+    invoked = []
+    mutable = [0]
+
+    def foreign_function(x, y):
+        invoked.append(True)
+        return x + y + mutable[0]
+
+    if kind == "frompyfunc":
+        foreign = jnp.frompyfunc(foreign_function, nin=2, nout=1, identity=-1)
+    elif kind == "subclass":
+
+        class ForeignUfunc(type(target)):
+            pass
+
+        foreign = _same_identity_ufunc(target, cls=ForeignUfunc)
+    else:
+        foreign = _same_identity_ufunc(target)
+        assert foreign == target and hash(foreign) == hash(target)
+    assert compat.selected_native_capture(foreign) is None
+    capture = raw.RawReplayCapture(tmp_path / kind)
+    with pytest.raises(
+        SourcePreparationError,
+        match="Actual instantiated target needs an exact state capture adapter",
+    ):
+        capture.bind_target(foreign)
+    assert capture.target is foreign and invoked == []
+
+
 def test_original_add_metadata_retains_root_and_native_leaf_across_caller_contexts(
     original_scope,
     tmp_path,
@@ -2813,3 +3094,2144 @@ def test_actual_original_root_public_add_edge_still_rejects_mutation(
     monkeypatch.setattr(original.__globals__["jnp"], "add", foreign)
     assert not capture.check_target("actual-public-add-edge")
     assert capture.target is original and called == []
+
+
+def _protocol_numeric_function(tmp_path, *, expected=None):
+    scope = _protocol_scope(_numeric_scope())
+    function = _function(
+        scope,
+        _descriptors(scope)[1],
+        tmp_path,
+        runtime="both",
+        expected=expected or {"runtime": "validated", "numerics": "validated"},
+    )
+    return scope, function
+
+
+def test_protocol_first_mode_mismatch_is_retained_and_second_really_runs(
+    tmp_path, monkeypatch
+):
+    import jax2onnx.precision as precision
+
+    original_validate, original_compare = (
+        precision._validate_source_samples,
+        precision._compare,
+    )
+    active, modes, comparison_counts = [], [], {}
+
+    def validate(*args, **kwargs):
+        modes.append(kwargs["optimization"])
+        active.append(kwargs["optimization"])
+        try:
+            return original_validate(*args, **kwargs)
+        finally:
+            active.pop()
+
+    def compare(actual, reference, criteria):
+        if active:
+            mode = active[-1]
+            # The actual output was copied before the validator calls criteria.
+            index = comparison_counts.get(mode, 0)
+            comparison_counts[mode] = index + 1
+            assert list(tmp_path.rglob(f"metadata-ort-{mode}-{index}.npz"))
+            if mode == "disabled":
+                return "Injected first-mode criterion failure"
+        return original_compare(actual, reference, criteria)
+
+    monkeypatch.setattr(precision, "_validate_source_samples", validate)
+    monkeypatch.setattr(precision, "_compare", compare)
+    scope, function = _protocol_numeric_function(
+        tmp_path, expected={"runtime": "validated", "numerics": "failed"}
+    )
+    function()
+    record = function._source_cell.history[-1]
+    runtime = record.replay_capture["metadata_runtime"]
+    assert modes == ["disabled", "all"]
+    assert comparison_counts == {"disabled": 2, "all": 2}
+    assert runtime["modes"]["disabled"]["status"] == "failed"
+    assert runtime["modes"]["all"]["status"] == "validated"
+    assert record.numerics is CheckStatus.FAILED
+    scientific = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    assert scientific["ort_disabled"]["status"] == "failed"
+    assert scientific["ort_all"]["status"] == "validated"
+    assert scientific["criteria_comparison"]["status"] == "failed"
+
+
+def test_protocol_warm_only_mismatch_retains_all_native_roles_and_trace(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.invoke
+
+    def invoke(self, role, call):
+        value = original(self, role, call)
+        if role == "warm-jit" and role in self.native_values:
+            value = jax.tree_util.tree_map(
+                lambda array: np.asarray(array) + np.asarray(1, dtype=array.dtype),
+                value,
+            )
+            self.native_values[role] = value
+        return value
+
+    monkeypatch.setattr(raw.RawReplayCapture, "invoke", invoke)
+    _, function = _protocol_numeric_function(
+        tmp_path, expected={"source_reference": "failed", "artifact": "unverified"}
+    )
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    assert all(
+        capture[role]["status"] == "captured"
+        for role in (
+            "eager",
+            "fresh-jit",
+            "warm-jit",
+            "concrete-typed-trace",
+            "declared-typed-trace",
+        )
+    )
+    assert any(
+        check["status"] == "failed"
+        for comparison in capture["native_protocol"]["samples"][""]["comparisons"]
+        for check in comparison["checks"]
+    )
+    with (
+        np.load(capture["warm-jit"]["path"]) as warm,
+        np.load(capture["eager"]["path"]) as eager,
+    ):
+        assert not np.array_equal(warm["value_0"], eager["value_0"])
+
+
+@pytest.mark.parametrize("mutation", ["artifact", "feed", "source"])
+def test_protocol_between_mode_mutation_stops_later_mode(
+    tmp_path, monkeypatch, mutation
+):
+    import jax2onnx.precision as precision
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = precision._validate_source_samples
+    modes, captures = [], []
+    original_bind = raw.RawReplayCapture.bind_target
+
+    def bind(self, target):
+        original_bind(self, target)
+        captures.append(self)
+
+    def validate(artifact, **kwargs):
+        modes.append(kwargs["optimization"])
+        report = original(artifact, **kwargs)
+        if mutation == "artifact":
+            with Path(artifact).open("ab") as stream:
+                stream.write(b"preserved-test-mutation")
+        elif mutation == "feed":
+            inputs = kwargs["samples"][0].inputs
+            name = next(iter(inputs))
+            inputs[name] = np.array(inputs[name], copy=True) + np.asarray(
+                1, dtype=inputs[name].dtype
+            )
+        else:
+
+            def changed_source(x):
+                return x
+
+            captures[0].target.__code__ = changed_source.__code__
+        return report
+
+    monkeypatch.setattr(raw.RawReplayCapture, "bind_target", bind)
+    monkeypatch.setattr(precision, "_validate_source_samples", validate)
+    _, function = _protocol_numeric_function(
+        tmp_path,
+        expected={"numerics": "failed" if mutation != "source" else "unverified"},
+    )
+    function()
+    observation = function._source_cell.history[-1].replay_capture["metadata_runtime"]
+    assert modes == ["disabled"]
+    assert observation["failure_phase"] == "binding"
+    assert "all" not in observation["modes"]
+    assert observation["modes"]["disabled"]["samples"]
+
+
+def test_protocol_capture_writer_error_is_not_an_ort_execution_error(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.arrays
+
+    def arrays(self, role, values):
+        if role == "metadata-ort-disabled-0":
+            raise OSError("Injected capture writer failure")
+        return original(self, role, values)
+
+    monkeypatch.setattr(raw.RawReplayCapture, "arrays", arrays)
+    _, function = _protocol_numeric_function(
+        tmp_path, expected={"runtime": "validated", "numerics": "unverified"}
+    )
+    function()
+    runtime = function._source_cell.history[-1].replay_capture["metadata_runtime"]
+    assert set(runtime["modes"]) == {"disabled", "all"}
+    sample = runtime["modes"]["disabled"]["samples"][0]
+    statuses = {check["category"]: check["status"] for check in sample["checks"]}
+    assert statuses["runtime-execution"] == "validated"
+    assert statuses["output-observation"] == "failed"
+    assert statuses["numerical-acceptance"] == "unverified"
+    assert runtime["modes"]["all"]["status"] == "validated"
+
+
+def test_unreviewed_source_gets_no_extra_warm_invocation(tmp_path):
+    scope = _numeric_scope()
+    function = _function(
+        scope,
+        _descriptors(scope)[1],
+        tmp_path,
+        runtime="disabled",
+        expected={"runtime": "validated"},
+    )
+    function()
+    capture = function._source_cell.history[-1].replay_capture
+    assert not any("warm-jit" in key for key in capture)
+    assert set(capture["native_protocol"]["samples"][""]["roles"]) == {
+        "eager",
+        "fresh-jit",
+    }
+    assert capture["native_protocol"]["samples"][""]["wrapper_calls"] == 1
+
+
+@pytest.mark.parametrize("mutation", ["input", "source"])
+def test_protocol_native_input_or_source_drift_stops_before_next_role(
+    tmp_path, monkeypatch, mutation
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+    from tests.extra_tests.converter.source_precision_support import (
+        SourceSettings,
+        SourcePreparationError,
+    )
+
+    value = np.asarray([0.25, -1], dtype=np.float32)
+
+    def original(x):
+        return x
+
+    capture = raw.RawReplayCapture(tmp_path / "capture")
+    capture.bind_target(original)
+    invoke = capture.invoke
+
+    def changed(role, call):
+        result = invoke(role, call)
+        if role == "eager":
+            if mutation == "input":
+                value[0] = np.float32(9)
+            else:
+
+                def changed_source(x):
+                    return x + 1
+
+                original.__code__ = changed_source.__code__
+        return result
+
+    monkeypatch.setattr(capture, "invoke", changed)
+    with pytest.raises(SourcePreparationError):
+        capture.native_sample(
+            original,
+            (value,),
+            label="",
+            settings=SourceSettings.observe(),
+            metadata={},
+            three_roles=True,
+        )
+    assert capture.records["eager"]["status"] == "captured"
+    assert "fresh-jit" not in capture.records["native_outcomes"]
+    assert "warm-jit" not in capture.records["native_outcomes"]
+
+
+@pytest.mark.parametrize(
+    "case,category",
+    [
+        ("integer", "criteria_comparison"),
+        ("boolean", "criteria_comparison"),
+        ("dtype", "dtype_shape_output_count"),
+        ("shape", "dtype_shape_output_count"),
+        ("tree", "dtype_shape_output_count"),
+        ("nan-component", "component_nan_masks"),
+        ("signed-zero", "zero_signs"),
+    ],
+)
+def test_protocol_independent_scientific_checks_reject_counterexamples(case, category):
+    from jax2onnx.precision import SampleCriteria
+    from tests.extra_tests.converter.source_precision_raw_replay import (
+        _protocol_comparison,
+    )
+
+    left, right = np.asarray([1], dtype=np.float32), np.asarray([1], dtype=np.float32)
+    actual_tree = reference_tree = "one-leaf"
+    if case == "integer":
+        left, right = np.asarray([1], dtype=np.int32), np.asarray([2], dtype=np.int32)
+    elif case == "boolean":
+        left, right = np.asarray([True]), np.asarray([False])
+    elif case == "dtype":
+        left = left.astype(np.float64)
+    elif case == "shape":
+        left = left.reshape(1, 1)
+    elif case == "tree":
+        actual_tree = "different-tree"
+    elif case == "nan-component":
+        left = np.asarray([complex(np.nan, 2)], dtype=np.complex64)
+        right = np.asarray([complex(2, np.nan)], dtype=np.complex64)
+    elif case == "signed-zero":
+        left, right = np.asarray([-0.0], dtype=np.float32), np.asarray(
+            [0.0], dtype=np.float32
+        )
+    result = _protocol_comparison(
+        [left],
+        [right],
+        SampleCriteria("tolerant", rtol=1e6, atol=1e6),
+        actual_tree=actual_tree,
+        reference_tree=reference_tree,
+    )
+    assert {item["category"]: item["status"] for item in result["checks"]}[
+        category
+    ] == "failed"
+
+
+def test_protocol_distinct_nan_payloads_are_accepted_but_missing_criteria_is_not_exact():
+    from jax2onnx.precision import SampleCriteria
+    from tests.extra_tests.converter.source_precision_raw_replay import (
+        _protocol_comparison,
+    )
+
+    left = np.asarray([0x7FC00001], dtype=np.uint32).view(np.float32)
+    right = np.asarray([0xFFC00002], dtype=np.uint32).view(np.float32)
+    result = _protocol_comparison([left], [right], SampleCriteria("exact"))
+    assert all(item["status"] == "validated" for item in result["checks"])
+    missing = _protocol_comparison([np.asarray([1.0])], [np.asarray([2.0])], None)
+    assert {item["category"]: item["status"] for item in missing["checks"]}[
+        "criteria_comparison"
+    ] == "unverified"
+
+
+def test_both_mode_request_without_reviewed_protocol_stays_unverified(tmp_path):
+    scope = _numeric_scope()
+    function = _function(
+        scope,
+        _descriptors(scope)[1],
+        tmp_path,
+        runtime="both",
+        expected={"runtime": "unverified", "numerics": "unverified"},
+    )
+    function()
+    record = function._source_cell.history[-1]
+    assert not record.replay_capture["metadata_runtime"]["modes"]
+    assert "warm-jit" not in record.replay_capture["native_outcomes"]
+    scientific = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    assert scientific["native_three_role_agreement"]["status"] == "unverified"
+    assert scientific["ort_all"]["status"] == "unverified"
+
+
+def test_protocol_uses_the_supplied_jitted_callable_without_unwrapping(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    supplied = jax.jit(lambda x: x + jnp.asarray(1, dtype=jnp.float32))
+    scope = _protocol_scope(
+        _synthetic(
+            {
+                "testcase": "original-jitted",
+                "callable": supplied,
+                "input_values": [np.asarray([0.25, -1], dtype=np.float32)],
+                "input_shapes": [(2,)],
+                "rtol": 0.0,
+                "atol": 0.0,
+            }
+        )
+    )
+    scope[3]["rows"]["plugin::synthetic::0"]["capture_original_object"] = True
+    original_bind, targets = raw.RawReplayCapture.bind_target, []
+
+    def bind(self, target):
+        targets.append(target)
+        return original_bind(self, target)
+
+    monkeypatch.setattr(raw.RawReplayCapture, "bind_target", bind)
+    function = _function(
+        scope,
+        _descriptors(scope)[1],
+        tmp_path,
+        runtime="both",
+        expected={"runtime": "validated", "numerics": "validated"},
+    )
+    function()
+    assert targets == [supplied] and targets[0] is supplied
+    sample = function._source_cell.history[-1].replay_capture["native_protocol"][
+        "samples"
+    ][""]
+    assert sample["wrapper_calls"] == 2
+    assert set(sample["roles"]) == {"eager", "fresh-jit", "warm-jit"}
+    assert _retained_stage_record(function)["replay_capture"][
+        "metadata_runtime"
+    ] == json.loads(
+        json.dumps(
+            function._source_cell.history[-1].replay_capture["metadata_runtime"],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
+_SUPPLIED_JIT_GLOBAL = [1]
+
+
+def _supplied_jit_global_original(x):
+    return x + _SUPPLIED_JIT_GLOBAL[0]
+
+
+def test_original_jit_capture_preserves_cache_growth_and_original_identity(tmp_path):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+    from tests.extra_tests.converter.source_precision_support import SourceSettings
+
+    supplied = jax.jit(lambda x: x + 1)
+    capture = raw.RawReplayCapture(tmp_path / "jit-cache-growth")
+    recipe = raw._capture_recipe(supplied)
+    capture.bind_target(supplied)
+    assert capture.target_witness is not None
+    assert capture.target_witness.native_references
+    result = capture.native_sample(
+        supplied,
+        (np.asarray([0.25, -1], np.float32),),
+        label="",
+        settings=SourceSettings.observe(),
+        metadata={},
+        three_roles=True,
+    )
+    np.testing.assert_array_equal(result, np.asarray([1.25, 0], np.float32))
+    assert capture.target is supplied
+    assert capture.check_target("after-actual-cache-growth")
+    assert raw._capture_recipe(supplied) == recipe
+    assert {
+        key: value["status"]
+        for key, value in capture.records["native_outcomes"].items()
+    } == {"eager": "returned", "fresh-jit": "returned", "warm-jit": "returned"}
+    assert capture.native_samples[""]["wrapper_calls"] == 2
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "fun",
+        "wrapped",
+        "coherent-functions",
+        "jit-info",
+        "code",
+        "global",
+        "unknown-field",
+        "native-type",
+        "cache-miss-code",
+    ],
+)
+def test_original_jit_capture_rejects_mutation_before_next_role(
+    tmp_path, monkeypatch, mutation
+):
+    from jax2onnx._compat import jax as compat
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+    from tests.extra_tests.converter.source_precision_support import SourceSettings
+
+    if mutation == "global":
+        monkeypatch.setitem(globals(), "_SUPPLIED_JIT_GLOBAL", [1])
+    original = (
+        _supplied_jit_global_original if mutation == "global" else (lambda x: x + 1)
+    )
+    supplied = jax.jit(original)
+    capture = raw.RawReplayCapture(tmp_path / mutation)
+    recipe = raw._capture_recipe(supplied)
+    capture.bind_target(supplied)
+    assert capture.check_target("unchanged")
+
+    def replacement(x):
+        return x - 1
+
+    if mutation in {"fun", "coherent-functions"}:
+        monkeypatch.setattr(supplied, "_fun", replacement)
+    if mutation in {"wrapped", "coherent-functions"}:
+        monkeypatch.setattr(supplied, "__wrapped__", replacement)
+    elif mutation == "jit-info":
+        monkeypatch.setattr(
+            supplied,
+            "_jit_info",
+            supplied._jit_info._replace(keep_unused=not supplied._jit_info.keep_unused),
+        )
+    elif mutation == "code":
+        changed_code = replacement.__code__.replace(
+            co_name=original.__code__.co_name,
+            co_qualname=original.__code__.co_qualname,
+        )
+        assert changed_code.co_name == original.__code__.co_name
+        assert changed_code.co_qualname == original.__code__.co_qualname
+        monkeypatch.setattr(original, "__code__", changed_code)
+    elif mutation == "global":
+        _SUPPLIED_JIT_GLOBAL[0] = 2
+    elif mutation == "unknown-field":
+        monkeypatch.setattr(supplied, "unreviewed_field", True, raising=False)
+    elif mutation == "native-type":
+        monkeypatch.setattr(
+            compat._cast_cpu_native, "PjitFunction", type("PjitFunction", (), {})
+        )
+    elif mutation == "cache-miss-code":
+        callback = compat._NATIVE_CAPTURE_CPP_BOUNDARY[-1](supplied)
+        cache_miss = callback.__closure__[0].cell_contents
+
+        def counterfeit(fun, jit_info):
+            def cache_miss(*args, **kwargs):
+                return fun, jit_info
+
+            return cache_miss
+
+        forged = counterfeit(original, supplied._jit_info)
+        assert forged.__code__.co_name == cache_miss.__code__.co_name
+        assert forged.__code__.co_freevars == cache_miss.__code__.co_freevars
+        monkeypatch.setattr(cache_miss, "__code__", forged.__code__)
+    attempted = []
+
+    def forbidden(*args, **kwargs):
+        attempted.append(True)
+        raise AssertionError("A changed original must not be invoked")
+
+    monkeypatch.setattr(capture, "invoke", forbidden)
+    with pytest.raises(raw.SourcePreparationError, match="state is not preserved"):
+        capture.native_sample(
+            supplied,
+            (np.asarray([1], np.float32),),
+            label="",
+            settings=SourceSettings.observe(),
+            metadata={},
+            three_roles=True,
+        )
+    assert attempted == []
+    assert capture.records["native_outcomes"] == {}
+    assert capture.readiness is CheckStatus.UNVERIFIED
+    if mutation == "code":
+        assert raw._capture_recipe(supplied) != recipe
+    elif mutation != "global":
+        with pytest.raises(raw.SourcePreparationError):
+            raw._capture_recipe(supplied)
+
+
+def test_original_jit_capture_rejects_native_typename_spoof():
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    spoof = type(
+        "PjitFunction", (), {"__module__": "jaxlib._jax", "__call__": lambda self, x: x}
+    )()
+    with pytest.raises(
+        raw.SourcePreparationError, match="No exact original-object capture adapter"
+    ):
+        raw._capture_recipe(spoof)
+
+
+def test_protocol_scientific_projection_rejects_stale_and_duplicate_bindings(tmp_path):
+    scope, function = _protocol_numeric_function(tmp_path)
+    function()
+    record = asdict(function._source_cell.history[-1])
+    for mutation in (
+        "contract",
+        "scenario",
+        "wrapper",
+        "role",
+        "feed",
+        "outputs",
+        "references",
+        "output-index",
+        "sample-index",
+    ):
+        broken = copy.deepcopy(record)
+        capture = broken["replay_capture"]
+        if mutation == "contract":
+            capture["protocol_binding"]["row_contract_sha256"] = "0" * 64
+        elif mutation == "scenario":
+            capture["protocol_binding"]["scenario_sha256"] = "0" * 64
+        elif mutation == "wrapper":
+            samples = list(capture["native_protocol"]["samples"].values())
+            samples[1]["wrapper_identity"] = samples[0]["wrapper_identity"]
+        elif mutation == "role":
+            comparisons = capture["native_protocol"]["samples"][""]["comparisons"]
+            comparisons[1]["role"] = comparisons[0]["role"]
+        elif mutation == "feed":
+            capture["metadata_runtime"]["modes"]["all"]["sample_identities"][0][
+                "inputs"
+            ][0]["sha256"] = ("0" * 64)
+        elif mutation == "outputs":
+            capture["metadata-ort-disabled-0"] = copy.deepcopy(
+                capture["metadata-ort-disabled-1"]
+            )
+            capture["metadata_runtime"]["modes"]["disabled"]["output_captures"][0][
+                "outputs"
+            ] = copy.deepcopy(capture["metadata-ort-disabled-1"]["array_evidence"])
+        elif mutation == "references":
+            capture["eager-physical-reference"] = copy.deepcopy(
+                capture["metadata-runtime-reference-0-eager-physical-reference"]
+            )
+        elif mutation == "output-index":
+            output = capture["metadata_runtime"]["modes"]["disabled"][
+                "output_captures"
+            ][0]
+            output["index"] = 2
+            output["capture_role"] = "metadata-ort-disabled-2"
+            capture["metadata-ort-disabled-2"] = copy.deepcopy(
+                capture["metadata-ort-disabled-0"]
+            )
+        else:
+            capture["metadata_runtime"]["modes"]["disabled"]["samples"][0]["index"] = 2
+        with pytest.raises(ValueError):
+            inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], broken)
+    missing = copy.deepcopy(record)
+    missing["replay_capture"]["native_protocol"]["samples"][""]["roles"].pop("warm-jit")
+    projected = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], missing
+    )
+    assert projected["native_three_role_agreement"]["status"] == "unverified"
+    for role in ("metadata-ort-disabled-0", "eager-physical-reference"):
+        missing = copy.deepcopy(record)
+        missing["replay_capture"].pop(role)
+        projected = inventory_owner.source_metadata_numerical_checks(
+            scope[1].rows[0], missing
+        )
+        for name in (
+            "ort_disabled",
+            "dtype_shape_output_count",
+            "criteria_comparison",
+            "component_nan_masks",
+            "zero_signs",
+            "same_artifact_and_feeds_both_modes",
+        ):
+            assert projected[name]["status"] == "unverified"
+
+
+@pytest.mark.parametrize("capture_name", ["adapter", "metadata-ort-disabled-0"])
+def test_protocol_projection_does_not_accept_changed_retained_bytes(
+    tmp_path, capture_name
+):
+    scope, function = _protocol_numeric_function(tmp_path)
+    function()
+    record = asdict(function._source_cell.history[-1])
+    path = Path(record["replay_capture"][capture_name]["path"])
+    with path.open("ab") as stream:
+        stream.write(b"retained-evidence-tamper")
+    with pytest.raises(ValueError):
+        inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], record)
+
+
+def test_stateful_original_is_not_reset_or_given_an_extra_warm_role(tmp_path):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+    from tests.extra_tests.converter.source_precision_support import (
+        SourceSettings,
+        SourcePreparationError,
+    )
+
+    calls = []
+
+    def original(x):
+        calls.append("actual-call")
+        return x
+
+    capture = raw.RawReplayCapture(tmp_path / "stateful-capture")
+    capture.bind_target(original)
+    with pytest.raises(SourcePreparationError):
+        capture.native_sample(
+            original,
+            (np.asarray([1], dtype=np.float32),),
+            label="",
+            settings=SourceSettings.observe(),
+            metadata={},
+            three_roles=False,
+        )
+    assert calls == ["actual-call"]
+    assert "warm-jit" not in capture.records["native_outcomes"]
+    assert capture.records["eager"]["status"] == "captured"
+
+
+@pytest.mark.parametrize("failure", ["load", "run"])
+def test_protocol_first_mode_load_or_run_failure_does_not_hide_second(
+    tmp_path, monkeypatch, failure
+):
+    import jax2onnx.precision as precision
+
+    original = precision._validate_source_samples
+    modes = []
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("Injected first-mode " + failure + " failure")
+
+    def validate(*args, **kwargs):
+        modes.append(kwargs["optimization"])
+        if kwargs["optimization"] == "disabled":
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    precision,
+                    "_artifact_bytes" if failure == "load" else "_run_cpu_samples",
+                    fail,
+                )
+                return original(*args, **kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(precision, "_validate_source_samples", validate)
+    scope, function = _protocol_numeric_function(
+        tmp_path,
+        expected={
+            "runtime": "unverified" if failure == "load" else "failed",
+            "numerics": "failed",
+        },
+    )
+    function()
+    record = function._source_cell.history[-1]
+    runtime = record.replay_capture["metadata_runtime"]
+    assert modes == ["disabled", "all"]
+    assert runtime["modes"]["disabled"]["status"] == "failed"
+    assert runtime["modes"]["all"]["status"] == "validated"
+    assert runtime["status"] == "failed"
+    projected = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    assert projected["ort_disabled"]["status"] == "failed"
+    assert projected["ort_all"]["status"] == "validated"
+    assert projected["same_artifact_and_feeds_both_modes"]["status"] == "unverified"
+
+
+def test_unreviewed_protocol_is_rejected_before_any_native_role(tmp_path, monkeypatch):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    scope = _protocol_scope(_numeric_scope())
+    scope[3]["rows"]["plugin::synthetic::0"]["native_protocol"]["reviewed"] = False
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Unreviewed protocol must stop before invoking a native role")
+
+    monkeypatch.setattr(raw.RawReplayCapture, "native_sample", forbidden)
+    function = _function(
+        scope,
+        _descriptors(scope)[1],
+        tmp_path,
+        runtime="both",
+        expected={"source_reference": "unverified", "runtime": "unverified"},
+    )
+    function()
+    assert not function._source_cell.history[-1].replay_capture["native_outcomes"]
+
+
+def test_generated_cell_drift_retains_serializable_partial_native_evidence(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.invoke
+
+    def invoke(self, role, call):
+        value = original(self, role, call)
+        if role == "eager":
+
+            def changed_source(x):
+                return x
+
+            self.target.__code__ = changed_source.__code__
+        return value
+
+    monkeypatch.setattr(raw.RawReplayCapture, "invoke", invoke)
+    _, function = _protocol_numeric_function(
+        tmp_path, expected={"source_reference": "unverified", "runtime": "unverified"}
+    )
+    function()
+    record = function._source_cell.history[-1]
+    payload = asdict(record)
+    assert _retained_stage_record(function) == json.loads(json.dumps(payload))
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    assert record.sha256 == hashlib.sha256(encoded).hexdigest()
+    capture = payload["replay_capture"]
+    assert capture["eager"]["status"] == "captured"
+    assert capture["native_outcomes"]["eager"]["status"] == "returned"
+    assert "fresh-jit" not in capture["native_outcomes"]
+    assert "warm-jit" not in capture["native_outcomes"]
+    assert capture["native_protocol"]["samples"][""]["roles"]["eager"]
+
+
+@pytest.mark.parametrize("failed_role", ["eager", "fresh-jit", "warm-jit"])
+def test_alternate_native_exception_is_failed_after_all_roles_are_retained(
+    tmp_path, monkeypatch, failed_role
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.invoke
+    target = "metadata-runtime-reference-0-" + failed_role
+
+    def invoke(self, role, call):
+        if role == target:
+
+            def raised():
+                call()
+                raise RuntimeError("Injected alternate role exception: " + failed_role)
+
+            return original(self, role, raised)
+        return original(self, role, call)
+
+    monkeypatch.setattr(raw.RawReplayCapture, "invoke", invoke)
+    scope, function = _protocol_numeric_function(
+        tmp_path,
+        expected={
+            "source_reference": "failed",
+            "runtime": "unverified",
+            "numerics": "failed",
+        },
+    )
+    function()
+    record = function._source_cell.history[-1]
+    json.dumps(asdict(record))
+    capture = record.replay_capture
+    assert record.source_reference is CheckStatus.FAILED
+    assert record.numerics is CheckStatus.FAILED
+    assert capture["metadata_runtime"]["reference_status"] == "failed"
+    assert not capture["metadata_runtime"]["modes"]
+    roles = capture["native_protocol"]["samples"]["metadata-runtime-reference-0"][
+        "roles"
+    ]
+    assert set(roles) == {"eager", "fresh-jit", "warm-jit"}
+    for role in roles:
+        name = "metadata-runtime-reference-0-" + role
+        if role == failed_role:
+            assert roles[role]["outcome"]["status"] == "raised"
+            assert (
+                "Injected alternate role exception" in roles[role]["outcome"]["detail"]
+            )
+        else:
+            assert roles[role]["outcome"]["status"] == "returned"
+            assert capture[name]["status"] == "captured"
+    assert capture["metadata-runtime-reference-0-inputs"]["status"] == "captured"
+    scientific = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    assert scientific["native_three_role_agreement"]["status"] == "failed"
+
+
+def test_stage_record_write_failure_remains_missing_evidence(tmp_path, monkeypatch):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.document
+
+    def document(self, role, value):
+        if role == "stage-evidence":
+            raise OSError("Injected stage record writer failure")
+        return original(self, role, value)
+
+    monkeypatch.setattr(raw.RawReplayCapture, "document", document)
+    _, function = _protocol_numeric_function(
+        tmp_path,
+        expected={
+            "source_reference": "unverified",
+            "runtime": "validated",
+            "numerics": "unverified",
+        },
+    )
+    function()
+    record = function._source_cell.history[-1]
+    json.dumps(asdict(record))
+    assert record.sha256
+    capture = record.replay_capture
+    assert capture["stage-evidence-persistence"] == {
+        "status": "failed",
+        "exception": "builtins.OSError",
+        "detail": "Injected stage record writer failure",
+    }
+    assert record.source_reference is CheckStatus.UNVERIFIED
+    assert record.numerics is CheckStatus.UNVERIFIED
+    assert record.runtime is CheckStatus.VALIDATED
+    assert not (
+        Path(capture["artifact"]["path"]).parent / "stage-evidence.json"
+    ).exists()
+    assert set(capture["metadata_runtime"]["modes"]) == {"disabled", "all"}
+    assert function._source_outcome["capability_status"] == "unverified"
+
+
+def _discrete_protocol_scope(case):
+    scope = _protocol_scope(_synthetic(case))
+    scope[3]["rows"]["plugin::synthetic::0"]["criteria"] = {
+        "mode": "exact",
+        "applicability": "all-logical-discrete",
+    }
+    return scope
+
+
+def _discrete_numeric_function(
+    tmp_path,
+    *,
+    dtype=np.int32,
+    caller="raw-x64-on",
+    expected=None,
+    supplied_jit=False,
+    scalar=False,
+):
+    def fn(x):
+        return jnp.bitwise_not(x)
+
+    if supplied_jit:
+        fn = jax.jit(fn)
+    scope = _discrete_protocol_scope(
+        {
+            "testcase": "conditional-discrete",
+            "callable": fn,
+            "input_values": [np.asarray(1 if scalar else [1, 0, 3], dtype=dtype)],
+            "runtime_input_values": [
+                [np.asarray(0 if scalar else [0, 1, 2], dtype=dtype)]
+            ],
+        }
+    )
+    if supplied_jit:
+        scope[3]["rows"]["plugin::synthetic::0"]["capture_original_object"] = True
+    descriptor = _descriptors(scope, selection=[("plugin::synthetic", 0, caller)])[0]
+    function = _function(
+        scope,
+        descriptor,
+        tmp_path,
+        runtime="both",
+        expected=expected or {"runtime": "validated", "numerics": "validated"},
+    )
+    return scope, function
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.uint32, np.bool_])
+@pytest.mark.parametrize("caller", ["raw-x64-off", "raw-x64-on"])
+def test_conditional_discrete_criterion_retains_original_jit_and_all_samples(
+    tmp_path, monkeypatch, dtype, caller
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    targets = []
+    original = raw.RawReplayCapture.bind_target
+
+    def bind(self, target):
+        targets.append(target)
+        return original(self, target)
+
+    monkeypatch.setattr(raw.RawReplayCapture, "bind_target", bind)
+    scope, function = _discrete_numeric_function(
+        tmp_path, dtype=dtype, caller=caller, supplied_jit=True
+    )
+    supplied = scope[2][0][2]["testcases"][0]["callable"]
+    row = scope[1].rows[0]
+    frozen = asdict(row)
+    function()
+    record = function._source_cell.history[-1]
+    retained = _retained_stage_record(function)
+    capture = record.replay_capture
+    runtime = capture["metadata_runtime"]
+    assert targets == [supplied] and targets[0] is supplied
+    assert asdict(row) == frozen and row.criteria is None
+    assert runtime["criteria"] == {
+        "mode": "exact",
+        "rtol": None,
+        "atol": None,
+        "equal_nan": True,
+    }
+    assert set(runtime["modes"]) == {"disabled", "all"}
+    assert runtime["native_sample_labels"] == ["", "metadata-runtime-reference-0"]
+    assert len(runtime["sample_identities"]) == 2
+    assert retained["replay_capture"]["metadata_runtime"] == json.loads(
+        json.dumps(runtime)
+    )
+    resolution = capture["criteria_resolution"]
+    assert resolution["status"] == "validated"
+    assert resolution["choice"] == {
+        "mode": "exact",
+        "applicability": "all-logical-discrete",
+    }
+    assert resolution["contract_sha256"] == row.contract_sha256
+    assert resolution["protocol_binding"] == capture["protocol_binding"]
+    assert resolution["adapter_sha256"] == capture["adapter"]["sha256"]
+    assert resolution["trace_sha256"] == capture[resolution["trace_role"]]["sha256"]
+    assert resolution["criteria"] == runtime["criteria"]
+    assert resolution["output_applicability"] == {
+        "component_nan_masks": "not-applicable",
+        "zero_signs": "not-applicable",
+    }
+    saved = capture["criteria-resolution"]
+    assert saved["status"] == "captured"
+    payload = Path(saved["path"]).read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == saved["sha256"]
+    assert json.loads(payload) == json.loads(json.dumps(resolution))
+    assert retained["replay_capture"]["criteria_resolution"] == json.loads(
+        json.dumps(resolution)
+    )
+    samples = capture["native_protocol"]["samples"]
+    assert set(samples) == {"", "metadata-runtime-reference-0"}
+    assert len({sample["wrapper_identity"] for sample in samples.values()}) == 2
+    assert [sample["label"] for sample in resolution["samples"]] == list(samples)
+    for label, sample in samples.items():
+        assert sample["wrapper_calls"] == 2
+        assert set(sample["roles"]) == {"eager", "fresh-jit", "warm-jit"}
+        assert (
+            sample["roles"]["fresh-jit"]["jit_wrapper_identity"]
+            == sample["roles"]["warm-jit"]["jit_wrapper_identity"]
+            == sample["wrapper_identity"]
+        )
+        for role in sample["roles"]:
+            name = (label + "-" if label else "") + role
+            assert capture[name]["status"] == "captured"
+    for mode, result in runtime["modes"].items():
+        assert result["artifact_sha256"] == record.artifact_sha256
+        assert result["sample_identities"] == runtime["sample_identities"]
+        assert len(result["samples"]) == len(result["output_captures"]) == 2
+        for index in range(2):
+            assert capture[f"metadata-ort-{mode}-{index}"]["status"] == "captured"
+    scientific = inventory_owner.source_metadata_numerical_checks(row, asdict(record))
+    assert scientific["declared_criteria_pair"]["status"] == "unverified"
+    for name in (
+        "reviewed_criteria",
+        "native_three_role_agreement",
+        "ort_disabled",
+        "ort_all",
+        "same_artifact_and_feeds_both_modes",
+        "dtype_shape_output_count",
+        "criteria_comparison",
+    ):
+        assert scientific[name]["status"] == "validated"
+    for name in ("operation_rounding", "required_internal_fp64"):
+        assert scientific[name]["status"] == "unverified"
+    for name in ("component_nan_masks", "zero_signs"):
+        assert scientific[name]["status"] == "validated"
+        assert scientific[name]["applicability"] == "not-applicable"
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.bool_])
+@pytest.mark.parametrize("failed_mode", ["disabled", "all"])
+def test_conditional_discrete_exact_mismatch_keeps_both_real_ort_modes(
+    tmp_path, monkeypatch, dtype, failed_mode
+):
+    import jax2onnx.precision as precision
+
+    original_validate = precision._validate_source_samples
+    original_run = precision._run_cpu_samples
+    active, modes, calls = [], [], {}
+
+    def validate(*args, **kwargs):
+        mode = kwargs["optimization"]
+        active.append(mode)
+        modes.append(mode)
+        try:
+            return original_validate(*args, **kwargs)
+        finally:
+            active.pop()
+
+    def run(*args, **kwargs):
+        actual = original_run(*args, **kwargs)
+        mode = active[-1]
+        calls[mode] = calls.get(mode, 0) + 1
+        if mode == failed_mode:
+            changed = np.array(actual[0], copy=True)
+            if changed.dtype.kind == "b":
+                changed[0] = not changed[0]
+            else:
+                changed[0] += np.asarray(1, dtype=changed.dtype)
+            return (changed, *actual[1:])
+        return actual
+
+    monkeypatch.setattr(precision, "_validate_source_samples", validate)
+    monkeypatch.setattr(precision, "_run_cpu_samples", run)
+    scope, function = _discrete_numeric_function(
+        tmp_path,
+        dtype=dtype,
+        expected={"runtime": "validated", "numerics": "failed"},
+    )
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    runtime = capture["metadata_runtime"]
+    assert modes == ["disabled", "all"]
+    assert calls == {"disabled": 2, "all": 2}
+    assert runtime["modes"][failed_mode]["status"] == "failed"
+    other = "all" if failed_mode == "disabled" else "disabled"
+    assert runtime["modes"][other]["status"] == "validated"
+    assert record.numerics is CheckStatus.FAILED
+    for index in range(2):
+        with (
+            np.load(capture[f"metadata-ort-{failed_mode}-{index}"]["path"]) as actual,
+            np.load(capture[f"metadata-ort-{other}-{index}"]["path"]) as reference,
+        ):
+            assert not np.array_equal(actual["value_0"], reference["value_0"])
+    scientific = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    assert scientific["reviewed_criteria"]["status"] == "validated"
+    assert scientific["ort_" + failed_mode]["status"] == "failed"
+    assert scientific["ort_" + other]["status"] == "validated"
+    assert scientific["criteria_comparison"]["status"] == "failed"
+
+
+@pytest.mark.parametrize("caller", ["raw-x64-off", "raw-x64-on"])
+def test_real_bitwise_and_conditional_criterion_preserves_raw_metadata(
+    original_scope, tmp_path, monkeypatch, caller
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    payload = inventory_owner.CURRENT_BASELINE.read_bytes()
+    inventory = json.loads(payload)
+    plan = probe.build_probe_plan(
+        inventory, baseline_sha256=hashlib.sha256(payload).hexdigest()
+    )
+    row = next(
+        row
+        for row in plan.rows
+        if (row.origin, row.ordinal) == ("plugin::jax.numpy.bitwise_and", 0)
+    )
+    assert row.contract_sha256 == (
+        "7a0ab58cda9df361c9ccb707366f2b0c7864f1a3f4a74d9b31afc77845690d95"
+    )
+    assert row.criteria is None
+    registrations = original_scope[2]
+    metadata = probe._resolve_case(
+        row, {origin: value for origin, _, value in registrations}
+    )
+    original = metadata["callable"]
+    callback = metadata["post_check_onnx_graph"]
+    inputs = [value.tobytes() for value in metadata["input_values"]]
+    adapters = {
+        "inventory_sha256": plan.baseline_sha256,
+        "rows": {
+            "plugin::jax.numpy.bitwise_and::0": {
+                "contract_sha256": row.contract_sha256,
+                "native_protocol": {
+                    "mode": "stateless-three-role-v1",
+                    "reviewed": True,
+                },
+                "criteria": {
+                    "mode": "exact",
+                    "applicability": "all-logical-discrete",
+                },
+            }
+        },
+    }
+    scope = (inventory, plan, registrations, adapters)
+    descriptor = _descriptors(scope, selection=[(row.origin, row.ordinal, caller)])[0]
+    exported = []
+    original_export = raw._export_prepared
+
+    def export(*args, **kwargs):
+        exported.append(args[0].fn)
+        return original_export(*args, **kwargs)
+
+    monkeypatch.setattr(raw, "_export_prepared", export)
+    function = _function(
+        scope,
+        descriptor,
+        tmp_path,
+        runtime="both",
+        expected={
+            "source_reference": "validated",
+            "raw_callback": "validated",
+            "runtime": "validated",
+            "numerics": "validated",
+        },
+    )
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    assert exported == [original] and exported[0] is original
+    assert metadata["post_check_onnx_graph"] is callback
+    assert [value.tobytes() for value in metadata["input_values"]] == inputs
+    assert record.raw_callback_status == "passed"
+    assert record.requested_stage == "product"
+    assert record.category == "audited-profile"
+    assert record.lowering_audit is CheckStatus.VALIDATED
+    assert record.export_report is not None
+    assert record.export_report.profile == "source-static-v1"
+    assert "audit_pending" not in record.detail
+    for mode in ("disabled", "all"):
+        with np.load(capture[f"metadata-ort-{mode}-0"]["path"]) as outputs:
+            np.testing.assert_array_equal(
+                outputs["value_0"], np.asarray([1, 0, 2], dtype=np.int32)
+            )
+    with np.load(capture["eager"]["path"]) as eager:
+        np.testing.assert_array_equal(
+            eager["value_0"], np.asarray([1, 0, 2], dtype=np.int32)
+        )
+    scientific = inventory_owner.source_metadata_numerical_checks(row, asdict(record))
+    assert scientific["reviewed_criteria"]["status"] == "validated"
+    assert scientific["declared_criteria_pair"]["status"] == "unverified"
+    for name in ("operation_rounding", "required_internal_fp64"):
+        assert scientific[name]["status"] == "validated"
+        assert scientific[name]["applicability"] == "not-applicable"
+    ledger = _account(scope, [descriptor])
+    assert ledger["counts"]["raw_caller_cells"] == 3712
+    assert ledger["counts"]["criterion_unresolved_raw_rows"] == 1838
+    assert ledger["counts"]["planned_source_selectors"] == 1
+    assert ledger["complete_migration_acceptance"] != "validated"
+
+
+@pytest.mark.parametrize("dtype", [np.bool_, np.int32, np.uint32])
+def test_bitwise_applicability_binds_complete_native_source_and_saved_ir(
+    tmp_path, dtype
+):
+    scope, function = _discrete_numeric_function(tmp_path, dtype=dtype)
+    function()
+    record = asdict(function._source_cell.history[-1])
+    capture = record["replay_capture"]
+    structure = capture["source_structure"]
+    proof = structure["floating_applicability"]
+    assert proof["status"] == "validated"
+    assert json.loads(json.dumps(proof["protocol_binding"])) == json.loads(
+        json.dumps(capture["protocol_binding"])
+    )
+    assert proof["artifact_sha256"] == record["artifact_sha256"]
+    assert proof["source_structure_sha256"] == inventory_owner._contract_hash(
+        {
+            key: value
+            for key, value in structure.items()
+            if key != "floating_applicability"
+        }
+    )
+    document = capture["source-bitwise-applicability"]
+    payload = Path(document["path"]).read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == document["sha256"]
+    assert json.loads(payload) == json.loads(json.dumps(proof))
+    assert proof["closure"]["constant_count"] == proof["closure"]["function_count"] == 0
+    assert len(proof["closure"]["ir_nodes"]) == 1
+    assert len(capture["native_protocol"]["samples"]) == 2
+    assert set(capture["metadata_runtime"]["modes"]) == {"disabled", "all"}
+    checks = inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], record)
+    for name in ("operation_rounding", "required_internal_fp64"):
+        assert checks[name]["status"] == "validated"
+        assert checks[name]["applicability"] == "not-applicable"
+    assert checks["native_three_role_agreement"]["status"] == "validated"
+    assert checks["criteria_comparison"]["status"] == "validated"
+    assert checks["same_artifact_and_feeds_both_modes"]["status"] == "validated"
+
+
+def test_bitwise_applicability_rejects_missing_forged_and_detached_bindings(tmp_path):
+    scope, function = _discrete_numeric_function(tmp_path)
+    function()
+    original = asdict(function._source_cell.history[-1])
+    assert (
+        original["replay_capture"]["source_structure"]["floating_applicability"][
+            "status"
+        ]
+        == "validated"
+    )
+    for mutation in (
+        "source",
+        "artifact",
+        "protocol",
+        "closure",
+        "coverage",
+        "trace",
+        "export-manifest",
+        "original-trace",
+    ):
+        record = copy.deepcopy(original)
+        capture = record["replay_capture"]
+        structure = capture["source_structure"]
+        proof = structure["floating_applicability"]
+        if mutation == "source":
+            proof["source_structure_sha256"] = "0" * 64
+        elif mutation == "artifact":
+            proof["artifact_sha256"] = "0" * 64
+        elif mutation == "protocol":
+            proof["protocol_binding"]["scenario_sha256"] = "0" * 64
+        elif mutation == "closure":
+            proof["closure"]["ir_nodes"][0]["op"] = "Identity"
+        elif mutation == "original-trace":
+            trace = json.loads(record["original_trace_json"])
+            trace["equations"][0]["primitive"] = "and"
+            record["original_trace_json"] = json.dumps(trace)
+        else:
+            if mutation == "coverage":
+                structure["ir_result"]["checked_equations"] = 0
+            elif mutation == "trace":
+                for key in (
+                    "prepared_trace_sha256",
+                    "actual_trace_sha256",
+                    "fresh_prepared_trace_sha256",
+                ):
+                    structure["source_binding"][key] = "0" * 64
+            else:
+                exported = structure["source_binding"]["export_trace_manifest"]
+                payload = json.loads(Path(exported["path"]).read_bytes())
+                payload["manifest"]["equations"][0]["primitive"] = "add"
+                path = tmp_path / "forged-export-manifest.json"
+                path.write_text(
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+                )
+                structure["source_binding"]["export_trace_manifest"] = {
+                    "path": str(path),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "bytes": path.stat().st_size,
+                }
+            proof["source_structure_sha256"] = inventory_owner._contract_hash(
+                {
+                    key: value
+                    for key, value in structure.items()
+                    if key != "floating_applicability"
+                }
+            )
+        # Rebind the actual forged document too: hash-only validation is insufficient.
+        path = tmp_path / ("forged-bitwise-" + mutation + ".json")
+        path.write_text(json.dumps(proof, sort_keys=True, separators=(",", ":")) + "\n")
+        capture["source-bitwise-applicability"] = {
+            "status": "captured",
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        with pytest.raises(ValueError):
+            inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], record)
+    for missing in (
+        "floating_applicability",
+        "source-bitwise-applicability",
+        "artifact",
+    ):
+        record = copy.deepcopy(original)
+        capture = record["replay_capture"]
+        (
+            capture["source_structure"]
+            if missing == "floating_applicability"
+            else capture
+        ).pop(missing)
+        checks = inventory_owner.source_metadata_numerical_checks(
+            scope[1].rows[0], record
+        )
+        for name in ("operation_rounding", "required_internal_fp64"):
+            assert checks[name]["status"] == "unverified"
+            assert checks[name].get("applicability") != "not-applicable"
+    contradictory = copy.deepcopy(original)
+    contradictory["replay_capture"].pop("declared-typed-trace")
+    with pytest.raises(ValueError):
+        inventory_owner.source_metadata_numerical_checks(
+            scope[1].rows[0], contradictory
+        )
+    failed = copy.deepcopy(original)
+    failed["source_reference"] = "failed"
+    for item in failed["replay_capture"]["native_protocol"]["samples"][""][
+        "comparisons"
+    ][0]["checks"]:
+        if item["category"] == "criteria_comparison":
+            item.update(status="failed", detail="Original exact mismatch")
+    checks = inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], failed)
+    assert checks["native_three_role_agreement"]["status"] == "failed"
+
+
+def test_bitwise_applicability_document_failure_cannot_discharge_checks(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.document
+
+    attempts = []
+
+    def document(self, role, value):
+        if role == "source-bitwise-applicability":
+            attempts.append(self)
+            raise OSError("Injected applicability document failure")
+        return original(self, role, value)
+
+    monkeypatch.setattr(raw.RawReplayCapture, "document", document)
+    scope, function = _discrete_numeric_function(tmp_path)
+    function()
+    record = asdict(function._source_cell.history[-1])
+    capture = record["replay_capture"]
+    assert len(attempts) == 1
+    attempts[0].finalize_source_structure(attempts[0].model)
+    assert len(attempts) == 1
+    assert (
+        capture["source_structure"]["floating_applicability"]["status"] == "unverified"
+    )
+    assert capture["source-bitwise-applicability"] == {
+        "status": "failed",
+        "exception": "builtins.OSError",
+        "detail": "Injected applicability document failure",
+    }
+    assert not (
+        Path(capture["artifact"]["path"]).parent / "source-bitwise-applicability.json"
+    ).exists()
+    checks = inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], record)
+    assert checks["criteria_comparison"]["status"] == "validated"
+    for name in ("operation_rounding", "required_internal_fp64"):
+        assert checks[name]["status"] == "unverified"
+
+
+def test_bitwise_applicability_repeated_fences_preserve_single_document(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.document
+    captures = []
+
+    def document(self, role, value):
+        if role == "source-bitwise-applicability":
+            captures.append(self)
+        return original(self, role, value)
+
+    monkeypatch.setattr(raw.RawReplayCapture, "document", document)
+    scope, function = _discrete_numeric_function(tmp_path)
+    function()
+    assert len(captures) == 1
+    capture = captures[0]
+    record = asdict(function._source_cell.history[-1])
+    path = Path(capture.records["source-bitwise-applicability"]["path"])
+    before = path.read_bytes()
+    capture.finalize_source_structure(capture.model)
+    assert capture.source_structure_status() is CheckStatus.VALIDATED
+    assert (
+        capture.records["source_structure"]["floating_applicability"]["status"]
+        == "validated"
+    )
+    assert path.read_bytes() == before and len(captures) == 1
+    changed = json.loads(before)
+    changed["closure"]["ir_nodes"][0]["op"] = "Identity"
+    path.write_text(json.dumps(changed, sort_keys=True, separators=(",", ":")) + "\n")
+    capture.finalize_source_structure(capture.model)
+    assert len(captures) == 1 and path.read_bytes() != before
+    assert capture.source_structure_status() is CheckStatus.FAILED
+    assert capture.records["source_structure"]["artifact_binding"]["status"] == "failed"
+    assert (
+        capture.records["source_structure"]["floating_applicability"]["status"]
+        == "failed"
+    )
+    with pytest.raises(ValueError):
+        inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], record)
+
+
+def _bitwise_closure_fixture():
+    import onnx
+    from tests.extra_tests.converter.source_precision_diagnostics import (
+        typed_trace_manifest,
+    )
+
+    closed = jax.make_jaxpr(lambda x, y: jax.lax.bitwise_and(x, y))(
+        np.asarray([1, 2, 3], np.int32), np.asarray([3, 1, 2], np.int32)
+    )
+    manifest = json.loads(json.dumps(typed_trace_manifest(closed)))
+    value = onnx.helper.make_tensor_value_info
+    model = onnx.helper.make_model(
+        onnx.helper.make_graph(
+            [onnx.helper.make_node("BitwiseAnd", ["x", "y"], ["out"])],
+            "complete-bitwise",
+            [
+                value("x", onnx.TensorProto.INT32, [3]),
+                value("y", onnx.TensorProto.INT32, [3]),
+            ],
+            [value("out", onnx.TensorProto.INT32, [3])],
+        ),
+        opset_imports=[onnx.helper.make_opsetid("", 23)],
+    )
+    assert inventory_owner._source_bitwise_closure(manifest, model) is not None
+    return closed, manifest, model
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "float-internal",
+        "cast",
+        "reduction",
+        "nested",
+        "effects",
+        "opaque",
+        "literal",
+        "params",
+        "weak",
+        "symbol",
+    ],
+)
+def test_bitwise_applicability_requires_all_source_values_and_operations(mutation):
+    import onnx
+    from tests.extra_tests.converter.source_precision_diagnostics import (
+        typed_trace_manifest,
+    )
+
+    _, manifest, model = _bitwise_closure_fixture()
+    if mutation == "float-internal":
+        closed = jax.make_jaxpr(
+            lambda x, y: (x.astype(np.float32) + y.astype(np.float32)).astype(np.int32)
+        )(np.asarray([1, 2, 3], np.int32), np.asarray([3, 1, 2], np.int32))
+        manifest = json.loads(json.dumps(typed_trace_manifest(closed)))
+        del model.graph.node[:]
+        model.graph.node.extend(
+            [
+                onnx.helper.make_node("Cast", ["x"], ["fx"], to=onnx.TensorProto.FLOAT),
+                onnx.helper.make_node("Cast", ["y"], ["fy"], to=onnx.TensorProto.FLOAT),
+                onnx.helper.make_node("Add", ["fx", "fy"], ["sum"]),
+                onnx.helper.make_node(
+                    "Cast", ["sum"], ["out"], to=onnx.TensorProto.INT32
+                ),
+            ]
+        )
+        model.graph.value_info.extend(
+            onnx.helper.make_tensor_value_info(name, onnx.TensorProto.FLOAT, [3])
+            for name in ("fx", "fy", "sum")
+        )
+        assert len(manifest["inputs"]) == len(model.graph.input) == 2
+        assert len(manifest["equations"]) == len(model.graph.node) == 4
+        assert manifest["outputs"][0]["aval"][0] == "int32"
+    elif mutation == "cast":
+        manifest["equations"][0]["primitive"] = "convert_element_type"
+    elif mutation == "reduction":
+        manifest["equations"][0]["primitive"] = "reduce_sum"
+    elif mutation == "nested":
+        original = copy.deepcopy(manifest)
+        manifest["equations"][0]["primitive"] = "jit"
+        manifest["equations"][0]["params"] = {"jaxpr": original}
+    elif mutation == "effects":
+        manifest["equations"][0]["effects"] = ["effect"]
+    elif mutation == "opaque":
+        closed = jax.make_jaxpr(lambda key: jax.random.key_data(key))(jax.random.key(0))
+        manifest = json.loads(json.dumps(typed_trace_manifest(closed)))
+        assert manifest["outputs"][0]["aval"][0] == "uint32"
+        assert manifest["inputs"][0][0].startswith("key<")
+    elif mutation == "literal":
+        manifest["consts"] = [["float32", [], False]]
+        manifest["const_payloads"] = [1.0]
+    elif mutation == "params":
+        manifest["equations"][0]["params"] = {"unreviewed": True}
+    elif mutation == "weak":
+        manifest["equations"][0]["outputs"][0]["aval"][2] = True
+    else:
+        manifest["inputs"][0][1] = ["B"]
+    assert inventory_owner._source_bitwise_closure(manifest, model) is None
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "hidden-bitwise",
+        "matched-dead",
+        "hidden-float",
+        "float-value-info",
+        "float-initializer",
+        "wrong-op",
+        "wrong-edge",
+        "dtype",
+        "shape",
+        "attribute",
+        "subgraph",
+        "domain",
+        "function",
+    ],
+)
+def test_bitwise_applicability_checks_complete_final_artifact(mutation):
+    import onnx
+
+    _, manifest, model = _bitwise_closure_fixture()
+    graph = model.graph
+    node = graph.node[0]
+    if mutation == "hidden-bitwise":
+        graph.node.append(onnx.helper.make_node("BitwiseAnd", ["x", "y"], ["dead"]))
+    elif mutation == "matched-dead":
+        graph.node.append(onnx.helper.make_node("BitwiseNot", ["out"], ["dead"]))
+        graph.value_info.append(
+            onnx.helper.make_tensor_value_info("dead", onnx.TensorProto.INT32, [3])
+        )
+        manifest["equations"].append(
+            {
+                "primitive": "not",
+                "inputs": [copy.deepcopy(manifest["outputs"][0])],
+                "outputs": [{"var": 3, "aval": ["int32", [3], False]}],
+                "params": {},
+                "effects": [],
+            }
+        )
+        assert len(manifest["equations"]) == len(graph.node) == 2
+    elif mutation == "hidden-float":
+        graph.node.append(onnx.helper.make_node("Sin", ["hidden"], ["dead"]))
+    elif mutation == "float-value-info":
+        graph.value_info.append(
+            onnx.helper.make_tensor_value_info("dead", onnx.TensorProto.FLOAT, [3])
+        )
+    elif mutation == "float-initializer":
+        graph.initializer.append(
+            onnx.numpy_helper.from_array(np.asarray([1.0], np.float32), "hidden")
+        )
+    elif mutation == "wrong-op":
+        node.op_type = "BitwiseOr"
+    elif mutation == "wrong-edge":
+        node.input[1] = "x"
+    elif mutation == "dtype":
+        graph.input[0].type.tensor_type.elem_type = onnx.TensorProto.FLOAT
+    elif mutation == "shape":
+        graph.output[0].type.tensor_type.shape.dim[0].dim_value = 4
+    elif mutation == "attribute":
+        node.attribute.append(onnx.helper.make_attribute("unreviewed", 1))
+    elif mutation == "subgraph":
+        node.attribute.append(onnx.helper.make_attribute("body", copy.deepcopy(graph)))
+    elif mutation == "domain":
+        node.domain = "unowned.domain"
+    else:
+        model.functions.append(
+            onnx.helper.make_function("hidden", "Unused", [], [], [], [])
+        )
+    assert inventory_owner._source_bitwise_closure(manifest, model) is None
+
+
+@pytest.mark.parametrize(
+    "mutation", ["primitive", "params", "effects", "foreign-equation", "weak"]
+)
+def test_bitwise_applicability_keeps_native_rule_identity_before_closure(
+    tmp_path, monkeypatch, mutation
+):
+    import onnx_ir as ir
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    closed, _, model = _bitwise_closure_fixture()
+    capture = raw.RawReplayCapture(tmp_path / mutation)
+    capture.records["source_structure"]["source_binding"]["actual_trace_sha256"] = (
+        raw._structure_trace_manifest(closed)[1]
+    )
+    body = raw._structure_body(closed)
+    native = body.eqns[0]
+    original_aval = body.invars[0].aval
+    called = []
+
+    class ForeignEquation:
+        @property
+        def primitive(self):
+            called.append("primitive")
+            raise AssertionError("Foreign primitive getter executed")
+
+        @property
+        def invars(self):
+            called.append("invars")
+            raise AssertionError("Foreign input getter executed")
+
+    if mutation == "primitive":
+        changed = native.replace(primitive=types.SimpleNamespace(name="and"))
+    elif mutation == "params":
+        changed = native.replace(params={"unknown": object()})
+    elif mutation == "effects":
+        changed = native.replace(effects=frozenset({"injected"}))
+    elif mutation == "foreign-equation":
+        changed = ForeignEquation()
+    else:
+        from jax2onnx.converter.source_structure import TensorContract
+
+        invalid = object.__new__(raw.JaxShapedArray)
+        object.__setattr__(invalid, "weak_type", 1)
+        assert type(invalid) is raw.JaxShapedArray
+        assert type(invalid.weak_type) is int and invalid.weak_type == 1
+        body.invars[0].aval = invalid
+        changed = native
+
+        def forbidden(*args, **kwargs):
+            called.append("from_aval")
+            raise AssertionError("Weak type was coerced before admission")
+
+        monkeypatch.setattr(TensorContract, "from_aval", classmethod(forbidden))
+    try:
+        body.eqns[0] = changed
+        capture._collect_bitwise_applicability(closed, ir.from_proto(model))
+    finally:
+        body.eqns[0] = native
+        body.invars[0].aval = original_aval
+    assert (
+        "closure" not in capture.records["source_structure"]["floating_applicability"]
+    )
+    assert called == []
+
+
+def test_bitwise_applicability_binds_the_ir_actually_inspected(tmp_path, monkeypatch):
+    import onnx
+    import onnx_ir as ir
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    closed, _, model = _bitwise_closure_fixture()
+    final_ir = ir.from_proto(model)
+    original = ir.to_proto
+    expected = raw._structure_digest(
+        original(final_ir).SerializeToString(deterministic=True)
+    )
+    capture = raw.RawReplayCapture(tmp_path / "same-ir")
+    record = capture.records["source_structure"]
+    record["source_binding"]["actual_trace_sha256"] = raw._structure_trace_manifest(
+        closed
+    )[1]
+    record["artifact_binding"]["checked_ir_proto"] = expected
+    capture._collect_bitwise_applicability(closed, final_ir)
+    assert record["floating_applicability"]["closure"]["constant_count"] == 0
+    assert record["floating_applicability"]["status"] == "unverified"
+
+    def changed(value):
+        proto = original(value)
+        proto.graph.value_info.append(
+            onnx.helper.make_tensor_value_info("hidden", onnx.TensorProto.FLOAT, [1])
+        )
+        return proto
+
+    monkeypatch.setattr(ir, "to_proto", changed)
+    with pytest.raises(
+        raw._StructureBindingMismatch, match="observed-ir-and-checked-artifact-differ"
+    ):
+        capture._collect_bitwise_applicability(closed, final_ir)
+
+
+@pytest.mark.parametrize(
+    "criterion",
+    [
+        None,
+        {"mode": "exact"},
+        {"mode": "exact", "applicability": "all-physical-discrete"},
+        {"mode": "tolerant", "applicability": "all-logical-discrete"},
+        {"mode": "exact", "applicability": "all-logical-discrete", "reviewed": True},
+    ],
+)
+def test_conditional_discrete_requires_the_exact_reviewed_adapter_choice(
+    tmp_path, monkeypatch, criterion
+):
+    scope = _discrete_protocol_scope(
+        {
+            "testcase": "not-an-approved-discrete-choice",
+            "callable": lambda x: x,
+            "input_values": [np.asarray([1, 2], dtype=np.int32)],
+        }
+    )
+    adapter = scope[3]["rows"]["plugin::synthetic::0"]
+    if criterion is None:
+        adapter.pop("criteria")
+    else:
+        adapter["criteria"] = criterion
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("An unreviewed conditional criterion must not create ORT")
+
+    monkeypatch.setattr(onnxruntime, "InferenceSession", forbidden)
+    function = _function(
+        scope,
+        _descriptors(scope)[1],
+        tmp_path,
+        runtime="both",
+        expected={"runtime": "unverified", "numerics": "unverified"},
+    )
+    function()
+    record = function._source_cell.history[-1]
+    assert scope[1].rows[0].criteria is None
+    scientific = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    assert scientific["reviewed_criteria"]["status"] == "unverified"
+
+
+@pytest.mark.parametrize("changed_output", ["float", "mixed", "complex"])
+def test_conditional_discrete_collects_all_alternate_roles_before_rejecting_output(
+    tmp_path, monkeypatch, changed_output
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.invoke
+
+    def invoke(self, role, call):
+        value = original(self, role, call)
+        if role in {
+            "metadata-runtime-reference-0-eager",
+            "metadata-runtime-reference-0-fresh-jit",
+            "metadata-runtime-reference-0-warm-jit",
+        }:
+            if changed_output == "mixed":
+                value = (value, np.asarray(value, dtype=np.float32))
+            else:
+                value = np.asarray(
+                    value,
+                    dtype=np.complex64 if changed_output == "complex" else np.float32,
+                )
+            self.native_values[role] = value
+        return value
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("An inapplicable alternate output must not execute ORT")
+
+    monkeypatch.setattr(raw.RawReplayCapture, "invoke", invoke)
+    monkeypatch.setattr(onnxruntime, "InferenceSession", forbidden)
+    scope, function = _discrete_numeric_function(
+        tmp_path,
+        expected={
+            "source_reference": "failed",
+            "runtime": "unverified",
+            "numerics": "failed",
+        },
+    )
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    for label in ("", "metadata-runtime-reference-0"):
+        sample = capture["native_protocol"]["samples"][label]
+        assert set(sample["roles"]) == {"eager", "fresh-jit", "warm-jit"}
+        assert sample["wrapper_calls"] == 2
+        for role in sample["roles"]:
+            name = (label + "-" if label else "") + role
+            assert sample["roles"][role]["outcome"]["status"] == "returned"
+            assert capture[name]["status"] == "captured"
+    assert not capture["metadata_runtime"]["modes"]
+    assert record.source_reference is CheckStatus.FAILED
+    assert record.numerics is CheckStatus.FAILED
+    assert scope[1].rows[0].criteria is None
+    scientific = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    assert scientific["reviewed_criteria"]["status"] == "unverified"
+    for name in ("component_nan_masks", "zero_signs"):
+        assert scientific[name].get("applicability") != "not-applicable"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "float",
+        "mixed",
+        "complex",
+        "dtype",
+        "shape",
+        "weakness",
+        "typed-key",
+        "opaque",
+        "empty-tree",
+        "missing-warm",
+        "wrong-warm",
+    ],
+)
+def test_conditional_discrete_resolution_requires_logical_native3_proof(
+    tmp_path, monkeypatch, mutation
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw._resolve_discrete_criteria
+    attempts, key_dtype_calls = [], []
+    key = jax.random.key(0) if mutation == "typed-key" else None
+    with jax.enable_x64(False):
+        weak = jnp.asarray(1) if mutation == "weakness" else None
+
+    def resolve(prepared, capture, *, adapter, references, labels):
+        assert prepared.criteria is None
+        assert list(labels) == ["", "metadata-runtime-reference-0"]
+        assert len(references) == 2
+        for label in labels:
+            assert set(capture.native_samples[label]["roles"]) == {
+                "eager",
+                "fresh-jit",
+                "warm-jit",
+            }
+            for entry in capture.native_samples[label]["roles"].values():
+                assert capture.records[entry["capture_role"]]["status"] == "captured"
+        label = labels[-1]
+        sample = capture.native_samples[label]
+        logical = capture.native_sample_values[label]["original_leaves"]
+        if mutation == "missing-warm":
+            sample["roles"].pop("warm-jit")
+        elif mutation == "wrong-warm":
+            sample["roles"]["warm-jit"]["jit_wrapper_identity"] = (
+                sample["wrapper_identity"] + 1
+            )
+        else:
+            for role, leaves in list(logical.items()):
+                if mutation == "float":
+                    logical[role] = (np.asarray(leaves[0], dtype=np.float32),)
+                elif mutation == "mixed":
+                    logical[role] = (*leaves, np.asarray(leaves[0], dtype=np.float32))
+                elif mutation == "complex":
+                    logical[role] = (np.asarray(leaves[0], dtype=np.complex64),)
+                elif mutation == "dtype":
+                    logical[role] = (np.asarray(leaves[0], dtype=np.int32),)
+                elif mutation == "shape":
+                    logical[role] = (leaves[0].reshape(3, 1),)
+                elif mutation == "weakness":
+                    assert weak.weak_type and weak.dtype == np.dtype(np.int32)
+                    logical[role] = (weak,)
+                elif mutation == "typed-key":
+                    logical[role] = (key,)
+                elif mutation == "opaque":
+                    logical[role] = (object(),)
+                else:
+                    logical[role] = ()
+                    sample["roles"][role]["tree"] = "PyTreeDef(())"
+        original_dtype = np.dtype
+
+        def dtype(value, *args, **kwargs):
+            if key is not None and value is key.dtype:
+                key_dtype_calls.append(value)
+            return original_dtype(value, *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            if key is not None:
+                patch.setattr(raw.np, "dtype", dtype)
+            criterion = original(
+                prepared, capture, adapter=adapter, references=references, labels=labels
+            )
+        attempts.append(
+            (criterion, copy.deepcopy(capture.records["criteria_resolution"]))
+        )
+        return criterion
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Incomplete logical Native3 proof must not execute ORT")
+
+    monkeypatch.setattr(raw, "_resolve_discrete_criteria", resolve)
+    monkeypatch.setattr(onnxruntime, "InferenceSession", forbidden)
+    scope, function = _discrete_numeric_function(
+        tmp_path,
+        dtype=np.int32 if mutation == "weakness" else np.uint32,
+        scalar=mutation == "weakness",
+        expected={"runtime": "unverified", "numerics": "unverified"},
+    )
+    function()
+    assert len(attempts) == 1
+    criterion, resolution = attempts[0]
+    assert criterion is None and resolution["status"] == "unverified"
+    assert resolution["criteria"] is None
+    assert not key_dtype_calls
+    assert scope[1].rows[0].criteria is None
+    capture = function._source_cell.history[-1].replay_capture
+    assert capture["metadata-runtime-reference-0-eager"]["properties"][0]["dtype"] == (
+        "int32" if mutation == "weakness" else "uint32"
+    )
+    assert not capture["metadata_runtime"]["modes"]
+
+
+def test_conditional_discrete_accepts_empty_shaped_leaves(tmp_path):
+    scope = _discrete_protocol_scope(
+        {
+            "testcase": "empty-discrete-leaf",
+            "callable": lambda x: x[:0],
+            "input_values": [np.asarray([1, 2, 3], dtype=np.int32)],
+            "runtime_input_values": [[np.asarray([3, 1, 2], dtype=np.int32)]],
+        }
+    )
+    function = _function(
+        scope,
+        _descriptors(scope)[1],
+        tmp_path,
+        runtime="both",
+        expected={"runtime": "validated", "numerics": "validated"},
+    )
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    assert capture["criteria_resolution"]["status"] == "validated"
+    for label in ("", "metadata-runtime-reference-0"):
+        role = (label + "-" if label else "") + "eager"
+        assert capture[role]["properties"] == [
+            {"dtype": "int32", "shape": [0], "weak_type": False}
+        ]
+    assert set(capture["metadata_runtime"]["modes"]) == {"disabled", "all"}
+
+
+def test_conditional_discrete_source_failure_cannot_resolve_a_criterion(
+    tmp_path, monkeypatch
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    original = raw.RawReplayCapture.invoke
+
+    def invoke(self, role, call):
+        if role == "metadata-runtime-reference-0-fresh-jit":
+
+            def raised():
+                call()
+                raise RuntimeError("Conditional discrete original role failed")
+
+            return original(self, role, raised)
+        return original(self, role, call)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("An original native failure must not execute ORT")
+
+    monkeypatch.setattr(raw.RawReplayCapture, "invoke", invoke)
+    monkeypatch.setattr(onnxruntime, "InferenceSession", forbidden)
+    scope, function = _discrete_numeric_function(
+        tmp_path,
+        expected={
+            "source_reference": "failed",
+            "runtime": "unverified",
+            "numerics": "failed",
+        },
+    )
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    roles = capture["native_protocol"]["samples"]["metadata-runtime-reference-0"][
+        "roles"
+    ]
+    assert set(roles) == {"eager", "fresh-jit", "warm-jit"}
+    assert roles["fresh-jit"]["outcome"]["status"] == "raised"
+    assert roles["eager"]["outcome"]["status"] == "returned"
+    assert roles["warm-jit"]["outcome"]["status"] == "returned"
+    assert not capture["metadata_runtime"]["modes"]
+    assert capture.get("criteria_resolution", {}).get("status") != "validated"
+    scientific = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0], asdict(record)
+    )
+    assert scientific["native_three_role_agreement"]["status"] == "failed"
+    assert scientific["reviewed_criteria"]["status"] == "unverified"
+
+
+def test_conditional_discrete_projection_rejects_forged_resolution_bindings(tmp_path):
+    scope, function = _discrete_numeric_function(tmp_path)
+    function()
+    record = asdict(function._source_cell.history[-1])
+    for mutation in (
+        "criteria",
+        "runtime-criteria",
+        "choice",
+        "contract",
+        "scenario",
+        "adapter",
+        "trace",
+        "applicability",
+        "logical-dtype",
+        "empty-proof",
+        "sample-label",
+    ):
+        broken = copy.deepcopy(record)
+        capture = broken["replay_capture"]
+        resolution = capture["criteria_resolution"]
+        if mutation == "criteria":
+            resolution["criteria"] = {
+                "mode": "tolerant",
+                "rtol": 1e9,
+                "atol": 1e9,
+                "equal_nan": True,
+            }
+        elif mutation == "runtime-criteria":
+            criterion = {
+                "mode": "tolerant",
+                "rtol": 1e9,
+                "atol": 1e9,
+                "equal_nan": True,
+            }
+            runtime = capture["metadata_runtime"]
+            runtime["criteria"] = copy.deepcopy(criterion)
+            for identity in runtime["sample_identities"]:
+                identity["criteria"] = copy.deepcopy(criterion)
+            for mode in runtime["modes"].values():
+                for identity in mode["sample_identities"]:
+                    identity["criteria"] = copy.deepcopy(criterion)
+                for sample in mode["samples"]:
+                    sample["criteria"] = copy.deepcopy(criterion)
+        elif mutation == "choice":
+            resolution["choice"]["applicability"] = "all-physical-discrete"
+        elif mutation == "contract":
+            resolution["contract_sha256"] = "0" * 64
+        elif mutation == "scenario":
+            resolution["protocol_binding"]["scenario_sha256"] = "0" * 64
+        elif mutation == "adapter":
+            resolution["adapter_sha256"] = "0" * 64
+        elif mutation == "trace":
+            resolution["trace_sha256"] = "0" * 64
+        elif mutation == "applicability":
+            resolution["output_applicability"]["zero_signs"] = "applicable"
+        elif mutation == "logical-dtype":
+            resolution["samples"][-1]["roles"]["warm-jit"]["properties"][0][
+                "dtype"
+            ] = "float32"
+        elif mutation == "empty-proof":
+            resolution["samples"] = []
+        else:
+            resolution["samples"][-1]["label"] = resolution["samples"][0]["label"]
+        # Bind the forged document bytes as well: rejection must come from the
+        # original source/adapter/trace/role proof, not just a stale file digest.
+        document = tmp_path / ("forged-" + mutation + ".json")
+        payload = json.dumps(resolution, sort_keys=True, separators=(",", ":")) + "\n"
+        document.write_text(payload)
+        capture["criteria-resolution"] = {
+            "status": "captured",
+            "path": str(document),
+            "sha256": hashlib.sha256(document.read_bytes()).hexdigest(),
+        }
+        with pytest.raises(ValueError):
+            inventory_owner.source_metadata_numerical_checks(scope[1].rows[0], broken)
+
+    for missing in ("criteria_resolution", "criteria-resolution", "warm-jit"):
+        broken = copy.deepcopy(record)
+        capture = broken["replay_capture"]
+        capture.pop(missing)
+        try:
+            checks = inventory_owner.source_metadata_numerical_checks(
+                scope[1].rows[0], broken
+            )
+        except ValueError:
+            continue
+        assert checks["reviewed_criteria"]["status"] == "unverified"
+        for name in ("component_nan_masks", "zero_signs"):
+            assert checks[name].get("applicability") != "not-applicable"
+
+
+@pytest.mark.parametrize(
+    "choice,expected_runtime",
+    [
+        ("conditional", "both"),
+        ("absent", "all"),
+        ("different-applicability", "all"),
+        ("no-native-protocol", "all"),
+    ],
+)
+def test_metadata_cli_selects_both_only_for_the_reviewed_discrete_path(
+    original_scope, tmp_path, monkeypatch, choice, expected_runtime
+):
+    payload = inventory_owner.CURRENT_BASELINE.read_bytes()
+    inventory = json.loads(payload)
+    plan = probe.build_probe_plan(
+        inventory, baseline_sha256=hashlib.sha256(payload).hexdigest()
+    )
+    row = next(
+        row
+        for row in plan.rows
+        if (row.origin, row.ordinal) == ("plugin::jax.numpy.bitwise_and", 0)
+    )
+    adapter = {
+        "contract_sha256": row.contract_sha256,
+        "native_protocol": {"mode": "stateless-three-role-v1", "reviewed": True},
+        "criteria": {"mode": "exact", "applicability": "all-logical-discrete"},
+    }
+    if choice == "absent":
+        adapter.pop("criteria")
+    elif choice == "different-applicability":
+        adapter["criteria"]["applicability"] = "all-physical-discrete"
+    elif choice == "no-native-protocol":
+        adapter.pop("native_protocol")
+    adapter_path = tmp_path / "adapters.json"
+    adapter_path.write_text(
+        json.dumps(
+            {
+                "inventory_sha256": plan.baseline_sha256,
+                "rows": {"plugin::jax.numpy.bitwise_and::0": adapter},
+            }
+        )
+    )
+    options = {
+        "source_metadata_baseline": None,
+        "source_metadata_case": ["plugin::jax.numpy.bitwise_and::0::raw-x64-off"],
+        "source_metadata_adapters": str(adapter_path),
+    }
+    state = {
+        "configured": False,
+        "report": tmp_path / "acceptance.json",
+        "baseline_payload": payload,
+        "inventory": inventory,
+        "observed_inventory": inventory,
+        "plan": plan,
+        "epoch": _EPOCH,
+        "input_bindings": {},
+    }
+    calls = []
+
+    def make_function(*args, **kwargs):
+        calls.append(kwargs["runtime_optimization"])
+
+        def function():
+            pytest.fail("CLI admission must not execute the selected model")
+
+        return function
+
+    monkeypatch.setattr(
+        inventory_owner, "raw_registrations", lambda: (original_scope[2], ())
+    )
+    monkeypatch.setattr(t_generator, "make_source_test_function", make_function)
+    _forbid_legacy_and_native(monkeypatch)
+    config = types.SimpleNamespace(getoption=lambda name: options.get(name))
+    configure_source_metadata_acceptance(config, type("Owner", (), {}), state)
+    assert calls == [expected_runtime]
+    assert state["configured"] is True
+    assert state["identities"] == ((row.origin, row.ordinal, "raw-x64-off"),)

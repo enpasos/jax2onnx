@@ -2,7 +2,8 @@
 
 """Native capture and exact recipe adapters for the full raw migration schedule.
 
-This is replay tooling. It does not change product admission or select criteria.
+This is replay tooling. It does not change product admission. Only an explicit
+reviewed conditional discrete rule can resolve an otherwise missing criterion.
 The old finite corpus replay continues to use its original preparation path.
 """
 
@@ -29,10 +30,26 @@ import numpy as np
 import onnx
 import onnx_ir as ir
 
-from jax2onnx.precision import CheckStatus, PrecisionCheck, get_precision_report
+from jax2onnx.precision import (
+    CheckStatus,
+    PrecisionCheck,
+    SampleCriteria,
+    _compare,
+    get_precision_report,
+)
 from jax2onnx._compat.jax import (
     Array as _NATIVE_UNION_ARRAY,
     Literal as JaxLiteral,
+    ClosedJaxpr as JaxClosedJaxpr,
+    Jaxpr as JaxJaxpr,
+    JaxprEqn as JaxJaxprEqn,
+    ShapedArray as JaxShapedArray,
+    Var as JaxVar,
+    DropVar as JaxDropVar,
+    native_jit_primitive,
+    is_unspecified_jit_sharding,
+    is_empty_jit_mesh,
+    native_jit_boolean_inline_hints,
     canonical_code_fingerprint,
     is_selected_prng_key_dtype,
     selected_prng_key_words,
@@ -41,6 +58,7 @@ from jax2onnx._compat.jax import (
     native_transformed_function_role,
     native_transformed_closure_state,
     selected_native_transformed_function,
+    source_original_jit_capture,
     NativeTransformedExecutionError,
     native_transformed_execution_context,
 )
@@ -49,7 +67,11 @@ from jax2onnx.converter.source_representation import (
     representation_for_aval,
 )
 from jax2onnx.converter.source_structure import ConstantContract, StructureResult
-from scripts.source_precision_inventory import canonical_contract
+from scripts.source_precision_inventory import (
+    canonical_contract,
+    _source_bitwise_closure,
+    _source_compact_trace_manifest,
+)
 from scripts._source_inventory_epoch import validate_replay_manifest
 from tests.extra_tests.converter.source_precision_support import (
     PRESERVE_FACTORY_DTYPE,
@@ -169,25 +191,7 @@ def _structure_pending(value: Any) -> bool:
 
 def _structure_compact_manifest(value: Any) -> Any:
     """Persist typed topology and payload digests, never duplicate word payloads."""
-    if isinstance(value, dict):
-        payload = value.pop("bytes_hex", None)
-        if payload is not None:
-            value["payload_sha256"] = hashlib.sha256(bytes.fromhex(payload)).hexdigest()
-        for key in tuple(value):
-            if key in {"literal", "const_payloads"}:
-                payload = json.dumps(
-                    value[key], sort_keys=True, separators=(",", ":")
-                ).encode()
-                value[key] = {"canonical_payload": _structure_digest(payload)}
-                del payload
-            else:
-                value[key] = _structure_compact_manifest(value[key])
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            value[index] = _structure_compact_manifest(item)
-    elif isinstance(value, tuple):
-        return [_structure_compact_manifest(item) for item in value]
-    return value
+    return _source_compact_trace_manifest(value)
 
 
 def _structure_trace_manifest(closed: Any) -> tuple[dict[str, Any], str, bool]:
@@ -203,12 +207,128 @@ def _structure_trace_manifest(closed: Any) -> tuple[dict[str, Any], str, bool]:
 
 
 def _structure_body(closed: Any) -> Any:
+    if type(closed) not in {JaxClosedJaxpr, JaxJaxpr}:
+        raise _StructureBindingGap("unowned-source-body")
     # JAX 0.11 may return itself from .jaxpr; unwrap once, never recursively.
-    return getattr(closed, "jaxpr", closed)
+    body = getattr(closed, "jaxpr", closed)
+    if type(body) is not JaxJaxpr:
+        raise _StructureBindingGap("unowned-source-body")
+    return body
 
 
-def _structure_trace_storage(closed: Any) -> list[dict[str, Any]]:
+def _structure_ports(left: Any, right: Any, *, literal_kinds: bool = True) -> None:
+    if len(left) != len(right):
+        raise _StructureBindingMismatch("source-port-arity-differs")
+    for a, b in zip(left, right, strict=True):
+        if type(a) not in {JaxVar, JaxDropVar, JaxLiteral} or type(b) not in {
+            JaxVar,
+            JaxDropVar,
+            JaxLiteral,
+        }:
+            raise _StructureBindingGap("unowned-source-port")
+        if not isinstance(a.aval, JaxShapedArray) or not isinstance(
+            b.aval, JaxShapedArray
+        ):
+            raise _StructureBindingGap("native-source-tensor-port-unverified")
+        if (
+            np.dtype(a.aval.dtype) != np.dtype(b.aval.dtype)
+            or bool(getattr(a.aval, "weak_type", False))
+            != bool(getattr(b.aval, "weak_type", False))
+            or literal_kinds
+            and isinstance(a, JaxLiteral) != isinstance(b, JaxLiteral)
+        ):
+            raise _StructureBindingMismatch("source-port-type-differs")
+        try:
+            a_shape = native_shape_contract(a.aval.shape)
+            b_shape = native_shape_contract(b.aval.shape)
+        except (TypeError, ValueError) as exc:
+            raise _StructureBindingGap("native-source-shape-unverified") from exc
+        if (a_shape.symbol is None) != (b_shape.symbol is None):
+            raise _StructureBindingMismatch("source-symbolic-port-differs")
+        if a_shape.symbol is not None and b_shape.symbol is not None:
+            if a_shape.symbol[1] is not b_shape.symbol[1]:
+                raise _StructureBindingGap("cross-trace-native-scope-unverified")
+        if a_shape.shape != b_shape.shape or a_shape.symbol_axis != b_shape.symbol_axis:
+            raise _StructureBindingMismatch("source-port-shape-differs")
+
+
+def _structure_plain_jit_child(eqn: Any) -> tuple[Any, dict[str, Any]] | None:
+    """Read only the reviewed canonical plain-JIT edge, never a foreign getter."""
+    from jax2onnx.converter.source_profile import _JIT_FIELDS
+
+    if type(eqn) is not JaxJaxprEqn:
+        raise _StructureBindingGap("unowned-source-equation")
+    if eqn.primitive is not native_jit_primitive():
+        return None
+    params = eqn.params
+    if (
+        type(params) is not dict
+        or not all(type(key) is str for key in params)
+        or set(params) != _JIT_FIELDS
+    ):
+        raise _StructureBindingGap("plain-jit-parameter-schema-unverified")
+    closed = params["jaxpr"]
+    if type(closed) is not JaxClosedJaxpr:
+        raise _StructureBindingGap("plain-jit-closed-body-unverified")
     body = _structure_body(closed)
+    if getattr(body, "is_high", False) or body.effects or eqn.effects:
+        raise _StructureBindingGap("source-effects-relation-unverified")
+    if len(closed.consts) != len(body.constvars):
+        raise _StructureBindingGap("closed-constant-storage-unavailable")
+    _structure_ports(body.constvars, body.constvars)
+    for key, outer, inner in (
+        ("in", eqn.invars, body.invars),
+        ("out", eqn.outvars, body.outvars),
+    ):
+        for suffix in ("shardings", "layouts"):
+            entries = params[f"{key}_{suffix}"]
+            if (
+                type(entries) is not tuple
+                or len(entries) != len(outer)
+                or not all(
+                    (
+                        is_unspecified_jit_sharding(value)
+                        if suffix == "shardings"
+                        else value is None
+                    )
+                    for value in entries
+                )
+            ):
+                raise _StructureBindingGap("plain-jit-placement-or-layout-unverified")
+        _structure_ports(outer, inner, literal_kinds=False)
+    donated = params["donated_invars"]
+    inline_hints = native_jit_boolean_inline_hints()
+    if (
+        type(donated) is not tuple
+        or len(donated) != len(eqn.invars)
+        or any(type(value) is not bool or value for value in donated)
+        or type(params["name"]) is not str
+        or type(params["keep_unused"]) is not bool
+        or not any(params["inline"] is hint for hint in inline_hints)
+        or type(params["compiler_options_kvs"]) is not tuple
+        or params["compiler_options_kvs"]
+        or not is_empty_jit_mesh(params["ctx_mesh"])
+    ):
+        raise _StructureBindingGap("plain-jit-compilation-metadata-unverified")
+    metadata = {
+        "name": params["name"],
+        "keep_unused": params["keep_unused"],
+        "donated_invars": donated,
+        "inline": next(
+            index for index, hint in enumerate(inline_hints) if params["inline"] is hint
+        ),
+    }
+    _structure_flat_parameters(metadata)
+    return closed, metadata
+
+
+def _structure_trace_storage(
+    closed: Any, *, _ancestors: frozenset[int] = frozenset(), _scope: str = ""
+) -> list[dict[str, Any]]:
+    body = _structure_body(closed)
+    if id(body) in _ancestors or len(_ancestors) >= 32:
+        raise _StructureBindingGap("cyclic-or-deep-source-jit-tree")
+    ancestors = _ancestors | {id(body)}
     constants = tuple(getattr(closed, "consts", ()))
     if len(constants) != len(body.constvars):
         raise _StructureBindingGap("closed-constant-storage-unavailable")
@@ -225,7 +345,7 @@ def _structure_trace_storage(closed: Any) -> list[dict[str, Any]]:
             )
         evidence.append(
             {
-                "role": role,
+                "role": _scope + role,
                 "logical_dtype": np.dtype(var.aval.dtype).name,
                 "weak_type": bool(getattr(var.aval, "weak_type", False)),
                 "logical": logical,
@@ -237,9 +357,20 @@ def _structure_trace_storage(closed: Any) -> list[dict[str, Any]]:
     for index, (var, value) in enumerate(zip(body.constvars, constants, strict=True)):
         take(f"constant:{index}", var, value)
     for index, eqn in enumerate(body.eqns):
+        if type(eqn) is not JaxJaxprEqn:
+            raise _StructureBindingGap("unowned-source-equation")
         for port, var in enumerate(eqn.invars):
             if isinstance(var, JaxLiteral):
                 take(f"equation:{index}:input:{port}", var, var.val)
+        child = _structure_plain_jit_child(eqn)
+        if child is not None:
+            evidence.extend(
+                _structure_trace_storage(
+                    child[0],
+                    _ancestors=ancestors,
+                    _scope=_scope + f"equation:{index}:jit/",
+                )
+            )
     for index, var in enumerate(body.outvars):
         if isinstance(var, JaxLiteral):
             take(f"output:{index}", var, var.val)
@@ -257,52 +388,62 @@ def _structure_flat_parameters(value: Any) -> None:
         for item in value.values():
             _structure_flat_parameters(item)
         return
-    # In particular, nested Jaxprs and unowned parameter objects are not proved
-    # merely because their printed names or partial JSON documents agree.
     raise _StructureBindingGap("nested-or-unowned-source-parameter")
 
 
-def _structure_flat_relation(original: Any, actual: Any) -> None:
+def _structure_flat_relation(
+    original: Any,
+    actual: Any,
+    *,
+    _left_ancestors: frozenset[int] = frozenset(),
+    _right_ancestors: frozenset[int] = frozenset(),
+) -> bool:
     left, right = _structure_body(original), _structure_body(actual)
+    if (
+        id(left) in _left_ancestors
+        or id(right) in _right_ancestors
+        or len(_left_ancestors) >= 32
+        or len(_right_ancestors) >= 32
+    ):
+        raise _StructureBindingGap("cyclic-or-deep-source-jit-tree")
     if left.effects or right.effects:
         raise _StructureBindingGap("source-effects-relation-unverified")
     if len(left.eqns) != len(right.eqns):
         raise _StructureBindingMismatch("source-equation-count-differs")
-    pairs = [(left.constvars, right.constvars), (left.invars, right.invars)]
-    pairs.append((left.outvars, right.outvars))
+    pairs = [
+        (left.constvars, right.constvars),
+        (left.invars, right.invars),
+        (left.outvars, right.outvars),
+    ]
     for a, b in zip(left.eqns, right.eqns, strict=True):
+        if type(a) is not JaxJaxprEqn or type(b) is not JaxJaxprEqn:
+            raise _StructureBindingGap("unowned-source-equation")
         if a.primitive is not b.primitive:
             raise _StructureBindingMismatch("native-source-primitive-differs")
+        if a.effects or b.effects:
+            raise _StructureBindingGap("source-effects-relation-unverified")
         pairs.extend(((a.invars, b.invars), (a.outvars, b.outvars)))
+    nested = False
     for a, b in zip(left.eqns, right.eqns, strict=True):
-        _structure_flat_parameters(a.params)
-        _structure_flat_parameters(b.params)
+        a_child, b_child = _structure_plain_jit_child(a), _structure_plain_jit_child(b)
+        if a_child is None and b_child is None:
+            _structure_flat_parameters(a.params)
+            _structure_flat_parameters(b.params)
+        elif a_child is not None and b_child is not None:
+            if a_child[1] != b_child[1]:
+                raise _StructureBindingMismatch("plain-jit-scalar-metadata-differs")
+            _structure_flat_relation(
+                a_child[0],
+                b_child[0],
+                _left_ancestors=_left_ancestors | {id(left)},
+                _right_ancestors=_right_ancestors | {id(right)},
+            )
+            nested = True
+        else:
+            raise _StructureBindingMismatch("plain-jit-carrier-differs")
     for left_vars, right_vars in pairs:
-        if len(left_vars) != len(right_vars):
-            raise _StructureBindingMismatch("source-port-arity-differs")
-        for a, b in zip(left_vars, right_vars, strict=True):
-            if (
-                np.dtype(a.aval.dtype) != np.dtype(b.aval.dtype)
-                or bool(getattr(a.aval, "weak_type", False))
-                != bool(getattr(b.aval, "weak_type", False))
-                or isinstance(a, JaxLiteral) != isinstance(b, JaxLiteral)
-            ):
-                raise _StructureBindingMismatch("source-port-type-differs")
-            try:
-                a_shape = native_shape_contract(a.aval.shape)
-                b_shape = native_shape_contract(b.aval.shape)
-            except (TypeError, ValueError) as exc:
-                raise _StructureBindingGap("native-source-shape-unverified") from exc
-            if (a_shape.symbol is None) != (b_shape.symbol is None):
-                raise _StructureBindingMismatch("source-symbolic-port-differs")
-            if a_shape.symbol is not None and b_shape.symbol is not None:
-                if a_shape.symbol[1] is not b_shape.symbol[1]:
-                    raise _StructureBindingGap("cross-trace-native-scope-unverified")
-            if (
-                a_shape.shape != b_shape.shape
-                or a_shape.symbol_axis != b_shape.symbol_axis
-            ):
-                raise _StructureBindingMismatch("source-port-shape-differs")
+        _structure_ports(left_vars, right_vars)
+    return nested
 
 
 def _structure_source_evidence(inputs: Any, references: Any) -> str:
@@ -315,6 +456,392 @@ def _structure_source_evidence(inputs: Any, references: Any) -> str:
         separators=(",", ":"),
     ).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def _protocol_comparison(
+    actual: Any,
+    reference: Any,
+    criteria: SampleCriteria | None,
+    *,
+    actual_tree: str | None = None,
+    reference_tree: str | None = None,
+    all_logical_discrete: bool = False,
+) -> dict[str, Any]:
+    """Compare retained copies without changing the public comparison contract."""
+    failures: dict[str, list[str]] = {
+        name: []
+        for name in (
+            "dtype_shape_output_count",
+            "criteria_comparison",
+            "component_nan_masks",
+            "zero_signs",
+        )
+    }
+    counts = {
+        "outputs": len(reference),
+        "inexact_components": 0,
+        "nan_components": 0,
+        "zero_components": 0,
+    }
+    unavailable = False
+    missing_criteria = False
+    discrete = bool(reference) and len(actual) == len(reference)
+    if not reference:
+        unavailable = True
+    if len(actual) != len(reference) or actual_tree != reference_tree:
+        unavailable = True
+        failures["dtype_shape_output_count"].append("Output tree/count differs")
+    for index, (left, right) in enumerate(zip(actual, reference)):
+        if any(
+            is_selected_prng_key_dtype(getattr(value, "dtype", None))
+            for value in (left, right)
+        ):
+            unavailable = True
+            discrete = False
+            continue
+        left, right = np.asarray(left), np.asarray(right)
+        discrete = discrete and left.dtype.kind in "biu" and right.dtype.kind in "biu"
+        if left.dtype != right.dtype or left.shape != right.shape:
+            unavailable = True
+            failures["dtype_shape_output_count"].append(
+                f"Output {index} dtype/shape differs"
+            )
+            continue
+        if left.dtype.kind not in "biufc" and left.dtype.name != "bfloat16":
+            unavailable = True
+            continue
+        comparison = criteria
+        if left.dtype.kind in "biu":
+            comparison = SampleCriteria("exact")
+        if comparison is not None:
+            failure = _compare(left, right, comparison)
+            if failure is not None:
+                failures["criteria_comparison"].append(f"Output {index}: {failure}")
+        else:
+            missing_criteria = True
+        if left.dtype.kind in "fc" or left.dtype.name == "bfloat16":
+            if left.dtype.kind == "c" and (
+                np.any(np.isnan(left.real) != np.isnan(left.imag))
+                or np.any(np.isnan(right.real) != np.isnan(right.imag))
+            ):
+                # Public equal_nan can wildcard an entire complex element.
+                # It is not an independently reviewed finite-component rule;
+                # do not invent component tolerances in this producer tranche.
+                missing_criteria = True
+            components = (
+                ((left.real, right.real), (left.imag, right.imag))
+                if left.dtype.kind == "c"
+                else ((left, right),)
+            )
+            for component, (a, b) in enumerate(components):
+                counts["inexact_components"] += int(b.size)
+                counts["nan_components"] += int(np.count_nonzero(np.isnan(b)))
+                counts["zero_components"] += int(np.count_nonzero(b == 0))
+                if not np.array_equal(np.isnan(a), np.isnan(b)):
+                    failures["component_nan_masks"].append(
+                        f"Output {index} component {component} NaN mask differs"
+                    )
+                zeros = (a == 0) | (b == 0)
+                if not np.array_equal(a == 0, b == 0) or not np.array_equal(
+                    np.signbit(a[zeros]), np.signbit(b[zeros])
+                ):
+                    failures["zero_signs"].append(
+                        f"Output {index} component {component} zero mask/sign differs"
+                    )
+    checks = []
+    not_applicable = all_logical_discrete and discrete and not unavailable
+    for name, errors in failures.items():
+        status = CheckStatus.FAILED if errors else CheckStatus.VALIDATED
+        if not errors and (
+            unavailable
+            or (name == "criteria_comparison" and missing_criteria)
+            or (
+                name in {"component_nan_masks", "zero_signs"}
+                and not not_applicable
+                and not any(
+                    np.asarray(value).dtype.kind in "fc"
+                    or np.asarray(value).dtype.name == "bfloat16"
+                    for value in reference
+                    if not is_selected_prng_key_dtype(getattr(value, "dtype", None))
+                )
+            )
+        ):
+            status = CheckStatus.UNVERIFIED
+        checks.append(
+            asdict(
+                PrecisionCheck(
+                    name,
+                    status,
+                    "; ".join(errors)
+                    or (
+                        "Not applicable: reviewed all-logical-discrete output proof"
+                        if not_applicable
+                        and name in {"component_nan_masks", "zero_signs"}
+                        else ""
+                    )
+                    or f"Retained sample comparison; observed counts {counts}, no unseen edge coverage",
+                )
+            )
+        )
+    return {
+        "checks": checks,
+        "counts": counts,
+        "applicability": (
+            {name: "not-applicable" for name in ("component_nan_masks", "zero_signs")}
+            if not_applicable
+            else {}
+        ),
+    }
+
+
+def _protocol_input_identity(
+    values: Any, *, include_physical: bool = False
+) -> list[dict[str, Any]]:
+    from jax2onnx.precision import _array_evidence
+
+    result = []
+    for value in values:
+        key = is_selected_prng_key_dtype(getattr(value, "dtype", None))
+        array = np.asarray(selected_prng_key_words(value) if key else value)
+        physical = None
+        if include_physical and not key:
+            try:
+                encoded = representation_for_aval(
+                    jax.ShapeDtypeStruct(array.shape, array.dtype)
+                ).encode_array(array)
+                physical = asdict(_array_evidence("", encoded))
+                physical.pop("name")
+            except (TypeError, ValueError):
+                # An unavailable SOURCE encoding must not suppress the
+                # original native roles before ordinary product admission.
+                physical = None
+        result.append(
+            {
+                "dtype": str(value.dtype) if key else array.dtype.name,
+                "shape": list(value.shape),
+                "weak_type": bool(getattr(value, "weak_type", False)),
+                "sha256": hashlib.sha256(array.tobytes(order="C")).hexdigest(),
+                "physical": physical,
+            }
+        )
+    return result
+
+
+def _stateless_native_protocol(adapter: Mapping[str, Any]) -> bool:
+    choice = adapter.get("native_protocol")
+    if choice is None:
+        return False
+    contract = adapter.get("contract_sha256")
+    if (
+        type(choice) is not dict
+        or choice != {"mode": "stateless-three-role-v1", "reviewed": True}
+        or type(choice.get("reviewed")) is not bool
+        or not isinstance(contract, str)
+        or len(contract) != 64
+        or any(char not in "0123456789abcdef" for char in contract)
+    ):
+        raise SourcePreparationError(
+            "Native three-role protocol needs an explicit reviewed contract-bound stateless choice",
+            category="replay-lane-gap",
+        )
+    return True
+
+
+_NUMPY_DTYPE_CLASS = np.dtype
+
+
+def _conditional_discrete_criteria_choice(adapter: Mapping[str, Any]) -> bool:
+    """Only an explicit source-bound reviewed discrete rule selects this path."""
+    choice = adapter.get("criteria")
+    return (
+        type(choice) is dict
+        and choice == {"mode": "exact", "applicability": "all-logical-discrete"}
+        and _stateless_native_protocol(adapter)
+    )
+
+
+def _resolve_discrete_criteria(
+    prepared: Any,
+    capture: Any,
+    *,
+    adapter: Mapping[str, Any],
+    references: Any,
+    labels: Any,
+) -> SampleCriteria | None:
+    """Resolve the existing exact criterion from actual logical Native3 leaves.
+
+    The immutable raw contract and scenario remain unchanged. Packed ONNX words,
+    input dtypes and the adapter declaration alone are never applicability proof.
+    """
+    resolution: dict[str, Any] = {
+        "status": "unverified",
+        "choice": json.loads(json.dumps(adapter.get("criteria"))),
+        "contract_sha256": adapter.get("contract_sha256"),
+        "protocol_binding": dict(capture.records.get("protocol_binding", {})),
+        "adapter_sha256": capture.records.get("adapter", {}).get("sha256"),
+        "trace_role": "declared-typed-trace",
+        "trace_sha256": capture.records.get("declared-typed-trace", {}).get("sha256"),
+        "criteria": None,
+        "samples": [],
+        "output_applicability": {},
+        "detail": "Logical discrete applicability has not been proved",
+    }
+    capture.records["criteria_resolution"] = resolution
+
+    def finish(detail: str, *, valid: bool = False) -> SampleCriteria | None:
+        resolution["detail"] = detail
+        criterion = None
+        if valid:
+            criterion = SampleCriteria("exact")
+            resolution.update(
+                status="validated",
+                criteria=asdict(criterion),
+                output_applicability={
+                    "component_nan_masks": "not-applicable",
+                    "zero_signs": "not-applicable",
+                },
+            )
+        try:
+            capture.document("criteria-resolution", resolution)
+        except Exception as exc:
+            capture.gap("criteria-resolution", exc)
+            resolution.update(
+                status="unverified", criteria=None, output_applicability={}
+            )
+            return None
+        return criterion
+
+    if (
+        prepared.criteria is not None
+        or prepared.metadata.get("skip_numeric_validation")
+        or not _conditional_discrete_criteria_choice(adapter)
+    ):
+        return finish(
+            "No applicable reviewed conditional criterion; original criterion unchanged"
+        )
+    if (
+        not labels
+        or len(labels) != len(references)
+        or len(set(labels)) != len(labels)
+        or set(labels) != set(capture.native_samples)
+        or resolution["protocol_binding"].get("row_contract_sha256")
+        != adapter.get("contract_sha256")
+    ):
+        return finish("Original samples or source/scenario binding are incomplete")
+    wrappers = [
+        capture.native_samples[label].get("wrapper_identity") for label in labels
+    ]
+    if any(type(value) is not int for value in wrappers) or len(set(wrappers)) != len(
+        wrappers
+    ):
+        return finish("Each original sample needs its own fresh wrapper")
+    traced = prepared.traced_outputs
+    if not traced:
+        return finish("Zero logical output leaves cannot prove a discrete criterion")
+    try:
+        trace = capture.records["declared-typed-trace"]
+        payload = Path(trace["path"]).read_bytes()
+        if (
+            trace.get("status") != "captured"
+            or hashlib.sha256(payload).hexdigest() != trace.get("sha256")
+            or json.loads(payload) != json.loads(prepared.original_trace_json)
+        ):
+            return finish("Original typed trace capture is unavailable or changed")
+    except (KeyError, OSError, ValueError, TypeError):
+        return finish("Original typed trace capture is unavailable or changed")
+    expected = [
+        {"dtype": item.dtype, "shape": list(item.shape), "weak_type": item.weak_type}
+        for item in traced
+    ]
+    discrete_names = {
+        "bool",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+    }
+    if any(item["dtype"] not in discrete_names for item in expected):
+        return finish(
+            "Original typed outputs are not exclusively logical Boolean/integer values"
+        )
+    for label, reference in zip(labels, references, strict=True):
+        sample = capture.native_samples.get(label, {})
+        roles = sample.get("roles", {})
+        if (
+            reference.prepared is not prepared
+            or set(roles) != {"eager", "fresh-jit", "warm-jit"}
+            or sample.get("wrapper_calls") != 2
+            or type(sample.get("wrapper_identity")) is not int
+        ):
+            return finish("An original sample lacks the exact three native roles")
+        proof: dict[str, Any] = {
+            "label": label,
+            "tree": prepared.output_tree,
+            "trace_outputs": expected,
+            "roles": {},
+        }
+        resolution["samples"].append(proof)
+        for role in ("eager", "fresh-jit", "warm-jit"):
+            entry = roles[role]
+            actual_role = (label + "-" if label else "") + role
+            leaves = (
+                capture.native_sample_values.get(label, {})
+                .get("original_leaves", {})
+                .get(role)
+            )
+            recorded = capture.records.get(actual_role, {})
+            if (
+                entry.get("outcome", {}).get("status") != "returned"
+                or entry.get("capture_role") != actual_role
+                or entry.get("tree") != prepared.output_tree
+                or leaves is None
+                or len(leaves) != len(expected)
+                or recorded.get("status") != "captured"
+                or (
+                    role != "eager"
+                    and entry.get("jit_wrapper_identity") != sample["wrapper_identity"]
+                )
+            ):
+                return finish("A genuine native role/tree/capture is incomplete")
+            properties = []
+            for value in leaves:
+                dtype = getattr(value, "dtype", None)
+                if is_selected_prng_key_dtype(dtype):
+                    return finish("A logical typed key is not an integer output")
+                if not isinstance(dtype, _NUMPY_DTYPE_CLASS) or dtype.kind not in "biu":
+                    return finish("A logical output is floating, complex or opaque")
+                properties.append(
+                    {
+                        "dtype": dtype.name,
+                        "shape": list(value.shape),
+                        "weak_type": bool(getattr(value, "weak_type", False)),
+                    }
+                )
+            if properties != expected or recorded.get("properties") != properties:
+                return finish(
+                    "Actual logical role dtype/shape/weakness differs from the original typed trace"
+                )
+            try:
+                if (
+                    hashlib.sha256(Path(recorded["path"]).read_bytes()).hexdigest()
+                    != recorded["sha256"]
+                ):
+                    return finish("A retained actual logical capture changed")
+            except (KeyError, OSError):
+                return finish("A retained actual logical capture is missing")
+            proof["roles"][role] = {
+                "capture_role": actual_role,
+                "properties": properties,
+                "capture_sha256": recorded["sha256"],
+            }
+    return finish(
+        "Reviewed exact rule applies to all original logical Native3 outputs",
+        valid=True,
+    )
 
 
 class RawReplayCapture:
@@ -339,11 +866,14 @@ class RawReplayCapture:
         self.records["facade_return"] = {"status": "not-attempted"}
         self.native_values: dict[str, Any] = {}
         self.native_errors: dict[str, Exception] = {}
+        self.native_samples: dict[str, dict[str, Any]] = {}
+        self.native_sample_values: dict[str, dict[str, Any]] = {}
         self.gaps: list[dict[str, str]] = []
         self.target: Any = None
         self.target_state: Any = None
         self.target_witness: _ReplayReferenceWitness | None = None
         self.preparation_complete = False
+        self._bitwise_document_written: bool | None = None
         self.records["native_outcomes"] = {}
         self.records["replay_readiness"] = {"status": "unverified", "gaps": self.gaps}
         self.records["source_structure"] = {
@@ -352,6 +882,7 @@ class RawReplayCapture:
             "ir_result": None,
             "source_binding": {"status": "unverified", "reasons": []},
             "artifact_binding": {"status": "unverified", "reasons": []},
+            "floating_applicability": {"status": "unverified"},
         }
 
     def _structure_note(self, section: str, status: CheckStatus, reason: str) -> None:
@@ -459,12 +990,91 @@ class RawReplayCapture:
                             "external-payload-binding-unverified"
                         )
                     self._structure_note("artifact_binding", CheckStatus.VALIDATED, "")
+                    try:
+                        self._collect_bitwise_applicability(
+                            trace.closed_jaxpr, final_ir
+                        )
+                    except Exception as exc:
+                        self.failure("source-bitwise-applicability-collector", exc)
+                        if type(exc) is _StructureBindingMismatch:
+                            self._structure_error(
+                                "artifact_binding", "bitwise-checked-ir", exc
+                            )
                 except Exception as exc:
                     self._structure_error("artifact_binding", "returned-artifact", exc)
             except Exception as exc:
                 self._structure_error("artifact_binding", "collector", exc)
 
         return collect
+
+    def _collect_bitwise_applicability(self, closed: Any, model: ir.Model) -> None:
+        """Use canonical native rules before inspecting the complete final graph."""
+        from jax2onnx.converter.source_structure import TensorContract, _ShapeFreezer
+        from jax2onnx.plugins._source_structure import (
+            _DirectRule,
+            freeze_source_structure_rule,
+        )
+
+        record = self.records["source_structure"]
+        body = _structure_body(closed)
+        if body.effects or body.constvars or not body.eqns:
+            return
+        shapes = _ShapeFreezer()
+        for var in (*body.invars, *body.outvars):
+            if (
+                type(var) is not JaxVar
+                or type(var.aval) is not JaxShapedArray
+                or type(var.aval.weak_type) is not bool
+            ):
+                return
+        for equation in body.eqns:
+            if type(equation) is not JaxJaxprEqn:
+                return
+            if (
+                equation.primitive is not jax.lax.and_p
+                and equation.primitive is not jax.lax.not_p
+            ):
+                return
+            if any(
+                type(var) is not JaxVar
+                or type(var.aval) is not JaxShapedArray
+                or type(var.aval.weak_type) is not bool
+                for var in (*equation.invars, *equation.outvars)
+            ):
+                return
+            rule = freeze_source_structure_rule(
+                equation,
+                tuple(
+                    TensorContract.from_aval(var.aval, shapes)
+                    for var in equation.invars
+                ),
+                tuple(
+                    TensorContract.from_aval(var.aval, shapes)
+                    for var in equation.outvars
+                ),
+            )
+            if type(rule) is not _DirectRule:
+                return
+        manifest, digest, pending = _structure_trace_manifest(closed)
+        if pending or record["source_binding"].get("actual_trace_sha256") != digest:
+            return
+        proto = ir.to_proto(model)
+        if _structure_digest(proto.SerializeToString(deterministic=True)) != record[
+            "artifact_binding"
+        ].get("checked_ir_proto"):
+            raise _StructureBindingMismatch(
+                "bitwise-observed-ir-and-checked-artifact-differ"
+            )
+        closure = _source_bitwise_closure(manifest, proto)
+        if closure is not None:
+            record["floating_applicability"] = {
+                "status": "unverified",
+                "closure": closure,
+                "applicability": {
+                    "operation_rounding": "not-applicable",
+                    "required_internal_fp64": "not-applicable",
+                },
+            }
 
     def _collect_structure_source(
         self, prepared: PreparedSourceCase, trace: Any
@@ -505,7 +1115,9 @@ class RawReplayCapture:
                 raise _StructureBindingMismatch(
                     "source-constant-or-literal-storage-differs"
                 )
-            _structure_flat_relation(prepared.original_jaxpr, trace.closed_jaxpr)
+            nested = _structure_flat_relation(
+                prepared.original_jaxpr, trace.closed_jaxpr
+            )
             if (
                 binding.get("prepared_trace_pending", True)
                 or fresh_pending
@@ -522,7 +1134,9 @@ class RawReplayCapture:
                 or actual_sha != expected_sha
             ):
                 raise _StructureBindingMismatch("complete-source-trace-differs")
-            binding["native_primitive_relation"] = "identical-flat-sequence"
+            binding["native_primitive_relation"] = (
+                "bounded-plain-jit-tree" if nested else "identical-flat-sequence"
+            )
             binding["native_shape_relation"] = "static-or-identical-native-scope"
             self._structure_note("source_binding", CheckStatus.VALIDATED, "")
         except Exception as exc:
@@ -615,7 +1229,75 @@ class RawReplayCapture:
                     )
         except Exception as exc:
             self._structure_error("source_binding", "export-trace-fence", exc)
-        self.source_structure_status()
+        status = self.source_structure_status()
+        record = self.records.get("source_structure", {})
+        proof = record.get("floating_applicability", {})
+        if proof.get("closure") is not None and status is CheckStatus.VALIDATED:
+            if self._bitwise_document_written is False:
+                # A failed first write stays missing; later fences never retry it.
+                proof["status"] = "unverified"
+                return
+            proof.update(
+                status="validated",
+                protocol_binding=dict(self.records.get("protocol_binding", {})),
+                artifact_sha256=self.records["artifact"]["sha256"],
+                source_structure_sha256=hashlib.sha256(
+                    json.dumps(
+                        {
+                            key: value
+                            for key, value in record.items()
+                            if key != "floating_applicability"
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                ).hexdigest(),
+            )
+            role = "source-bitwise-applicability"
+            if self._bitwise_document_written is None:
+                self._bitwise_document_written = False
+                try:
+                    self.document(role, proof)
+                except Exception as exc:
+                    proof["status"] = "unverified"
+                    self.failure(role, exc)
+                    return
+            try:
+                retained = self.records.get(role, {})
+                path = Path(retained.get("path", ""))
+                expected = (
+                    json.dumps(proof, sort_keys=True, separators=(",", ":")) + "\n"
+                ).encode()
+                if (
+                    retained.get("status") != "captured"
+                    or path != self.directory / (role + ".json")
+                    or path.is_symlink()
+                ):
+                    raise _StructureBindingMismatch(
+                        "bitwise-applicability-document-binding-differs"
+                    )
+                actual = path.read_bytes()
+                if actual != expected or hashlib.sha256(
+                    actual
+                ).hexdigest() != retained.get("sha256"):
+                    raise _StructureBindingMismatch(
+                        "bitwise-applicability-document-bytes-differ"
+                    )
+                self._bitwise_document_written = True
+            except Exception as exc:
+                mismatch = (
+                    exc
+                    if type(exc) is _StructureBindingMismatch
+                    else _StructureBindingMismatch(
+                        "bitwise-applicability-document-unavailable-after-write"
+                    )
+                )
+                proof["status"] = "failed"
+                self.failure(role + "-binding", mismatch)
+                self._structure_error(
+                    "artifact_binding", "bitwise-document-fence", mismatch
+                )
+                self.source_structure_status()
 
     def source_structure_status(self) -> CheckStatus:
         try:
@@ -699,6 +1381,187 @@ class RawReplayCapture:
             pass
         return result
 
+    def native_sample(
+        self,
+        original: Any,
+        arguments: Any,
+        *,
+        label: str,
+        settings: SourceSettings,
+        metadata: Mapping[str, Any],
+        three_roles: bool,
+    ) -> Any:
+        """One fresh wrapper per sample; first and warm invoke that exact object."""
+        before = _protocol_input_identity(arguments, include_physical=three_roles)
+        wrapper = None
+        sample: dict[str, Any] = {
+            "input_identity": before,
+            "roles": {},
+            "wrapper_identity": None,
+            "wrapper_calls": 0,
+        }
+        self.native_samples[label] = sample
+        memory: dict[str, Any] = {"leaves": {}, "original_leaves": {}}
+        self.native_sample_values[label] = memory
+        self.records.setdefault("native_protocol", {}).setdefault("samples", {})[
+            label
+        ] = sample
+        eager = None
+        for role in (
+            ("eager", "fresh-jit", "warm-jit")
+            if three_roles
+            else ("eager", "fresh-jit")
+        ):
+            name = (label + "-" if label else "") + role
+            self.require_stable_target(name + "-before")
+            if (
+                SourceSettings.observe() != settings
+                or _protocol_input_identity(arguments, include_physical=three_roles)
+                != before
+            ):
+                raise SourcePreparationError(
+                    "Source sample settings/input bytes changed before the next native role",
+                    category="replay-lane-gap",
+                )
+
+            def invoke_role() -> Any:
+                nonlocal wrapper
+                if role == "eager":
+                    return jax.device_get(original(*arguments))
+                if role == "fresh-jit":
+                    wrapper = jax.jit(original)
+                    self.native_values[name + "-wrapper"] = wrapper
+                    sample["wrapper_identity"] = id(wrapper)
+                if wrapper is None:
+                    raise SourcePreparationError(
+                        "The sample's first wrapper was unavailable",
+                        category="replay-lane-gap",
+                    )
+                sample["wrapper_calls"] += 1
+                return jax.device_get(wrapper(*arguments))
+
+            if role == "warm-jit" and wrapper is None:
+                self.records["native_outcomes"][name] = {
+                    "status": "not-attempted",
+                    "detail": "Fresh wrapper construction did not return; no second wrapper was invented",
+                }
+                value = None
+            else:
+                value = self.invoke(name, invoke_role)
+            entry: dict[str, Any] = {
+                "outcome": dict(self.records["native_outcomes"].get(name, {})),
+                "capture_role": name,
+                "input_identity_before": before,
+                "settings_before": asdict(settings),
+                "jit_wrapper_identity": (
+                    None if role == "eager" or wrapper is None else id(wrapper)
+                ),
+            }
+            sample["roles"][role] = entry
+            if name in self.native_values:
+                try:
+                    leaves, tree = jax.tree_util.tree_flatten(value)
+                    memory["original_leaves"][role] = tuple(leaves)
+                    entry["tree"] = str(tree)
+                    copied = self.save_arrays(name, leaves)
+                    if copied is not None:
+                        memory["leaves"][role] = copied
+                    _save_physical(
+                        self,
+                        name + "-physical-reference",
+                        leaves,
+                        metadata.get("outputs_as_nchw"),
+                    )
+                except Exception as exc:
+                    self.gap(name + "-capture", exc)
+            if role == "eager":
+                eager = value
+            self.require_stable_target(name + "-after")
+            if (
+                SourceSettings.observe() != settings
+                or _protocol_input_identity(arguments, include_physical=three_roles)
+                != before
+            ):
+                raise SourcePreparationError(
+                    "Native role changed source sample settings/input bytes; later roles stopped",
+                    category="replay-lane-gap",
+                )
+            entry["input_identity_after"] = _protocol_input_identity(
+                arguments, include_physical=three_roles
+            )
+            entry["settings_after"] = asdict(SourceSettings.observe())
+        return eager
+
+    def compare_native_samples(
+        self, criteria: SampleCriteria | None, *, all_logical_discrete: bool = False
+    ) -> None:
+        protocol = self.records.get("native_protocol", {})
+        for label, sample in self.native_samples.items():
+            roles = sample["roles"]
+            recorded = protocol["samples"][label]
+            if set(roles) != {"eager", "fresh-jit", "warm-jit"}:
+                continue
+            comparisons = []
+            for role in ("fresh-jit", "warm-jit"):
+                if any(
+                    roles[name]["outcome"].get("status") != "returned"
+                    for name in ("eager", role)
+                ):
+                    comparisons.append(
+                        {
+                            "role": role,
+                            "checks": [
+                                asdict(
+                                    PrecisionCheck(
+                                        "native-return",
+                                        CheckStatus.FAILED,
+                                        "An original native role raised; other bounded roles were retained",
+                                    )
+                                )
+                            ],
+                        }
+                    )
+                    continue
+                memory = self.native_sample_values[label]["leaves"]
+                left, right = memory.get(role), memory.get("eager")
+                encoded = any(
+                    item.get("encoding")
+                    for name in ("eager", role)
+                    for item in self.records.get(roles[name]["capture_role"], {}).get(
+                        "properties", ()
+                    )
+                )
+                if left is None or right is None or encoded:
+                    comparisons.append(
+                        {
+                            "role": role,
+                            "checks": [
+                                asdict(
+                                    PrecisionCheck(
+                                        "native-capture",
+                                        CheckStatus.UNVERIFIED,
+                                        "Actual native leaves could not be captured",
+                                    )
+                                )
+                            ],
+                        }
+                    )
+                    continue
+                comparisons.append(
+                    {
+                        "role": role,
+                        **_protocol_comparison(
+                            left,
+                            right,
+                            criteria,
+                            actual_tree=roles[role].get("tree"),
+                            reference_tree=roles["eager"].get("tree"),
+                            all_logical_discrete=all_logical_discrete,
+                        ),
+                    }
+                )
+            recorded["comparisons"] = comparisons
+
     def save_arrays(self, role: str, values: Any) -> tuple[np.ndarray, ...] | None:
         try:
             return self.arrays(role, values)
@@ -767,6 +1630,8 @@ class RawReplayCapture:
             )
 
     def arrays(self, role: str, values: Any) -> tuple[np.ndarray, ...]:
+        from jax2onnx.precision import _array_evidence
+
         payloads = []
         properties = []
         for value in values:
@@ -801,6 +1666,9 @@ class RawReplayCapture:
             "path": str(path),
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "properties": properties,
+            "array_evidence": [
+                asdict(_array_evidence(str(i), value)) for i, value in enumerate(arrays)
+            ],
         }
         for array in arrays:
             array.setflags(write=False)
@@ -922,6 +1790,16 @@ def _selected_native_state(value: Any) -> Any:
         ) from exc
 
 
+def _original_jit_state(value: Any) -> Any:
+    try:
+        return source_original_jit_capture(value)
+    except (TypeError, ValueError) as exc:
+        raise SourcePreparationError(
+            f"Original supplied JIT state needs an exact adapter: {exc}",
+            category="replay-lane-gap",
+        ) from exc
+
+
 def _capture_recipe(value: Any, *, location: str = "callable", depth: int = 0) -> Any:
     """Capture only registered recipe containers and bounded dataclass objects.
 
@@ -935,6 +1813,15 @@ def _capture_recipe(value: Any, *, location: str = "callable", depth: int = 0) -
     native = _selected_native_state(value)
     if native is not None:
         return native
+    original_jit = _original_jit_state(value)
+    if original_jit is not None:
+        snapshot, function = original_jit
+        return {
+            "original_jit": snapshot.document,
+            "function": _capture_recipe(
+                function, location=location + ".original-function", depth=depth + 1
+            ),
+        }
     unresolved: list[str] = []
     canonical = canonical_contract(value, unresolved=unresolved)
     if not unresolved:
@@ -2459,6 +3346,16 @@ def _capture_target_state(
     native = _selected_native_state(value)
     if native is not None:
         return native
+    original_jit = _original_jit_state(value)
+    if original_jit is not None:
+        snapshot, original = original_jit
+        if witness is not None:
+            witness.selected[location] = "source-original-jit"
+            witness.native_references.extend(snapshot.retained)
+        return {
+            "original_jit": snapshot.document,
+            "function": child(original, "original-function"),
+        }
     if is_selected_prng_key_dtype(getattr(value, "dtype", None)):
         words = np.asarray(selected_prng_key_words(value))
         return {
@@ -2813,6 +3710,7 @@ def prepare_raw_source_case(
         typed_trace_manifest,
     )
 
+    three_roles = _stateless_native_protocol(adapter)
     identity = tuple(
         str(metadata.get(key, "default"))
         for key in ("context", "component", "testcase")
@@ -2900,36 +3798,22 @@ def prepare_raw_source_case(
                 **dict(zip(names, values[len(arguments) :], strict=True)),
             )
 
-        outputs_by_role = {}
-        trees = {}
-
-        def native_outputs(role: str, values: Any) -> None:
-            result = capture.invoke(
-                role,
-                lambda: jax.device_get(
-                    (original if role.endswith("eager") else jax.jit(original))(*values)
-                ),
-            )
-            if role in capture.native_values:
-                try:
-                    leaves, tree = jax.tree_util.tree_flatten(result)
-                    # Native return status is already retained independently of
-                    # flattening, NumPy conversion, encoding and file adapters.
-                    outputs_by_role[role] = tuple(leaves)
-                    trees[role] = str(tree)
-                    capture.save_arrays(role, leaves)
-                    _save_physical(
-                        capture,
-                        role + "-physical-reference",
-                        leaves,
-                        metadata.get("outputs_as_nchw"),
-                    )
-                except Exception as exc:
-                    capture.gap(role + "-capture", exc)
-            capture.require_stable_target(role)
-
-        for role in ("eager", "fresh-jit"):
-            native_outputs(role, all_arguments)
+        capture.records["native_protocol"] = {
+            "choice": json.loads(json.dumps(adapter.get("native_protocol"))),
+            "contract_sha256": adapter.get("contract_sha256"),
+            "samples": {},
+        }
+        capture.native_sample(
+            original,
+            all_arguments,
+            label="",
+            settings=settings,
+            metadata=metadata,
+            three_roles=three_roles,
+        )
+        primary = capture.native_samples[""]
+        outputs_by_role = capture.native_sample_values[""]["original_leaves"]
+        trees = {role: data.get("tree") for role, data in primary["roles"].items()}
         for index, sample_bindings in enumerate(adapter.get("samples", [])[1:], 1):
             label = f"native-sample-{index}"
             if scenario.input_values is not None:
@@ -2966,8 +3850,14 @@ def prepare_raw_source_case(
                 *named.values(),
             )
             capture.save_arrays(label + "-inputs", sample_args)
-            for role in ("eager", "fresh-jit"):
-                native_outputs(label + "-" + role, sample_args)
+            capture.native_sample(
+                original,
+                sample_args,
+                label=label,
+                settings=settings,
+                metadata=metadata,
+                three_roles=three_roles,
+            )
 
         # Each actual tracing attempt is independent from the other attempt and
         # from serialization. A const/trace adapter cannot invent native failure.
@@ -3001,7 +3891,14 @@ def prepare_raw_source_case(
                     capture.document("declared-typed-trace", trace)
                 except Exception as exc:
                     capture.gap("declared-typed-trace", exc)
-        if capture.native_errors:
+        capture.compare_native_samples(_criteria(metadata, scenario))
+        protocol_failed = any(
+            check["status"] == "failed"
+            for sample in capture.records["native_protocol"]["samples"].values()
+            for comparison in sample.get("comparisons", ())
+            for check in comparison["checks"]
+        )
+        if capture.native_errors or protocol_failed:
             raise SourcePreparationError(
                 "Original native invocation/tracing raised; actual outcomes and independent captures retained",
                 category="native-source-failure",
@@ -3025,8 +3922,18 @@ def prepare_raw_source_case(
         traced_inputs = tuple(_properties(var.aval) for var in closed.jaxpr.invars)
         traced_outputs = tuple(_properties(var.aval) for var in closed.jaxpr.outvars)
         try:
+            retained_eager = capture.native_sample_values[""]["leaves"].get("eager")
+            encoded_eager = any(
+                item.get("encoding")
+                for item in capture.records.get("eager", {}).get("properties", ())
+            )
             reference = tuple(
-                np.array(value, copy=True) for value in outputs_by_role["eager"]
+                np.array(value, copy=True)
+                for value in (
+                    retained_eager
+                    if retained_eager is not None and not encoded_eager
+                    else outputs_by_role["eager"]
+                )
             )
             input_evidence = tuple(
                 value_evidence(value, prop)

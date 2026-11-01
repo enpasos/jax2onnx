@@ -3,7 +3,7 @@
 """Actual SOURCE shape compositions and independent provenance mutations."""
 
 from contextlib import nullcontext
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, replace
 from typing import Any
 from unittest.mock import patch
 import warnings
@@ -25,6 +25,161 @@ from jax2onnx.converter.source_representation import normalized_shape_dimensions
 from jax2onnx.plugins.jax.lax._source_shape_structure import freeze_shape_structure_rule
 from jax2onnx.plugins.jax.lax.reshape import _propagate_shape_helper_dtype
 from jax2onnx.precision import CheckStatus, get_precision_report
+
+
+@pytest.mark.parametrize("optimized", [False, True])
+@pytest.mark.parametrize(
+    "shape,starts,limits,steps,dtype,original_empty",
+    [
+        ((3,), (0,), (0,), None, np.int32, True),
+        ((5,), (1,), (4,), None, np.bool_, False),
+        ((6,), (1,), (6,), (2,), np.uint32, False),
+        ((2, 4), (0, 1), (2, 4), (1, 2), np.float32, False),
+        ((0, 3), (0, 1), (0, 3), None, np.float64, False),
+        ((3,), (0,), (3,), None, np.int32, False),
+    ],
+)
+def test_static_slice_original_geometry_has_complete_structure(
+    optimized, shape, starts, limits, steps, dtype, original_empty
+) -> None:
+    def original(x: Any) -> Any:
+        if original_empty:
+            return x[:0]
+        return jax.lax.slice(x, starts, limits, steps)
+
+    model = _export(original, (shape,), dtypes=(dtype,), optimized=optimized)
+    _checked(model)
+    strides = steps or (1,) * len(shape)
+    expected = tuple(
+        (b - a + s - 1) // s for a, b, s in zip(starts, limits, strides, strict=True)
+    )
+    assert tuple(model.graph.outputs[0].shape) == expected
+    if starts != (0,) * len(shape) or limits != shape or strides != (1,) * len(shape):
+        assert sum(n.op_type == "Slice" for n in model.graph) == 1
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["starts", "limits", "axes", "steps", "source-edge", "dtype", "shape", "attribute"],
+)
+def test_static_slice_storage_edges_and_output_mutations_fail(fault: str) -> None:
+    def original(x: Any, other: Any) -> Any:
+        return jax.lax.slice(x, (1,), (5,), (2,)), other
+
+    model = _export(original, ((6,), (6,)), dtypes=(np.int32, np.int32))
+    _checked(model)
+    node = next(n for n in model.graph if n.op_type == "Slice")
+    if fault in {"starts", "limits", "axes", "steps"}:
+        index = {"starts": 1, "limits": 2, "axes": 3, "steps": 4}[fault]
+        _storage(node.inputs[index], np.asarray([7], dtype=np.int64))
+    elif fault == "source-edge":
+        assert model.graph.inputs[1] is not node.inputs[0]
+        node.replace_input_with(0, model.graph.inputs[1])
+    elif fault == "dtype":
+        node.outputs[0].dtype = ir.DataType.UINT32
+    elif fault == "shape":
+        node.outputs[0].shape = ir.Shape((3,))
+    else:
+        node.attributes["unreviewed"] = ir.AttrInt64("unreviewed", 1)
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "primitive",
+        "effects",
+        "params",
+        "params-type",
+        "input-arity",
+        "output-arity",
+        "dtype",
+        "encoding",
+        "logical-shape",
+        "output-shape",
+        "weakness",
+        "symbol",
+        "symbol-axis",
+        "logical-symbol-axis",
+        "negative-start",
+        "past-input-limit",
+        "negative-step",
+        "zero-step",
+        "bounds-overflow",
+        "steps-overflow",
+        "bool-bound",
+        "list-bound",
+    ],
+)
+def test_static_slice_unowned_or_incompatible_parameters_do_not_freeze(
+    fault: str,
+) -> None:
+    eqn = jax.make_jaxpr(lambda x: jax.lax.slice(x, (1,), (5,), (2,)))(
+        jax.ShapeDtypeStruct((6,), np.int32)
+    ).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.outvars
+    )
+    assert freeze_shape_structure_rule(eqn, inputs, outputs) is not None
+    params = dict(eqn.params)
+    if fault == "primitive":
+        eqn = eqn.replace(primitive=Primitive("slice"))
+    elif fault == "effects":
+        eqn = eqn.replace(effects=frozenset({object()}))
+    elif fault == "params":
+        params["unreviewed"] = None
+    elif fault == "params-type":
+
+        class Params(dict):
+            pass
+
+        eqn = eqn.replace(params=Params(params))
+    elif fault == "input-arity":
+        inputs = ()
+    elif fault == "output-arity":
+        outputs = outputs * 2
+    elif fault in {
+        "dtype",
+        "encoding",
+        "logical-shape",
+        "output-shape",
+        "weakness",
+        "symbol",
+        "symbol-axis",
+        "logical-symbol-axis",
+    }:
+        changes = {
+            "dtype": {"logical_dtype": "uint32", "dtype": ir.DataType.UINT32},
+            "encoding": {"encoding": "complex-real-pair"},
+            "logical-shape": {"logical_shape": (1, 2)},
+            "output-shape": {"shape": (3,), "logical_shape": (3,)},
+            "weakness": {"weak_type": True},
+            "symbol": {"symbol_token": object()},
+            "symbol-axis": {"symbol_axis": 0},
+            "logical-symbol-axis": {"logical_symbol_axis": 0},
+        }[fault]
+        outputs = (replace(outputs[0], **changes),)
+    else:
+        field, value = {
+            "negative-start": ("start_indices", (-1,)),
+            "past-input-limit": ("limit_indices", (7,)),
+            "negative-step": ("strides", (-1,)),
+            "zero-step": ("strides", (0,)),
+            "bounds-overflow": ("limit_indices", (2**63,)),
+            "steps-overflow": ("strides", (2**63,)),
+            "bool-bound": ("start_indices", (True,)),
+            "list-bound": ("start_indices", [1]),
+        }[fault]
+        params[field] = value
+    if fault != "params-type":
+        eqn = eqn.replace(params=params)
+    if fault == "bool-bound":
+        assert type(eqn.params["start_indices"][0]) is bool
+    assert freeze_shape_structure_rule(eqn, inputs, outputs) is None
 
 
 def _export(

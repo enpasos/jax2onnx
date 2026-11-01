@@ -907,7 +907,22 @@ def _raw_metadata_checks(prepared: Any, result: Any, capture: Any) -> dict[str, 
                 "Original destination retained; requested facade contract needs qualification",
             )
     if prepared is not None and prepared.scenario.require_reviewed_criteria:
-        if prepared.criteria is None or metadata.get("skip_numeric_validation"):
+        resolution = capture.records.get("criteria_resolution", {})
+        resolved = False
+        if resolution.get("status") == "validated":
+            retained = capture.records.get("criteria-resolution", {})
+            if retained.get("status") == "captured":
+                payload = Path(retained["path"]).read_bytes()
+                resolved = (
+                    hashlib.sha256(payload).hexdigest() == retained.get("sha256")
+                    and _fingerprint(json.loads(payload)) == _fingerprint(resolution)
+                    and resolution.get("criteria") == asdict(SampleCriteria("exact"))
+                    and _fingerprint(resolution.get("protocol_binding"))
+                    == _fingerprint(capture.records.get("protocol_binding"))
+                )
+        if (prepared.criteria is None and not resolved) or metadata.get(
+            "skip_numeric_validation"
+        ):
             add(
                 "reviewed_criteria",
                 CheckStatus.UNVERIFIED,
@@ -917,28 +932,544 @@ def _raw_metadata_checks(prepared: Any, result: Any, capture: Any) -> dict[str, 
             add(
                 "reviewed_criteria",
                 CheckStatus.VALIDATED,
-                "Complete explicit raw source criterion retained",
+                (
+                    "Reviewed conditional exact criterion proved by all original logical Native3 outputs"
+                    if resolved
+                    else "Complete explicit raw source criterion retained"
+                ),
             )
     return checks
 
 
 def _raw_runtime_status(result: Any) -> CheckStatus:
     """Only an actual validator observation can establish execution status."""
-    if result is None or result.validation is None:
+    if result is None:
         return CheckStatus.UNVERIFIED
-    checks = result.validation.checks + tuple(
-        check for sample in result.validation.samples for check in sample.checks
+    reports = result.validations or (
+        (result.validation,) if result.validation is not None else ()
     )
-    runtime = [
-        check.status for check in checks if check.category == "runtime-execution"
-    ]
-    if CheckStatus.FAILED in runtime:
-        return CheckStatus.FAILED
+    statuses = []
+    for report in reports:
+        checks = (
+            *report.checks,
+            *(item for sample in report.samples for item in sample.checks),
+        )
+        runtime = [
+            check.status
+            for check in checks
+            if check.category == "runtime-execution"
+            or (
+                result.validations
+                and check.category == "runtime-load"
+                and check.status is CheckStatus.FAILED
+            )
+        ]
+        statuses.append(
+            CheckStatus.FAILED
+            if CheckStatus.FAILED in runtime
+            else (
+                CheckStatus.VALIDATED
+                if runtime and all(value is CheckStatus.VALIDATED for value in runtime)
+                else CheckStatus.UNVERIFIED
+            )
+        )
     return (
-        CheckStatus.VALIDATED
-        if runtime and all(status is CheckStatus.VALIDATED for status in runtime)
-        else CheckStatus.UNVERIFIED
+        CheckStatus.FAILED
+        if CheckStatus.FAILED in statuses
+        else (
+            CheckStatus.VALIDATED
+            if statuses and all(value is CheckStatus.VALIDATED for value in statuses)
+            else CheckStatus.UNVERIFIED
+        )
     )
+
+
+def _raw_metadata_runtime_protocol(
+    prepared: Any,
+    result: Any,
+    capture: Any,
+    checks: Mapping[str, Any],
+    *,
+    adapter: Mapping[str, Any],
+    optimization: Literal["disabled", "all", "both"],
+) -> Any:
+    """Observe actual modes using one prepared sample set and saved artifact."""
+    from jax2onnx.precision import (
+        _artifact_bytes,
+        _array_evidence,
+        _validate_source_samples,
+    )
+    from tests.extra_tests.converter.source_precision_raw_replay import (
+        _conditional_discrete_criteria_choice,
+        _protocol_comparison,
+        _resolve_discrete_criteria,
+        _stateless_native_protocol,
+    )
+    from tests.extra_tests.converter.source_precision_support import (
+        prepared_source_reference,
+        prepare_source_reference,
+        _source_sample_from_reference,
+        source_configuration,
+        SourcePreparationError,
+    )
+
+    observation: dict[str, Any] = {
+        "protocol": "stateless-three-role-ort-v1",
+        "optimization": optimization,
+        "status": "unverified",
+        "binding_status": "unverified",
+        "reference_status": "unverified",
+        "alternate_inputs_status": "unverified",
+        "contract_sha256": adapter.get("contract_sha256"),
+        "criteria": (
+            asdict(prepared.criteria)
+            if prepared is not None and prepared.criteria
+            else None
+        ),
+        "modes": {},
+    }
+    capture.records["metadata_runtime"] = observation
+    if prepared is None or result is None or result.model is None:
+        observation["detail"] = "No retained prepared source and returned artifact"
+        return result
+    conditional = prepared.criteria is None and _conditional_discrete_criteria_choice(
+        adapter
+    )
+    blockers = []
+    if not _stateless_native_protocol(adapter):
+        blockers.append("No reviewed contract-bound stateless three-role protocol")
+    if prepared is None or result is None or result.model is None:
+        blockers.append("No retained prepared source and returned artifact")
+    elif (prepared.criteria is None and not conditional) or prepared.metadata.get(
+        "skip_numeric_validation"
+    ):
+        blockers.append("No complete applicable original criterion")
+    else:
+        if (
+            result.audit.status is not CheckStatus.VALIDATED
+            or result.schema is not CheckStatus.VALIDATED
+        ):
+            blockers.append("Raw product audit/schema is not validated")
+        if (
+            capture.readiness is not CheckStatus.VALIDATED
+            or capture.source_structure_status() is not CheckStatus.VALIDATED
+        ):
+            blockers.append("Exact source/artifact/physical mapping is not validated")
+        if result.raw_callback_status not in {"absent", "passed"}:
+            blockers.append("Original graph callback has not passed")
+        if any(
+            prepared.metadata.get(name)
+            for name in ("inputs_as_nchw", "outputs_as_nchw")
+        ):
+            blockers.append(
+                "Original layout needs an explicit native/physical runtime adapter"
+            )
+        if adapter.get("samples", [])[1:]:
+            blockers.append("Additional symbolic target samples are not yet reconciled")
+        if any(value["status"] == "failed" for value in checks.values()):
+            blockers.append("Original expected metadata contradicts source")
+        if any(
+            name in checks and checks[name]["status"] != "validated"
+            for name in (
+                "expected_output_shapes",
+                "expected_output_dtypes",
+                "x64_expected_output_shapes",
+            )
+        ):
+            blockers.append("Original output contract needs review")
+    if blockers:
+        observation["detail"] = "; ".join(blockers)
+        return result
+    references = []
+    reports = []
+    phase = "binding"
+    try:
+        capture.require_stable_target("before-protocol-runtime")
+        audited = capture.records["artifact"]
+        artifact = Path(audited["path"])
+        saved_stat = artifact.stat()
+        file_identity = (
+            saved_stat.st_dev,
+            saved_stat.st_ino,
+            saved_stat.st_size,
+            saved_stat.st_mtime_ns,
+        )
+        saved_sha = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        loaded_sha = _artifact_bytes(artifact)[1]
+        if (
+            saved_sha != audited["sha256"]
+            or _artifact_bytes(result.model)[1] != loaded_sha
+            or loaded_sha != saved_sha
+        ):
+            raise SourceContractDrift(
+                "Saved/returned/loaded execution artifact identities differ"
+            )
+        observation.update(
+            artifact_sha256=saved_sha,
+            loaded_artifact_sha256=loaded_sha,
+            saved_file_identity=file_identity,
+        )
+        phase = "reference"
+        references.append(prepared_source_reference(prepared))
+        alternate = prepared.metadata.get("runtime_input_values")
+        if alternate is not None:
+            if not isinstance(alternate, (list, tuple)) or not alternate:
+                raise ValueError(
+                    "Original runtime input samples need a nonempty reviewed container"
+                )
+            for index, values in enumerate(alternate):
+                label = f"metadata-runtime-reference-{index}"
+                capture.require_stable_target(label + "-before")
+
+                def run_reference(fn: Any, positional: Any, named: Any) -> Any:
+                    names = tuple(named)
+
+                    def original(*args: Any) -> Any:
+                        return fn(
+                            *args[: len(positional)],
+                            **dict(zip(names, args[len(positional) :], strict=True)),
+                        )
+
+                    capture.arrays(label + "-inputs", (*positional, *named.values()))
+                    value = capture.native_sample(
+                        original,
+                        (*positional, *named.values()),
+                        label=label,
+                        settings=prepared.settings,
+                        metadata=prepared.metadata,
+                        three_roles=True,
+                    )
+                    capture.compare_native_samples(prepared.criteria)
+                    failed = any(
+                        check["status"] == "failed"
+                        for comparison in capture.records["native_protocol"]["samples"][
+                            label
+                        ].get("comparisons", ())
+                        for check in comparison["checks"]
+                    )
+                    if failed or any(
+                        label + "-" + role in capture.native_errors
+                        for role in ("eager", "fresh-jit", "warm-jit")
+                    ):
+                        raise SourcePreparationError(
+                            "An original alternate native role raised or disagreed; all bounded roles retained",
+                            category="native-source-failure",
+                        )
+                    if conditional:
+                        import jax
+
+                        leaves, tree = jax.tree_util.tree_flatten(value)
+                        if str(tree) != prepared.output_tree or len(leaves) != len(
+                            prepared.traced_outputs
+                        ):
+                            raise SourcePreparationError(
+                                "Actual alternate native output tree/arity contradicts the original typed trace",
+                                category="native-source-failure",
+                            )
+                        for leaf, properties in zip(
+                            leaves, prepared.traced_outputs, strict=True
+                        ):
+                            dtype = getattr(leaf, "dtype", None)
+                            if getattr(dtype, "name", None) != properties.dtype or (
+                                all(type(dim) is int for dim in properties.shape)
+                                and tuple(getattr(leaf, "shape", ()))
+                                != properties.shape
+                            ):
+                                raise SourcePreparationError(
+                                    "Actual alternate native output dtype/shape contradicts the original typed trace",
+                                    category="native-source-failure",
+                                )
+                    return value
+
+                with capture.execution_context(label):
+                    reference = prepare_source_reference(
+                        prepared,
+                        label="original-runtime-input-values-" + str(index),
+                        input_values=values,
+                        _reference_runner=run_reference,
+                    )
+                references.append(reference)
+        all_logical_discrete = False
+        if conditional:
+            labels = [""] + [
+                f"metadata-runtime-reference-{i}" for i in range(len(references) - 1)
+            ]
+            criterion = _resolve_discrete_criteria(
+                prepared, capture, adapter=adapter, references=references, labels=labels
+            )
+            if criterion is None:
+                raise SourcePreparationError(
+                    "Reviewed conditional criterion lacks complete logical discrete applicability",
+                    category="replay-lane-gap",
+                )
+            prepared = replace(prepared, criteria=criterion)
+            references = [
+                replace(reference, prepared=prepared) for reference in references
+            ]
+            observation["criteria"] = asdict(criterion)
+            all_logical_discrete = True
+        capture.compare_native_samples(
+            prepared.criteria, all_logical_discrete=all_logical_discrete
+        )
+        native_checks = [
+            check
+            for sample in capture.records["native_protocol"]["samples"].values()
+            for comparison in sample.get("comparisons", ())
+            for check in comparison["checks"]
+        ]
+        if not native_checks or any(
+            check["status"] != "validated" for check in native_checks
+        ):
+            failed = any(check["status"] == "failed" for check in native_checks)
+            raise SourcePreparationError(
+                "Original Native3 protocol comparison is "
+                + ("failed" if failed else "unverified"),
+                category="native-source-failure" if failed else "replay-lane-gap",
+            )
+        observation["reference_status"] = "validated"
+        observation["reference_role"] = (
+            "original-eager-first-warm-same-wrapper-per-sample"
+        )
+        observation["reference_detail"] = (
+            "All three original roles retained per sample; first/warm use the same new wrapper, without a cold-compilation claim"
+        )
+        samples = [
+            _source_sample_from_reference(prepared, result.model, ref)
+            for ref in references
+        ]
+
+        def sample_identities() -> list[dict[str, Any]]:
+            return [
+                {
+                    "inputs": [
+                        asdict(_array_evidence(str(name), value))
+                        for name, value in sample.inputs.items()
+                    ],
+                    "references": [
+                        asdict(_array_evidence(str(i), value))
+                        for i, value in enumerate(sample.expected_outputs)
+                    ],
+                    "criteria": asdict(sample.criteria),
+                }
+                for sample in samples
+            ]
+
+        identities = sample_identities()
+        observation["sample_identities"] = identities
+        observation["native_sample_labels"] = [""] + [
+            f"metadata-runtime-reference-{i}" for i in range(len(references) - 1)
+        ]
+        phase = "binding"
+        for label, identity in zip(
+            observation["native_sample_labels"], identities, strict=True
+        ):
+            role = (label + "-" if label else "") + "eager-physical-reference"
+            retained = capture.records.get(role, {})
+            if retained.get("status") != "captured" or not retained.get(
+                "array_evidence"
+            ):
+                raise SourcePreparationError(
+                    "Actual eager physical-reference array capture unavailable",
+                    category="replay-lane-gap",
+                )
+            if _fingerprint(retained["array_evidence"]) != _fingerprint(
+                identity["references"]
+            ):
+                raise SourceContractDrift(
+                    "Target reference values differ from retained original eager physical arrays"
+                )
+        for index, sample in enumerate(samples):
+            capture.arrays(f"metadata-protocol-{index}-feeds", sample.inputs.values())
+            capture.arrays(
+                f"metadata-protocol-{index}-references", sample.expected_outputs
+            )
+
+        def stable(label: str) -> None:
+            capture.require_stable_target(label)
+            if SourceSettings.observe() != prepared.settings:
+                raise SourceContractDrift("Runtime sample caller settings changed")
+            st = artifact.stat()
+            if (
+                st.st_dev,
+                st.st_ino,
+                st.st_size,
+                st.st_mtime_ns,
+            ) != file_identity or hashlib.sha256(
+                artifact.read_bytes()
+            ).hexdigest() != saved_sha:
+                raise SourceContractDrift(
+                    "Saved execution artifact changed between modes"
+                )
+            if (
+                _artifact_bytes(artifact)[1] != loaded_sha
+                or _artifact_bytes(result.model)[1] != loaded_sha
+            ):
+                raise SourceContractDrift(
+                    "Loaded/returned execution bytes changed between modes"
+                )
+            if sample_identities() != identities:
+                raise SourceContractDrift(
+                    "Ordered physical feeds/references changed between modes"
+                )
+            capture.finalize_source_structure(result.model)
+            if (
+                capture.readiness is not CheckStatus.VALIDATED
+                or capture.source_structure_status() is not CheckStatus.VALIDATED
+            ):
+                raise SourceContractDrift(
+                    "Source/artifact mapping changed between modes"
+                )
+
+        phase = "binding"
+        modes = ("disabled", "all") if optimization == "both" else (optimization,)
+        with source_configuration(prepared.scenario):
+            for mode in modes:
+                stable("immediately-before-protocol-" + mode)
+                captured: dict[int, Any] = {}
+                binding_errors: list[str] = []
+
+                def observe(
+                    index: int, outputs: Any, feeds: Any, digest: str, target: Any
+                ) -> None:
+                    copied = capture.arrays(f"metadata-ort-{mode}-{index}", outputs)
+                    captured[index] = copied
+                    if digest != loaded_sha:
+                        binding_errors.append(
+                            "Observer received another loaded artifact"
+                        )
+                        raise SourceContractDrift(
+                            "Observer received another loaded artifact"
+                        )
+                    expected_feeds = identities[index]["inputs"]
+                    if [
+                        asdict(_array_evidence(str(name), value))
+                        for name, value in feeds.items()
+                    ] != expected_feeds:
+                        binding_errors.append(
+                            "Observer feeds differ from the frozen ordered sample"
+                        )
+                        raise SourceContractDrift(
+                            "Observer feeds differ from the frozen ordered sample"
+                        )
+
+                phase = "validator"
+                validation = _validate_source_samples(
+                    artifact,
+                    samples=samples,
+                    optimization=mode,
+                    _output_observer=observe,
+                )
+                reports.append(validation)
+                result = replace(
+                    result, validation=reports[0], validations=tuple(reports)
+                )
+                mode_record = {
+                    "status": validation.status.value,
+                    "artifact_sha256": validation.artifact_sha256,
+                    "target": asdict(validation.target) if validation.target else None,
+                    "checks": [asdict(item) for item in validation.checks],
+                    "samples": [asdict(item) for item in validation.samples],
+                    "sample_identities": sample_identities(),
+                    "output_captures": [],
+                }
+                observation["modes"][mode] = mode_record
+                for index, copied in captured.items():
+                    role = f"metadata-ort-{mode}-{index}"
+                    copied_evidence = [
+                        asdict(_array_evidence(str(i), value))
+                        for i, value in enumerate(copied)
+                    ]
+                    mode_record["output_captures"].append(
+                        {
+                            "index": index,
+                            "capture_role": role,
+                            "outputs": copied_evidence,
+                            **_protocol_comparison(
+                                copied,
+                                samples[index].expected_outputs,
+                                prepared.criteria,
+                                all_logical_discrete=all_logical_discrete,
+                            ),
+                        }
+                    )
+                    actual = [
+                        sample for sample in validation.samples if sample.index == index
+                    ]
+                    if len(actual) != 1 or _fingerprint(
+                        copied_evidence
+                    ) != _fingerprint([asdict(value) for value in actual[0].outputs]):
+                        binding_errors.append(
+                            "Copied target outputs differ from the actual validator sample"
+                        )
+                phase = "binding"
+                if binding_errors:
+                    raise SourceContractDrift("; ".join(binding_errors))
+                if (
+                    validation.artifact_sha256 is not None
+                    and validation.artifact_sha256 != loaded_sha
+                ):
+                    raise SourceContractDrift(
+                        "Actual validator loaded another artifact epoch"
+                    )
+                stable("after-protocol-" + mode)
+        observation["binding_status"] = "validated"
+        observation["binding_detail"] = (
+            "Same saved file, loaded execution bytes and ordered feeds/references before/after every actual mode"
+        )
+        observation["alternate_inputs_status"] = (
+            "validated"
+            if alternate is not None and len(references) == len(alternate) + 1
+            else "unverified"
+        )
+        statuses = [
+            check["status"]
+            for record in observation["modes"].values()
+            for output in record["output_captures"]
+            for check in output["checks"]
+        ]
+        actual_failure = any(
+            check.status is CheckStatus.FAILED
+            and check.category != "output-observation"
+            for report in reports
+            for check in (
+                *report.checks,
+                *(item for sample in report.samples for item in sample.checks),
+            )
+        )
+        observation["status"] = (
+            "failed"
+            if actual_failure
+            or "failed" in statuses
+            or result.numerical_status is CheckStatus.FAILED
+            else (
+                "validated"
+                if len(reports) == len(modes)
+                and all(
+                    len(record["output_captures"]) == len(samples)
+                    for record in observation["modes"].values()
+                )
+                and statuses
+                and all(value == "validated" for value in statuses)
+                and result.numerical_status is CheckStatus.VALIDATED
+                else "unverified"
+            )
+        )
+        return result
+    except Exception as exc:
+        capture.failure("metadata-runtime-" + phase, exc)
+        failed = (
+            isinstance(exc, SourceContractDrift)
+            or getattr(exc, "category", None) == "native-source-failure"
+        )
+        observation.update(
+            failure_phase=phase,
+            detail=str(exc),
+            status="failed" if failed else "unverified",
+        )
+        if phase in {"binding", "reference"}:
+            observation[phase + "_status"] = observation["status"]
+            observation[phase + "_detail"] = str(exc)
+        return result
 
 
 def _raw_metadata_runtime(
@@ -948,7 +1479,7 @@ def _raw_metadata_runtime(
     checks: Mapping[str, Any],
     *,
     adapter: Mapping[str, Any],
-    optimization: Literal["disabled", "all"],
+    optimization: Literal["disabled", "all", "both"],
 ) -> Any:
     """Reuse retained source/reference/artifact and the existing sample validator.
 
@@ -956,6 +1487,15 @@ def _raw_metadata_runtime(
     Every original-source invocation is fenced before a subsequent invocation or
     target execution. A later binding failure retains actual validator evidence.
     """
+    if optimization == "both" or adapter.get("native_protocol") is not None:
+        return _raw_metadata_runtime_protocol(
+            prepared,
+            result,
+            capture,
+            checks,
+            adapter=adapter,
+            optimization=optimization,
+        )
     import jax
     from jax2onnx.precision import _artifact_bytes, validate_source_samples
     from tests.extra_tests.converter.source_precision_support import (
@@ -1190,7 +1730,7 @@ def execute_raw_probe_cell(
     stage: Literal["prepare", "product"],
     adapters: Mapping[str, Any],
     evidence_directory: Path,
-    runtime_optimization: Literal["disabled", "all"] | None = None,
+    runtime_optimization: Literal["disabled", "all", "both"] | None = None,
     _inventory_sha256: str | None = None,
 ) -> ProbeCell:
     """Execute one unchanged raw recipe; both CLI and metadata use this owner.
@@ -1266,6 +1806,11 @@ def execute_raw_probe_cell(
                 "criteria": asdict(row.criteria) if row.criteria else None,
             }
         )
+        capture.records["protocol_binding"] = {
+            "cell_identity": cell.identity,
+            "row_contract_sha256": row.contract_sha256,
+            "scenario_sha256": scenario_sha,
+        }
         prepared = prepare_raw_source_case(
             metadata,
             declared,
@@ -1396,6 +1941,23 @@ def execute_raw_probe_cell(
                 },
             )
     capture.records["metadata_assertions"] = checks
+    runtime_observation = capture.records.get("metadata_runtime", {})
+    numerical_status = (
+        CheckStatus(runtime_observation["status"])
+        if runtime_observation.get("protocol") == "stateless-three-role-ort-v1"
+        else result.numerical_status if result else CheckStatus.UNVERIFIED
+    )
+    if (
+        runtime_observation.get("protocol") == "stateless-three-role-ort-v1"
+        and runtime_observation.get("reference_status") == "failed"
+    ):
+        outcome = replace(
+            outcome,
+            source_reference=CheckStatus.FAILED,
+            detail=runtime_observation.get(
+                "reference_detail", runtime_observation.get("detail", outcome.detail)
+            ),
+        )
     if (
         capture.readiness is CheckStatus.UNVERIFIED
         and capture.gaps
@@ -1439,7 +2001,7 @@ def execute_raw_probe_cell(
         outcome.artifact,
         outcome.lowering_audit,
         _raw_runtime_status(result),
-        result.numerical_status if result else CheckStatus.UNVERIFIED,
+        numerical_status,
         outcome.stage,
         outcome.category,
         outcome.detail,
@@ -1450,10 +2012,41 @@ def execute_raw_probe_cell(
         raw_callback_status=(result.raw_callback_status if result else "not-executed"),
         replay_capture=dict(capture.records),
     )
+    try:
+        # Persist the existing immutable type, before adding the document's
+        # own path/hash marker to capture.records. Its payload has no self-edge.
+        capture.document("stage-evidence", asdict(evidence))
+    except Exception as exc:
+        capture.gap("stage-evidence-persistence", exc)
+        numerical_status = (
+            CheckStatus.FAILED
+            if numerical_status is CheckStatus.FAILED
+            else CheckStatus.UNVERIFIED
+        )
+        outcome = replace(
+            outcome,
+            source_reference=(
+                CheckStatus.FAILED
+                if outcome.source_reference is CheckStatus.FAILED
+                else CheckStatus.UNVERIFIED
+            ),
+            stage="replay-capture-pending",
+            category="replay-lane-gap",
+            detail="Actual stage evidence could not be persisted: " + str(exc),
+        )
+        evidence = replace(
+            evidence,
+            source_reference=outcome.source_reference,
+            numerics=numerical_status,
+            stage=outcome.stage,
+            category=outcome.category,
+            detail=outcome.detail,
+            replay_capture=dict(capture.records),
+        )
     return replace(
         outcome,
         runtime=_raw_runtime_status(result),
-        numerics=result.numerical_status if result else CheckStatus.UNVERIFIED,
+        numerics=numerical_status,
         history=(*cell.history, evidence),
     )
 

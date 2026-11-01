@@ -65,6 +65,8 @@ _PRIMITIVES: Final = {
     "gt": jax.lax.gt_p,
     "ge": jax.lax.ge_p,
     "eq": jax.lax.eq_p,
+    "not": jax.lax.not_p,
+    "and": jax.lax.and_p,
 }
 
 
@@ -179,7 +181,11 @@ def freeze_source_structure_rule(
         )
 
         return freeze_reduction_structure_rule(eqn, inputs, outputs)
-    if primitive is jax.lax.reshape_p or primitive is jax.lax.broadcast_in_dim_p:
+    if (
+        primitive is jax.lax.reshape_p
+        or primitive is jax.lax.broadcast_in_dim_p
+        or primitive is jax.lax.slice_p
+    ):
         from jax2onnx.plugins.jax.lax._source_shape_structure import (
             freeze_shape_structure_rule,
         )
@@ -234,6 +240,50 @@ def freeze_source_structure_rule(
         if source_dtype == target_dtype:
             return _DirectRule("Identity", identity_alias=True)
         return _DirectRule("BitCast", (("to", int(target.dtype.value)),))
+    if primitive is jax.lax.not_p or primitive is jax.lax.and_p:
+        arity = 1 if primitive is jax.lax.not_p else 2
+        if (
+            type(eqn) is not JaxprEqn
+            or eqn.effects
+            or type(eqn.params) is not dict
+            or eqn.params
+            or len(inputs) != arity
+            or len(outputs) != 1
+        ):
+            return None
+        target = outputs[0]
+        discrete = {
+            "bool",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        }
+        if any(
+            value.logical_dtype not in discrete
+            or value.dtype != ir.DataType.from_numpy(np.dtype(value.logical_dtype))
+            or value.logical_dtype != target.logical_dtype
+            or value.encoding != "identity"
+            or value.shape != value.logical_shape
+            or value.shape != target.shape
+            or any(type(dim) is not int or dim < 0 for dim in value.shape)
+            or value.symbol_token is not None
+            or value.symbol_axis is not None
+            or value.logical_symbol_axis is not None
+            or type(value.weak_type) is not bool
+            for value in (*inputs, target)
+        ) or target.weak_type != all(value.weak_type for value in inputs):
+            return None
+        logical = target.logical_dtype == "bool"
+        return _DirectRule(
+            ("Not" if logical else "BitwiseNot")
+            if arity == 1
+            else ("And" if logical else "BitwiseAnd")
+        )
     # Scalar numeric conditions and counters have their own exact contracts.
     # Boolean arithmetic and general integer expressions remain separate rules.
     scalar_numeric = (
@@ -397,7 +447,7 @@ def freeze_source_semantic_key(
     )
     from jax2onnx.plugins.jax.lax._source_dot_structure import _DotRule
     from jax2onnx.plugins.jax.lax._source_reduce_structure import _ReductionRule
-    from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule
+    from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule, _SliceRule
     from jax2onnx.plugins.jax.lax._source_loop_structure import ScanRule, WhileRule
 
     from jax2onnx.plugins.jax.core._source_inline_structure import InlineRule
@@ -445,6 +495,8 @@ def freeze_source_semantic_key(
         or eqn.primitive is jax.lax.broadcast_in_dim_p
     ):
         return ("shape", rule.operation, rule.permutation, rule.broadcast_dimensions)
+    if type(rule) is _SliceRule and eqn.primitive is jax.lax.slice_p:
+        return ("slice", rule.starts, rule.limits, rule.axes, rule.steps)
     if type(rule) is _DirectRule and _PRIMITIVES.get(primitive_name) is primitive:
         return (
             "direct",

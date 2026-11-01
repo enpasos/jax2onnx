@@ -1,5 +1,28 @@
 # Precision migration handoff — 2026-11-01
 
+## Finite original-row SOURCE checkpoint
+
+The local Source composition preserves the accepted Native3/ORT2 producer and
+conditional discrete exact rule, then adds a bound applicability proof for a
+complete constant-free canonical `and`/`not` source graph and its final saved IR.
+It retains every actual source value, operator, edge and tensor type; dead,
+hidden, floating, nested or otherwise unsupported content cannot discharge the
+floating-rounding/internal-FP64 obligations. No public criteria API or global
+acceptance gate changes.
+
+Actual focused checks pass **50 cases per official Python 3.11/3.13 family**.
+The unchanged original bitwise-and row passes both caller Items and all phases
+on each official stack and the existing Python 3.11 / ORT 1.24.1 minimum stack,
+with exact Native3/ORT2 outputs `[1, 0, 2]` and audited SOURCE/schema/callback
+bindings. Each complete report validates those **two numerical cells** while
+retaining **3,710** unverified raw cells, the full **3,712** denominator and all
+side obligations, **1,838** missing pairs and global inventory `ERROR`/exit `1`.
+The newer-family minimum and full scientific acceptance remain open. The first
+32-pass/one-failed weak-sentinel fixture is preserved; its reviewed correction
+changes only construction of a fresh native test object, and all 50 controls
+then pass. The original callables, inputs, criteria and earlier failures remain
+unchanged. This checkpoint supplies no CI-gate or publication waiver.
+
 ## Current CI qualification and scheduling work
 
 Published `30ff0c80` has independently reviewed STANDARD and focused EXTRA

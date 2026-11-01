@@ -367,7 +367,7 @@ _NATIVE_CAPTURE_OWNERS = (
     ),
     *(
         (vars(_native_numpy)[name], ((_native_numpy, name), (_native_ufuncs, name)))
-        for name in ("add", "maximum", "minimum", "logical_xor")
+        for name in ("add", "maximum", "minimum", "logical_xor", "bitwise_and")
     ),
 )
 _NATIVE_CAPTURE_UFUNC_TYPE = _native_ufunc_api.ufunc
@@ -530,6 +530,35 @@ _NATIVE_CAPTURE_TYPE_BINDINGS = (
         "UnspecifiedValue",
         _native_named_sharding.UnspecifiedValue,
     ),
+)
+
+# This is a distinct SOURCE-original-callable boundary. It does not enroll
+# caller-created wrappers in the selected-native-owner registry.
+_SOURCE_ORIGINAL_JIT_FACTORY = vars(_native_pjit).get("_cpp_pjit")
+_SOURCE_ORIGINAL_JIT_FACTORY_CODE = (
+    _SOURCE_ORIGINAL_JIT_FACTORY.__code__
+    if type(_SOURCE_ORIGINAL_JIT_FACTORY) is types.FunctionType
+    else None
+)
+_SOURCE_ORIGINAL_JIT_FACTORY_GLOBALS = (
+    _SOURCE_ORIGINAL_JIT_FACTORY.__globals__
+    if type(_SOURCE_ORIGINAL_JIT_FACTORY) is types.FunctionType
+    else None
+)
+_SOURCE_ORIGINAL_JIT_FACTORY_BUILTINS = (
+    _SOURCE_ORIGINAL_JIT_FACTORY.__builtins__
+    if type(_SOURCE_ORIGINAL_JIT_FACTORY) is types.FunctionType
+    else None
+)
+_SOURCE_ORIGINAL_JIT_CLASS_MEMBERS = tuple(vars(_NATIVE_CAPTURE_JIT_TYPE).items())
+_SOURCE_ORIGINAL_JIT_CACHE_CODES = tuple(
+    value
+    for value in (
+        _SOURCE_ORIGINAL_JIT_FACTORY_CODE.co_consts
+        if _SOURCE_ORIGINAL_JIT_FACTORY_CODE is not None
+        else ()
+    )
+    if type(value) is types.CodeType and value.co_name == "cache_miss"
 )
 
 
@@ -5192,6 +5221,93 @@ def selected_native_transformed_function(
             "runtime_nodes": graph.nodes,
         },
         (*retained, *current_references, *graph.retained.values()),
+    )
+
+
+def source_original_jit_capture(
+    value: object,
+) -> tuple[NativeTransformedSnapshot, types.FunctionType] | None:
+    """Capture one exact supplied JIT object; never replace it for execution."""
+    if type(value) is not _NATIVE_CAPTURE_JIT_TYPE:
+        return None
+    if vars(_cast_cpu_native).get("PjitFunction") is not _NATIVE_CAPTURE_JIT_TYPE:
+        raise ValueError("original JIT native type binding changed")
+    members = vars(_NATIVE_CAPTURE_JIT_TYPE)
+    if len(members) != len(_SOURCE_ORIGINAL_JIT_CLASS_MEMBERS) or any(
+        members.get(name) is not original
+        for name, original in _SOURCE_ORIGINAL_JIT_CLASS_MEMBERS
+    ):
+        raise ValueError("original JIT native class/getter binding changed")
+    if (
+        type(_SOURCE_ORIGINAL_JIT_FACTORY) is not types.FunctionType
+        or vars(_native_pjit).get("_cpp_pjit") is not _SOURCE_ORIGINAL_JIT_FACTORY
+        or _SOURCE_ORIGINAL_JIT_FACTORY.__code__
+        is not _SOURCE_ORIGINAL_JIT_FACTORY_CODE
+        or _SOURCE_ORIGINAL_JIT_FACTORY.__globals__
+        is not _SOURCE_ORIGINAL_JIT_FACTORY_GLOBALS
+        or _SOURCE_ORIGINAL_JIT_FACTORY_GLOBALS is not vars(_native_pjit)
+        or _SOURCE_ORIGINAL_JIT_FACTORY.__builtins__
+        is not _SOURCE_ORIGINAL_JIT_FACTORY_BUILTINS
+        or len(_SOURCE_ORIGINAL_JIT_CACHE_CODES) != 1
+        or _SOURCE_ORIGINAL_JIT_CACHE_CODES[0].co_freevars != ("fun", "jit_info")
+    ):
+        raise ValueError("original JIT native factory boundary changed")
+    graph = _NativeCaptureGraph()
+    namespace = vars(value)
+    if not graph._schema(namespace, _NATIVE_CAPTURE_JIT_FIELDS):
+        raise ValueError("original JIT wrapper schema changed")
+    function, wrapped = namespace["_fun"], namespace["__wrapped__"]
+    if type(function) is not types.FunctionType or wrapped is not function:
+        raise ValueError("original JIT needs one unchanged exact Python function")
+    callback = _NATIVE_CAPTURE_CPP_BOUNDARY[-1](value)
+    if native_transformed_function_role(callback) != "reraise_with_filtered_traceback":
+        raise ValueError("original JIT cache-miss boundary changed")
+    boundary = selected_native_transformed_function(callback)
+    assert boundary is not None
+    if (
+        not _NATIVE_WRAPPER_FACTORIES
+        or vars(_native_pjit).get("api_boundary") is not _NATIVE_WRAPPER_FACTORIES[0][0]
+        or callback.__closure__ is None
+        or len(callback.__closure__) != 1
+        or type(callback.__closure__[0]) is not types.CellType
+    ):
+        raise ValueError("original JIT traceback callback envelope changed")
+    cache_miss = callback.__closure__[0].cell_contents
+    if (
+        type(cache_miss) is not types.FunctionType
+        or cache_miss.__code__ is not _SOURCE_ORIGINAL_JIT_CACHE_CODES[0]
+        or cache_miss.__globals__ is not vars(_native_pjit)
+        or cache_miss.__builtins__ is not _SOURCE_ORIGINAL_JIT_FACTORY_BUILTINS
+        or vars(callback).get("__wrapped__") is not cache_miss
+        or cache_miss.__closure__ is None
+        or len(cache_miss.__closure__) != 2
+        or any(type(cell) is not types.CellType for cell in cache_miss.__closure__)
+    ):
+        raise ValueError("original JIT cache-miss executable changed")
+    closure = dict(
+        zip(cache_miss.__code__.co_freevars, cache_miss.__closure__ or (), strict=True)
+    )
+    if (
+        set(closure) != {"fun", "jit_info"}
+        or closure["fun"].cell_contents is not function
+        or closure["jit_info"].cell_contents is not namespace["_jit_info"]
+        or type(namespace["_jit_info"]) is not _native_pjit.PjitInfo
+    ):
+        raise ValueError(
+            "original JIT function/configuration differs from actual cache-miss edges"
+        )
+    roots = [graph.take(value)]
+    return (
+        NativeTransformedSnapshot(
+            {
+                "source_original_jit": id(value),
+                "roots": roots,
+                "nodes": graph.nodes,
+                "cache_miss_boundary": boundary.document,
+            },
+            (*graph.retained.values(), *boundary.retained),
+        ),
+        function,
     )
 
 

@@ -26,6 +26,200 @@ from jax2onnx.plugins import _source_structure as rules
 from jax2onnx.precision import CheckStatus, get_precision_report
 
 
+@pytest.mark.parametrize("operation", ["not", "and"])
+@pytest.mark.parametrize("supplied_jit", [False, True])
+@pytest.mark.parametrize(
+    "dtype,shape,opset",
+    [
+        (np.bool_, (3,), 23),
+        (np.bool_, (), 26),
+        (np.int32, (), 23),
+        (np.int32, (0,), 26),
+        (np.uint32, (3,), 23),
+        (np.uint32, (0,), 26),
+    ],
+)
+def test_discrete_direct_original_and_supplied_jit_have_complete_structure(
+    operation: str, supplied_jit: bool, dtype: Any, shape: tuple[int, ...], opset: int
+) -> None:
+    def original(*values: Any) -> Any:
+        if operation == "not":
+            return jnp.bitwise_not(values[0])
+        return jnp.bitwise_and(values[0], values[1])
+
+    arity = 1 if operation == "not" else 2
+    target = jax.jit(original) if supplied_jit else original
+    model = ui._to_onnx(
+        target,
+        [jax.ShapeDtypeStruct(shape, dtype)] * arity,
+        precision_policy=PrecisionPolicy.SOURCE,
+        opset=opset,
+        return_mode="ir",
+    )
+    assert isinstance(model, ir.Model)
+    result = model.meta[structure.RESULT_KEY]
+    assert result.status == "validated"
+    assert (
+        result.expected_equations
+        == result.checked_equations
+        == (2 if supplied_jit else 1)
+    )
+    expected = (
+        ("Not" if operation == "not" else "And")
+        if dtype is np.bool_
+        else ("BitwiseNot" if operation == "not" else "BitwiseAnd")
+    )
+    assert sum(node.op_type == expected for node in model.graph) == 1
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+@pytest.mark.parametrize("operation", ["not", "and"])
+@pytest.mark.parametrize("fault", ["operator", "edge", "attribute"])
+def test_discrete_direct_final_ir_mutations_are_rejected(
+    operation: str, fault: str
+) -> None:
+    def original(*values: Any) -> Any:
+        if operation == "not":
+            return jnp.bitwise_not(values[0]), values[1]
+        return jnp.bitwise_and(values[0], values[1]), values[2]
+
+    arity = 2 if operation == "not" else 3
+    model = ui._to_onnx(
+        original,
+        [jax.ShapeDtypeStruct((3,), np.int32)] * arity,
+        precision_policy=PrecisionPolicy.SOURCE,
+        return_mode="ir",
+    )
+    assert isinstance(model, ir.Model)
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    node = next(
+        n
+        for n in model.graph
+        if n.op_type == ("BitwiseNot" if operation == "not" else "BitwiseAnd")
+    )
+    if fault == "operator":
+        node.op_type = "Neg" if operation == "not" else "BitwiseOr"
+    elif fault == "edge":
+        assert model.graph.inputs[-1] is not node.inputs[0]
+        assert model.graph.outputs[-1] is model.graph.inputs[-1]
+        node.replace_input_with(0, model.graph.inputs[-1])
+    else:
+        node.attributes["unexpected"] = ir.AttrInt64("unexpected", 1)
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+@pytest.mark.parametrize("operation", ["not", "and"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "primitive",
+        "equation",
+        "effects",
+        "params",
+        "params-type",
+        "input-arity",
+        "output-arity",
+        "logical-dtype",
+        "physical-dtype",
+        "input-dtype",
+        "encoding",
+        "logical-shape",
+        "shape",
+        "symbol",
+        "symbol-axis",
+        "logical-symbol-axis",
+        "weakness",
+        "weakness-type",
+    ],
+)
+def test_discrete_direct_rule_rejects_unowned_or_incompatible_contracts(
+    operation: str, fault: str
+) -> None:
+    fn = jax.lax.bitwise_not if operation == "not" else jax.lax.bitwise_and
+    arity = 1 if operation == "not" else 2
+    native = jax.make_jaxpr(fn)(
+        *[jax.ShapeDtypeStruct((3,), np.uint32)] * arity
+    ).jaxpr.eqns[0]
+    eqn = native
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.outvars
+    )
+    assert rules.freeze_source_semantic_key(eqn, inputs, outputs) == (
+        "direct",
+        operation,
+        "BitwiseNot" if operation == "not" else "BitwiseAnd",
+        (),
+        False,
+    )
+    if fault == "primitive":
+        eqn = native.replace(primitive=Primitive(operation))
+    elif fault == "equation":
+        eqn = SimpleNamespace(
+            primitive=native.primitive,
+            params={},
+            effects=(),
+            invars=native.invars,
+            outvars=native.outvars,
+        )
+    elif fault == "effects":
+        eqn = native.replace(effects=frozenset({object()}))
+    elif fault == "params":
+        eqn = native.replace(params={"placement": None})
+    elif fault == "params-type":
+
+        class Params(dict):
+            pass
+
+        eqn = native.replace(params=Params())
+    elif fault == "input-arity":
+        inputs = inputs[:-1]
+    elif fault == "output-arity":
+        outputs = outputs * 2
+    elif fault == "input-dtype":
+        inputs = (
+            *inputs[:-1],
+            replace(inputs[-1], logical_dtype="int32", dtype=ir.DataType.INT32),
+        )
+    else:
+        changes = {
+            "logical-dtype": {"logical_dtype": "float32"},
+            "physical-dtype": {"dtype": ir.DataType.INT32},
+            "encoding": {"encoding": "complex-real-pair"},
+            "logical-shape": {"logical_shape": (1, 3)},
+            "shape": {"shape": (1, 3), "logical_shape": (1, 3)},
+            "symbol": {"symbol_token": object()},
+            "symbol-axis": {"symbol_axis": 0},
+            "logical-symbol-axis": {"logical_symbol_axis": 0},
+            "weakness": {"weak_type": True},
+            "weakness-type": {"weak_type": 0},
+        }[fault]
+        outputs = (replace(outputs[0], **changes),)
+    assert rules.freeze_source_structure_rule(eqn, inputs, outputs) is None
+    assert rules.freeze_source_semantic_key(eqn, inputs, outputs) is None
+
+
+@pytest.mark.parametrize("operation", ["not", "and"])
+def test_discrete_direct_rule_retains_native_weak_scalar(operation: str) -> None:
+    fn = jax.lax.bitwise_not if operation == "not" else jax.lax.bitwise_and
+    with jax.enable_x64(False):
+        eqn = jax.make_jaxpr(fn)(*((1,) if operation == "not" else (1, 3))).jaxpr.eqns[
+            0
+        ]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.outvars
+    )
+    assert all(v.weak_type for v in (*inputs, *outputs))
+    assert rules.freeze_source_structure_rule(eqn, inputs, outputs) is not None
+
+
 def _source(
     fn: Any, *, arity: int = 2, shape: Any = (2, 3), **options: Any
 ) -> ir.Model:

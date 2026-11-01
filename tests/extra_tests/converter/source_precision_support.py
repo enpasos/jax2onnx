@@ -208,24 +208,42 @@ class SourceCaseResult:
     schema: CheckStatus = CheckStatus.UNVERIFIED
     corpus_structure: CorpusStructureEvidence | None = None
     raw_callback_status: str = "not-executed"
+    validations: tuple[SourceValidationReport, ...] = ()
 
     @property
     def numerical_status(self) -> CheckStatus:
-        if self.validation is None:
-            return CheckStatus.UNVERIFIED
-        checks = self.validation.checks + tuple(
-            check for sample in self.validation.samples for check in sample.checks
+        reports = self.validations or (
+            (self.validation,) if self.validation is not None else ()
         )
-        numerical = [
-            check.status for check in checks if check.category == "numerical-acceptance"
-        ]
-        if CheckStatus.FAILED in numerical:
-            return CheckStatus.FAILED
+        statuses = []
+        for report in reports:
+            numerical = [
+                check.status
+                for check in (
+                    *report.checks,
+                    *(item for sample in report.samples for item in sample.checks),
+                )
+                if check.category == "numerical-acceptance"
+            ]
+            statuses.append(
+                CheckStatus.FAILED
+                if CheckStatus.FAILED in numerical
+                else (
+                    CheckStatus.VALIDATED
+                    if numerical
+                    and all(value is CheckStatus.VALIDATED for value in numerical)
+                    else CheckStatus.UNVERIFIED
+                )
+            )
         return (
-            CheckStatus.VALIDATED
-            if numerical
-            and all(status is CheckStatus.VALIDATED for status in numerical)
-            else CheckStatus.UNVERIFIED
+            CheckStatus.FAILED
+            if CheckStatus.FAILED in statuses
+            else (
+                CheckStatus.VALIDATED
+                if statuses
+                and all(value is CheckStatus.VALIDATED for value in statuses)
+                else CheckStatus.UNVERIFIED
+            )
         )
 
 
@@ -807,6 +825,7 @@ def prepare_source_reference(
     label: str,
     input_values: Sequence[Any],
     parameter_values: Mapping[str, Any] | None = None,
+    _reference_runner: Any = None,
 ) -> PreparedSourceReference:
     """Evaluate this exact model instance for another declared concrete sample.
 
@@ -840,7 +859,11 @@ def prepare_source_reference(
             _bind_source_shape(
                 tuple(value.shape), tuple(spec.shape), bindings, bind=True
             )
-        result = jax.device_get(prepared.fn(*positional, **named))
+        result = (
+            jax.device_get(prepared.fn(*positional, **named))
+            if _reference_runner is None
+            else _reference_runner(prepared.fn, positional, named)
+        )
         outputs, tree = jax.tree_util.tree_flatten(result)
         if str(tree) != prepared.output_tree or len(outputs) != len(
             prepared.traced_outputs

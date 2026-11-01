@@ -1,5 +1,26 @@
 # Current inventory after main #279
 
+## Finite original bitwise row qualification
+
+The unchanged `plugin::jax.numpy.bitwise_and`, ordinal 0, now has numerical
+evidence for both original caller contexts on the official Python 3.11/3.13
+stacks and the existing Python 3.11 / ORT 1.24.1 minimum stack. Each run retains
+the original int32 inputs `[1, 2, 3]` and `[3, 1, 2]`, graph callback, three native
+roles and both ORT modes on the same saved artifact/feeds; every output is
+exactly `[1, 0, 2]`. The source-bound conditional exact criterion does not change
+the frozen row or supply a floating default. A complete constant-free canonical
+bitwise source graph and its checked final IR prove floating rounding and
+internal FP64 inapplicable for these two cells. Unknown, nested, floating,
+constant-bearing or hidden graph content receives no such proof.
+
+The new reports validate **two selected numerical cells**, leaving **3,710 raw
+cells unverified**. They still retain all **3,712** raw obligations, manual and
+metadata-free anchors, LEGACY preparation obligations and **1,838** missing
+criterion pairs. MaxText source drift, plus the older cohort's remat2 contract
+difference, keeps global acceptance `ERROR` and the strict exit status `1`.
+This finite result neither qualifies the newer family's minimum ORT nor closes
+full migration. Historical zero-cell reports and failed fixtures remain literal.
+
 The current live metadata inventory is
 [`source_migration_inventory_current.json`](source_migration_inventory_current.json):
 **1,856 raw rows / 3,712 caller obligations**. The historical
