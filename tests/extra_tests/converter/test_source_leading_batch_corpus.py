@@ -463,22 +463,33 @@ def test_current_counterpart_rejects_stale_or_other_checkout_source(
     assert result.raw_callback_status == "failed"
 
 
-def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
-    """Current v8 retains all v1-v7 rejection and archived descriptor controls."""
+def test_real_v3_live_controls_reject_v1_and_stale_control_records(
+    record_property: Any,
+) -> None:
+    """Current v9 retains all v1-v8 rejection and archived descriptor controls."""
     registrations, _ = raw_registrations()
     blob = probe.DEFAULT_BASELINE.read_bytes()
     plan = probe.build_probe_plan(
         json.loads(blob), baseline_sha256=hashlib.sha256(blob).hexdigest()
     )
     controls = probe._corpus_product_controls(plan, registrations)
+    record_property("live_controls", json.dumps(controls, sort_keys=True))
     assert (
         len(controls) == 4
-        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v8"
+        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v9"
     )
     assert (
         probe.HISTORICAL_CORPUS_CONTROL_REVISION_V7
         == "source-static-add-ordinary-dot-v7"
     )
+    assert (
+        probe.HISTORICAL_CORPUS_CONTROL_REVISION_V8
+        == "source-static-add-ordinary-dot-v8"
+    )
+    assert probe.HISTORICAL_CORPUS_DOT_DESCRIPTOR_V8 == {
+        "counterpart_identifier": "static-dot-source-counterpart-v3:plugin::dot_general:0",
+        "counterpart_sha256": "c390e6d63e3902f436e69c8527e50d9cc550181eb451bb72d56792dbcff0db93",
+    }
     assert probe._corpus_controls_admitted(controls)
     for defect in (
         "identifier",
@@ -495,6 +506,8 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
         "v6-digest",
         "v7",
         "v7-digest",
+        "v8",
+        "v8-digest",
         "v2-snapshot-digest",
     ):
         broken = deepcopy(controls)
@@ -528,6 +541,12 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
         elif defect == "v7-digest":
             broken[2]["corpus_structure"]["counterpart_sha256"] = (
                 probe.HISTORICAL_CORPUS_DOT_DESCRIPTOR_V7["counterpart_sha256"]
+            )
+        elif defect == "v8":
+            broken[2]["control_revision"] = probe.HISTORICAL_CORPUS_CONTROL_REVISION_V8
+        elif defect == "v8-digest":
+            broken[2]["corpus_structure"]["counterpart_sha256"] = (
+                probe.HISTORICAL_CORPUS_DOT_DESCRIPTOR_V8["counterpart_sha256"]
             )
         elif defect == "v2-snapshot-digest":
             broken[2]["corpus_structure"]["counterpart_sha256"] = (

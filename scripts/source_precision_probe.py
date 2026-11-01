@@ -73,8 +73,13 @@ from tests.extra_tests.converter.source_precision_corpus_oracles import (  # noq
 )
 
 SCENARIOS: Final[tuple[str, str]] = ("raw-x64-off", "raw-x64-on")
-CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v8"
+CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v9"
 # Prior control acceptance is historical evidence, never a current admission.
+HISTORICAL_CORPUS_CONTROL_REVISION_V8: Final = "source-static-add-ordinary-dot-v8"
+HISTORICAL_CORPUS_DOT_DESCRIPTOR_V8: Final = {
+    "counterpart_identifier": "static-dot-source-counterpart-v3:plugin::dot_general:0",
+    "counterpart_sha256": "c390e6d63e3902f436e69c8527e50d9cc550181eb451bb72d56792dbcff0db93",
+}
 HISTORICAL_CORPUS_CONTROL_REVISION_V7: Final = "source-static-add-ordinary-dot-v7"
 HISTORICAL_CORPUS_DOT_DESCRIPTOR_V7: Final = {
     "counterpart_identifier": "static-dot-source-counterpart-v3:plugin::dot_general:0",
@@ -2357,8 +2362,9 @@ def _corpus_controls_admitted(controls: Sequence[Mapping[str, Any]]) -> bool:
             or structure.get("counterpart_identifier")
             != "static-dot-source-counterpart-v3:plugin::dot_general:0"
             or structure.get("counterpart_sha256")
-            # The descriptor also binds the reviewed whole oracle module.
-            != "c390e6d63e3902f436e69c8527e50d9cc550181eb451bb72d56792dbcff0db93"
+            # The descriptor binds the Black26 AST-identical whole oracle module;
+            # the v8 descriptor remains historical and is not current authority.
+            != "28e73979bbc7023ba593433db544d0ca402039ebda41e07b016afe76a9e303f6"
             or structure.get("source_structure") != CheckStatus.VALIDATED
             or structure.get("raw_callback_status") != "failed"
             or control.get("raw_callback_status") != "failed"
