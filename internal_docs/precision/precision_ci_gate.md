@@ -23,32 +23,21 @@ of the intended contract. This is the current implementation, not a requirement
 to preserve the old default throughout the unmerged PR. The branch may adopt the
 new contract incrementally through normal reviewed code, tests and documentation.
 Complete capability, compatibility and scientific acceptance remain merge and
-release requirements. These documentation changes switch no code or CI gate.
+release requirements.
 
 ## Current qualification
 
-Published `574b277e` has independently verified routine coverage in
-[CI597](https://github.com/enpasos/jax2onnx/actions/runs/41274200501): sixteen
-STANDARD jobs and five EXTRA jobs, including the strict part joins, minimum
-Python 3.11 coverage and complete minimum 3.12 support EXTRA, meet their measured
-whole-job, aggregate-time and successful-evidence budgets. This establishes
-routine pytest and resource coverage only. Complete added coverage, numerical
-acceptance and full integration acceptance remain separate obligations.
+At the recorded 2026-11-01 checkpoint, [CI608](https://github.com/enpasos/jax2onnx/actions/runs/41350883818)
+on `6e791644` had successful API outcomes for eighteen STANDARD jobs and five
+EXTRA jobs. The longest complete STANDARD job took 1,047 seconds. Both campaigns
+met their separate aggregate-time and successful-upload budgets. This API
+accounting does not replace raw phase, context, owned-memory or scientific
+qualification.
 
-Historical [CI606](https://github.com/enpasos/jax2onnx/actions/runs/41309780121)
-on `03da78cb` recorded 24 successful checks, six failed checks and one cancelled
-check on 2026-11-01. Four full Python jobs stopped at stale formatted
-corpus-control provenance; the full Node and Chrome jobs stopped in their
-Python tests at an unrecorded ORT 1.31.1 subnormal failed-witness pair. Python
-3.14 STANDARD reached its existing 1,100-second work deadline and was cancelled.
-These outcomes remain failed; [current PR checks](https://github.com/enpasos/jax2onnx/pull/277/checks)
-and all precision gates must qualify the exact candidate head.
-
-This branch integrates current main and the four dependency updates, including
-mechanical formatting and corrections to three test files. Bounded local runtime
-checks pass on both framework variants, the existing ONNX Runtime minimum and
-the updated Node/Chrome stack. Exact-head hosted acceptance and the precision
-merge gates remain required.
+The full Node and Chrome jobs ended with runner-shutdown signals; their causes
+remain unverified. The four full Python jobs were still running at this
+observation. These failures remain failed, and [current PR checks](https://github.com/enpasos/jax2onnx/pull/277/checks)
+must qualify the exact candidate head.
 
 Earlier failed and interrupted campaigns remain recorded in the execution plan
 and handoff with their original causes and outcomes.
@@ -93,6 +82,19 @@ For each cohort, `C` is the complete collection, `S` is the preserved main
 baseline, and `A = C − S` is every added test. An explicitly reviewed focused
 subset `F` belongs to `A`; `R = A − F` remains assigned to complete EXTRA.
 The letters describe test ownership, not numerical acceptance.
+
+The 54 CPU-only cases (44 original-state cases and ten full-model cases) remain
+unchanged obligations of every full Python 3.11–3.14 lane. The shared Web wrapper
+names only those complete test IDs for deselection; both comparator controls
+remain on Web and Python. New parameters and adjacent tests remain selected.
+Full-model items retain individual serial processes; state cases retain their
+existing serial batches.
+
+This ownership transfer requires genuine Web collections differing by exactly
+those 54 IDs with retained order and both controls preserved, plus completed
+outcomes for all 54 cases and both controls in every full Python lane on the
+candidate head. Static ownership or a successful diagnostic does not establish
+that qualification.
 
 | Lane | Required work and trigger |
 | --- | --- |

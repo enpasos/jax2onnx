@@ -2072,13 +2072,29 @@ def test_browser_full_acceptance_cannot_age_skip_or_drift_from_selected_head(
         for fault in ["none", "missing", "oversized"]:
             route = tmp_path / (job + "-" + fault)
             route.mkdir()
-            executable = route / command
-            executable.parent.mkdir()
+            for wrapper in (
+                "run_onnxruntime_web_full.sh",
+                "run_onnxruntime_web_chrome_full.sh",
+            ):
+                executable = route / "scripts" / wrapper
+                executable.parent.mkdir(exist_ok=True)
+                executable.write_text((ROOT / "scripts" / wrapper).read_text())
+                executable.chmod(0o755)
+            for package in ("onnxruntime-web", "playwright"):
+                package_file = route / "node_modules" / package / "package.json"
+                package_file.parent.mkdir(parents=True)
+                package_file.write_text("{}")
+            fake_bin = route / "bin"
+            fake_bin.mkdir()
+            (fake_bin / "node").write_text("#!/bin/sh\nexit 0\n")
+            (fake_bin / "node").chmod(0o755)
+            executable = fake_bin / "poetry"
             executable.write_text(
                 "#!" + sys.executable + "\n"
                 "import json, os, sys\n"
                 "from pathlib import Path\n"
-                "Path(os.environ['WEB_OBSERVED_ARGUMENTS']).write_text(json.dumps(sys.argv[1:]))\n"
+                "assert sys.argv[1:3] == ['run', 'pytest']\n"
+                "Path(os.environ['WEB_OBSERVED_ARGUMENTS']).write_text(json.dumps({'argv': sys.argv[3:], 'web': {key: os.environ[key] for key in ('JAX2ONNX_EXPORT_MODE', 'JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB', 'JAX2ONNX_ONNXRUNTIME_WEB_RUNNER')}}))\n"
                 "report = next(value.split('=', 1)[1] for value in sys.argv[1:] if value.startswith('--junitxml='))\n"
                 'Path(report).write_text(\'<testsuites><testsuite tests="1"><testcase classname="synthetic" name="route"/></testsuite></testsuites>\')\n'
                 "raise SystemExit(int(os.environ['WEB_SYNTHETIC_STATUS']))\n"
@@ -2092,7 +2108,10 @@ def test_browser_full_acceptance_cannot_age_skip_or_drift_from_selected_head(
                 "WEB_DIAGNOSTICS_DIR": str(diagnostics),
                 "WEB_OBSERVED_ARGUMENTS": str(arguments),
                 "WEB_SYNTHETIC_STATUS": str(child_status),
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+                "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"],
             }
+            route_env.pop("JAX2ONNX_ONNXRUNTIME_WEB_RUNNER", None)
             actual = subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", run_step["run"]],
                 cwd=route,
@@ -2101,7 +2120,25 @@ def test_browser_full_acceptance_cannot_age_skip_or_drift_from_selected_head(
                 capture_output=True,
             )
             assert actual.returncode == child_status, actual.stderr
-            assert json.loads(arguments.read_text()) == [
+            state_owner = "tests/extra_tests/converter/test_source_original22_state_preparation.py"
+            model_owner = "tests/extra_tests/converter/test_source_model_native_bindings_exports.py"
+            state_function = (
+                "test_original22_source_state_preparation_cpu_feedback_and_reset"
+            )
+            model_function = "test_original_full_model_native_bindings_cpu_gate"
+            expected_cpu_ids = [
+                owner + "::" + function + "[" + caller + "-" + str(index) + "]"
+                for caller in ("raw-x64-off", "raw-x64-on")
+                for owner, function, indices in (
+                    (state_owner, state_function, range(22)),
+                    (model_owner, model_function, (0, 1, 3, 4, 20)),
+                )
+                for index in indices
+            ]
+            assert len(expected_cpu_ids) == len(set(expected_cpu_ids)) == 54
+            deselections = ["--deselect=" + nodeid for nodeid in expected_cpu_ids]
+            observed = json.loads(arguments.read_text())
+            assert observed["argv"] == [
                 "-n",
                 "auto",
                 "--dist=loadscope",
@@ -2109,7 +2146,89 @@ def test_browser_full_acceptance_cannot_age_skip_or_drift_from_selected_head(
                 "--ff",
                 "-x",
                 "--junitxml=" + str(diagnostics / "junit.xml"),
+                *deselections,
             ]
+            assert observed["web"] == {
+                "JAX2ONNX_EXPORT_MODE": "web",
+                "JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB": "1",
+                "JAX2ONNX_ONNXRUNTIME_WEB_RUNNER": (
+                    "chrome" if "chrome" in job else "node"
+                ),
+            }
+            if fault == "none":
+                for owner, function, indices, extra in (
+                    (state_owner, state_function, (*range(22), 22), ""),
+                    (
+                        model_owner,
+                        model_function,
+                        (0, 1, 3, 4, 20, 21),
+                        "def test_frozen_five_owner_output_contract_rejects_corruption(): pass\n"
+                        "def test_reference_scaled_direction_and_all_native_roles_are_required(): pass\n",
+                    ),
+                ):
+                    fixture = route / owner
+                    fixture.parent.mkdir(parents=True, exist_ok=True)
+                    fixture.write_text(
+                        "import pytest\n"
+                        "@pytest.mark.parametrize('index', " + repr(indices) + ")\n"
+                        "@pytest.mark.parametrize('caller_x64', (False, True), ids=('raw-x64-off', 'raw-x64-on'))\n"
+                        "def " + function + "(index, caller_x64): pass\n"
+                        "def " + function + "_adjacent(): pass\n" + extra
+                    )
+
+                def collection(additional):
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-B",
+                            "-m",
+                            "pytest",
+                            "--collect-only",
+                            "-q",
+                            "--noconftest",
+                            "-o",
+                            "addopts=",
+                            "--rootdir=" + str(route),
+                            state_owner,
+                            model_owner,
+                            *additional,
+                        ],
+                        cwd=route,
+                        env=route_env,
+                        text=True,
+                        capture_output=True,
+                    )
+                    assert result.returncode == 0, result.stdout + result.stderr
+                    return [
+                        line.strip()
+                        for line in result.stdout.splitlines()
+                        if "::test_" in line and not line.startswith(" ")
+                    ]
+
+                before_selection = collection([])
+                after_selection = collection(deselections)
+                assert len(before_selection) == 62 and len(after_selection) == 8
+                assert set(before_selection) - set(after_selection) == set(
+                    expected_cpu_ids
+                )
+                assert after_selection == [
+                    nodeid
+                    for nodeid in before_selection
+                    if nodeid not in set(expected_cpu_ids)
+                ]
+                for nodeid in (
+                    state_owner + "::" + state_function + "[raw-x64-off-22]",
+                    state_owner + "::" + state_function + "[raw-x64-on-22]",
+                    model_owner + "::" + model_function + "[raw-x64-off-21]",
+                    model_owner + "::" + model_function + "[raw-x64-on-21]",
+                    state_owner + "::" + state_function + "_adjacent",
+                    model_owner + "::" + model_function + "_adjacent",
+                    model_owner
+                    + "::test_frozen_five_owner_output_contract_rejects_corruption",
+                    model_owner
+                    + "::test_reference_scaled_direction_and_all_native_roles_are_required",
+                ):
+                    assert nodeid in after_selection
             assert "Web pytest exit status: " + str(child_status) in actual.stdout
             assert (diagnostics / "exit-code.txt").read_text().strip() == str(
                 child_status
