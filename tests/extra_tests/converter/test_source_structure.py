@@ -383,9 +383,7 @@ def test_bitcast_rule_does_not_freeze_non_native_representation(fault: str) -> N
     native = jax.make_jaxpr(lambda x: jax.lax.bitcast_convert_type(x, np.uint32))(
         jax.ShapeDtypeStruct((2,), np.float32)
     ).jaxpr.eqns[0]
-    eqn = SimpleNamespace(
-        primitive=native.primitive, params=dict(native.params), effects=native.effects
-    )
+    eqn = native.replace(params=dict(native.params))
     shapes = structure._ShapeFreezer()
     inputs = tuple(
         structure.TensorContract.from_aval(v.aval, shapes) for v in native.invars
@@ -400,14 +398,19 @@ def test_bitcast_rule_does_not_freeze_non_native_representation(fault: str) -> N
         (("to", 12),),
         False,
     )
+    wrapped = SimpleNamespace(
+        primitive=native.primitive, params=dict(native.params), effects=native.effects
+    )
+    assert rules.freeze_source_structure_rule(wrapped, inputs, outputs) is None
+    assert rules.freeze_source_semantic_key(wrapped, inputs, outputs) is None
     if fault == "primitive":
-        eqn.primitive = Primitive("bitcast_convert_type")
+        eqn = eqn.replace(primitive=Primitive("bitcast_convert_type"))
     elif fault == "effects":
-        eqn.effects = (object(),)
+        eqn = eqn.replace(effects=frozenset({object()}))
     elif fault == "params":
-        eqn.params["sharding"] = None
+        eqn = eqn.replace(params={**eqn.params, "sharding": None})
     elif fault == "to":
-        eqn.params["new_dtype"] = np.dtype(np.int32)
+        eqn = eqn.replace(params={**eqn.params, "new_dtype": np.dtype(np.int32)})
     else:
         changes = {
             "weakness": {"weak_type": True},

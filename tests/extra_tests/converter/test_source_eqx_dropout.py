@@ -693,8 +693,10 @@ def test_unchanged_original_mlp_raw_recipes_keep_observed_outcomes(
         assert capture[role]["status"] == "captured"
         assert Path(capture[role]["path"]).is_file()
     for role in (
-        "eager-state",
-        "fresh-jit-state",
+        "eager-before-state",
+        "eager-after-state",
+        "fresh-jit-before-state",
+        "fresh-jit-after-state",
         "concrete-typed-trace-state",
         "declared-typed-trace-state",
         "after-product-export-state",
