@@ -35,12 +35,22 @@ raw full-C runner still needs strict outcome review; zero exit does not prove
 strict A or numerical acceptance. A renamed green check is not coverage evidence. Human-readable PR text stays separate from this technical
 execution record.
 
+Implement coherent SOURCE contract changes incrementally in this unmerged
+branch through normal review and relevant tests; retaining the previous public
+default until full migration acceptance is not a separate requirement.
+
 Keep a LEGACY bridge only for a demonstrated CI/reference comparison, with its
 removal purpose recorded. Reviewed work in the unmerged branch needs no extra
 approval merely because the complete contract is unfinished. Full compatibility,
 numerical validation and independent B–F acceptance remain required before merge.
 Native3/ORT2, 3,712 caller obligations, default-strict extrema, complete A/R,
 replay, models/artifacts and full Node/Chrome remain independently required.
+
+Earlier checkpoint instructions below that require LEGACY until complete
+qualification or a fixed eight-check gate on every successor are historical
+and superseded by the [settled implementation decisions](precision_implementation_work_plan.md#settled-decisions)
+and [current CI rules](precision_ci_gate.md). Their source epochs, outcomes
+and numerical criteria remain unchanged.
 
 ## Strict metadata accounting checkpoint — local implementation qualification
 
@@ -2285,6 +2295,10 @@ have separate required evidence gates.
 Public defaults remain LEGACY and the full B–F goal stays open.
 
 ## Objective and immediate priority
+
+Historical instructions for the earlier Function/If checkpoint. Apply the
+current implementation and CI rules linked above; the LEGACY hold and fixed
+eight-check scheduling below are not current directives.
 
 Complete the existing precision target and migration plan, including phases B–F,
 existing functionality, and fixed or third-party JAX sources. The final public

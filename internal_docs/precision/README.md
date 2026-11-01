@@ -78,9 +78,12 @@ migration gates:
 
 The proposed source contract uses FP32 for shape-only inputs. This is an input
 default, independent of computation precision. Typed inputs and the caller's
-JAX configuration instantiate the model's rules. The public facade retains its
-current behavior during development. The final transition requires full
-existing-functionality coverage and clear migration errors for the old
+JAX configuration instantiate the model's rules. The unmerged branch may adopt
+this contract incrementally through normal review and relevant tests. Retain
+legacy paths only for concrete temporary CI or regression/reference needs,
+with removal criteria as defined in the [work plan](precision_implementation_work_plan.md#temporary-legacy-bridges).
+Complete functionality, compatibility, scientific validation and independent
+acceptance are required before merge, including clear migration errors for the old
 `enable_double_precision` argument; no permanent public precision mode is added.
 No release is assigned. Existing return types will carry
 a metadata report, with a separate CPU sample-validation API for scoped

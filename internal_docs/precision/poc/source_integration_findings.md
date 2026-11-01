@@ -1,5 +1,11 @@
 # Private source-policy integration
 
+This ledger preserves checkpoint observations and the implementation
+instructions then in force. Earlier requirements to retain public LEGACY until
+all B–F gates pass are superseded by the [current work plan](../precision_implementation_work_plan.md#settled-decisions);
+historical check counts do not override the [current CI gate](../precision_ci_gate.md).
+Recorded source epochs, failures and numerical criteria remain unchanged.
+
 ## Current checkpoint
 
 ### Private serialization integrity checkpoint — 2026-10-30

@@ -63,6 +63,11 @@ current manifest and retains full raw-object/contract preservation and the
 original 18 selected preflights (36 cells). A current replay lane with matching
 adapters and broader cohort proof remains open B–F work.
 
+The following CI541 repair and publication conditions describe that historical
+epoch. Current branch-transition and exact-head CI requirements are defined by
+the [work plan](precision_implementation_work_plan.md#settled-decisions) and
+[CI gate](precision_ci_gate.md).
+
 Published merge head `a69d0730`, CI run 541, failed the actual Python 3.14 live
 inventory membership assertion. This repair addresses that observed mismatch;
 the hosted cast case had passed and is a separate result. All seven pinned

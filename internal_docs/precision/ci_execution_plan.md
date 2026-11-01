@@ -657,6 +657,11 @@ The original Omni case separately passes an export with an external CALL profile
 
 ## Binding user clarification — 2026-10-29
 
+The complete-coverage requirement and 20-minute whole-job limit remain binding.
+The eight-job layout and no-sharding interpretation recorded below are
+historical; the [current reviewed layout and triggers](#current-routine-and-exhaustive-execution-checkpoint)
+supersede those scheduling details.
+
 > die Standardprüfung sollte den Status Quo wie auf main prüfen, damit wir nichts gegenüber diesem Stand verlieren, aber auch nicht länger laufen. Zusatzprüfungen wären on top und dann auch gern extra.
 
 The latest user amendment replaces relative runtime comparison with an absolute
