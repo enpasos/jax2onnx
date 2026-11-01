@@ -568,6 +568,8 @@ def test_exact_native_scalar_boolean_index_freezes_default_conversion(
 def test_other_native_integer_boolean_conversions_do_not_borrow_selector_key(
     kind: str,
 ) -> None:
+    from jax2onnx.plugins._source_control_flow_structure import freeze_control_flow_rule
+
     if kind == "ranked-bool":
         native = _closed(
             lambda flag: jax.lax.convert_element_type(flag, np.int32),
@@ -586,7 +588,21 @@ def test_other_native_integer_boolean_conversions_do_not_borrow_selector_key(
     assert len(native.jaxpr.eqns) == 1
     frozen = regions.freeze_closed_body(native)
     assert frozen.expected_equations == 1
-    assert frozen.equations[0].semantics is None and frozen.gaps
+    target = {"ranked-bool": 6, "int64-result": 7, "integer-input": 9}[kind]
+    assert frozen.gaps == ()
+    assert frozen.equations[0].semantics == (
+        "direct",
+        "convert_element_type",
+        "Cast",
+        (("to", target),),
+        False,
+    )
+    assert (
+        freeze_control_flow_rule(
+            native.jaxpr.eqns[0], frozen.inputs, frozen.equations[0].outputs
+        )
+        is None
+    )
     _assert_only_immutable_contracts(frozen)
 
 

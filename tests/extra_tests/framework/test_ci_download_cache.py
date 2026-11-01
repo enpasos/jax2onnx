@@ -858,8 +858,8 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
     assert not re.search(r"\b(?:SKIP|PRE_COMMIT_ALLOW_NO_CONFIG)\s*=", work)
     pins = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())["repos"]
     assert [(repo["repo"], repo.get("rev")) for repo in pins[:2]] == [
-        ("https://github.com/psf/black", "25.1.0"),
-        ("https://github.com/astral-sh/ruff-pre-commit", "v0.16.9"),
+        ("https://github.com/psf/black", "26.10.1"),
+        ("https://github.com/astral-sh/ruff-pre-commit", "v0.17.3"),
     ]
 
 
