@@ -140,6 +140,109 @@ def test_real_original_producer_issues_after_release_and_keeps_single_cast(
     roots = []
     diagnostics: list[dict[str, Any]] = []
 
+    original_build_init = builds.LoadedCastBuildPins.__init__
+    original_build_codes = (
+        (original_build_init.__code__, "__init__"),
+        (builds.LoadedCastBuildPins._check_module.__code__, "_check_module"),
+        (builds._match_profile.__code__, "_match_profile"),
+        (builds._read_maps.__code__, "_read_maps"),
+        (builds._selected_mappings.__code__, "_selected_mappings"),
+    )
+
+    def primitive(value: Any, depth: int = 0) -> Any:
+        if value is None or type(value) is bool:
+            return value
+        if type(value) is int and value.bit_length() <= 128:
+            return value
+        if type(value) is str:
+            return value[:1024]
+        if type(value) is tuple and depth < 3 and len(value) <= 8:
+            return tuple(primitive(item, depth + 1) for item in value)
+        return "<outside diagnostic primitive bounds>"
+
+    def build_failure(error: BaseException) -> dict[str, Any]:
+        frames: list[dict[str, Any]] = []
+        traceback = error.__traceback__
+        values = None
+        for _ in range(32):
+            if traceback is None:
+                break
+            function = next(
+                (
+                    name
+                    for code, name in original_build_codes
+                    if traceback.tb_frame.f_code is code
+                ),
+                None,
+            )
+            if function is not None:
+                frame: dict[str, Any] = {
+                    "source": "jax2onnx/_compat/_cast_build_profile.py",
+                    "function": function,
+                    "line": traceback.tb_lineno,
+                }
+                values = traceback.tb_frame.f_locals
+                if function == "_match_profile":
+                    frame["inputs"] = {
+                        name: primitive(values.get(name))
+                        for name in (
+                            "cache_tag",
+                            "jax_version",
+                            "jaxlib_version",
+                            "shim",
+                            "common",
+                        )
+                    }
+                elif function == "_selected_mappings":
+                    frame["identities"] = {
+                        name: primitive(values.get(name))
+                        for name in ("shim", "common", "identity", "expected")
+                    }
+                    payload = values.get("payload")
+                    lines = values.get("lines")
+                    line = values.get("line")
+                    frame["rows"] = len(lines) if type(lines) is list else None
+                    if type(payload) is bytes:
+                        frame["payload_bytes"] = len(payload)
+                        if len(payload) <= builds._MAP_BYTES + 1:
+                            frame["payload_newline_terminated"] = payload.endswith(
+                                b"\n"
+                            )
+                            frame["payload_linefeeds"] = payload.count(b"\n")
+                            frame["payload_sha256"] = hashlib.sha256(
+                                payload
+                            ).hexdigest()
+                    if type(line) is bytes:
+                        frame["line_prefix"] = line[:256].decode(
+                            "ascii", errors="backslashreplace"
+                        )
+                frames.append(frame)
+            traceback = traceback.tb_next
+        truncated = traceback is not None
+        traceback = values = None
+        return {
+            "stage": "build-constructor",
+            "status": "RAISED",
+            "exception_class": type(error).__name__[:128],
+            "message": " | ".join(
+                value[:512] for value in error.args[:4] if type(value) is str
+            )[:1024],
+            "exception_args": primitive(error.args),
+            "frames": frames,
+            "traceback_truncated": truncated,
+        }
+
+    def tracked_build_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        try:
+            original_build_init(self, *args, **kwargs)
+        except (ValueError, TypeError, RuntimeError, AttributeError, OSError) as error:
+            diagnostics.append(build_failure(error))
+            raise
+        else:
+            diagnostics.append({"stage": "build-constructor", "status": "RETURNED"})
+
+    monkeypatch.setattr(builds.LoadedCastBuildPins, "__init__", tracked_build_init)
+
     def observation(root: Any) -> dict[str, Any]:
         native = root._native
         record = root.record
