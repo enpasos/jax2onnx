@@ -5637,6 +5637,100 @@
           "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[nan-portable-named]"
         ],
         "scope": "Selected control projection only; complete A/R stays owned; actual new-head fullC/fullF and all budgets remain unqualified."
+      },
+      "context_witness_audits": {
+        "status": "TEN_EXISTING_CONTEXT_WITNESS_AUDITS_SELECTED_FROM_RETAINED_983_C; no global source epoch refresh, new IDs, global collection/fullF/model/scientific/hosted acceptance",
+        "original_global_C": {
+          "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-983a1dec-watch-otsq1w80/extra-focused312-success-primary/run.json",
+          "sha256": "ec2cb3c80ffacf6f67a7a1bf97a7f22c73de297c47f471a77ea9601dae7a7ae9",
+          "head": "983a1dec81be13d25ff08710278e1fb280288ce0",
+          "C_count": 20806,
+          "ordered_C_sha256": "74ff4baedfa94ddea3de4c75fe17ac389e950001bb44d43e450111c5ca9ee77a"
+        },
+        "owner_collection_proof": {
+          "ten311-unset": {
+            "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/ten311-unset/execution/ordered-owner-C.json",
+            "sha256": "c75c1a14896281e669a6dc5ea4fd60b01150dad9836b52fa83698fba0913a351",
+            "count": 353
+          },
+          "ten311-one": {
+            "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/ten311-one/execution/ordered-owner-C.json",
+            "sha256": "c75c1a14896281e669a6dc5ea4fd60b01150dad9836b52fa83698fba0913a351",
+            "count": 353
+          },
+          "ten313-unset": {
+            "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/ten313-unset/execution/ordered-owner-C.json",
+            "sha256": "c75c1a14896281e669a6dc5ea4fd60b01150dad9836b52fa83698fba0913a351",
+            "count": 353
+          },
+          "ten313-one": {
+            "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/ten313-one/execution/ordered-owner-C.json",
+            "sha256": "c75c1a14896281e669a6dc5ea4fd60b01150dad9836b52fa83698fba0913a351",
+            "count": 353
+          }
+        },
+        "owner_source_before_sha256": "152f917e70cf692e4e63acc0356987a321ca6eee45909f33b2612c3d5798b49b",
+        "owner_source_after_sha256": "3c8ae49653c8e157d0f5287157fd35b4981b94a266db79e0a692ad4674e97b17",
+        "collection_declarations_unchanged": true,
+        "owner_projection_note": "The one owner was genuinely collected under both actual ambient flag states on official311/313 and equals the existing353-ID owner vector in each authentic983 cohort. All original C/S/A IDs and ordering remain unchanged, including cohort-specific IDs; no global source epoch is replaced. Only these ten existing IDs enter F in retained C order.",
+        "additional_selected_existing_ids": [
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[manifest-focused]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[manifest-all]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[inventory-focused]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[inventory-all]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[context-focused]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[context-all]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[junit-focused]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[junit-all]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[wasxfail-focused]",
+          "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[wasxfail-all]"
+        ],
+        "C_count_unchanged": 20806,
+        "C_ordered_sha256_unchanged": "74ff4baedfa94ddea3de4c75fe17ac389e950001bb44d43e450111c5ca9ee77a",
+        "S_count_unchanged": 4621,
+        "S_ordered_sha256_unchanged": "c2b0d768e9c26518635b25792cebd710a281cefb84dd79569e46af7953b1e7ed",
+        "A_count_unchanged": 16185,
+        "A_ordered_sha256_unchanged": "7e31657345abcb187d3927c71b8e7a88fad29eadd0088c523d37f9623182cafa",
+        "previous_F_count_literal": 1650,
+        "previous_F_ordered_sha256": "0e557a16530bc9e1bdea57321629ae081be43e726a38b5ad9224afba7440cadd",
+        "F_count_literal": 1660,
+        "F_ordered_sha256": "5dfafec3bd3176144d37ea1f5682887a90c1493662cc8f042d5585055666d13c",
+        "R_count": 14525,
+        "R_ordered_sha256": "dc9b564b5f6dfae22e09ac3046a8aca5c19bafbb1400ddde89175f164d35adbf",
+        "all1650_existing_F_IDs_retained_in_order": true,
+        "remaining_extra_ownership_retained": true,
+        "scientific_ids_remain_in_R": [
+          "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-inline]",
+          "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-named]",
+          "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-jit]",
+          "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-if-false]",
+          "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-if-true]",
+          "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[nan-portable-inline]",
+          "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[nan-portable-named]"
+        ],
+        "actual_ordinary_controls": {
+          "ten311-unset": {
+            "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/ten311-unset/qualification-closure.json",
+            "sha256": "28b055258989547f21bcd39442ae8cafbff70821cbdb3a349b1e7301de609906"
+          },
+          "ten311-one": {
+            "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/ten311-one/qualification-closure.json",
+            "sha256": "bc54940420d6b36382ce13375883c07fc427521e2abf3067485832fcb990dea2"
+          },
+          "ten313-unset": {
+            "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/ten313-unset/qualification-closure.json",
+            "sha256": "0f68c5da81eac912b2992e5be4fbb1e4e6ad68b6472841f2d27b0679794c083f"
+          },
+          "ten313-one": {
+            "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/ten313-one/qualification-closure.json",
+            "sha256": "1db196f845b49b07e81ab956bafd8c626450408e67e9bdd6520424822fa95f57"
+          }
+        },
+        "source_freeze": {
+          "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-context-witness-983-S0vzJQFT/source-and-literal-plans-freeze.json",
+          "sha256": "fd42b22fd563844fd79cea9f19e78b76cb87ff08c30e09a47bfac7e1b37e3a4b"
+        },
+        "scope": "Local original ten controls only; py312/314 declaration backed by authentic983 cohort C and unchanged owner declarations, without claiming local312/314 execution. New-head fullC/fullF/budgets and hosted completion remain unqualified."
       }
     },
     "extra_ownership": {
@@ -7029,6 +7123,16 @@
     "tests/extra_tests/framework/test_ci_lane_selection.py::test_opt_in_xdist_ingests_actual_terminal_worker_receipt_after_passed_reports[missing]",
     "tests/extra_tests/framework/test_ci_lane_selection.py::test_opt_in_xdist_ingests_actual_terminal_worker_receipt_after_passed_reports[manifest]",
     "tests/extra_tests/framework/test_ci_lane_selection.py::test_direct_staged_context_rejects_before_owner_import[xdist]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[manifest-focused]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[manifest-all]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[inventory-focused]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[inventory-all]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[context-focused]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[context-all]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[junit-focused]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[junit-all]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[wasxfail-focused]",
+    "tests/extra_tests/framework/test_ci_lane_selection.py::test_focused_and_complete_extra_keep_native_and_final_byte_audits[wasxfail-all]",
     "tests/extra_tests/framework/test_ci_standard_parts.py::test_fixed_profile_preserves_original_full_s_and_cut",
     "tests/extra_tests/framework/test_ci_standard_parts.py::test_fixed_parts_reject_undeclared_empty_or_dynamic_boundary[None]",
     "tests/extra_tests/framework/test_ci_standard_parts.py::test_fixed_parts_reject_undeclared_empty_or_dynamic_boundary[declaration1]",

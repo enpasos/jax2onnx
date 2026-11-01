@@ -138,19 +138,87 @@ def test_real_original_producer_issues_after_release_and_keeps_single_cast(
     transactions = _track_transaction(monkeypatch)
     lower = conversion_api._lower_jaxpr_equations
     roots = []
+    diagnostics: list[dict[str, Any]] = []
+
+    def observation(root: Any) -> dict[str, Any]:
+        native = root._native
+        record = root.record
+        result: dict[str, Any] = {
+            "closed": root._closed,
+            "initial_reason": root._reason,
+            "lowering_reason": root._lowering_reason,
+            "native_present": native is not None,
+            "build_present": native is not None and native._authority_build is not None,
+            "factory_present": native is not None
+            and native._authority_factory is not None,
+            "authority_reason": None if native is None else native._authority_reason,
+        }
+        if record is not None:
+            fields = tuple(record.native_fields)
+            lowering = record.original_lowering
+            result["record"] = {
+                "reasons": record.reasons,
+                "effective_fp16": (
+                    record.effective_fp16.status,
+                    record.effective_fp16.reasons,
+                ),
+                "target_features": record.effective_fp16.canonical_features,
+                "native_fields": tuple((key, value[:1024]) for key, value in fields),
+                "native_fields_sha256": hashlib.sha256(
+                    repr(fields).encode()
+                ).hexdigest(),
+                "native_options_sha256": hashlib.sha256(
+                    record.native_options
+                ).hexdigest(),
+                "original_lowering_present": lowering is not None,
+                "original_options_sha256": (
+                    None if lowering is None else lowering.options_sha256
+                ),
+                "original_options_scope": (
+                    None if lowering is None else lowering.options_scope
+                ),
+            }
+        return result
+
     original_root = conversion_api.RootCastContextLease
 
     class TrackedRoot(original_root):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
             roots.append(self)
+            diagnostics.append({"stage": "initial", "root": observation(self)})
+
+        def finish(self, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return super().finish(*args, **kwargs)
+            finally:
+                diagnostics.append({"stage": "finish", "root": observation(self)})
+
+        def close(self) -> None:
+            before = observation(self)
+            try:
+                return super().close()
+            finally:
+                diagnostics.append(
+                    {"stage": "close", "before": before, "after": observation(self)}
+                )
 
     monkeypatch.setattr(conversion_api, "RootCastContextLease", TrackedRoot)
     seen = []
 
     def inspect(ctx: Any, body: Any) -> None:
         permit = ctx._source_cast_permit
-        assert type(permit) is authority._CastPermit
+        diagnostic = {
+            "root_count": len(roots),
+            "transaction_count": len(transactions),
+            "shared_policy_identity": ui.PrecisionPolicy
+            is conversion_api.PrecisionPolicy
+            is PrecisionPolicy,
+            "context_policy_is_source": ctx.precision_policy is PrecisionPolicy.SOURCE,
+            "events": diagnostics,
+        }
+        print("SOURCE_CAST_ADMISSION_DIAGNOSTIC", diagnostic, flush=True)
+        assert type(permit) is authority._CastPermit, diagnostic
         assert (
             roots[0]._closed and roots[0]._native is None and roots[0]._lowering is None
         )

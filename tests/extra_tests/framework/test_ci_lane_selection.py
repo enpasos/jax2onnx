@@ -1867,7 +1867,10 @@ def test_focused_and_complete_extra_keep_native_and_final_byte_audits(
             campaign.recheck()
     elif fault == "context":
         changed = copy.deepcopy(inventory)
-        changed["final_context"]["environment"]["JAX2ONNX_TEST_CI_LANE_XDIST"] = "1"
+        key = "JAX2ONNX_TEST_CI_LANE_XDIST"
+        original = inventory["final_context"]["environment"].get(key)
+        changed["final_context"]["environment"][key] = "0" if original == "1" else "1"
+        assert changed["final_context"]["environment"][key] != original
         with pytest.raises(ValueError, match="collection-transition"):
             campaign.collection(changed)
     else:
