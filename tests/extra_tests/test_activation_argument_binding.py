@@ -21,7 +21,6 @@ import pytest
 
 from jax2onnx import to_onnx
 
-
 _APIS = {"jax_nn": jax.nn, "linen": nn, "linen_activation": linen_activation}
 _PARAMETER_NAMES = {
     "gelu": "approximate",
@@ -175,8 +174,7 @@ def test_keras_gelu_with_jax_backend() -> None:
         pytest.skip("Keras is an optional integration")
     # Select the backend in a fresh interpreter: earlier tests may have imported
     # Keras with a different backend, whose global state cannot be switched here.
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import jax.numpy as jnp
         import keras
         import numpy as np
@@ -202,8 +200,7 @@ def test_keras_gelu_with_jax_backend() -> None:
             (graph_input,) = session.get_inputs()
             (actual,) = session.run(None, {graph_input.name: np.asarray(x)})
             np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-5)
-        """
-    )
+        """)
     result = subprocess.run(
         [sys.executable, "-c", script],
         env={**os.environ, "KERAS_BACKEND": "jax", "JAX_PLATFORM_NAME": "cpu"},

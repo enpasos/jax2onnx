@@ -20,7 +20,6 @@ from jax2onnx.plugins._complex_utils import (
     pack_native_complex,
 )
 
-
 _POLICIES = [
     pytest.param(PrecisionPolicy.LEGACY, False, id="legacy-single"),
     pytest.param(PrecisionPolicy.LEGACY, True, id="legacy-double"),

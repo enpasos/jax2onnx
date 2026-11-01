@@ -22,7 +22,6 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
     lower_unary_elementwise,
 )
 
-
 # --- Define a JAX Primitive for nnx.relu and keep a reference on flax.nnx ---
 # We do this so tracing (make_jaxpr) “sees” a primitive instead of a Python function.
 

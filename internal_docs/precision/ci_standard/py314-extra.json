@@ -339,7 +339,7 @@
         "teardown:passed"
       ],
       "source": "tests/extra_tests/test_activation_argument_binding.py",
-      "line": 175,
+      "line": 174,
       "reason": "Keras is an optional integration"
     },
     {
@@ -1281,7 +1281,8 @@
       ],
       "scope": "Prospective data only. Original574 genuine global C keeps its source epoch; accepted47 C and this33-case addition are source bridges. Genuine139 owner collection exists only311/313; unconditional declaration bridge on312/314 is not a new observation. No canonical/fullF/fullA/hosted/resource/numerical/B-F acceptance or activation is asserted."
     },
-    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1."
+    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
+    "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines."
   },
   "focused_extra_ids": [
     "tests/extra_tests/converter/test_issue52_registry_ownership.py::test_repeated_registry_discovery_preserves_all_preexisting_bindings",

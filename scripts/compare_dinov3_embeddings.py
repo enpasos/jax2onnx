@@ -29,7 +29,6 @@ import onnxruntime as ort
 import torch
 from PIL import Image
 
-
 _VARIANT_META = {
     # variant: (builder function, expected img_size)
     "dinov3_vits16_pretrain_lvd1689m": ("dinov3_vits16", 224),

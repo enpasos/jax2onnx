@@ -25,7 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-
 EXPECT_EINSUM_ONLY: Final = EG(
     [
         (

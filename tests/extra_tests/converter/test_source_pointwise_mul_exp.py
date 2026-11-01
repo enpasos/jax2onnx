@@ -43,7 +43,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 
-
 # Criteria are fixed before any target execution. Low precision receives only
 # structural and exactly representable controls, never a general tolerance.
 _BITWISE = SampleCriteria("bitwise")

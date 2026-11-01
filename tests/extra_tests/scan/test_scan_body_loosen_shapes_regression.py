@@ -11,7 +11,6 @@ from jax import lax
 
 from jax2onnx.user_interface import to_onnx
 
-
 # ---------- tiny helpers ----------
 
 

@@ -13,7 +13,6 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parents[3]
 _SCRIPT = _ROOT / "scripts/replay_source_cast_failure.py"
 _LOW = "003c003c003c00bcff7b007c"

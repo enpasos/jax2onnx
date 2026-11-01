@@ -22,7 +22,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 EQX_PRELU_PRIM: Final[Primitive] = Primitive("eqx.nn.prelu")
 EQX_PRELU_PRIM.multiple_results = False
 

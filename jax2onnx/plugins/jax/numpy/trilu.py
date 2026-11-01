@@ -26,7 +26,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _TRILU_PRIM: Final = make_jnp_primitive("jax.numpy.trilu")
 _ORIG_TRIU: Final = jnp.triu
 _ORIG_TRIL: Final = jnp.tril

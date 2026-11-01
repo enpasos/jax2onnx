@@ -15,7 +15,6 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parents[3]
 _OWNER = "tests/extra_tests/converter/test_source_model_native_bindings_exports.py"
 _FUNCTION = "test_original_full_model_native_bindings_cpu_gate"

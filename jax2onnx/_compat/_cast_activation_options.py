@@ -23,7 +23,6 @@ import math
 import struct
 from typing import Any
 
-
 _LIMIT = 65536
 _ITEMS = 4096
 _TEXT = 4096

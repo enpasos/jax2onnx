@@ -13,7 +13,6 @@ import numpy.typing as npt
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
-
 CONTINUOUS_OBS_DIM: int = 17
 CONTINUOUS_HIDDEN_DIM: int = 32
 CONTINUOUS_ACTION_DIM: int = 6

@@ -31,7 +31,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _LEFT_SHIFT_PRIM: Final = make_jnp_primitive("jax.numpy.left_shift")
 
 _NP_SIGNED_TO_UNSIGNED: dict[np.dtype[Any], np.dtype[Any]] = {

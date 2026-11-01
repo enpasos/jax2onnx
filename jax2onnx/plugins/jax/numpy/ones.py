@@ -26,7 +26,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _ONES_PRIM: Final = make_jnp_primitive("jax.numpy.ones")
 
 

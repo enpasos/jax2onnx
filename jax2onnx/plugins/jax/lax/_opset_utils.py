@@ -13,7 +13,6 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
-
 _REDUCTION_AXES_INPUT_SINCE: Final[dict[str, int]] = {
     "ReduceL1": 18,
     "ReduceL2": 18,

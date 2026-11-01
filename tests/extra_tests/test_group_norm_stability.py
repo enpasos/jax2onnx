@@ -16,7 +16,6 @@ import pytest
 
 from jax2onnx import to_onnx
 
-
 _CHANNEL_VALUES: np.ndarray = np.asarray(
     [0.09006345, 0.00062171, -0.14996266, -0.04716587],
     dtype=np.float32,

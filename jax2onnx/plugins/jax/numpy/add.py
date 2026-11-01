@@ -33,7 +33,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _ADD_PRIM: Final = make_jnp_primitive("jax.numpy.add")
 
 

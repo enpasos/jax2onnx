@@ -41,7 +41,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _HISTOGRAM2D_PRIM: Final = make_jnp_primitive("jax.numpy.histogram2d")
 _HISTOGRAM2D_PRIM.multiple_results = True
 

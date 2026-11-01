@@ -22,7 +22,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _THRESHOLDED_RELU_PRIM: Final[Primitive] = Primitive("jax.nn.thresholded_relu")
 _THRESHOLDED_RELU_PRIM.multiple_results = False
 

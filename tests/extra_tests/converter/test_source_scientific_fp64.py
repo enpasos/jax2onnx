@@ -50,7 +50,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 
-
 _CRITERIA = SampleCriteria("tolerant", rtol=1e-5, atol=1e-6)
 _ISSUE52_HELPER_PREDECESSOR_SHA256 = (
     "4e1b3100642ae02dc3e5cc1f2a32cb4c21c9cc03a3451d0636920065ccce6e55"

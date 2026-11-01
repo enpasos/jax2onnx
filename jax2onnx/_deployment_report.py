@@ -11,7 +11,6 @@ from typing import TypeAlias, cast
 
 import onnx
 
-
 ShapeDim: TypeAlias = int | str | None
 ModelSource: TypeAlias = onnx.ModelProto | str | os.PathLike[str]
 

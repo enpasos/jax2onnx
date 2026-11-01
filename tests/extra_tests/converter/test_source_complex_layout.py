@@ -25,7 +25,6 @@ from jax2onnx.converter.source_profile import (
 from tests.extra_tests.converter.test_source_complex_broadcast import _export_original
 from tests.extra_tests.converter.test_source_complex_conj import _payload
 
-
 _OPERATIONS = ("copy", "reshape", "transpose", "squeeze", "concatenate", "rev")
 _CONFIGURATIONS = [("complex64", False), ("complex64", True), ("complex128", True)]
 _KINDS = ("regular", "identity", "empty", "mapped")

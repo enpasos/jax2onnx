@@ -29,7 +29,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _EINSUM_PRIM: Final = make_jnp_primitive("jax.numpy.einsum")
 _JNP_EINSUM_ORIG: Final = jnp.einsum
 

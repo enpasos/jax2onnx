@@ -154,7 +154,7 @@ def _unsqueeze(
 )
 class TriangularSolvePlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
-        (a_var, b_var) = eqn.invars
+        a_var, b_var = eqn.invars
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
 

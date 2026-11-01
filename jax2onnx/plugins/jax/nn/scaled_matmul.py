@@ -28,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _SCALED_MATMUL_PRIM: Final[Primitive] = Primitive("jax.nn.scaled_matmul")
 _SCALED_MATMUL_PRIM.multiple_results = False
 _JAX_SCALED_MATMUL_ORIG: Final = jax.nn.scaled_matmul

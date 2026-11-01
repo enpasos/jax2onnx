@@ -33,7 +33,6 @@ from tests.extra_tests.converter.source_precision_support import (
     _global_source_configuration,
 )
 
-
 # Reviewed immutable raw contract identities; no generated f32/f64 variants.
 _CONTRACTS = (
     (

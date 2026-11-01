@@ -23,7 +23,6 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 
-
 MIN_POOL_PRIM: Primitive = Primitive("linen.min_pool")
 MIN_POOL_PRIM.multiple_results = False
 

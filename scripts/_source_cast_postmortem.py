@@ -17,7 +17,6 @@ import threading
 import types
 from typing import Any
 
-
 SCHEMA = "source-cast-off-postmortem-v1"
 NODE_ID = (
     "tests/extra_tests/converter/test_source_conversion_semantics.py::"

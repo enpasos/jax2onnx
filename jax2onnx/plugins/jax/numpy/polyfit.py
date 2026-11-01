@@ -36,7 +36,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _POLYFIT_PRIM: Final = make_jnp_primitive("jax.numpy.polyfit")
 _JAX_POLYFIT_ORIG: Final = jnp.polyfit
 

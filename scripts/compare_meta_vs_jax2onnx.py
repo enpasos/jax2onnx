@@ -39,7 +39,6 @@ import jax.numpy as jnp
 
 from jax2onnx.plugins.examples.eqx.dino import VisionTransformer
 
-
 _VARIANT_META = {
     "dinov3_vits16_pretrain_lvd1689m": ("dinov3_vits16", 224),
     "dinov3_vits16plus_pretrain_lvd1689m": ("dinov3_vits16plus", 224),

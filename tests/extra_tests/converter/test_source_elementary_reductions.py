@@ -57,7 +57,6 @@ from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
     _settings,
 )
 
-
 _FINITE = {
     "float32": SampleCriteria("tolerant", rtol=1e-5, atol=1e-7, equal_nan=True),
     "float64": SampleCriteria("tolerant", rtol=1e-7, atol=1e-12, equal_nan=True),

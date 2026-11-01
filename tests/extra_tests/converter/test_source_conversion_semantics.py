@@ -38,7 +38,6 @@ from tests.extra_tests.converter.test_source_predicate_families import (
     _restore_context as _restore_context,
 )
 
-
 # Source calls/eager/JIT references are taken by _artifact before activation or
 # export. These controls and criteria are fixed without reading target outputs.
 _BITWISE = SampleCriteria("bitwise")

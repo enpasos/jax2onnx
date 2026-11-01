@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _LINALG_INV_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.inv")
 _JAX_LINALG_INV_ORIG: Final = jnp.linalg.inv
 

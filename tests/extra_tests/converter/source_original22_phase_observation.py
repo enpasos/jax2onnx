@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import time
 
-
 OUTPUT_ENV = "JAX2ONNX_ORIGINAL22_PHASE_OUTPUT"
 _FILE: tuple[int, str, int | None] | None = None
 _LABELS = frozenset(

@@ -77,7 +77,6 @@ from tests.extra_tests.converter.test_source_square_variance import (
     source_settings,  # noqa: F401
 )
 
-
 _ROOT = Path(__file__).resolve().parents[3]
 _ORIGINAL_DEFAULTS = {
     "plugin::nnx.layer_norm": {6, 10, 11, 13, 14},

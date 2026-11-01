@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _RELU6_PRIM: Final[Primitive] = Primitive("jax.nn.relu6")
 _RELU6_PRIM.multiple_results = False
 _JAX_RELU6_ORIG: Final = jax.nn.relu6

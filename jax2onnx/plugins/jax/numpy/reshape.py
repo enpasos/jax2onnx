@@ -40,7 +40,6 @@ from jax2onnx.utils.shape_poly import (
     symbolic_dim_eq,
 )
 
-
 _RESHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.reshape")
 BatchDim: TypeAlias = int | None
 

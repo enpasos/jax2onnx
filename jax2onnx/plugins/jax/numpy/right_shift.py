@@ -31,7 +31,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _RIGHT_SHIFT_PRIM: Final = make_jnp_primitive("jax.numpy.right_shift")
 
 _SIGNED_TO_UNSIGNED: dict[ir.DataType, tuple[ir.DataType, np.dtype[Any], int]] = {

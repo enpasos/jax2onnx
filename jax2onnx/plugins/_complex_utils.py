@@ -18,7 +18,6 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
 )
 
-
 _COMPLEX_PAIR: Final[Dict[ir.DataType, ir.DataType]] = {
     ir.DataType.COMPLEX64: ir.DataType.FLOAT,
     ir.DataType.COMPLEX128: ir.DataType.DOUBLE,

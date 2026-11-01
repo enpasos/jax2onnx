@@ -48,7 +48,6 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.utils.shape_poly import is_dim_expr
 
-
 _ORIG_TILE: Final = jnp.tile
 _TILE_PRIM: Final = make_jnp_primitive("jax.numpy.tile")
 _NATIVE_TILE_PRIMITIVE: Final = native_tile_primitive()

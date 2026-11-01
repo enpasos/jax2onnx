@@ -4942,7 +4942,7 @@
         "teardown:passed"
       ],
       "source": "tests/extra_tests/test_activation_argument_binding.py",
-      "line": 175,
+      "line": 174,
       "reason": "Keras is an optional integration"
     },
     {
@@ -5072,6 +5072,7 @@
       "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/canonical-standard311-cd5-campaignv2-prepare-0bjks8i9/proposed-data-v2/freeze.json",
       "sha256": "d297367e9f0b3d291c8458415723750e0de4436895788805748b0f56ec75a24a"
     },
-    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1."
+    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
+    "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines."
   }
 }

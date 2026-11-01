@@ -17,7 +17,6 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
-
 _LAX_FFT_PLUGIN: _LaxFFTPlugin = _LaxFFTPlugin()
 _METADATA_PRIMITIVE_PREFIX: Final[str] = "metadata::jnp.fft"
 

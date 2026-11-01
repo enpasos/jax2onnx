@@ -59,7 +59,6 @@ from tests.extra_tests.converter.test_source_callable_preparation import (
     _preserve_settings as _preserve_settings,
 )
 
-
 _RTOL = _ATOL = 1e-5
 _CONFIG = dict(
     hidden_size=32,

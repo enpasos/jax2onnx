@@ -35,7 +35,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 
-
 _ORIGINALS = (nnx.LayerNorm.__call__, nn.LayerNorm.__call__, eqx.nn.LayerNorm.__call__)
 _ORIGINAL_MEAN = jnp.mean
 _PLUGINS = {"nnx": NnxPlugin, "linen": LinenPlugin, "eqx": EqxPlugin}

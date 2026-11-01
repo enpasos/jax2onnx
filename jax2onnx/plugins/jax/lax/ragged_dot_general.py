@@ -97,9 +97,7 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
                 "ragged_dot_general with group_offset is not supported"
             )
 
-        ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = (
-            rdn.dot_dimension_numbers
-        )
+        (lhs_contract, rhs_contract), (lhs_batch, rhs_batch) = rdn.dot_dimension_numbers
         lhs_contract = tuple(lhs_contract)
         rhs_contract = tuple(rhs_contract)
         lhs_batch = tuple(lhs_batch)

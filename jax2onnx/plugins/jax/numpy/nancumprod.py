@@ -28,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _NANCUMPROD_PRIM: Final = make_jnp_primitive("jax.numpy.nancumprod")
 _JAX_NANCUMPROD_ORIG: Final = jnp.nancumprod
 

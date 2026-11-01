@@ -29,7 +29,6 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
     register_unary_elementwise_batch_rule,
 )
 
-
 _SOFTSIGN_PRIM: Final[Primitive] = Primitive("jax.nn.soft_sign")
 _SOFTSIGN_PRIM.multiple_results = False
 _JAX_SOFT_SIGN_ORIG: Final = jax.nn.soft_sign

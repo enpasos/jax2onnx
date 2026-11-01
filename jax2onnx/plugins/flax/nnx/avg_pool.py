@@ -25,7 +25,6 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 
-
 # ------------------------------------------------------------------
 # Graph-pattern expectations used by tests
 # ------------------------------------------------------------------

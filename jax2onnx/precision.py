@@ -50,7 +50,6 @@ from jax2onnx.converter.source_deployment import (
     _deployment_child_scope,
 )
 
-
 PRECISION_METADATA_KEY = "jax2onnx.precision"
 PRECISION_SCHEMA_VERSION = 1
 SOURCE_PRECISION_PROFILE = "source-static-v1"

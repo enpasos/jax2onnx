@@ -45,7 +45,6 @@ from tests.extra_tests.converter.test_source_predicate_families import (
     _settings,
 )
 
-
 _CONFIGURATIONS = [("complex64", False), ("complex64", True), ("complex128", True)]
 _BITWISE = SampleCriteria("bitwise")
 _SHAPES = [

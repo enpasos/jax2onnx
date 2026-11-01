@@ -26,7 +26,6 @@ from jax2onnx.plugins.jax.lax.select_n import _lower_source_complex_select
 from tests.extra_tests.converter.test_source_complex_broadcast import _export_original
 from tests.extra_tests.converter.test_source_complex_conj import _payload
 
-
 _CONFIGURATIONS = [("complex64", False), ("complex64", True), ("complex128", True)]
 _SHAPES = [(), (0,), (0, 3), (3, 4), (3, 2)]
 _INDEX_CONFIGURATIONS = [

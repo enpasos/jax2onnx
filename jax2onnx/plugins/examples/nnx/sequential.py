@@ -13,7 +13,6 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-
 _double_relu: Final = nnx.Sequential(
     nnx.relu,
     nnx.relu,

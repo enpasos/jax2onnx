@@ -16,7 +16,6 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _unsqueeze_scalar,
 )
 
-
 DimLike = Union[int, str]
 
 

@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _BERNOULLI_PRIM: Final[Primitive] = Primitive("jax.random.bernoulli")
 _BERNOULLI_PRIM.multiple_results = False
 

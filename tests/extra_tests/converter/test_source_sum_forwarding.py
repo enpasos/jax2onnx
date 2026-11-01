@@ -27,7 +27,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 
-
 _ORIGINAL_SUM = jnp.sum
 _ORIGINALS = {name: getattr(jnp, name) for name in ("sum", "asarray", "array", "where")}
 _SOURCE_PATHS = (Path(inspect.getfile(JnpSumPlugin)), Path(__file__))

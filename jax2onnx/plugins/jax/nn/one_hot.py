@@ -25,7 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _ONE_HOT_PRIM: Final[Primitive] = Primitive("jax.nn.one_hot")
 _ONE_HOT_PRIM.multiple_results = False
 _JAX_ONE_HOT_ORIG: Final = jax.nn.one_hot

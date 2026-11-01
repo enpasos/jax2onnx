@@ -54,7 +54,6 @@ from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
     _settings,
 )
 
-
 _CNN: Any = None
 
 

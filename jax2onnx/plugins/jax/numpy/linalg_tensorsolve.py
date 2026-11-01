@@ -41,7 +41,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _TENSORSOLVE_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.tensorsolve")
 _JAX_TENSORSOLVE_ORIG: Final = jnp.linalg.tensorsolve
 

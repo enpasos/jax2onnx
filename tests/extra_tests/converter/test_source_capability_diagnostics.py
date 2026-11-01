@@ -25,7 +25,6 @@ from tests.extra_tests.converter.source_capability_counterparts import (
     SourceSchemaObservation,
 )
 
-
 _SCHEMA_RAW = "[ShapeInferenceError] (op_type:Range, node name: range0): start typestr: T, has unsupported type: tensor(bool)"
 _RUNTIME_RAW = (
     "[ONNXRuntimeError] : 1 : FAIL : actual model_load_utils.cc:46 "

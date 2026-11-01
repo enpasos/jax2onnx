@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 FORBIDDEN_ROOT = "onnx"  # forbid 'onnx' and any submodule 'onnx.*'
 FORBIDDEN_ONNX_IR_PREFIX = "onnx_ir._"
 FORBIDDEN_ATTR_CHAINS = {

@@ -32,7 +32,6 @@ import numpy as np
 from jax2onnx._source_preparation import SourcePreparationError
 from jax2onnx._compat.python_annotations import AnnotationState, AnnotationStateError
 
-
 Scope = Literal["global", "closure"]
 SharedScope = Literal["global", "closure", "default", "kwdefault"]
 AstPath = tuple[str | int, ...]

@@ -16,7 +16,6 @@ import unittest
 from unittest.mock import patch
 import weakref
 
-
 if __name__ == "__main__":
     _path = (
         Path(__file__).resolve().parents[3] / "jax2onnx/_compat/python_annotations.py"

@@ -21,7 +21,6 @@ import sys
 import tomllib
 from typing import Any
 
-
 _SUPPORT_COHORTS = {
     "minimum": {"3.12"},
     "normalization": {"3.12", "3.13"},

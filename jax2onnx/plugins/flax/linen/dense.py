@@ -31,7 +31,6 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
-
 # ------------------------------------------------------------------
 # Graph-pattern expectations
 # ------------------------------------------------------------------

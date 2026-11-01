@@ -21,7 +21,6 @@ import subprocess
 import time
 from typing import Any, NamedTuple
 
-
 _INTERVAL = 0.2
 _MAX_GAP = 2.0
 _MAX_SAMPLES_BYTES = 16 * 1024**2

@@ -163,7 +163,7 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
         x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any
     ) -> ShapedArray:
         del bias
-        ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
+        (lhs_contract, rhs_contract), (lhs_batch, rhs_batch) = dimension_numbers
         lhs_contract = tuple(lhs_contract)
         rhs_contract = tuple(rhs_contract)
         lhs_batch = tuple(lhs_batch)

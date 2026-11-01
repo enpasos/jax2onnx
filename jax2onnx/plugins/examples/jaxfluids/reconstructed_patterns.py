@@ -7,7 +7,6 @@ import jax.numpy as jnp
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
-
 # ------------------------------------------------------------------------------
 # PATTERN 1: WENO (Weighted Essentially Non-Oszillatory) Reconstruction
 # ------------------------------------------------------------------------------

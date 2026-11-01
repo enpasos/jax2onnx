@@ -32,7 +32,6 @@ from pathlib import Path
 import sys
 from typing import Any
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 HISTORICAL_BASELINE = (
     REPOSITORY_ROOT / "internal_docs/precision/source_migration_inventory.json"

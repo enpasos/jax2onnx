@@ -18,7 +18,6 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parents[3]
 _RUNNER = _ROOT / "scripts/run_pytest_batches.py"
 
@@ -506,9 +505,7 @@ def test_base_b(): pass
 def test_missing_changed_or_duplicate_contract_fails_before_body(tmp_path, fault):
     files = {"test_cases.py": _BODY}
     if fault == "duplicate-id":
-        files[
-            "conftest.py"
-        ] = """def pytest_collection_modifyitems(items):
+        files["conftest.py"] = """def pytest_collection_modifyitems(items):
     items.append(items[0])
 """
     baseline = [
@@ -672,9 +669,7 @@ def test_collection_error_prevents_every_test_body(tmp_path):
 def test_missing_execution_phases_or_process_crash_cannot_become_pass(tmp_path, fault):
     files = {"test_cases.py": "def test_base():\n    pass\n"}
     if fault == "protocol-without-reports":
-        files[
-            "conftest.py"
-        ] = """def pytest_runtest_protocol(item, nextitem):
+        files["conftest.py"] = """def pytest_runtest_protocol(item, nextitem):
     return True
 """
     else:
@@ -739,13 +734,11 @@ def test_opt_in_xdist_projects_before_worker_ids_are_published(tmp_path):
     baseline = ["test_cases.py::test_base_a", "test_cases.py::test_base_b"]
     suite, manifest, environment = _suite(
         tmp_path,
-        {
-            "test_cases.py": """def test_base_a(): pass
+        {"test_cases.py": """def test_base_a(): pass
 def test_base_b(): pass
 def test_extra():
     raise AssertionError('extra must never reach the xdist scheduler')
-"""
-        },
+"""},
         baseline,
         collection_args=["test_cases.py"],
     )
@@ -1289,8 +1282,7 @@ def test_qualified_node_selector_must_be_one_concrete_case(
 ):
     suite, manifest, environment = _suite(
         tmp_path,
-        {
-            "test_cases.py": """from pathlib import Path
+        {"test_cases.py": """from pathlib import Path
 import pytest
 @pytest.mark.parametrize('value', [1, 2], ids=['chosen', 'sibling'])
 def test_case(value):
@@ -1298,8 +1290,7 @@ def test_case(value):
 class TestGroup:
     def test_member(self):
         Path('body-ran').touch()
-"""
-        },
+"""},
         [concrete],
         collection_args=[selector],
     )

@@ -17,7 +17,6 @@ import tarfile
 import pytest
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[3]
 
 

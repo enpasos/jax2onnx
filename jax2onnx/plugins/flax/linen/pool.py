@@ -25,7 +25,6 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 
-
 POOL_PRIM: Primitive = Primitive("linen.pool")
 POOL_PRIM.multiple_results = False
 

@@ -11,7 +11,6 @@ import tomllib
 from pathlib import Path
 from typing import Sequence
 
-
 _NAME_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+(?:\[[A-Za-z0-9_.\-,]+\])?)")
 _BOUND_RE = re.compile(r"(==|>=)\s*([^,;\s]+)")
 

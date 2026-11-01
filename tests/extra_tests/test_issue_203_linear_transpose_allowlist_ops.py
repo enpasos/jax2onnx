@@ -10,7 +10,6 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 )
 from jax2onnx.user_interface import to_onnx
 
-
 _EXPECTED_LINEAR_TRANSPOSE_ALLOWLIST: frozenset[str] = frozenset(
     {
         "jax.numpy.add",

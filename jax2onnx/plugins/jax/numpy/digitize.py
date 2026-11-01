@@ -33,7 +33,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _DIGITIZE_PRIM: Final = make_jnp_primitive("jax.numpy.digitize")
 
 BatchDim: TypeAlias = int | None

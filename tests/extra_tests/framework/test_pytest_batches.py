@@ -24,7 +24,6 @@ import pytest
 
 from tests.extra_tests.framework.test_ci_lane_selection import _node_lane
 
-
 _RUNNER = Path(__file__).resolve().parents[3] / "scripts" / "run_pytest_batches.py"
 
 
@@ -771,16 +770,14 @@ def test_canonical_staged_context_preserves_natural_pytest_environment_lifecycle
 ) -> None:
     suite, manifest, environment = _prepare_lane_suite(
         tmp_path,
-        {
-            "test_case.py": """import os
+        {"test_case.py": """import os
 from pathlib import Path
 from importlib.metadata import version
 assert os.environ['PYTEST_VERSION'] == version('pytest')
 def test_baseline():
     assert os.environ['PYTEST_VERSION'] == version('pytest')
     Path('body-ran').touch()
-"""
-        },
+"""},
         ["test_case.py::test_baseline"],
     )
     environment.pop("PYTEST_VERSION", None)
@@ -1112,9 +1109,7 @@ def test_canonical_lane_preserves_seventeen_qualified_file_and_exact_case_select
     files[
         "test_owner_00.py"
     ] += "def test_extra():\n    raise AssertionError('extra executed')\n"
-    files[
-        "test_exact.py"
-    ] = """import pytest
+    files["test_exact.py"] = """import pytest
 @pytest.mark.parametrize('value', [1, 2], ids=['chosen', 'sibling'])
 def test_parameter(value):
     assert value == 1
@@ -1211,16 +1206,14 @@ def test_canonical_lane_preserves_original_addopts_and_first_failfast_outcome(
     baseline = ["test_cases.py::test_first_failure", "test_cases.py::test_later"]
     suite, manifest, environment = _prepare_lane_suite(
         tmp_path,
-        {
-            "test_cases.py": """from pathlib import Path
+        {"test_cases.py": """from pathlib import Path
 def test_first_failure():
     path=Path('first-calls')
     path.write_text(path.read_text()+'x' if path.exists() else 'x')
     assert False, 'original first failure'
 def test_later():
     Path('unexpected-later-body').touch()
-"""
-        },
+"""},
         baseline,
     )
     original_options = "-v --tb=short -x"
@@ -1341,9 +1334,7 @@ def test_canonical_lane_terminal_audit_fails_after_passed_native_reports(
     if fault == "lazy-unbound-import":
         files["test_cases.py"] += "    import helper\n    assert helper.VALUE == 1\n"
     else:
-        files[
-            "conftest.py"
-        ] = """from pathlib import Path
+        files["conftest.py"] = """from pathlib import Path
 def pytest_unconfigure(config):
     if not config.option.collectonly:
         path=Path(__file__).with_name('helper.py')
@@ -1548,14 +1539,12 @@ def test_parent_signal_bounds_shutdown_when_child_ignores_termination(
 ) -> None:
     result, run, folder = _run_suite(
         tmp_path,
-        {
-            "test_cases.py": """import os, signal, time
+        {"test_cases.py": """import os, signal, time
 def test_ignores_termination():
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     os.kill(os.getppid(), signal.SIGTERM)
     time.sleep(60)
-"""
-        },
+"""},
     )
     assert result.returncode != 0 and run["status"] == "FAIL"
     process = run["processes"][-1]
@@ -2009,8 +1998,7 @@ def test_lane_enabled_observer_off_control_cannot_validate_canonical_completion(
     owner = module._CAST_OBSERVER_NODE.split("::", 1)[0]
     suite, manifest, environment = _prepare_lane_suite(
         tmp_path,
-        {
-            owner: """import pytest
+        {owner: """import pytest
 from pathlib import Path
 @pytest.mark.parametrize('source', ['float64'])
 @pytest.mark.parametrize('target', ['float16'])
@@ -2018,8 +2006,7 @@ from pathlib import Path
 def test_floating_conversion_rounding_and_strict_special_value_gates(source, target, group):
     path=Path('controlled-calls')
     path.write_text(path.read_text()+'x' if path.exists() else 'x')
-"""
-        },
+"""},
         [module._CAST_OBSERVER_NODE],
     )
     digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
@@ -2838,9 +2825,7 @@ def test_extra():
         )
         # A synthetic native collect report exercises pytest's real serializer;
         # the canonical observer and JUnit both receive the same raw text.
-        files[
-            "conftest.py"
-        ] = """import pytest
+        files["conftest.py"] = """import pytest
 @pytest.hookimpl(tryfirst=True)
 def pytest_collectreport(report):
     if report.skipped:

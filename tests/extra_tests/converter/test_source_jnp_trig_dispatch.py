@@ -33,7 +33,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 
-
 _ORIGINALS = {name: getattr(jnp, name) for name in ("sin", "cos")}
 _PLUGINS = {"sin": JnpSinPlugin, "cos": JnpCosPlugin}
 _TRIG_CONSTANT = np.asarray([[0.125, -0.25]], np.float32)

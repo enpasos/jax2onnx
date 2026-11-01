@@ -11,7 +11,6 @@ from jax2onnx.converter.precision_policy import (
     active_precision_policy,
 )
 
-
 BoundCallable = Callable[..., Any]
 
 

@@ -32,7 +32,6 @@ from tests.extra_tests.converter.source_precision_corpus_oracles import (
     CorpusStructureEvidence,
 )
 
-
 VERSION = "source-int32-range-select-gather-structure-v1"
 
 

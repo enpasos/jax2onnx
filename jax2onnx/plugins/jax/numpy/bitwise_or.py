@@ -31,7 +31,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _BITWISE_OR_PRIM: Final = make_jnp_primitive("jax.numpy.bitwise_or")
 
 

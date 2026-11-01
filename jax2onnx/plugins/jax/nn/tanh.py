@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _TANH_PRIM: Final[Primitive] = Primitive("jax.nn.tanh")
 _TANH_PRIM.multiple_results = False
 _JAX_TANH_ORIG: Final = jax.nn.tanh

@@ -50,7 +50,6 @@ from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
     _specs,
 )
 
-
 # This is the finite original family selector, frozen before execution. The
 # aggregate binds every raw ordinal, name, opset and complete original contract.
 _FAMILY_ROWS = {

@@ -10,7 +10,6 @@ import re
 import subprocess
 import sys
 
-
 LOCKED312_PROFILE = "internal_docs/precision/ci_standard/py312-owners.json"
 
 

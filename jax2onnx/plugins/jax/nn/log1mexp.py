@@ -31,7 +31,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _LOG1MEXP_PRIM: Final[Primitive] = Primitive("jax.nn.log1mexp")
 _LOG1MEXP_PRIM.multiple_results = False
 _JAX_LOG1MEXP_ORIG: Final = jax.nn.log1mexp

@@ -19,7 +19,6 @@ from typing import Any, Literal
 
 import onnx
 
-
 _PREFIX = "jax2onnx.source-capability.v1:"
 _SCHEMA_ERROR = re.compile(
     r"\[ShapeInferenceError\]\s*\(op_type:(?P<operator>\w+), "

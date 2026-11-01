@@ -25,7 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _LOGSUMEXP_PRIM: Final[Primitive] = Primitive("jax.nn.logsumexp")
 _LOGSUMEXP_PRIM.multiple_results = False
 _JAX_LOGSUMEXP_ORIG: Final = jax.nn.logsumexp

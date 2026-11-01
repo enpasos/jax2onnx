@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _LOG_SIGMOID_PRIM: Final[Primitive] = Primitive("jax.nn.log_sigmoid")
 _LOG_SIGMOID_PRIM.multiple_results = False
 _JAX_LOG_SIGMOID_ORIG: Final = jax.nn.log_sigmoid

@@ -24,7 +24,6 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 
-
 EXPECT_T_MP_T: Final = nnx_max_pool.EXPECT_T_MP_T
 EXPECT_T_GMP_T: Final = nnx_max_pool.EXPECT_T_GMP_T
 

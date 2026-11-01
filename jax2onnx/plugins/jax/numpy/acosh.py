@@ -32,7 +32,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _ACOSH_PRIM: Final = make_jnp_primitive("jax.numpy.acosh")
 
 

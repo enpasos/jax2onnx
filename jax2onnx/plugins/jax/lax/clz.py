@@ -15,7 +15,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _DTYPE_INFO: dict[
     np.dtype[Any], tuple[ir.DataType, ir.DataType, np.dtype[Any], int]
 ] = {

@@ -33,7 +33,6 @@ from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
     _settings,
 )
 
-
 _COUNTERPART = oracles.GATHER_COUNTERPARTS[0]
 
 

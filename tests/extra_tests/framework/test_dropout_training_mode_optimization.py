@@ -19,7 +19,6 @@ from jax2onnx.converter.ir_optimizations import (
 )
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 
-
 _DATA = np.asarray([1, -2, 3, -4], dtype=np.float32)
 
 

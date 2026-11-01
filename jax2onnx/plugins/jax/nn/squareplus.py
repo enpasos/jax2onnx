@@ -26,7 +26,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _SQUAREPLUS_PRIM: Final[Primitive] = Primitive("jax.nn.squareplus")
 _SQUAREPLUS_PRIM.multiple_results = False
 _JAX_SQUAREPLUS_ORIG: Final = jax.nn.squareplus

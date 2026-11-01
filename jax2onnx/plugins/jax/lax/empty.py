@@ -15,7 +15,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 # JAX 0.11 lowers ``jnp.empty`` through a dedicated ``empty`` primitive instead
 # of a zero ``broadcast_in_dim``. Its reference lowering materialises zeros, so
 # the ONNX export folds it into a constant initializer.

@@ -25,7 +25,6 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 
-
 EXPECT_32_TO_16: Final = nnx_avg_pool.EXPECT_32_TO_16
 EXPECT_8_TO_7: Final = nnx_avg_pool.EXPECT_8_TO_7
 EXPECT_10_TO_4: Final = nnx_avg_pool.EXPECT_10_TO_4

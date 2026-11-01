@@ -28,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _FREXP_PRIM: Final = make_jnp_primitive("jax.numpy.frexp")
 _FREXP_PRIM.multiple_results = True
 

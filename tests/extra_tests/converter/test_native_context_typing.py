@@ -12,8 +12,7 @@ import textwrap
 
 def test_native_context_builder_is_closed_without_an_extra_annotation(tmp_path) -> None:
     root = Path(__file__).resolve().parents[3]
-    source = textwrap.dedent(
-        """\
+    source = textwrap.dedent("""\
         from typing import assert_type
 
         import onnx_ir as ir
@@ -64,8 +63,7 @@ def test_native_context_builder_is_closed_without_an_extra_annotation(tmp_path) 
             ctx.builder.Neg(value)  # expect-error: attr-defined
             ctx.builder.op("Neg", [1])  # expect-error: list-item
             ctx._lowering_record_owner  # expect-error: attr-defined
-        """
-    )
+        """)
     sample = tmp_path / "native_context_contract.py"
     sample.write_text(source, encoding="utf-8")
 

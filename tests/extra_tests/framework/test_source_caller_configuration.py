@@ -12,7 +12,6 @@ from jax2onnx import user_interface as ui
 from jax2onnx._compat import jax as compat
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 
-
 _NAMES = (
     "jax_enable_x64",
     "jax_default_matmul_precision",

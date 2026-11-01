@@ -8,6 +8,7 @@ If a buggy converter reuses display names (e.g. both helpers named 'Add__shape')
 this test will detect duplicates and (optionally) observe ORT INVALID_GRAPH.
 On fixed converters, no duplicates should be found and ORT should load (and run).
 """
+
 from __future__ import annotations
 
 import collections

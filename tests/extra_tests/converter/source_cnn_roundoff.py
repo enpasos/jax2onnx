@@ -17,7 +17,6 @@ import struct
 import time
 from typing import Iterable, Sequence
 
-
 CRITERION = "cnn-exact-input-forward-roundoff-envelope-v1-outward-grid192-v1"
 ERROR_EXPONENT = -192
 U = 1 << 24

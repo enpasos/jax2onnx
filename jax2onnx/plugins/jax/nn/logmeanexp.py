@@ -26,7 +26,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _LOGMEANEXP_PRIM: Final[Primitive] = Primitive("jax.nn.logmeanexp")
 _LOGMEANEXP_PRIM.multiple_results = False
 _JAX_LOGMEANEXP_ORIG: Final = jax.nn.logmeanexp

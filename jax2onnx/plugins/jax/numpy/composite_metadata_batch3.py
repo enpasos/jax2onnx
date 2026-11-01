@@ -17,7 +17,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _METADATA_PRIMITIVE_PREFIX: Final[str] = "metadata::jnp.composite3"
 
 

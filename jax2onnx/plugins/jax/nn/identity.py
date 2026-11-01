@@ -25,7 +25,6 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
     register_unary_elementwise_batch_rule,
 )
 
-
 _IDENTITY_PRIM: Final[Primitive] = Primitive("jax.nn.identity")
 _IDENTITY_PRIM.multiple_results = False
 

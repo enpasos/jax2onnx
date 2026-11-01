@@ -22,7 +22,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _ORMQR_PRIMITIVE: Primitive | None = getattr(jax.lax.linalg, "ormqr_p", None)
 _ORMQR_PRIMITIVE_NAME: str = getattr(_ORMQR_PRIMITIVE, "name", "")
 

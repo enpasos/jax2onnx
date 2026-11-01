@@ -34,7 +34,6 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
-
 _eqx_linear_symbolic: Final = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(0))
 _eqx_linear_highrank: Final = eqx.nn.Linear(128, 64, key=jax.random.PRNGKey(42))
 _eqx_linear_no_bias: Final = eqx.nn.Linear(

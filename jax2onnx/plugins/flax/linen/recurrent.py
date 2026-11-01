@@ -21,7 +21,6 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-
 _RECURRENT_ONNX: list[dict[str, str]] = [
     {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
     {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},

@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
 )
 
-
 PRELU_PRIM: Final[Primitive] = Primitive("nnx.prelu")
 PRELU_PRIM.multiple_results = False
 

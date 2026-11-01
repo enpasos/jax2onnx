@@ -26,7 +26,6 @@ from _pytest.runner import CallInfo
 
 from jax2onnx import precision
 
-
 _ROOT = Path(__file__).resolve().parents[3]
 _HIGH = "003c003c013c00bcff7b007c"
 _LOW = "003c003c003c00bcff7b007c"

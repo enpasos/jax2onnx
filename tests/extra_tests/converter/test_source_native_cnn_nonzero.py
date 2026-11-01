@@ -43,7 +43,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
 )
 from tests.extra_tests.converter.test_source_native_conv import _trace
 
-
 _ORIGIN = "example::examples.nnx::CNN"
 _CNN_SHA256 = "d2ab49cecada8847c81cb5e51a885399636e5c7c8c415f24a110850f28d4ff6f"
 

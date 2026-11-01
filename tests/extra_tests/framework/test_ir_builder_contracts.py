@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 ALLOWED_OUTPUT_NODE_TYPES = (
     ast.List,
     ast.Tuple,

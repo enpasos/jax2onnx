@@ -29,7 +29,6 @@ from jax2onnx.converter.source_profile import (
 from jax2onnx.plugins.jax.lax.broadcast_in_dim import BroadcastInDimPlugin
 from tests.extra_tests.converter.test_source_complex_add import _physical, _signature
 
-
 _CONFIGURATIONS = [("complex64", False), ("complex64", True), ("complex128", True)]
 
 

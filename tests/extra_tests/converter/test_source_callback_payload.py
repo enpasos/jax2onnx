@@ -15,7 +15,6 @@ from jax2onnx._compat.python_annotations import isolated_annotation_parts
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.plugins.flax.nnx._source_callback import CallbackCapture
 
-
 _ANNOTATION_CALLS: list[int] = []
 
 

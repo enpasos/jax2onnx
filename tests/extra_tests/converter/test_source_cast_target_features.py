@@ -13,7 +13,6 @@ from jax2onnx.converter import _source_cast_planning as planning
 from jax2onnx.converter._source_regions import FrozenBody, FrozenEquation, FrozenUse
 from jax2onnx.converter.source_structure import TensorContract
 
-
 # Independent transcription of both pinned LLVM prerequisite graphs, retained in
 # cast-fp16-feature-prerequisite-source-proof-v1.json (44799ba4563eb911b746d64f2d9e2033
 # c2b2db2ed8bcb4aad41394542ab769e6). Do not derive this oracle from the implementation.

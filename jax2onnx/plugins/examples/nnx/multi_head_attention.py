@@ -12,7 +12,6 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-
 register_example(
     component="MultiHeadAttention",
     description=(

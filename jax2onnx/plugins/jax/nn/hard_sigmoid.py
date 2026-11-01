@@ -24,7 +24,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _HARD_SIGMOID_PRIM: Final[Primitive] = Primitive("jax.nn.hard_sigmoid")
 _HARD_SIGMOID_PRIM.multiple_results = False
 

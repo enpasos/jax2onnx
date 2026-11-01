@@ -29,7 +29,6 @@ from jax2onnx._compat.jax import (
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from scripts.source_precision_inventory import canonical_contract
 
-
 _DTYPES: Final[frozenset[str]] = frozenset(
     {
         "bool",

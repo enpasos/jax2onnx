@@ -24,7 +24,6 @@ import tempfile
 from typing import Any
 import xml.etree.ElementTree as ET
 
-
 NODE_ID = (
     "tests/extra_tests/converter/test_source_conversion_semantics.py::"
     "test_floating_conversion_rounding_and_strict_special_value_gates"

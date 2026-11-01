@@ -12,7 +12,6 @@ import onnx_ir as ir
 
 from jax2onnx import to_onnx
 
-
 _SHAPE_HELPER_PREFIXES = (
     "bcast_src_shape",
     "bcast_dim_dyn",

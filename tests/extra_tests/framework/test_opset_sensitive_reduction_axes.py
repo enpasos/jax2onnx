@@ -16,7 +16,6 @@ from onnx import numpy_helper
 
 from jax2onnx import to_onnx
 
-
 ReductionFn = Callable[[jax.Array], jax.Array]
 
 

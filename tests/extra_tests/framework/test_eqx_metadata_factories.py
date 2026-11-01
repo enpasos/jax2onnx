@@ -22,7 +22,6 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
 )
 
-
 _RECIPES = (
     ("conv", conv, "_EQX_CONV_EXAMPLE"),
     ("conv-batched", conv, "_EQX_CONV_BATCHED_EXAMPLE"),

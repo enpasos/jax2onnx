@@ -27,7 +27,6 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
     register_unary_elementwise_batch_rule,
 )
 
-
 _CELU_PRIM: Final[Primitive] = Primitive("jax.nn.celu")
 _CELU_PRIM.multiple_results = False
 _JAX_CELU_ORIG: Final = jax.nn.celu

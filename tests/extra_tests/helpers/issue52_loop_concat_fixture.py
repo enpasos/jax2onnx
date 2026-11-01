@@ -15,7 +15,6 @@ from onnx import AttributeProto
 from jax2onnx import to_onnx
 from jax2onnx.converter.typing_support import AxisOverrideInfo
 
-
 STACK_WIDTH = 5
 _MODEL_NAME = "issue52_loop_concat"
 

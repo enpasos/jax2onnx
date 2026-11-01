@@ -17,7 +17,6 @@ from typing import Any
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parents[3]
 _SCRIPT = _ROOT / "scripts/control_source_cast_observer.py"
 _RUNNER = _ROOT / "scripts/run_pytest_batches.py"
@@ -55,8 +54,7 @@ def _parent(
     suite = tmp_path / "suite"
     owner = suite / "tests/extra_tests/converter/test_source_conversion_semantics.py"
     owner.parent.mkdir(parents=True)
-    owner.write_text(
-        """import json, os, sys, time
+    owner.write_text("""import json, os, sys, time
 from pathlib import Path
 import pytest
 
@@ -84,15 +82,12 @@ def test_floating_conversion_rounding_and_strict_special_value_gates(source, tar
 def test_suffix():
     if controlled() and os.environ['JAX2ONNX_CONTROL_FIXTURE_MODE'] == 'suffix':
         assert False, 'unrelated suffix failure'
-"""
-    )
-    (suite / "tests/test_z_import.py").write_text(
-        """import os
+""")
+    (suite / "tests/test_z_import.py").write_text("""import os
 os.environ.setdefault('JAX_ENABLE_X64', 'True')
 def test_imported():
     pass
-"""
-    )
+""")
     monkeypatch.chdir(suite)
     monkeypatch.delenv("JAX_ENABLE_X64", raising=False)
     monkeypatch.delenv("PYTEST_PLUGINS", raising=False)

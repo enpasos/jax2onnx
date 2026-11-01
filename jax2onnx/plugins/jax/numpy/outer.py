@@ -30,7 +30,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _OUTER_PRIM: Final = make_jnp_primitive("jax.numpy.outer")
 
 
@@ -76,7 +75,7 @@ class JnpOuterPlugin(PrimitiveLeafPlugin):
         return ShapedArray(result_shape, result_dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
-        (a_var, b_var) = eqn.invars
+        a_var, b_var = eqn.invars
         (out_var,) = eqn.outvars
 
         a_val = ctx.get_value_for_var(a_var, name_hint=ctx.fresh_name("outer_a"))

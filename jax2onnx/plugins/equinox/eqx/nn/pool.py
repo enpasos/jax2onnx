@@ -25,7 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 POOL_PRIM: Final[Primitive] = Primitive("eqx.nn.pool")
 POOL_PRIM.multiple_results = False
 

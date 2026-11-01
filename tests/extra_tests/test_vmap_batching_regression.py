@@ -9,7 +9,6 @@ import pytest
 
 from jax2onnx.user_interface import to_onnx
 
-
 _NN_CASES = [
     ("relu", lambda x: jax.nn.relu(x)),
     ("sigmoid", lambda x: jax.nn.sigmoid(x)),

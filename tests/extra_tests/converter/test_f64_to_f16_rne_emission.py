@@ -21,7 +21,6 @@ from jax2onnx.converter.function_scope import FunctionScope
 from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.plugins.jax._f64_to_f16_rne import emit_f64_to_f16_rne
 
-
 _FRACTION64 = (1 << 52) - 1
 _SIGN64 = 1 << 63
 _MASK64 = (1 << 64) - 1

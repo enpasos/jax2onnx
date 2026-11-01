@@ -76,7 +76,7 @@ class ComplexPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.complex`` to ONNX ops, returning a packed [..., 2] tensor."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
-        (real_var, imag_var) = eqn.invars
+        real_var, imag_var = eqn.invars
         (out_var,) = eqn.outvars
 
         real_val = ctx.get_value_for_var(

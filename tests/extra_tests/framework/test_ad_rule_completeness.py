@@ -18,7 +18,6 @@ from jax2onnx.plugins.plugin_system import (
     import_all_plugins,
 )
 
-
 _MIGRATED_JNP_LINEAR: frozenset[str] = frozenset(
     {
         "jax.numpy.add",

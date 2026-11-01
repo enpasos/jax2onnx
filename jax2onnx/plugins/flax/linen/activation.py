@@ -16,7 +16,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _ACTIVATION_TARGETS: Final[dict[str, tuple[tuple[object, str], ...]]] = {
     "glu": ((jnn, "glu"),),
     "hard_sigmoid": ((jnn, "hard_sigmoid"),),

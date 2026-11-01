@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _SILU_PRIM: Final[Primitive] = Primitive("jax.nn.silu")
 _SILU_PRIM.multiple_results = False
 _JAX_SILU_ORIG: Final = jax.nn.silu

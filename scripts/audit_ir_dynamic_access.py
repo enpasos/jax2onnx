@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-
 TARGET_DIRS: tuple[str, ...] = ("jax2onnx/converter", "jax2onnx/plugins")
 
 

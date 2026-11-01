@@ -10,7 +10,6 @@ from pathlib import Path
 import sys
 from typing import Iterable, List, Sequence
 
-
 DEFAULT_TARGETS: Sequence[Path] = (
     Path("jax2onnx") / "converter",
     Path("jax2onnx") / "plugins",

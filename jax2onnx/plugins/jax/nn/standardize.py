@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _STANDARDIZE_PRIM: Final[Primitive] = Primitive("jax.nn.standardize")
 _STANDARDIZE_PRIM.multiple_results = False
 

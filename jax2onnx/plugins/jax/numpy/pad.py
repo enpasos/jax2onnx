@@ -28,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 PadPair = tuple[int, int]
 PadWidth = tuple[PadPair, ...]
 

@@ -180,8 +180,7 @@ _GATHER_VALUE_SHA256: Final = (
 # The native Cos branch is the existing FP64 1 - 2*sin(shared*0.5)^2 lowering.
 # This fixed structure supplies no floating-point equivalence/runtime claim.
 # ONNX types: DOUBLE=11, INT64=7, INT32=6, BOOL=9; INT attributes have type 2.
-_GATHER_GRAPH_TEMPLATE_V1: Final[dict[str, Any]] = json.loads(
-    """{
+_GATHER_GRAPH_TEMPLATE_V1: Final[dict[str, Any]] = json.loads("""{
   "inputs": [[11,[4,3]],[7,[2]]],
   "constants": [
     {"dtype":7,"shape":[],"bytes":"0000000000000000"},
@@ -221,15 +220,13 @@ _GATHER_GRAPH_TEMPLATE_V1: Final[dict[str, Any]] = json.loads(
     {"op":"Where","inputs":["node18:0","node17:0","constant12"],"outputs":[[11,[2,3]]],"attributes":{}}
   ],
   "outputs": [["node19:0",[11,[2,3]]]]
-} """
-)
+} """)
 
 
 # Current v2 was captured before this oracle edit on both supported stacks.
 # The false/true FP64 arms are stacked on axis 0 and selected by INT32 indices;
 # GatherElements and Squeeze copy the chosen bits without floating arithmetic.
-_GATHER_GRAPH_TEMPLATE_V2: Final[dict[str, Any]] = json.loads(
-    """{
+_GATHER_GRAPH_TEMPLATE_V2: Final[dict[str, Any]] = json.loads("""{
   "inputs": [[11,[4,3]],[7,[2]]],
   "constants": [
     {"bytes":"0000000000000000","dtype":7,"shape":[]},
@@ -276,8 +273,7 @@ _GATHER_GRAPH_TEMPLATE_V2: Final[dict[str, Any]] = json.loads(
     {"attributes":{},"inputs":["node24:0","constant13"],"op":"Squeeze","outputs":[[11,[2,3]]]}
   ],
   "outputs": [["node25:0",[11,[2,3]]]]
-} """
-)
+} """)
 
 
 def fingerprint(value: Any) -> str:

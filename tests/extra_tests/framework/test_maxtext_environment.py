@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 
-
 _STUB_FLAGS = "stub-generated-xla-flags"
 
 

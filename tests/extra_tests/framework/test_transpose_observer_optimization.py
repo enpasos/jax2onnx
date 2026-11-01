@@ -21,7 +21,6 @@ from jax2onnx.converter.ir_optimizations import (
 )
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 
-
 _P = (0, 2, 3, 1)
 _Q = (0, 3, 1, 2)
 _SHAPE = (1, 4, 2, 3)

@@ -20,7 +20,6 @@ import sys
 from typing import Any
 import xml.etree.ElementTree as ET
 
-
 _ROOT = Path(__file__).resolve().parents[1]
 _SCHEMA = "source-cast-observer-off-v1"
 _REQUEST_FIELDS = (

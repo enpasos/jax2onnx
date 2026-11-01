@@ -27,7 +27,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _SDG_PRIM: Final[Primitive] = Primitive("jax.nn.scaled_dot_general")
 _SDG_PRIM.multiple_results = False
 _JAX_SDG_ORIG: Final = jax.nn.scaled_dot_general
@@ -40,9 +39,9 @@ DotDimensionNumbers: TypeAlias = tuple[
 def _normalize_dimension_numbers(
     dimension_numbers: Any,
 ) -> DotDimensionNumbers:
-    (contract, batch) = dimension_numbers
-    (lhs_contract, rhs_contract) = contract
-    (lhs_batch, rhs_batch) = batch
+    contract, batch = dimension_numbers
+    lhs_contract, rhs_contract = contract
+    lhs_batch, rhs_batch = batch
     return (
         (
             tuple(int(x) for x in lhs_contract),

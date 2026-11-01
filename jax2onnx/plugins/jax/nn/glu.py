@@ -26,7 +26,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _GLU_PRIM: Final[Primitive] = Primitive("jax.nn.glu")
 _GLU_PRIM.multiple_results = False
 _JAX_GLU_ORIG: Final = jax.nn.glu

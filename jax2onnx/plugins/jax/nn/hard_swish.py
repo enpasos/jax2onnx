@@ -22,7 +22,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _HARD_SWISH_PRIM: Final[Primitive] = Primitive("jax.nn.hard_swish")
 _HARD_SWISH_PRIM.multiple_results = False
 

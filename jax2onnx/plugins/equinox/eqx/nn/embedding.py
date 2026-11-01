@@ -84,7 +84,7 @@ class EmbeddingPlugin(PrimitiveLeafPlugin):
         return jax_core.ShapedArray(indices.shape + (features,), embedding.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: jax_core.JaxprEqn) -> None:
-        (indices_var, embedding_var) = eqn.invars[:2]
+        indices_var, embedding_var = eqn.invars[:2]
         (out_var,) = eqn.outvars
 
         indices_val = ctx.get_value_for_var(

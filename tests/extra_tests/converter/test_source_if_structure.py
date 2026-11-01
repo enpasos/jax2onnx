@@ -27,7 +27,6 @@ from jax2onnx.precision import (
     validate_source_samples,
 )
 
-
 _CALLS: list[tuple[str, tuple[Any, ...]]] = []
 _PAYLOAD = np.asarray([0x80000000, 0x7FC00001], np.uint32).view(np.float32)
 

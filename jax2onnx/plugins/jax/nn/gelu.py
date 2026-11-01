@@ -32,7 +32,6 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
-
 _GELU_PRIM: Final[Primitive] = Primitive("jax.nn.gelu")
 _GELU_PRIM.multiple_results = False
 _JAX_GELU_ORIG: Final = jax.nn.gelu

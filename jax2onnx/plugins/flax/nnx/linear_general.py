@@ -421,7 +421,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         orig_call = LinearGeneralPlugin._ORIGINAL_CALL
         if orig_call is None:
             # Pure shape math fallback.
-            ((lhs_contract, rhs_contract), _) = dimension_numbers
+            (lhs_contract, rhs_contract), _ = dimension_numbers
             x_batch = tuple(i for i in range(x.ndim) if i not in lhs_contract)
             k_out = tuple(i for i in range(kernel.ndim) if i not in rhs_contract)
             out_shape = tuple(x.shape[i] for i in x_batch) + tuple(
@@ -490,7 +490,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var, k_var, b_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
-        ((lhs_contract, rhs_contract), _) = eqn.params["dimension_numbers"]
+        (lhs_contract, rhs_contract), _ = eqn.params["dimension_numbers"]
 
         # Values
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))

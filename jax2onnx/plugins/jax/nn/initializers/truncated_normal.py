@@ -23,7 +23,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _TRUNCATED_NORMAL_PRIM: Final[Primitive] = Primitive(
     "jax.nn.initializers.truncated_normal"
 )

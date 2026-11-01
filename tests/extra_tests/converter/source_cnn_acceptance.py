@@ -30,7 +30,6 @@ from onnx import numpy_helper
 from tests.extra_tests.converter import source_cnn_roundoff as exact
 from tests.extra_tests.converter.test_source_dot_precision import _session
 
-
 _ORACLES: dict[str, tuple[exact.Envelope, dict[str, Any]]] = {}
 
 

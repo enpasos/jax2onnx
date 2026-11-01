@@ -7,7 +7,6 @@ from typing import Tuple, Union, cast
 import numpy as np
 import onnx_ir as ir
 
-
 DimValue = Union[int, ir.SymbolicDim, None]
 DimInput = Union[DimValue, str]
 

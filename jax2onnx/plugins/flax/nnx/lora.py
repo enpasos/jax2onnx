@@ -15,7 +15,6 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-
 _LORA_ONNX: Final[list[dict[str, str]]] = [
     {"component": "MatMul", "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html"},
     {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},

@@ -211,7 +211,7 @@ def test_original_linen_bridge_identity_and_fixed_key_semantics() -> None:
     x = jnp.arange(20, dtype=jnp.float32).reshape(2, 10)
     assert all("__bridge_rngs__" not in name for name in prepared.state_names)
     for flag in (True, False, False, True):
-        (actual, *state) = prepared(x, jnp.asarray(flag), *state)
+        actual, *state = prepared(x, jnp.asarray(flag), *state)
         _exact(actual, native(x, deterministic=flag))
         _exact(tuple(state), _native_words(native._model))
     assert prepared.fresh_original()._rngs is original._rngs

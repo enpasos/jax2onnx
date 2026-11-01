@@ -36,7 +36,6 @@ from jax2onnx.plugins.jax._source_f64_f16_structure import (
     check_f64_f16_double_round_graph,
 )
 
-
 _FRACTION64 = (1 << 52) - 1
 _SIGN64 = 1 << 63
 _MASK64 = (1 << 64) - 1

@@ -26,7 +26,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _HANNING_PRIM: Final = make_jnp_primitive("jax.numpy.hanning")
 _HAMMING_PRIM: Final = make_jnp_primitive("jax.numpy.hamming")
 _BLACKMAN_PRIM: Final = make_jnp_primitive("jax.numpy.blackman")

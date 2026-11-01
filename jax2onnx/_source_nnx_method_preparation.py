@@ -48,7 +48,6 @@ from jax2onnx.plugins.flax.nnx._source_function_state import (
     prepare_nnx_function_state,
 )
 
-
 _SOURCE_SHA = "850a02ae4a8ad64d06bfb30a0d18c2e0557d5fd0b2a17fb3abfc7b72f0611922"
 _INTENT = "FP64 softmax accumulation; retain original casts and parameter storage"
 

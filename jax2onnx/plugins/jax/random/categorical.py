@@ -26,7 +26,6 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
-
 _CATEGORICAL_PRIM: Final[Primitive] = Primitive("jax.random.categorical")
 _CATEGORICAL_PRIM.multiple_results = False
 

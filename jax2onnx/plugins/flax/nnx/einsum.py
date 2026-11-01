@@ -28,7 +28,6 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-
 _EINSUM_MODULE_PRIM: Final[Primitive] = Primitive("nnx_einsum_module")
 _EINSUM_MODULE_PRIM.multiple_results = False
 EinsumOptimize = str | bool | list[tuple[int, ...]]

@@ -27,7 +27,6 @@ from tests.extra_tests.converter import source_precision_support as source
 from tests.extra_tests.converter.test_source_complex_add import _physical
 from tests.extra_tests.converter.test_source_complex_broadcast import _export_original
 
-
 _CONFIGURATIONS = [("complex64", False), ("complex64", True), ("complex128", True)]
 
 

@@ -15,7 +15,6 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import group_norm as nnx_group_norm
 from jax2onnx.plugins.plugin_system import register_native_primitive
 
-
 _GROUP_NORM_STATE_SENTINEL: Final = (
     inspect.signature(eqx.nn.GroupNorm.__call__).parameters["state"].default
 )

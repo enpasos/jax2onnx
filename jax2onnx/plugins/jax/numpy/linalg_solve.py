@@ -34,7 +34,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _LINALG_SOLVE_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.solve")
 _JAX_LINALG_SOLVE_ORIG: Final = jnp.linalg.solve
 

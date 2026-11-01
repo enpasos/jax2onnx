@@ -28,7 +28,6 @@ from tests.extra_tests.converter.source_precision_support import (
     SourceSettings,
 )
 
-
 _REFERENCE_BIAS: float = 1.0
 
 

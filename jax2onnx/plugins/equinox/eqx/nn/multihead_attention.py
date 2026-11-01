@@ -41,7 +41,6 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 
-
 HeadsTuple = tuple[jax.Array, jax.Array, jax.Array]
 ProcessHeadsFn = Callable[[jax.Array, jax.Array, jax.Array], HeadsTuple]
 ShapeDims = tuple[object, ...]

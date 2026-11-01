@@ -63,7 +63,6 @@ from tests.extra_tests.converter.test_source_ordinary_matrix import (
     _restore_settings as _restore_settings,
 )
 
-
 _DIMENSIONS = (((1,), (0,)), ((), ()))
 
 

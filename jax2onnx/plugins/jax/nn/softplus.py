@@ -30,7 +30,6 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
     register_unary_elementwise_batch_rule,
 )
 
-
 _SOFTPLUS_PRIM: Final[Primitive] = Primitive("jax.nn.softplus")
 _SOFTPLUS_PRIM.multiple_results = False
 _JAX_SOFTPLUS_ORIG: Final = jax.nn.softplus

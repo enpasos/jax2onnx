@@ -14,7 +14,6 @@ import pytest
 
 from tests.extra_tests.framework.test_ci_lane_selection import _node_files
 
-
 _ROOT = Path(__file__).resolve().parents[3]
 
 

@@ -24,7 +24,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _HARDMAX_PRIM: Final[Primitive] = Primitive("jax.nn.hardmax")
 _HARDMAX_PRIM.multiple_results = False
 

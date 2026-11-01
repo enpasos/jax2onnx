@@ -16,7 +16,6 @@ from tests.extra_tests.converter.test_source_elementary_reductions import (
     _FINITE,
 )
 
-
 _ASIN_WORDS = {
     "float32": {
         "P_bits": [1042983541, 3173979066, 3155022699],

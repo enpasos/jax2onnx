@@ -25,7 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _SPARSE_PLUS_PRIM: Final[Primitive] = Primitive("jax.nn.sparse_plus")
 _SPARSE_PLUS_PRIM.multiple_results = False
 _JAX_SPARSE_PLUS_ORIG: Final = jax.nn.sparse_plus

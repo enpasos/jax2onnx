@@ -46,7 +46,6 @@ from tests.extra_tests.converter.source_precision_support import (
     value_evidence,
 )
 
-
 CRITERION_VERSION: Final = "source-corpus-fp32-conjunction-v1"
 APPROVAL_SHA256: Final = (
     "40188c1f0aa34edb3324c8b28494d07226bf59f98898bbb3eeee382323a92ee0"

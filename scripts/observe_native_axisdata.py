@@ -14,7 +14,6 @@ import sys
 import types
 from typing import Any
 
-
 _MISSING = object()
 _METHODS = ("__setattr__", "__delattr__")
 _SOURCE_FUNCTIONS = (

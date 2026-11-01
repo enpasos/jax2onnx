@@ -21,7 +21,6 @@ import stat
 from typing import Any
 import xml.etree.ElementTree as ET
 
-
 ENVIRONMENT_KEY = "JAX2ONNX_NATIVE_BINDINGS_EVIDENCE_DIR"
 OWNER = "tests/extra_tests/converter/test_source_model_native_bindings_exports.py"
 _ROLES = ("eager", "jit-first-for-sample", "same-jit-warmed")

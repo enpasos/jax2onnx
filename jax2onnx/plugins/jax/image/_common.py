@@ -6,7 +6,6 @@ from typing import Any, Callable, cast
 
 from jax2onnx._compat.jax import Primitive
 
-
 BoundCallable = Callable[..., Any]
 
 

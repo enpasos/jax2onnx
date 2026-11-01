@@ -17,7 +17,6 @@ import onnx_ir as ir
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_representation import representation_for_aval
 
-
 VERSION = "source-native-unused-declaration-correspondence-v1"
 
 

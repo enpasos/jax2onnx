@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 import pytest
 
-
 _SCRIPT = Path(__file__).resolve().parents[3] / "scripts/run_with_resources.py"
 
 

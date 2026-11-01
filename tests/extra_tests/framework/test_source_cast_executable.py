@@ -20,7 +20,6 @@ import weakref
 
 import pytest
 
-
 _LOW = "003c003c003c00bcff7b007c"
 _HIGH = "003c003c013c00bcff7b007c"
 

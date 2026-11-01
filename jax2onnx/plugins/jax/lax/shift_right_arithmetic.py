@@ -15,7 +15,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _SIGNED_TO_UNSIGNED: dict[ir.DataType, tuple[ir.DataType, np.dtype[Any], int]] = {
     ir.DataType.INT8: (ir.DataType.UINT8, np.dtype(np.uint8), 8),
     ir.DataType.INT16: (ir.DataType.UINT16, np.dtype(np.uint16), 16),

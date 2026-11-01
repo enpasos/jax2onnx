@@ -532,7 +532,7 @@
   "bindings": {
     "poetry.lock": "c1b7561a241837708208b81cc477f990398979689c30ab378c1bd5d53d71d947",
     "pyproject.toml": "099279fb8c0aee64dcc933b3bcd2e65d7805076f91544cc556b9a9be44fb845a",
-    "scripts/install_minimum_dependencies.py": "5391e12f84a1976162fdbe28d5a68adbc52f024eeede09af57586b6b48fb3102"
+    "scripts/install_minimum_dependencies.py": "92c30ccfc615eb0575a0d9cdd160bc08aef7f88c8e36f34019b624f935133225"
   },
   "packages": {
     "absl-py": "2.5.1",
@@ -910,6 +910,7 @@
       "skip_allowances": 0
     },
     "scope": "Prepared private support-cohort declaration at base 38dfb1ffb2a7f677a2718834493b55b5a182d15e. Historical bounded observations do not establish admission of the new committed data epoch, canonical support qualification, hosted whole-job timing, public SOURCE behavior or full B-F numerical acceptance. Commit these data and independently qualify them before use; no workflow is activated.",
-    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1."
+    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
+    "formatter_refresh": "Black 26.10.1 mechanical migration: the live minimum-installer source binding advances to its AST-equivalent bytes. Historical tested-source receipts and source-inventory epoch mapping retain their original hashes; fresh execution binds the new source epoch."
   }
 }

@@ -25,7 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _SPARSE_SIGMOID_PRIM: Final[Primitive] = Primitive("jax.nn.sparse_sigmoid")
 _SPARSE_SIGMOID_PRIM.multiple_results = False
 _JAX_SPARSE_SIGMOID_ORIG: Final = jax.nn.sparse_sigmoid

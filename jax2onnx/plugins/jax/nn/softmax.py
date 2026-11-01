@@ -30,7 +30,6 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
-
 _SOFTMAX_PRIM: Final[Primitive] = Primitive("jax.nn.softmax")
 _SOFTMAX_PRIM.multiple_results = False
 _JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
