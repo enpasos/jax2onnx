@@ -27,21 +27,28 @@ release requirements. These documentation changes switch no code or CI gate.
 
 ## Current qualification
 
-Published `30ff0c80` has independently verified STANDARD and focused EXTRA
-success in [CI589](https://github.com/enpasos/jax2onnx/actions/runs/41252793502).
-The existing fourteen STANDARD jobs meet their whole-job, aggregate-time and
-successful-evidence budgets; all four focused cohorts pass their assigned
-selection. These establish native-pytest and focused coverage only. Complete
-added coverage, numerical acceptance and the four original full jobs remain
-separate obligations. Earlier failed and cancelled campaigns remain retained.
+Published `574b277e` has independently verified routine coverage in
+[CI597](https://github.com/enpasos/jax2onnx/actions/runs/41274200501): sixteen
+STANDARD jobs and five EXTRA jobs, including the strict part joins, minimum
+Python 3.11 coverage and complete minimum 3.12 support EXTRA, meet their measured
+whole-job, aggregate-time and successful-evidence budgets. This establishes
+routine pytest and resource coverage only. Complete added coverage, numerical
+acceptance and full integration acceptance remain separate obligations.
 
-The scheduling successor has passing local workflow and support-authority
-controls. Its expanded literal F, newly guarded minimum 3.11 job, complete
-minimum 3.12 support EXTRA, shared resolver and same-head browser wiring still
-need actual next-head qualification. The tracked activation switch remains
-false, so original and replacement owners run together. Routine retirement
-requires that evidence and independent review; current green checks alone do
-not activate the new ownership or close the complete migration.
+The latest observed hosted campaign, `47eea57a`,
+[CI599](https://github.com/enpasos/jax2onnx/actions/runs/41282507147), is not
+qualified. Node STANDARD rejected a stale helper-source pin before collection;
+full Chrome rejected cast acquisition at the whole-process maps row limit.
+Full Node ended with a runner shutdown whose cause remains unverified. The four
+original Python full jobs are still pending at this checkpoint. Local pin and
+maps-reader repairs require new exact-head hosted evidence; earlier failed and
+interrupted campaigns remain retained.
+
+The tracked activation switch remains false, so original and replacement owners
+run together. Expanded focused selections and browser obligations need actual
+current-head qualification and independent review before routine retirement.
+Green routine checks do not close full added coverage, numerical acceptance or
+the complete migration.
 
 ## The 20-minute STANDARD budget
 

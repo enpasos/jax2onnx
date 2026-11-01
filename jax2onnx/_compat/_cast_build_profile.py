@@ -11,17 +11,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib.machinery import ExtensionFileLoader, ModuleSpec
+import io
 import os
 from pathlib import Path
 import re
 import stat
 import sys
 import sysconfig
+import time
 from types import ModuleType
-from typing import Any, cast
+from typing import Any, BinaryIO, cast
 
+# Bound one maps row and retained library evidence, not unrelated process growth.
 _MAP_BYTES = 2 * 1024 * 1024
-_MAP_ROWS = 32768
+_MAP_SELECTED_ROWS = 32768
+_MAP_READ_BUFFER = 64 * 1024
+_MAP_SCAN_SECONDS = 10.0
 _JOINED_PROOF = "89a2b5941ff1cbc7c5e9c532f81a02a66fd5b3fc082fb899b2b0c345f42538ed"
 _OPTIONS_PROOF = "d3e112ab9719944eb25278c13a8528817c792a66c9a20956c1c7852f6d52f4d8"
 
@@ -154,20 +159,40 @@ def _selected_mappings(
     shim: tuple[str, int, int],
     common: tuple[str, int, int],
 ) -> tuple[tuple[Any, ...], ...]:
-    """Bounded maps grammar and selected path/device/inode evidence only."""
-    if (
-        type(payload) is not bytes
-        or len(payload) > _MAP_BYTES
-        or not payload.endswith(b"\n")
-    ):
-        raise ValueError("loaded CPU maps size or termination differs")
-    lines = payload.splitlines()
-    if not lines or len(lines) > _MAP_ROWS:
-        raise ValueError("loaded CPU maps extent differs")
+    """Pure byte-fixture parser; selected rows alone cannot create authority."""
+    if type(payload) is not bytes:
+        raise ValueError("loaded CPU maps payload is not bytes")
+    return _scan_mappings(io.BytesIO(payload), shim, common)
+
+
+def _scan_mappings(
+    stream: BinaryIO,
+    shim: tuple[str, int, int],
+    common: tuple[str, int, int],
+) -> tuple[tuple[Any, ...], ...]:
+    """Validate every bounded row through EOF under one whole-scan deadline."""
+    deadline = time.monotonic() + _MAP_SCAN_SECONDS
     selected: list[tuple[Any, ...]] = []
     common_files: set[tuple[str, int, int]] = set()
     previous = 0
-    for line in lines:
+    while True:
+        if time.monotonic() >= deadline:
+            raise ValueError("loaded CPU maps scan deadline exceeded")
+        line = stream.readline(_MAP_BYTES + 1)
+        if time.monotonic() >= deadline:
+            raise ValueError("loaded CPU maps scan deadline exceeded")
+        if type(line) is not bytes:
+            raise ValueError("loaded CPU maps row is not bytes")
+        if not line:
+            # EOF is required even after both executable mappings were found.
+            if time.monotonic() >= deadline:
+                raise ValueError("loaded CPU maps scan deadline exceeded")
+            break
+        if len(line) > _MAP_BYTES or not line.endswith(b"\n"):
+            raise ValueError("loaded CPU maps row size or termination differs")
+        if b"\r" in line:
+            raise ValueError("non-Linux loaded CPU maps line separator")
+        line = line[:-1]
         parts = line.split(None, 5)
         if len(parts) < 5:
             raise ValueError("malformed loaded CPU map")
@@ -204,6 +229,8 @@ def _selected_mappings(
         expected = common if is_common else shim
         if identity != expected or identity[2] <= 0:
             raise ValueError("loaded CPU path/device/inode differs")
+        if len(selected) >= _MAP_SELECTED_ROWS:
+            raise ValueError("selected loaded CPU maps extent differs")
         selected.append((start, end, permissions, int(offset, 16), *identity))
     if (
         common_files != {common}
@@ -217,9 +244,8 @@ def _selected_mappings(
 def _read_maps(
     shim: tuple[str, int, int], common: tuple[str, int, int]
 ) -> tuple[tuple[Any, ...], ...]:
-    with Path("/proc/self/maps").open("rb") as stream:
-        payload = stream.read(_MAP_BYTES + 1)
-    return _selected_mappings(payload, shim, common)
+    with Path("/proc/self/maps").open("rb", buffering=_MAP_READ_BUFFER) as stream:
+        return _scan_mappings(stream, shim, common)
 
 
 class LoadedCastBuildPins:

@@ -596,3 +596,211 @@ def test_builtin_callback_native_import_bindings_cannot_be_replaced(
         if pins is not None:
             pins.close()
     assert not calls
+
+
+# These byte/stream fixtures exercise parsing only, never loaded-build authority.
+def _many_maps_fixture(tmp_path: Path, row_count: int, placement: str):
+    payload, shim, common = _maps_fixture(tmp_path)
+    selected = []
+    for start, line in zip((0x10000000, 0x20000000), payload.splitlines(keepends=True)):
+        selected.append(
+            f"{start:x}-{start + 4096:x} ".encode() + line.split(b" ", 1)[1]
+        )
+    start = {"before": 0x10000, "between": 0x10010000, "after": 0x30000000}[placement]
+    unrelated = b"".join(
+        f"{start + index * 2:x}-{start + index * 2 + 1:x} rw-p 00000000 00:00 0 [heap]\n".encode()
+        for index in range(row_count - 2)
+    )
+    baseline = b"".join(selected)
+    if placement == "before":
+        payload = unrelated + baseline
+    elif placement == "between":
+        payload = selected[0] + unrelated + selected[1]
+    else:
+        payload = baseline + unrelated
+    return payload, baseline, shim, common
+
+
+@pytest.mark.parametrize("row_count", [32769, 34436, 60000])
+@pytest.mark.parametrize("placement", ["before", "between", "after"])
+def test_maps_scan_all_unrelated_growth_without_changing_selected_evidence(
+    tmp_path: Path, row_count: int, placement: str
+) -> None:
+    payload, baseline, shim, common = _many_maps_fixture(tmp_path, row_count, placement)
+    assert payload.count(b"\n") == row_count
+    if row_count == 60000:
+        assert len(payload) > builds._MAP_BYTES
+    assert builds._selected_mappings(
+        payload, shim, common
+    ) == builds._selected_mappings(baseline, shim, common)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "malformed",
+        "overlap",
+        "utf8",
+        "foreign-common",
+        "deleted-shim",
+        "deleted-common",
+        "inode",
+        "device",
+        "missing-shim-execute",
+        "missing-common-execute",
+        "truncated",
+    ],
+)
+def test_maps_reject_late_faults_after_growth_and_both_selected_targets(
+    tmp_path: Path, fault: str
+) -> None:
+    payload, _, shim, common = _many_maps_fixture(tmp_path, 60000, "before")
+    assert len(payload) > builds._MAP_BYTES and payload.count(b"\n") == 60000
+    suffix = b"40000000-40001000 rw-p 00000000 00:00 0 [heap]\n"
+    if fault == "malformed":
+        suffix = b"40000000-40001000 rwxq 00000000 00:00 0 [heap]\n"
+    elif fault == "overlap":
+        suffix = b"20000001-40001000 rw-p 00000000 00:00 0 [heap]\n"
+    elif fault == "utf8":
+        suffix = b"40000000-40001000 rw-p 00000000 00:00 0 /invalid-\xff\n"
+    elif fault == "foreign-common":
+        other = tmp_path / "other" / "libjax_common.so"
+        other.parent.mkdir()
+        other.write_bytes(b"not-native-evidence")
+        value = other.stat()
+        suffix = f"40000000-40001000 r-xp 0 {os.major(value.st_dev):x}:{os.minor(value.st_dev):x} {value.st_ino} {other}\n".encode()
+    elif fault in {"deleted-shim", "deleted-common", "inode", "device"}:
+        path, device, inode = shim if fault == "deleted-shim" else common
+        if fault.startswith("deleted"):
+            path += " (deleted)"
+        elif fault == "inode":
+            inode += 1
+        else:
+            device = os.makedev(os.major(device), os.minor(device) + 1)
+        suffix = f"40000000-40001000 r-xp 0 {os.major(device):x}:{os.minor(device):x} {inode} {path}\n".encode()
+    elif fault.startswith("missing"):
+        target = shim[0] if fault == "missing-shim-execute" else common[0]
+        rows = payload.splitlines(keepends=True)
+        rows = [
+            row.replace(b"r-xp", b"r--p") if target.encode() in row else row
+            for row in rows
+        ]
+        payload = b"".join(rows)
+    else:
+        suffix = suffix[:-1]
+    with pytest.raises((ValueError, UnicodeDecodeError)):
+        builds._selected_mappings(payload + suffix, shim, common)
+
+
+@pytest.mark.parametrize("separator", [b"\r\n", b"\r"])
+def test_maps_reject_non_linux_carriage_return_separators(
+    tmp_path: Path, separator: bytes
+) -> None:
+    payload, shim, common = _maps_fixture(tmp_path)
+    # Preserve the final LF so this specifically witnesses the CR policy.
+    payload = payload.replace(b"\n", separator, 1)
+    with pytest.raises(ValueError, match="line separator"):
+        builds._selected_mappings(payload, shim, common)
+
+
+@pytest.mark.parametrize("extra_bytes", [0, 1])
+def test_maps_bound_each_row_at_exact_original_byte_limit(
+    tmp_path: Path, extra_bytes: int
+) -> None:
+    payload, shim, common = _maps_fixture(tmp_path)
+    row = b"4000-5000 rw-p 0 00:00 0\n"
+    row = row.replace(
+        b" rw-p", b" " * (builds._MAP_BYTES - len(row) + 1 + extra_bytes) + b"rw-p", 1
+    )
+    assert len(row) == builds._MAP_BYTES + extra_bytes
+    expected = builds._selected_mappings(payload, shim, common)
+    if extra_bytes:
+        with pytest.raises(ValueError, match="row size"):
+            builds._selected_mappings(payload + row, shim, common)
+    else:
+        assert builds._selected_mappings(payload + row, shim, common) == expected
+
+
+@pytest.mark.parametrize("selected_count", [2, 3])
+def test_maps_bound_retained_selected_rows_with_reduced_local_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selected_count: int
+) -> None:
+    payload, shim, common = _maps_fixture(tmp_path)
+    monkeypatch.setattr(builds, "_MAP_SELECTED_ROWS", 2)
+    if selected_count == 3:
+        path, device, inode = common
+        payload += f"4000-5000 r-xp 0 {os.major(device):x}:{os.minor(device):x} {inode} {path}\n".encode()
+        with pytest.raises(ValueError, match="selected.*extent"):
+            builds._selected_mappings(payload, shim, common)
+    else:
+        assert len(builds._selected_mappings(payload, shim, common)) == 2
+
+
+@pytest.mark.parametrize("phase", ["before-read", "after-read", "at-eof"])
+def test_maps_deadline_never_returns_partial_selected_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    from types import SimpleNamespace
+
+    payload, shim, common = _maps_fixture(tmp_path)
+    ticks = {
+        "before-read": [0, 10],
+        "after-read": [0, 0, 10],
+        "at-eof": [0, 0, 0, 0, 0, 0, 0, 10],
+    }[phase]
+
+    def clock() -> float:
+        return ticks.pop(0) if ticks else 10
+
+    monkeypatch.setattr(builds, "time", SimpleNamespace(monotonic=clock))
+    with pytest.raises(ValueError, match="scan deadline"):
+        builds._selected_mappings(payload, shim, common)
+    assert not ticks
+
+
+@pytest.mark.parametrize(
+    "fault", ["none", "io-after-targets", "truncated", "non-bytes"]
+)
+def test_real_maps_reader_opens_once_and_requires_clean_eof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    import io
+
+    payload, shim, common = _maps_fixture(tmp_path)
+    expected = builds._selected_mappings(payload, shim, common)
+    if fault == "truncated":
+        payload += b"4000-5000 rw-p 0 00:00 0"
+    source = io.BytesIO(payload)
+    opened = []
+    limits = []
+    closed = []
+
+    class Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            closed.append(True)
+
+        def readline(self, limit):
+            limits.append(limit)
+            line = source.readline(limit)
+            if not line and fault == "io-after-targets":
+                raise OSError("synthetic late maps IO failure")
+            if not line and fault == "non-bytes":
+                return None
+            return line
+
+    def open_maps(path, mode, *, buffering):
+        opened.append((str(path), mode, buffering))
+        return Stream()
+
+    monkeypatch.setattr(Path, "open", open_maps)
+    if fault == "none":
+        assert builds._read_maps(shim, common) == expected
+    else:
+        with pytest.raises((ValueError, OSError)):
+            builds._read_maps(shim, common)
+    assert opened == [("/proc/self/maps", "rb", 64 * 1024)]
+    assert limits and all(limit == builds._MAP_BYTES + 1 for limit in limits)
+    assert closed == [True]
