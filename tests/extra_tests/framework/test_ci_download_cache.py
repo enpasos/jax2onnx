@@ -2109,6 +2109,7 @@ def test_browser_full_acceptance_cannot_age_skip_or_drift_from_selected_head(
                 "WEB_OBSERVED_ARGUMENTS": str(arguments),
                 "WEB_SYNTHETIC_STATUS": str(child_status),
                 "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+                "PYTEST_ADDOPTS": "-v --tb=short -x",
                 "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"],
             }
             route_env.pop("JAX2ONNX_ONNXRUNTIME_WEB_RUNNER", None)
@@ -2194,7 +2195,7 @@ def test_browser_full_acceptance_cannot_age_skip_or_drift_from_selected_head(
                             *additional,
                         ],
                         cwd=route,
-                        env=route_env,
+                        env={**route_env, "PYTEST_ADDOPTS": ""},
                         text=True,
                         capture_output=True,
                     )
