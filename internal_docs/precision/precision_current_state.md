@@ -1,6 +1,6 @@
 # Computation precision: current state
 
-Updated 2026-10-31. Public `to_onnx` still uses the existing **LEGACY** precision
+Updated 2026-11-01. Public `to_onnx` still uses the existing **LEGACY** precision
 policy. **SOURCE** is the private migration path that aims to preserve the typed
 JAX computation. It has useful, independently reviewed capabilities, but the
 complete migration and public transition are unfinished. The unmerged PR may
@@ -17,22 +17,23 @@ and failed predecessors. For practical export guidance, read the
 
 ## Published checkpoint and validation limits
 
-The current documented published checkpoint is `62276cd8`. At the
-2026-10-31 22:35 UTC observation of
-[CI587](https://github.com/enpasos/jax2onnx/actions/runs/41243854804),
-the four focused EXTRA cohorts had succeeded. Those are focused regression
-results, explicitly `F_ONLY`; they do not establish complete added-suite or
-scientific acceptance. Python 3.14 STANDARD qualified individually within the
-whole-job budget, and Python 3.12's strict parts and join succeeded. Python
-3.11 and 3.13 exceeded their work and whole-job deadlines. The original full
-Python jobs were still running. Overall budget qualification and replacement
-activation remain open.
+At the latest observed published checkpoint, `7d33b9d1`,
+[CI604](https://github.com/enpasos/jax2onnx/actions/runs/41296409719) finished
+with 25 successful checks and six failed checks. All three strict STANDARD
+joins succeeded. The four full Python jobs failed on outdated Eqx state-record
+assertions. Full Node and Chrome failed on a BitCast test that supplied a
+synthetic equation where a native JAX equation is required. Complete added-suite,
+numerical and integration acceptance remain open.
 
-The pending scheduling repair reuses the existing balanced parts and strict
-join for Python 3.11 and 3.13, preserving their complete STANDARD selections and
-ordinary limits. Its local controls and hosted execution are separate gates.
-The [CI gate](precision_ci_gate.md) states the exact acceptance rules; the
-[execution plan](ci_execution_plan.md) records operational evidence.
+This branch integrates current main and the four dependency updates, including
+mechanical formatting and corrections to three test files. Bounded local runtime
+checks pass on both framework variants, the existing ONNX Runtime minimum and
+the updated Node/Chrome stack. Exact-head hosted acceptance and the precision
+merge gates remain required.
+
+Earlier failed and interrupted campaigns retain their own causes and outcomes in
+the [execution plan](ci_execution_plan.md) and [handoff](implementation_handoff.md).
+The [CI gate](precision_ci_gate.md) states the acceptance rules.
 
 Public behavior has not changed. Passing regression tests, a successful export,
 and a numerical equivalence result have different meanings. Several tests pass

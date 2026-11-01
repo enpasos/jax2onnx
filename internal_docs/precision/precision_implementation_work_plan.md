@@ -400,7 +400,7 @@ below is work to implement and review, not permission to substitute exit zero.
 | Historical finite replay/numerics | Existing corpus replay and `scripts/source_precision_numerical_probe.py` with their authenticated historical inputs and fixed criteria. | Only the original bounded evidence; unavailable history stays unverified. Never reheader it as current full-corpus acceptance. |
 | Full CPU/model suites | `scripts/run_pytest_batches.py` and complete existing generated, converter, framework, loop/scan and model owners. | Exact complete/disjoint collection and phase outcomes, genuine model numerical verdicts and resource closure. |
 | Web | `scripts/run_onnxruntime_web_full.sh` and `scripts/run_onnxruntime_web_chrome_full.sh`, with original setup/conditions and reviewed bounded workers. | Complete Node/Chrome behavior against independent references. Existing unbounded settings do not establish resource qualification. |
-| Quality and documentation | Pinned normal hooks, Ruff/Black 25.1.0, typing, RNG/policy checks, strict MkDocs and relative links. | Actual successful applicable checks; no hook bypass or formatter/dependency upgrade. |
+| Quality and documentation | Pinned normal hooks, configured Ruff and Black 26.10.1, typing, RNG/policy checks, strict MkDocs and relative links. | Actual successful applicable checks; no hook bypass. Reviewed formatter and dependency transitions retain their original evidence epochs. |
 
 The metadata proof-producer remains WIP. Its finite storage, report and consumer
 controls must not accept production rows through synthetic examples. Complete

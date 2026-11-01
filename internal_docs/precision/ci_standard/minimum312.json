@@ -530,8 +530,8 @@
     }
   },
   "bindings": {
-    "poetry.lock": "49e55d96ce74249499fb796c36cf9e78cefce0a4441eaa5c801c017640b3a8ea",
-    "pyproject.toml": "688f6dcadae9f3cfaecd4eaf6f576a4f5758c0168b4d610a1376dde60b23f7ea",
+    "poetry.lock": "c1b7561a241837708208b81cc477f990398979689c30ab378c1bd5d53d71d947",
+    "pyproject.toml": "099279fb8c0aee64dcc933b3bcd2e65d7805076f91544cc556b9a9be44fb845a",
     "scripts/install_minimum_dependencies.py": "5391e12f84a1976162fdbe28d5a68adbc52f024eeede09af57586b6b48fb3102"
   },
   "packages": {
@@ -584,12 +584,12 @@
     "mkdocs-get-deps": "0.2.2",
     "mkdocs-material": "9.7.7",
     "mkdocs-material-extensions": "1.3.1",
-    "mkdocstrings": "1.0.7",
+    "mkdocstrings": "1.0.8",
     "mkdocstrings-python": "2.0.9",
     "ml-dtypes": "0.5.1",
     "mpmath": "1.3.0",
     "msgpack": "1.2.3",
-    "mypy": "2.3.1",
+    "mypy": "2.4.1",
     "mypy-extensions": "1.1.0",
     "nest-asyncio": "1.6.0",
     "netron": "9.2.0",
@@ -909,6 +909,7 @@
       "passed_native_phases": 1425,
       "skip_allowances": 0
     },
-    "scope": "Prepared private support-cohort declaration at base 38dfb1ffb2a7f677a2718834493b55b5a182d15e. Historical bounded observations do not establish admission of the new committed data epoch, canonical support qualification, hosted whole-job timing, public SOURCE behavior or full B-F numerical acceptance. Commit these data and independently qualify them before use; no workflow is activated."
+    "scope": "Prepared private support-cohort declaration at base 38dfb1ffb2a7f677a2718834493b55b5a182d15e. Historical bounded observations do not establish admission of the new committed data epoch, canonical support qualification, hosted whole-job timing, public SOURCE behavior or full B-F numerical acceptance. Commit these data and independently qualify them before use; no workflow is activated.",
+    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1."
   }
 }

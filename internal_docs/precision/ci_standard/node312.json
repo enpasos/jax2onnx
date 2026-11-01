@@ -15,10 +15,10 @@
     "sha256": "cfc1e98c3e5560d8408002197e499807a894c52be4e7e281548aee9c75001cfa"
   },
   "bindings": {
-    "package-lock.json": "5f12c2de570778ef68e42ef6788a1af63539e8a0775292398fefdcac5fbae8a0",
-    "package.json": "26ae1b890aed6ea1c589cefc824641bd91e6694cd382a083e1ec86754deb65e6",
-    "poetry.lock": "49e55d96ce74249499fb796c36cf9e78cefce0a4441eaa5c801c017640b3a8ea",
-    "pyproject.toml": "688f6dcadae9f3cfaecd4eaf6f576a4f5758c0168b4d610a1376dde60b23f7ea",
+    "package-lock.json": "12efc0ac5b4fc846cad6bf4dad584fef7e68730ad1ffd6074f0b93de495fa178",
+    "package.json": "9a4fa80f73e2fa6af16c1858f1afba27b729cd7c3b73ac66ece8d943b9761d14",
+    "poetry.lock": "c1b7561a241837708208b81cc477f990398979689c30ab378c1bd5d53d71d947",
+    "pyproject.toml": "099279fb8c0aee64dcc933b3bcd2e65d7805076f91544cc556b9a9be44fb845a",
     "scripts/onnxruntime_web_validation_utils.mjs": "23b62a76a65e6e9efeac48c2ba7e623a51711502860abfb8ce0089e67f79ebbc",
     "scripts/run_onnxruntime_web_smoke.sh": "47fa432c91890482010af8bdf53216c85c3421fe4cbf7e9f3ad05967f7e191b2",
     "scripts/validate_onnxruntime_web.mjs": "5cf45b2e5c4d65b3ba6bdae1ef0a96cb86ad0ba83ace918bc1505b9ee1a62692"
@@ -73,19 +73,19 @@
     "mkdocs-get-deps": "0.2.2",
     "mkdocs-material": "9.7.7",
     "mkdocs-material-extensions": "1.3.1",
-    "mkdocstrings": "1.0.7",
+    "mkdocstrings": "1.0.8",
     "mkdocstrings-python": "2.0.9",
     "ml-dtypes": "0.6.0",
     "mpmath": "1.3.0",
     "msgpack": "1.2.3",
-    "mypy": "2.3.1",
+    "mypy": "2.4.1",
     "mypy-extensions": "1.1.0",
     "netron": "9.3.2",
     "nodeenv": "1.11.0",
     "numpy": "2.4.6",
     "onnx": "1.23.2",
     "onnx-ir": "1.1.0",
-    "onnxruntime": "1.31.0",
+    "onnxruntime": "1.31.1",
     "opt-einsum": "3.4.0",
     "optax": "0.2.8",
     "orbax-checkpoint": "0.11.36",
@@ -425,12 +425,34 @@
       "reviewed_parent_head": "47eea57a81ae05c820ec8449cfd66ac418d009e6",
       "actual_original_DPA_qualified_closure_sha256": "8ae17c88a46a725c306156dc090449728bc9afc42aefb66e638d7fb9a6b0d294",
       "scope": "One explicit binding rebind to already-reviewed helper; strict guard, frozen S50/baseline, contexts, packages, six other source pins and numerical criteria unchanged."
+    },
+    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
+    "runtime_refresh": {
+      "scope": "Fresh observed setup and bounded local Node/Chrome comparison-storage controls plus the unchanged full-DPA target pass. Exact-head hosted Node/Chrome cohort acceptance remains required. Historical1.63/1.30 receipts retain their original context.",
+      "setup_closure_sha256": "0cdf9517615cf7ddf2e5fe1f83747236cb65d1ebad19af8dfc665bb1dd8a7fee",
+      "actual_reference_candidate_proof_sha256": "2bd286841a4a445b4b337f0b61ebad1695a3d0f0811152dd390a0429fd5c7e00",
+      "versions": {
+        "node": "22.23.4",
+        "npm": "10.9.9",
+        "playwright": "1.64.1",
+        "onnxruntime-web": "1.31.1",
+        "chromium": "156.0.8078.4"
+      },
+      "chromium_revision": "1248",
+      "comparison_storage_closures": {
+        "node": "b5c5ecabeb22fdfaa0a7280e7cca734277b4e88e1f9a0edf2af2087fc6bcfc3a",
+        "chrome": "7d535fe4f065f0c45bd3c66a0cd1d81b54862708b9bf2526bc3b0979eec605d8"
+      },
+      "original_DPA_target_closures": {
+        "chrome": "8b1e8bac9404fbd5c98b40598fad70e47953d96d6785ee68b290a03b59f66bcd",
+        "node": "8eb720893b840772cc83aff63f792e66f83c0c856efdc8354c9ba2bf9d94781a"
+      }
     }
   },
   "node_runtime": {
     "reference": {
       "path": "node-runtime-reference.json",
-      "sha256": "47cb4f12b75d686c233884a75cffa86258dd5990563b8527b7e33da3c5f3fa4e"
+      "sha256": "ca21f6ed18b32bf26dc89b62f22cf11d18dd3cc0d5bfa441b264b6cbd13bd8e4"
     },
     "environment": {
       "NODE_ENV": null,

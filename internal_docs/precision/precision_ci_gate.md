@@ -35,14 +35,22 @@ whole-job, aggregate-time and successful-evidence budgets. This establishes
 routine pytest and resource coverage only. Complete added coverage, numerical
 acceptance and full integration acceptance remain separate obligations.
 
-The latest observed hosted campaign, `47eea57a`,
-[CI599](https://github.com/enpasos/jax2onnx/actions/runs/41282507147), is not
-qualified. Node STANDARD rejected a stale helper-source pin before collection;
-full Chrome rejected cast acquisition at the whole-process maps row limit.
-Full Node ended with a runner shutdown whose cause remains unverified. The four
-original Python full jobs are still pending at this checkpoint. Local pin and
-maps-reader repairs require new exact-head hosted evidence; earlier failed and
-interrupted campaigns remain retained.
+The latest observed published checkpoint, `7d33b9d1`,
+[CI604](https://github.com/enpasos/jax2onnx/actions/runs/41296409719), finished
+with 25 successful checks and six failed checks. All three strict STANDARD
+joins succeeded. The four full Python jobs stopped at outdated Eqx state-record
+assertions; full Node and Chrome stopped at a BitCast test that supplied a
+synthetic equation where a native JAX equation is required. Overall acceptance
+remains open.
+
+This branch integrates current main and the four dependency updates, including
+mechanical formatting and corrections to three test files. Bounded local runtime
+checks pass on both framework variants, the existing ONNX Runtime minimum and
+the updated Node/Chrome stack. Exact-head hosted acceptance and the precision
+merge gates remain required.
+
+Earlier failed and interrupted campaigns remain recorded in the execution plan
+and handoff with their original causes and outcomes.
 
 The tracked activation switch remains false, so original and replacement owners
 run together. Expanded focused selections and browser obligations need actual

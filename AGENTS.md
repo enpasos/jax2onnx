@@ -38,9 +38,10 @@ Keep these handy—most deep-dives live there instead of here.
   - `poetry run pytest -q`
   - `poetry run mkdocs build --strict` for doc changes
 - Debug flags exist for the IR optimizer (`JAX2ONNX_*_DEBUG`); see the optimizer dev guide for the full matrix.
-- Format with the Black pinned in `.pre-commit-config.yaml` (25.1.0). The Black 26
-  in `poetry.lock` also rewrites untouched files (e.g. drops the blank line after
-  imports), so it is not the formatter the tree follows.
+- Format with Black **26.10.1**, pinned identically in `.pre-commit-config.yaml`
+  and `poetry.lock`. The reviewed formatter migration preserves Python ASTs and
+  literal values; historical source-byte and code-fingerprint evidence retains
+  its original formatter epoch.
 - JAX 0.8+ specifics:
   - No `jax_dynamic_shapes` auto-toggle.
   - Primitive parameters must be hashable; `construct_and_call(...).with_dtype(...)` constructs modules once per dtype.

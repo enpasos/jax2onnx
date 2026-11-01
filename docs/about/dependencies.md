@@ -9,8 +9,8 @@
 | [`Equinox`](https://github.com/patrick-kidger/equinox) | 0.13.8 |
 | [`onnx-ir`](https://github.com/onnx/ir-py) | 1.1.0 |
 | [`onnx`](https://github.com/onnx/onnx) | 1.23.2 |
-| [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.31.0 |
-| [`onnxruntime-web`](https://www.npmjs.com/package/onnxruntime-web) | 1.30.0 |
+| [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.31.1 |
+| [`onnxruntime-web`](https://www.npmjs.com/package/onnxruntime-web) | 1.31.1 |
 
 The latest releases are not necessarily selected for every supported Python
 version; Poetry resolves compatible versions for each environment.
@@ -26,8 +26,10 @@ The minimum-dependency CI job installs every direct runtime dependency at its
 declared lower bound on Python 3.11; a locked environment with the minimum
 framework versions can still use newer versions of other dependencies.
 The supported ONNX IR minimum is **1.0.0** (`onnx-ir>=1.0.0`).
-`onnxruntime-web` 1.30.0 is locked in `package-lock.json` for the
-Node.js and Chromium WASM validation flows. The supported Python runtime
+`onnxruntime-web` 1.31.1 is locked in `package-lock.json` for the
+Node.js and Chromium WASM validation flows. Bounded Python and WASM regressions pass with the 1.31.1 upgrade on the
+recorded local stacks; historical observations below retain their original
+runtime versions. The supported Python runtime
 minimum remains ONNX Runtime 1.24.1; exports do not select operators based on
 the runtime installed on the export machine.
 
@@ -81,8 +83,15 @@ option.
 | No float64 or bfloat16 `Sinh` on CPU; no `Sinh` on CUDA | CPU 1.24.1, 1.31.0; CUDA 1.31.0 | `jnp.sinh`; `lax.sinh` other than float32 | expm1-based form. Float32 `lax.sinh` keeps `Sinh`, which runs on CPU in CUDA sessions. |
 | No float64 `Cos` on CPU | Missing in 1.24.1, present in 1.31.0 | float64 `lax.cos`, `jnp.cos` | Half-angle form `1 - 2 * Sin(x / 2)²` |
 | No float64 `Erf` on CPU | CPU 1.24.1, 1.31.0 | Public LEGACY float64 exact `jax.nn.gelu`, `nnx.gelu` | The legacy export uses `Erf` (or `Gelu`, which expands to it) and fails to load; its generated metadata restricts these cases to float32. This does not describe the private SOURCE Erfc algorithm. |
-| CPU `Where` returns `+0.0` when it selects `-0.0` | CPU 1.24.1, 1.31.0 | `log1p`, `expm1`, `sinh` | `log1p` and `sinh` end in `Mul` to keep the sign; `expm1(-0.0)` exports as `+0.0`. |
+| CPU `Where` returns `+0.0` when it selects `-0.0` | CPU 1.24.1, 1.31.0, 1.31.1 | `log1p`, `expm1`, `sinh` | `log1p` and `sinh` end in `Mul` to keep the sign; `expm1(-0.0)` exports as `+0.0`. |
 | Default-domain opset 27 rejected as unreleased at model load | CPU 1.31.0, official JAX/jaxlib 0.10.2 and 0.12.0.1 | Private SOURCE opset-27 BitCast and same-type Identity artifacts | Runtime-load **FAILED** with requested opset 27 / supported opset 26; numerical acceptance remains **UNVERIFIED**. Preserve the requested artifact and diagnostic; do not enable unreleased opsets or change the opset automatically. |
+
+The unchanged logarithm, exponential and hyperbolic precision regressions also
+pass on CPU ORT 1.31.1 with both supported framework variants. They retain
+their original near-zero, exceptional-value, signed-zero and exhaustive
+65,536-word half-precision checks. The finite-range cases use both optimization
+modes; the exhaustive half-precision cases use the default runtime mode. Kernel
+availability observations retain the versions listed in the table.
 
 The finite equal-width SOURCE bitcast tests execute all 38 ordered ordinary
 floating/integer pairs, including BF16, at opset 26 on CPU ORT 1.31.0 with
@@ -107,7 +116,7 @@ predicates. Typed `Gather`/`GatherElements` selection restores NaN propagation
 and the required zero word without using floating `Where`. Integer extrema,
 empty identities, no-axis reductions and public LEGACY behavior retain their
 existing paths. Focused FP32/FP64 NaN/zero-sign regressions pass on official
-JAX/jaxlib 0.10.2 and 0.12.0.1, and CPU ORT 1.31.0 with optimization disabled and enabled,
+JAX/jaxlib 0.10.2 and 0.12.0.1, and CPU ORT 1.31.0 and 1.31.1 with optimization disabled and enabled,
 including reciprocal infinity signs. This is a bounded correction, not full
 numerical acceptance of those operations.
 BF16 artifact/schema coverage alone makes no CPU numerical acceptance claim.
