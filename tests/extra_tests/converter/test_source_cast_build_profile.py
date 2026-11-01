@@ -795,12 +795,15 @@ def test_real_maps_reader_opens_once_and_requires_clean_eof(
         opened.append((str(path), mode, buffering))
         return Stream()
 
-    monkeypatch.setattr(Path, "open", open_maps)
-    if fault == "none":
-        assert builds._read_maps(shim, common) == expected
-    else:
-        with pytest.raises((ValueError, OSError)):
-            builds._read_maps(shim, common)
+    original_open = Path.open
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "open", open_maps)
+        if fault == "none":
+            assert builds._read_maps(shim, common) == expected
+        else:
+            with pytest.raises((ValueError, OSError)):
+                builds._read_maps(shim, common)
+    assert Path.open is original_open
     assert opened == [("/proc/self/maps", "rb", 64 * 1024)]
     assert limits and all(limit == builds._MAP_BYTES + 1 for limit in limits)
     assert closed == [True]
