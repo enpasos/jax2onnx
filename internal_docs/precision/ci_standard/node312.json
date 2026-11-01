@@ -19,7 +19,7 @@
     "package.json": "26ae1b890aed6ea1c589cefc824641bd91e6694cd382a083e1ec86754deb65e6",
     "poetry.lock": "49e55d96ce74249499fb796c36cf9e78cefce0a4441eaa5c801c017640b3a8ea",
     "pyproject.toml": "688f6dcadae9f3cfaecd4eaf6f576a4f5758c0168b4d610a1376dde60b23f7ea",
-    "scripts/onnxruntime_web_validation_utils.mjs": "ceabbba153b90ea49eb7620552ce58481ef897947e3c1e783c48db73883c7503",
+    "scripts/onnxruntime_web_validation_utils.mjs": "23b62a76a65e6e9efeac48c2ba7e623a51711502860abfb8ce0089e67f79ebbc",
     "scripts/run_onnxruntime_web_smoke.sh": "47fa432c91890482010af8bdf53216c85c3421fe4cbf7e9f3ad05967f7e191b2",
     "scripts/validate_onnxruntime_web.mjs": "5cf45b2e5c4d65b3ba6bdae1ef0a96cb86ad0ba83ace918bc1505b9ee1a62692"
   },
@@ -417,7 +417,15 @@
         "sha256": "11e9eaf86a3d709cb89c7741ba35d333f15723bd014c8e9fd52c60674d64b8d1"
       }
     },
-    "scope": "Source-only candidate Node support data at c338c33f plus independently reviewed code. Commit reviewed reference/cohort/baseline before actual canonical admission. No new rendering, native execution, authority activation, workflow/gate activation, hosted whole-job1200s, public SOURCE or full B-F acceptance. Trusted loader/same invocation boundary; no dynamic-library load attestation or TOCTOU swap/restore proof."
+    "scope": "Source-only candidate Node support data at c338c33f plus independently reviewed code. Commit reviewed reference/cohort/baseline before actual canonical admission. No new rendering, native execution, authority activation, workflow/gate activation, hosted whole-job1200s, public SOURCE or full B-F acceptance. Trusted loader/same invocation boundary; no dynamic-library load attestation or TOCTOU swap/restore proof.",
+    "reviewed_web_comparator_binding": {
+      "source": "scripts/onnxruntime_web_validation_utils.mjs",
+      "old_literal_sha256": "ceabbba153b90ea49eb7620552ce58481ef897947e3c1e783c48db73883c7503",
+      "reviewed_literal_sha256": "23b62a76a65e6e9efeac48c2ba7e623a51711502860abfb8ce0089e67f79ebbc",
+      "reviewed_parent_head": "47eea57a81ae05c820ec8449cfd66ac418d009e6",
+      "actual_original_DPA_qualified_closure_sha256": "8ae17c88a46a725c306156dc090449728bc9afc42aefb66e638d7fb9a6b0d294",
+      "scope": "One explicit binding rebind to already-reviewed helper; strict guard, frozen S50/baseline, contexts, packages, six other source pins and numerical criteria unchanged."
+    }
   },
   "node_runtime": {
     "reference": {

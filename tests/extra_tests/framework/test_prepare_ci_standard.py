@@ -519,6 +519,19 @@ def test_node_support_requires_its_source_bound_reference_variant(
 def test_node_renderer_requires_explicit_prefix_and_binds_executed_sources(
     authority, monkeypatch, config_name
 ):
+    committed_profile = json.loads(
+        (_ROOT / "internal_docs/precision/ci_standard/node312.json").read_bytes()
+    )
+    for name, expected in committed_profile["bindings"].items():
+        assert (
+            _preparation()
+            ._git(_ROOT, "ls-files", "--error-unmatch", "--", name)
+            .decode()
+            .strip()
+            == name
+        )
+        assert not (_ROOT / name).is_symlink()
+        assert hashlib.sha256((_ROOT / name).read_bytes()).hexdigest() == expected
     module, root, path, run, data, _ = _support_authority(
         authority, monkeypatch, "node-smoke"
     )
@@ -556,6 +569,28 @@ def test_node_renderer_requires_explicit_prefix_and_binds_executed_sources(
         manifest["source_files"]["node-reference.json"]
         == data["node_runtime"]["reference"]["sha256"]
     )
+    assert not run.exists()
+    helper = root / "scripts/onnxruntime_web_validation_utils.mjs"
+    helper.write_bytes(
+        helper.read_bytes() + b"\n// independently committed helper drift\n"
+    )
+    module._git(root, "add", "--", helper.relative_to(root).as_posix())
+    module._git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "independent helper byte drift",
+    )
+    assert module._git(root, "status", "--porcelain") == b""
+    changed_event = module._git(root, "rev-parse", "HEAD").decode().strip()
+    with pytest.raises(ValueError, match="cohort lock/project binding differs"):
+        module._manifest(
+            path, root, changed_event, run, node_prefix=root.parent / "node-prefix"
+        )
     assert not run.exists()
 
 

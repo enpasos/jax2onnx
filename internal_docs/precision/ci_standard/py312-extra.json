@@ -5793,6 +5793,36 @@
         "canonical_support_EXTRA_acceptance_from_direct_table": false,
         "minimum312_A146_unchanged": true
       }
+    },
+    "node_binding_regression_ownership": {
+      "retained_authentic_C": {
+        "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-574b277e-watch-cqbqi4ba/extra-focused312-success-primary/run.json",
+        "sha256": "82833a8f4462c8a9e016dc8c0ef717d6da6671779a982f1c4e4dc360ae5ed64a",
+        "head": "574b277e1a90eed4d03605cd4c922f4e0d20486c"
+      },
+      "accepted_47_C_source_projection": {
+        "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-web-float16-repair-cc7-AScpIvqZ/projected-C312.json",
+        "sha256": "c6b61d53d45870c2265705ef8d2f34d928109225fb7e5fc76d037e986155c5c6"
+      },
+      "promoted_existing_IDs": [
+        "tests/extra_tests/framework/test_prepare_ci_standard.py::test_node_renderer_requires_explicit_prefix_and_binds_executed_sources[NPM_CONFIG_CACHE]",
+        "tests/extra_tests/framework/test_prepare_ci_standard.py::test_node_renderer_requires_explicit_prefix_and_binds_executed_sources[npm_config_cache]"
+      ],
+      "F_before": 1661,
+      "F_after": 1663,
+      "old_F_order_preserved": true,
+      "C_S_A_and_declarations_unchanged": true,
+      "R_loses_exact_two": true,
+      "scientific7_remain_R": [
+        "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-inline]",
+        "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-named]",
+        "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-jit]",
+        "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-if-false]",
+        "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[finite-if-true]",
+        "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[nan-portable-inline]",
+        "tests/extra_tests/converter/test_source_native_top_k.py::test_source_bfloat16_top_k_portable_words_and_native_equivalence[nan-portable-named]"
+      ],
+      "scope": "PROMOTE_TWO_EXISTING_R_IDS_FROM_AUTHENTIC_RETAINED_C; NO_NEW_COLLECTION_IDS_OR_GLOBAL_C_OBSERVATION"
     }
   },
   "focused_extra_ids": [
@@ -7205,6 +7235,8 @@
     "tests/extra_tests/framework/test_function_optimized_output_alias.py::test_function_output_alias_rejects_contradictory_contract[shape]",
     "tests/extra_tests/framework/test_function_optimized_output_alias.py::test_function_output_alias_rejects_contradictory_contract[name]",
     "tests/extra_tests/framework/test_function_optimized_output_alias.py::test_function_output_alias_preserves_partial_shape_refinement",
+    "tests/extra_tests/framework/test_prepare_ci_standard.py::test_node_renderer_requires_explicit_prefix_and_binds_executed_sources[NPM_CONFIG_CACHE]",
+    "tests/extra_tests/framework/test_prepare_ci_standard.py::test_node_renderer_requires_explicit_prefix_and_binds_executed_sources[npm_config_cache]",
     "tests/extra_tests/framework/test_prepare_ci_standard.py::test_split_owner_renderer_keeps_full_authority_and_binds_exact_part[a]",
     "tests/extra_tests/framework/test_prepare_ci_standard.py::test_split_owner_renderer_keeps_full_authority_and_binds_exact_part[b]",
     "tests/extra_tests/framework/test_prepare_ci_standard.py::test_split_owner_renderer_rejects_missing_or_invalid_hosted_identity[GITHUB_RUN_ID-None]",
