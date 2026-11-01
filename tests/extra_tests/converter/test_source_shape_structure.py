@@ -3,7 +3,7 @@
 """Actual SOURCE shape compositions and independent provenance mutations."""
 
 from contextlib import nullcontext
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, replace
 from typing import Any
 from unittest.mock import patch
 import warnings
@@ -25,6 +25,161 @@ from jax2onnx.converter.source_representation import normalized_shape_dimensions
 from jax2onnx.plugins.jax.lax._source_shape_structure import freeze_shape_structure_rule
 from jax2onnx.plugins.jax.lax.reshape import _propagate_shape_helper_dtype
 from jax2onnx.precision import CheckStatus, get_precision_report
+
+
+@pytest.mark.parametrize("optimized", [False, True])
+@pytest.mark.parametrize(
+    "shape,starts,limits,steps,dtype,original_empty",
+    [
+        ((3,), (0,), (0,), None, np.int32, True),
+        ((5,), (1,), (4,), None, np.bool_, False),
+        ((6,), (1,), (6,), (2,), np.uint32, False),
+        ((2, 4), (0, 1), (2, 4), (1, 2), np.float32, False),
+        ((0, 3), (0, 1), (0, 3), None, np.float64, False),
+        ((3,), (0,), (3,), None, np.int32, False),
+    ],
+)
+def test_static_slice_original_geometry_has_complete_structure(
+    optimized, shape, starts, limits, steps, dtype, original_empty
+) -> None:
+    def original(x: Any) -> Any:
+        if original_empty:
+            return x[:0]
+        return jax.lax.slice(x, starts, limits, steps)
+
+    model = _export(original, (shape,), dtypes=(dtype,), optimized=optimized)
+    _checked(model)
+    strides = steps or (1,) * len(shape)
+    expected = tuple(
+        (b - a + s - 1) // s for a, b, s in zip(starts, limits, strides, strict=True)
+    )
+    assert tuple(model.graph.outputs[0].shape) == expected
+    if starts != (0,) * len(shape) or limits != shape or strides != (1,) * len(shape):
+        assert sum(n.op_type == "Slice" for n in model.graph) == 1
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["starts", "limits", "axes", "steps", "source-edge", "dtype", "shape", "attribute"],
+)
+def test_static_slice_storage_edges_and_output_mutations_fail(fault: str) -> None:
+    def original(x: Any, other: Any) -> Any:
+        return jax.lax.slice(x, (1,), (5,), (2,)), other
+
+    model = _export(original, ((6,), (6,)), dtypes=(np.int32, np.int32))
+    _checked(model)
+    node = next(n for n in model.graph if n.op_type == "Slice")
+    if fault in {"starts", "limits", "axes", "steps"}:
+        index = {"starts": 1, "limits": 2, "axes": 3, "steps": 4}[fault]
+        _storage(node.inputs[index], np.asarray([7], dtype=np.int64))
+    elif fault == "source-edge":
+        assert model.graph.inputs[1] is not node.inputs[0]
+        node.replace_input_with(0, model.graph.inputs[1])
+    elif fault == "dtype":
+        node.outputs[0].dtype = ir.DataType.UINT32
+    elif fault == "shape":
+        node.outputs[0].shape = ir.Shape((3,))
+    else:
+        node.attributes["unreviewed"] = ir.AttrInt64("unreviewed", 1)
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "primitive",
+        "effects",
+        "params",
+        "params-type",
+        "input-arity",
+        "output-arity",
+        "dtype",
+        "encoding",
+        "logical-shape",
+        "output-shape",
+        "weakness",
+        "symbol",
+        "symbol-axis",
+        "logical-symbol-axis",
+        "negative-start",
+        "past-input-limit",
+        "negative-step",
+        "zero-step",
+        "bounds-overflow",
+        "steps-overflow",
+        "bool-bound",
+        "list-bound",
+    ],
+)
+def test_static_slice_unowned_or_incompatible_parameters_do_not_freeze(
+    fault: str,
+) -> None:
+    eqn = jax.make_jaxpr(lambda x: jax.lax.slice(x, (1,), (5,), (2,)))(
+        jax.ShapeDtypeStruct((6,), np.int32)
+    ).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.outvars
+    )
+    assert freeze_shape_structure_rule(eqn, inputs, outputs) is not None
+    params = dict(eqn.params)
+    if fault == "primitive":
+        eqn = eqn.replace(primitive=Primitive("slice"))
+    elif fault == "effects":
+        eqn = eqn.replace(effects=frozenset({object()}))
+    elif fault == "params":
+        params["unreviewed"] = None
+    elif fault == "params-type":
+
+        class Params(dict):
+            pass
+
+        eqn = eqn.replace(params=Params(params))
+    elif fault == "input-arity":
+        inputs = ()
+    elif fault == "output-arity":
+        outputs = outputs * 2
+    elif fault in {
+        "dtype",
+        "encoding",
+        "logical-shape",
+        "output-shape",
+        "weakness",
+        "symbol",
+        "symbol-axis",
+        "logical-symbol-axis",
+    }:
+        changes = {
+            "dtype": {"logical_dtype": "uint32", "dtype": ir.DataType.UINT32},
+            "encoding": {"encoding": "complex-real-pair"},
+            "logical-shape": {"logical_shape": (1, 2)},
+            "output-shape": {"shape": (3,), "logical_shape": (3,)},
+            "weakness": {"weak_type": True},
+            "symbol": {"symbol_token": object()},
+            "symbol-axis": {"symbol_axis": 0},
+            "logical-symbol-axis": {"logical_symbol_axis": 0},
+        }[fault]
+        outputs = (replace(outputs[0], **changes),)
+    else:
+        field, value = {
+            "negative-start": ("start_indices", (-1,)),
+            "past-input-limit": ("limit_indices", (7,)),
+            "negative-step": ("strides", (-1,)),
+            "zero-step": ("strides", (0,)),
+            "bounds-overflow": ("limit_indices", (2**63,)),
+            "steps-overflow": ("strides", (2**63,)),
+            "bool-bound": ("start_indices", (True,)),
+            "list-bound": ("start_indices", [1]),
+        }[fault]
+        params[field] = value
+    if fault != "params-type":
+        eqn = eqn.replace(params=params)
+    if fault == "bool-bound":
+        assert type(eqn.params["start_indices"][0]) is bool
+    assert freeze_shape_structure_rule(eqn, inputs, outputs) is None
 
 
 def _export(
@@ -625,3 +780,263 @@ def test_shape_rules_retain_no_native_trace_scope_or_array() -> None:
                 inspect(child)
 
     inspect(vars(model.meta[structure._LEDGER]))
+
+
+@pytest.mark.parametrize(
+    "kind,shape", [("reshape", (2, 3)), ("broadcast", (3,)), ("scalar", ())]
+)
+@pytest.mark.parametrize("dtype", [np.bool_, np.int32, np.uint32])
+def test_static_discrete_shape_contracts_reuse_exact_geometry(
+    tmp_path, kind, shape, dtype
+):
+    def original(x):
+        if kind == "reshape":
+            return jax.lax.reshape(x, (3, 2), dimensions=(1, 0))
+        if kind == "broadcast":
+            return jax.lax.broadcast_in_dim(x, (2, 3), (1,))
+        assert kind == "scalar"
+        return jax.lax.broadcast_in_dim(x, (2, 3), ())
+
+    model = _export(original, (shape,), dtypes=(dtype,))
+    _retain_discrete_shape_evidence(tmp_path, model)
+    _checked(model)
+    assert model.graph.outputs[0].dtype == ir.DataType.from_numpy(np.dtype(dtype))
+
+
+def _retain_discrete_shape_evidence(tmp_path, model, result=None):
+    import json
+    from dataclasses import asdict
+
+    (tmp_path / "actual-source-shape.onnx").write_bytes(
+        ir.to_proto(model).SerializeToString()
+    )
+    actual = model.meta[structure.RESULT_KEY] if result is None else result
+    (tmp_path / "actual-source-structure.json").write_text(
+        json.dumps(asdict(actual), sort_keys=True) + "\n"
+    )
+
+
+def _raw_discrete_identity_reshape(dtype):
+    return _export(
+        lambda x: jax.lax.reshape(x, (3, 2), dimensions=(1, 0)),
+        ((2, 3),),
+        dtypes=(dtype,),
+        optimized=False,
+    )
+
+
+@pytest.mark.parametrize("dtype", [np.bool_, np.int32, np.uint32])
+def test_source_identity_reshape_preserves_marked_result_and_removes_unmarked_internal(
+    tmp_path, dtype
+):
+    from jax2onnx.converter import ir_optimizations as optimizer
+
+    model = _raw_discrete_identity_reshape(dtype)
+    original = model.graph.outputs[0]
+    marked = original.producer()
+    assert marked is not None and marked.op_type == "Reshape"
+    assert structure._VALUES in original.meta
+    marker = original.meta[structure._VALUES]
+    data, shape = marked.inputs
+    intermediate = ir.Value(
+        name="unmarked_identity_result", type=data.type, shape=data.shape
+    )
+    unmarked = ir.Node("", "Reshape", [data, shape], outputs=[intermediate])
+    model.graph.insert_before(marked, unmarked)
+    marked.replace_input_with(0, intermediate)
+    assert structure._VALUES not in intermediate.meta
+    optimizer.remove_identity_reshapes_ir(model.graph)
+    result = structure.validate_source_structure(model)
+    _retain_discrete_shape_evidence(tmp_path, model, result)
+    assert model.graph.outputs[0] is original and original.producer() is marked
+    assert original.meta[structure._VALUES] is marker
+    assert all(node is not unmarked for node in model.graph)
+    assert marked.inputs[0] is data
+    assert result.status == "validated", result.reasons
+    _checked(model)
+
+
+@pytest.mark.parametrize("marker", [None, (), "malformed"])
+def test_source_identity_reshape_keeps_even_empty_or_malformed_marker(tmp_path, marker):
+    from jax2onnx.converter import ir_optimizations as optimizer
+
+    model = _raw_discrete_identity_reshape(np.bool_)
+    original = model.graph.outputs[0]
+    node = original.producer()
+    assert structure._VALUES in original.meta
+    original.meta[structure._VALUES] = marker
+    optimizer.remove_identity_reshapes_ir(model.graph)
+    result = structure.validate_source_structure(model)
+    _retain_discrete_shape_evidence(tmp_path, model, result)
+    assert model.graph.outputs[0] is original and original.producer() is node
+    assert any(candidate is node for candidate in model.graph)
+    assert result.status == "unverified"
+    assert any("final-value-" in reason for reason in result.reasons)
+
+
+@pytest.mark.parametrize("replacement", ["upstream", "fresh-same-form"])
+def test_source_identity_reshape_unproved_same_named_replacement_is_rejected(
+    tmp_path, replacement
+):
+    from jax2onnx.converter import ir_optimizations as optimizer
+
+    model = _raw_discrete_identity_reshape(np.int32)
+    original = model.graph.outputs[0]
+    node = original.producer()
+    assert node is not None and node.op_type == "Reshape"
+    assert structure._VALUES in original.meta
+    optimizer.remove_identity_reshapes_ir(model.graph)
+    assert model.graph.outputs[0] is original and original.producer() is node
+    if replacement == "upstream":
+        substitute = node.inputs[0]
+        substitute.name = original.name
+    else:
+        substitute = ir.Value(
+            name=original.name, type=original.type, shape=original.shape
+        )
+        model.graph.insert_before(
+            node, ir.Node("", "Reshape", list(node.inputs), outputs=[substitute])
+        )
+    assert substitute is not original and substitute.name == original.name
+    assert substitute.dtype == original.dtype and tuple(substitute.shape) == tuple(
+        original.shape
+    )
+    assert structure._VALUES not in substitute.meta
+    ir.convenience.replace_all_uses_with(
+        original, substitute, replace_graph_outputs=True
+    )
+    model.graph.remove(node)
+    result = structure.validate_source_structure(model)
+    _retain_discrete_shape_evidence(tmp_path, model, result)
+    assert result.status == "unverified"
+    assert "final-value-witness-lost" in result.reasons
+
+
+@pytest.mark.parametrize("form", ["missing", "zero", "one", "direct"])
+def test_empty_discrete_broadcast_alignment_requires_literal_zero_semantics(form):
+    import json
+
+    from scripts import source_precision_inventory as inventory_owner
+    from tests.extra_tests.converter.source_precision_diagnostics import (
+        typed_trace_manifest,
+    )
+
+    closed = jax.make_jaxpr(lambda x: jax.lax.broadcast_in_dim(x, (2, 0, 3), (1, 2)))(
+        jax.ShapeDtypeStruct((0, 3), np.int32)
+    )
+    equation = closed.jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in equation.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in equation.outvars
+    )
+    rule = freeze_shape_structure_rule(equation, inputs, outputs)
+    assert rule is not None
+    value_info = onnx.helper.make_tensor_value_info
+    initializers = [
+        onnx.helper.make_tensor(
+            "expanded-shape", onnx.TensorProto.INT64, [3], [2, 0, 3]
+        )
+    ]
+    nodes = []
+    intermediates = []
+    edge = "x"
+    if form != "direct":
+        initializers.append(
+            onnx.helper.make_tensor(
+                "aligned-shape", onnx.TensorProto.INT64, [3], [1, 0, 3]
+            )
+        )
+        attrs = {} if form == "missing" else {"allowzero": 0 if form == "zero" else 1}
+        nodes.append(
+            onnx.helper.make_node(
+                "Reshape", ["x", "aligned-shape"], ["aligned"], **attrs
+            )
+        )
+        # Stamp the expected form even for the counterexamples: metadata alone
+        # must not turn default-zero-copy semantics into literal-zero semantics.
+        intermediates.append(value_info("aligned", onnx.TensorProto.INT32, [1, 0, 3]))
+        edge = "aligned"
+    nodes.append(onnx.helper.make_node("Expand", [edge, "expanded-shape"], ["out"]))
+    proto = onnx.helper.make_model(
+        onnx.helper.make_graph(
+            nodes,
+            "empty-broadcast-alignment",
+            [value_info("x", onnx.TensorProto.INT32, [0, 3])],
+            [value_info("out", onnx.TensorProto.INT32, [2, 0, 3])],
+            initializer=initializers,
+            value_info=intermediates,
+        ),
+        opset_imports=[onnx.helper.make_opsetid("", 23)],
+    )
+    model = ir.from_proto(proto)
+
+    def match_literal(actual, expected):
+        assert actual is model.graph.initializers[actual.name]
+        assert actual.producer() is None and actual.const_value is not None
+        assert actual.dtype == expected.tensor.dtype
+        assert tuple(actual.shape) == expected.tensor.shape
+        assert (
+            structure.ConstantContract.from_array(actual.const_value.numpy())
+            == expected.storage
+        )
+
+    valid = form in {"one", "direct"}
+    if valid:
+        consumed = rule.check(
+            model.graph,
+            tuple(model.graph.inputs),
+            tuple(model.graph.outputs),
+            match_literal,
+        )
+        assert {node.op_type for node in consumed} == (
+            {"Expand"} if form == "direct" else {"Reshape", "Expand"}
+        )
+    else:
+        with pytest.raises(
+            structure.StructureMismatch, match="shape-attribute-(set-)?differs"
+        ):
+            rule.check(
+                model.graph,
+                tuple(model.graph.inputs),
+                tuple(model.graph.outputs),
+                match_literal,
+            )
+    manifest = json.loads(json.dumps(typed_trace_manifest(closed)))
+    closure = inventory_owner._source_bitwise_closure(manifest, proto)
+    assert (closure is not None) is valid
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["shape", "weakness", "encoding", "dtype", "symbol", "geometry", "bool-dimension"],
+)
+def test_static_discrete_shape_contracts_reject_forged_geometry(fault):
+    native = jax.make_jaxpr(lambda x: jax.lax.broadcast_in_dim(x, (2, 3), (1,)))(
+        jax.ShapeDtypeStruct((3,), np.int32)
+    ).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.outvars
+    )
+    assert freeze_shape_structure_rule(native, inputs, outputs) is not None
+    params = dict(native.params)
+    if fault in {"geometry", "bool-dimension"}:
+        params["broadcast_dimensions"] = (0,) if fault == "geometry" else (True,)
+        eqn = native.replace(params=params)
+    else:
+        changes = {
+            "shape": {"shape": (2, 1), "logical_shape": (2, 1)},
+            "weakness": {"weak_type": True},
+            "encoding": {"encoding": "packed-key"},
+            "dtype": {"logical_dtype": "float32", "dtype": ir.DataType.FLOAT},
+            "symbol": {"symbol_token": object()},
+        }[fault]
+        outputs = (replace(outputs[0], **changes),)
+        eqn = native
+    assert freeze_shape_structure_rule(eqn, inputs, outputs) is None

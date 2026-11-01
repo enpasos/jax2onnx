@@ -962,6 +962,239 @@ def _bridge_literal_prepared(tmp_path, *, scalar=True):
     return prepared, capture
 
 
+def _bridge_jit_word_source(word, kind):
+    # A new Python function per parameter owns immutable original word values.
+    # A new JIT wrapper alone need not imply a new compilation/cache entry.
+    def original(*inputs):
+        words = np.asarray(word if kind == "literal" else [word, word], np.uint32)
+        payload = words.view(np.float32)
+        return payload[()] if kind == "literal" else jax.lax.add(inputs[0], payload)
+
+    return original
+
+
+def _plain_jit_trace():
+    return jax.make_jaxpr(jax.jit(lambda x: x + np.float32(1)))(
+        np.asarray([0.25, -1], np.float32)
+    )
+
+
+@pytest.mark.parametrize("kind", ["literal", "constant"])
+@pytest.mark.parametrize("word", [0x80000000, 0x7FC00001])
+def test_plain_jit_nested_word_drift_preserves_frozen_storage_and_fails_binding(
+    tmp_path, monkeypatch, kind, word
+):
+    changed = np.asarray(0 if word == 0x80000000 else 0x7FC00002, np.uint32).view(
+        np.float32
+    )[()]
+    original_source = _bridge_jit_word_source(word, kind)
+    original_callable = jax.jit(original_source)
+    metadata = {
+        "context": "bridge-test",
+        "component": "nested-jit",
+        "testcase": kind,
+        "callable": original_callable,
+        "input_shapes": [] if kind == "literal" else [(2,)],
+        "opset_version": 23,
+    }
+    scenario = raw_source_scenarios(metadata, SourceProvenance("bridge-test", 0))[1]
+    capture = raw.RawReplayCapture(tmp_path / kind)
+    prepared = raw.prepare_raw_source_case(
+        metadata, scenario, adapter={}, capture=capture
+    )
+    baseline = json.loads(
+        json.dumps(
+            capture.records["source_structure"]["source_binding"]["prepared_storage"],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    expected_bytes = int(word).to_bytes(4, "little") * (1 if kind == "literal" else 2)
+    expected_storage = {
+        "dtype": "<f4",
+        "shape": [] if kind == "literal" else [2],
+        "byte_count": len(expected_bytes),
+        "sha256": hashlib.sha256(expected_bytes).hexdigest(),
+    }
+    assert len(baseline) == 1 and baseline[0]["role"].startswith("equation:0:jit/")
+    assert baseline[0]["logical"] == expected_storage
+    assert baseline[0]["physical"] == expected_storage
+    assert baseline[0]["logical_dtype"] == "float32"
+    assert baseline[0]["encoding"] == "identity" and baseline[0]["weak_type"] is False
+    capture.document(
+        "plain-jit-word-baseline",
+        {
+            "original_function_identity": id(original_source),
+            "original_jit_identity": id(original_callable),
+            "word": word,
+            "kind": kind,
+            "expected_storage": expected_storage,
+            "actual_frozen_storage": baseline,
+        },
+    )
+    actual = user_interface._to_onnx
+
+    def export(**kwargs):
+        collector = kwargs["source_structure_collector"]
+
+        def changed_trace(trace, final_ir, result, returned):
+            eqn = raw._structure_body(trace.closed_jaxpr).eqns[0]
+            child = raw._structure_plain_jit_child(eqn)[0]
+            if kind == "literal":
+                literal = raw._structure_body(child).outvars[0]
+                assert isinstance(literal, raw.JaxLiteral)
+                previous = literal.val
+                try:
+                    literal.val = changed
+                    collector(trace, final_ir, result, returned)
+                finally:
+                    literal.val = previous
+            else:
+                assert len(child.consts) == 1
+                try:
+                    eqn.params["jaxpr"] = child.replace(
+                        jaxpr=raw._structure_body(child),
+                        consts=[np.asarray([changed, changed], np.float32)],
+                    )
+                    collector(trace, final_ir, result, returned)
+                finally:
+                    eqn.params["jaxpr"] = child
+
+        kwargs["source_structure_collector"] = changed_trace
+        return actual(**kwargs)
+
+    monkeypatch.setattr(user_interface, "_to_onnx", export)
+    raw.run_raw_source_case(prepared, capture=capture)
+    record = _bridge_record(capture)
+    assert record["ir_result"]["status"] == "validated"
+    assert record["source_binding"]["status"] == "failed"
+    assert (
+        "source-constant-or-literal-storage-differs"
+        in record["source_binding"]["reasons"]
+    )
+    assert (
+        json.loads(
+            json.dumps(
+                record["source_binding"]["prepared_storage"],
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        == baseline
+    )
+    assert capture.target is original_callable
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "unknown",
+        "missing",
+        "donation",
+        "layout",
+        "sharding",
+        "mesh",
+        "options",
+        "inline",
+        "foreign-body",
+        "shape",
+        "weakness",
+    ],
+)
+def test_plain_jit_structure_rejects_unsupported_carrier_metadata_without_foreign_getters(
+    monkeypatch, mutation
+):
+    from jax2onnx._compat.jax import Var
+
+    trace = _plain_jit_trace()
+    eqn = raw._structure_body(trace).eqns[0]
+    child = eqn.params["jaxpr"]
+
+    class ForeignBody:
+        @property
+        def jaxpr(self):
+            raise AssertionError("An unowned body getter must not run")
+
+    if mutation == "unknown":
+        monkeypatch.setitem(eqn.params, "unknown", object())
+    elif mutation == "missing":
+        monkeypatch.delitem(eqn.params, "name")
+    elif mutation == "donation":
+        monkeypatch.setitem(eqn.params, "donated_invars", (True,))
+    elif mutation in {"layout", "sharding"}:
+        monkeypatch.setitem(
+            eqn.params,
+            "in_layouts" if mutation == "layout" else "in_shardings",
+            (object(),),
+        )
+    elif mutation == "mesh":
+        monkeypatch.setitem(eqn.params, "ctx_mesh", ForeignBody())
+    elif mutation == "options":
+        monkeypatch.setitem(eqn.params, "compiler_options_kvs", (("unreviewed", True),))
+    elif mutation == "inline":
+        monkeypatch.setitem(eqn.params, "inline", object())
+    elif mutation == "foreign-body":
+        monkeypatch.setitem(eqn.params, "jaxpr", ForeignBody())
+    else:
+        body = raw._structure_body(child)
+        aval = body.invars[0].aval
+        changed_aval = (
+            aval.update(shape=(3,))
+            if mutation == "shape"
+            else aval.update(weak_type=not aval.weak_type)
+        )
+        changed_body = body.replace(invars=[Var(changed_aval)])
+        monkeypatch.setitem(eqn.params, "jaxpr", child.replace(jaxpr=changed_body))
+    with pytest.raises((raw._StructureBindingGap, raw._StructureBindingMismatch)):
+        raw._structure_trace_storage(trace)
+    with pytest.raises((raw._StructureBindingGap, raw._StructureBindingMismatch)):
+        raw._structure_flat_relation(trace, trace)
+
+
+def test_plain_jit_structure_proves_inner_primitive_identity_not_just_its_name(
+    monkeypatch,
+):
+    from jax2onnx._compat.jax import Primitive
+
+    left, right = _plain_jit_trace(), _plain_jit_trace()
+    assert raw._structure_flat_relation(left, right)
+    child = raw._structure_plain_jit_child(raw._structure_body(right).eqns[0])[0]
+    inner = raw._structure_body(child).eqns[0]
+    counterfeit = Primitive(inner.primitive.name)
+    assert (
+        counterfeit.name == inner.primitive.name and counterfeit is not inner.primitive
+    )
+    monkeypatch.setattr(inner, "primitive", counterfeit)
+    with pytest.raises(
+        raw._StructureBindingMismatch, match="native-source-primitive-differs"
+    ):
+        raw._structure_flat_relation(left, right)
+
+
+@pytest.mark.parametrize("case", ["cycle", "depth", "noncanonical"])
+def test_plain_jit_structure_rejects_cycles_depth_and_other_nested_carriers(
+    monkeypatch, case
+):
+    from jax2onnx._compat.jax import Primitive
+
+    trace = _plain_jit_trace()
+    body = raw._structure_body(trace)
+    eqn = body.eqns[0]
+    if case == "cycle":
+        monkeypatch.setitem(eqn.params, "jaxpr", trace)
+    elif case == "depth":
+        for _ in range(33):
+            nested = eqn.replace(params={**eqn.params, "jaxpr": trace})
+            trace = trace.replace(jaxpr=body.replace(eqns=[nested]))
+    else:
+        monkeypatch.setattr(eqn, "primitive", Primitive("jit"))
+    with pytest.raises(raw._StructureBindingGap):
+        raw._structure_flat_relation(trace, trace)
+    if case != "noncanonical":
+        with pytest.raises(raw._StructureBindingGap, match="cyclic-or-deep"):
+            raw._structure_trace_storage(trace)
+
+
 @pytest.mark.parametrize("return_mode", ["proto", "ir"])
 def test_actual_raw_collector_preserves_literal_bytes_and_product_evidence(
     tmp_path, monkeypatch, return_mode
@@ -1914,3 +2147,28 @@ def test_class_diagnostic_bounds_all_labels_and_preserves_original_loaded_bindin
     assert diagnostic["callable"]["code_sha256"] == raw.canonical_code_fingerprint(
         target.__code__
     )
+
+
+def test_plain_jit_storage_rejects_foreign_equation_before_any_getter():
+    trace = _plain_jit_trace()
+    body = raw._structure_body(trace)
+    observed = []
+
+    class ForeignEquation:
+        @property
+        def invars(self):
+            observed.append("invars")
+            raise AssertionError("Unowned equation getter must not execute")
+
+        @property
+        def primitive(self):
+            observed.append("primitive")
+            raise AssertionError("Unowned equation getter must not execute")
+
+    changed = body.replace(eqns=[ForeignEquation()])
+    trace = trace.replace(jaxpr=changed)
+    with pytest.raises(raw._StructureBindingGap, match="unowned-source-equation"):
+        raw._structure_trace_storage(trace)
+    with pytest.raises(raw._StructureBindingGap, match="unowned-source-equation"):
+        raw._structure_flat_relation(trace, trace)
+    assert observed == []

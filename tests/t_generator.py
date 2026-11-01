@@ -1752,7 +1752,7 @@ def make_source_test_function(
     evidence_directory: Path | None,
     stage: Literal["prepare", "product"],
     expected_statuses: Mapping[str, str],
-    runtime_optimization: Literal["disabled", "all"] | None = None,
+    runtime_optimization: Literal["disabled", "all", "both"] | None = None,
 ):
     """Build a generated-test seam over the existing shared raw-cell executor.
 
@@ -1762,7 +1762,7 @@ def make_source_test_function(
     """
     if stage not in {"prepare", "product"} or not expected_statuses:
         raise ValueError("A SOURCE test needs an explicit stage and assertion contract")
-    if runtime_optimization not in {None, "disabled", "all"}:
+    if runtime_optimization not in {None, "disabled", "all", "both"}:
         raise ValueError("Unknown SOURCE sample optimization contract")
     if runtime_optimization is not None and stage != "product":
         raise ValueError("Runtime samples need a product contract")

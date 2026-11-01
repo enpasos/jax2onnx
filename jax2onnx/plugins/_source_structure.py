@@ -16,7 +16,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn, Literal, ShapedArray, Var
 from jax2onnx.converter.source_structure import (
     EquationRule,
     LiteralMatcher,
@@ -65,6 +65,10 @@ _PRIMITIVES: Final = {
     "gt": jax.lax.gt_p,
     "ge": jax.lax.ge_p,
     "eq": jax.lax.eq_p,
+    "not": jax.lax.not_p,
+    "and": jax.lax.and_p,
+    "or": jax.lax.or_p,
+    "xor": jax.lax.xor_p,
 }
 
 
@@ -137,6 +141,8 @@ def freeze_source_structure_rule(
     outputs: tuple[TensorContract, ...],
 ) -> EquationRule | None:
     """Freeze expected semantics from the real equation before graph emission."""
+    if type(eqn) is not JaxprEqn:
+        return None
     primitive = eqn.primitive
     if primitive is None:
         return None
@@ -179,7 +185,11 @@ def freeze_source_structure_rule(
         )
 
         return freeze_reduction_structure_rule(eqn, inputs, outputs)
-    if primitive is jax.lax.reshape_p or primitive is jax.lax.broadcast_in_dim_p:
+    if (
+        primitive is jax.lax.reshape_p
+        or primitive is jax.lax.broadcast_in_dim_p
+        or primitive is jax.lax.slice_p
+    ):
         from jax2onnx.plugins.jax.lax._source_shape_structure import (
             freeze_shape_structure_rule,
         )
@@ -234,6 +244,141 @@ def freeze_source_structure_rule(
         if source_dtype == target_dtype:
             return _DirectRule("Identity", identity_alias=True)
         return _DirectRule("BitCast", (("to", int(target.dtype.value)),))
+    discrete_operations = {
+        jax.lax.not_p: ("Not", "BitwiseNot", 1),
+        jax.lax.and_p: ("And", "BitwiseAnd", 2),
+        jax.lax.or_p: ("Or", "BitwiseOr", 2),
+        jax.lax.xor_p: ("Xor", "BitwiseXor", 2),
+    }
+    discrete = {
+        "bool",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+    }
+    static_discrete = bool(outputs) and all(
+        value.logical_dtype in discrete
+        and value.dtype == ir.DataType.from_numpy(np.dtype(value.logical_dtype))
+        and value.encoding == "identity"
+        and value.shape == value.logical_shape
+        and all(type(dim) is int and 0 <= dim <= 2**63 - 1 for dim in value.shape)
+        and value.symbol_token is None
+        and value.symbol_axis is None
+        and value.logical_symbol_axis is None
+        and type(value.weak_type) is bool
+        for value in (*inputs, *outputs)
+    )
+    if static_discrete:
+        if len(eqn.invars) != len(inputs) or len(eqn.outvars) != len(outputs):
+            return None
+        for var, value in zip(
+            (*eqn.invars, *eqn.outvars), (*inputs, *outputs), strict=True
+        ):
+            if (
+                type(var) not in {Var, Literal}
+                or type(var.aval) is not ShapedArray
+                or type(var.aval.weak_type) is not bool
+                or not isinstance(var.aval.dtype, np.dtype)
+                or var.aval.dtype.name != value.logical_dtype
+                or tuple(var.aval.shape) != value.logical_shape
+                or var.aval.weak_type != value.weak_type
+            ):
+                return None
+    if primitive in discrete_operations:
+        boolean_op, integer_op, arity = discrete_operations[primitive]
+        if (
+            not static_discrete
+            or eqn.effects
+            or type(eqn.params) is not dict
+            or eqn.params
+            or len(inputs) != arity
+            or len(outputs) != 1
+        ):
+            return None
+        target = outputs[0]
+        if any(value.logical_dtype != target.logical_dtype for value in inputs):
+            return None
+        ranks = {len(value.shape) for value in inputs if value.shape}
+        if len(ranks) > 1:
+            return None
+        rank = max((len(value.shape) for value in inputs), default=0)
+        shape = []
+        for axis in range(rank):
+            dimensions = {
+                value.shape[axis]
+                for value in inputs
+                if value.shape and value.shape[axis] != 1
+            }
+            if len(dimensions) > 1:
+                return None
+            shape.append(next(iter(dimensions), 1))
+        if tuple(shape) != target.shape or target.weak_type != all(
+            value.weak_type for value in inputs
+        ):
+            return None
+        return _DirectRule(boolean_op if target.logical_dtype == "bool" else integer_op)
+    if static_discrete and primitive in (
+        jax.lax.convert_element_type_p,
+        jax.lax.transpose_p,
+        jax.lax.stop_gradient_p,
+    ):
+        if (
+            eqn.effects
+            or type(eqn.params) is not dict
+            or len(inputs) != 1
+            or len(outputs) != 1
+        ):
+            return None
+        source, target = inputs[0], outputs[0]
+        params = eqn.params
+        if primitive is jax.lax.convert_element_type_p:
+            if (
+                set(params)
+                not in (
+                    {"new_dtype", "weak_type"},
+                    {"new_dtype", "weak_type", "sharding"},
+                )
+                or params.get("sharding") is not None
+                or not isinstance(params["new_dtype"], np.dtype)
+                or params["new_dtype"].name != target.logical_dtype
+                or type(params["weak_type"]) is not bool
+                or params["weak_type"] != target.weak_type
+                or source.shape != target.shape
+            ):
+                return None
+            return _DirectRule(
+                "Cast",
+                (("to", int(target.dtype.value)),),
+                identity_alias=source.dtype == target.dtype,
+            )
+        if (
+            source.logical_dtype != target.logical_dtype
+            or source.weak_type != target.weak_type
+        ):
+            return None
+        if primitive is jax.lax.stop_gradient_p:
+            if params or source.shape != target.shape:
+                return None
+            return _DirectRule("Identity", identity_alias=True)
+        permutation = params.get("permutation")
+        if (
+            set(params) != {"permutation"}
+            or type(permutation) is not tuple
+            or any(type(axis) is not int for axis in permutation)
+            or sorted(permutation) != list(range(len(source.shape)))
+            or tuple(source.shape[axis] for axis in permutation) != target.shape
+        ):
+            return None
+        return _DirectRule(
+            "Transpose",
+            (("perm", permutation),),
+            identity_alias=permutation == tuple(range(len(permutation))),
+        )
     # Scalar numeric conditions and counters have their own exact contracts.
     # Boolean arithmetic and general integer expressions remain separate rules.
     scalar_numeric = (
@@ -397,7 +542,7 @@ def freeze_source_semantic_key(
     )
     from jax2onnx.plugins.jax.lax._source_dot_structure import _DotRule
     from jax2onnx.plugins.jax.lax._source_reduce_structure import _ReductionRule
-    from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule
+    from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule, _SliceRule
     from jax2onnx.plugins.jax.lax._source_loop_structure import ScanRule, WhileRule
 
     from jax2onnx.plugins.jax.core._source_inline_structure import InlineRule
@@ -445,6 +590,8 @@ def freeze_source_semantic_key(
         or eqn.primitive is jax.lax.broadcast_in_dim_p
     ):
         return ("shape", rule.operation, rule.permutation, rule.broadcast_dimensions)
+    if type(rule) is _SliceRule and eqn.primitive is jax.lax.slice_p:
+        return ("slice", rule.starts, rule.limits, rule.axes, rule.steps)
     if type(rule) is _DirectRule and _PRIMITIVES.get(primitive_name) is primitive:
         return (
             "direct",

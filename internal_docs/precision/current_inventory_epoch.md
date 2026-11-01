@@ -1,5 +1,29 @@
 # Current inventory after main #279
 
+## Finite registered bitwise family qualification
+
+The complete registered AND/OR/XOR/NOT family now has finite numerical evidence:
+**26 original rows / 52 caller cells**, on both locked Python 3.11/3.13 stacks
+and the existing Python 3.11 / ORT 1.24.1 minimum stack. The 52-cell runs retain the original Boolean/integer, mixed Boolean/integer,
+broadcast and vmap cases, full inputs and opset 23. Separate focused guards
+cover weak values, supplied-JIT captures and additional high-word inputs.
+All 52 Items and 156 setup/call/teardown phases pass per cohort; 44 original
+graph callbacks pass and eight vmap contracts have no callback. Original eager, first/warm calls of one fresh JIT wrapper per
+sample and both ORT modes agree exactly on the same saved artifact and feeds.
+The source-bound conditional exact criterion changes no frozen row or floating
+criterion. Canonical typed source and complete saved-IR proofs cover the
+admitted bitwise, discrete promotion, static geometry, bound constants and
+plain-JIT fragments; unproved floating, opaque, effectful, dead or hidden
+content cannot discharge rounding/internal-FP64 obligations.
+
+Each report validates **52 numerical cells**, leaving **3,660 unverified** in
+the unchanged **3,712-cell** ledger, plus 104 metadata-free, 752 original manual
+and 3,250 LEGACY preparation obligations. The **1,838** missing frozen criterion
+pairs remain factual. MaxText source drift and the older cohort's remat2
+contract difference retain global `ERROR` and strict exit `1`. Newer-family
+minimum coverage and full B–F acceptance remain open; earlier two-cell reports
+and all failed predecessors are unchanged.
+
 The current live metadata inventory is
 [`source_migration_inventory_current.json`](source_migration_inventory_current.json):
 **1,856 raw rows / 3,712 caller obligations**. The historical

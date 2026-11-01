@@ -1786,6 +1786,25 @@ def validate_source_samples(
     references execute nothing and remain unverified. Schema, load, run, and
     comparison failures remain distinct, and any known failure dominates.
     """
+    return _validate_source_samples(
+        model_or_path, samples=samples, optimization=optimization
+    )
+
+
+def _validate_source_samples(
+    model_or_path: ModelArtifact,
+    *,
+    samples: Sequence[SourceSample],
+    optimization: Literal["disabled", "all"] | None,
+    _output_observer: Any = None,
+) -> SourceValidationReport:
+    """Execute explicitly selected ORT CPU settings against independent references.
+
+    This also works for legacy artifacts with no precision metadata. Metadata
+    presence is never runtime evidence. ``optimization=None`` or empty/missing
+    references execute nothing and remain unverified. Schema, load, run, and
+    comparison failures remain distinct, and any known failure dominates.
+    """
     if optimization not in (None, "disabled", "all"):
         raise ValueError("optimization must be explicitly 'disabled', 'all', or None")
     checks: list[PrecisionCheck] = []
@@ -2142,6 +2161,33 @@ def validate_source_samples(
                 )
             )
             continue
+        if _output_observer is not None:
+            try:
+                _output_observer(index, outputs, feeds, digest, target)
+            except Exception as exc:
+                sample_checks.extend(
+                    (
+                        PrecisionCheck(
+                            "output-observation", CheckStatus.FAILED, str(exc)
+                        ),
+                        PrecisionCheck(
+                            "numerical-acceptance",
+                            CheckStatus.UNVERIFIED,
+                            "Actual runtime outputs returned, but their observer failed.",
+                        ),
+                    )
+                )
+                evidence.append(
+                    SourceSampleEvidence(
+                        index,
+                        input_records,
+                        references,
+                        output_records,
+                        sample.criteria,
+                        tuple(sample_checks),
+                    )
+                )
+                continue
         if batch_boundaries is not None:
             try:
                 if len(outputs) != len(batch_boundaries[1]):

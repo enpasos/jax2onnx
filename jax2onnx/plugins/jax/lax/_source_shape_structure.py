@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/_source_shape_structure.py
 
-"""Finite SOURCE reshape/broadcast contracts over native-frozen geometry.
+"""Finite SOURCE reshape/broadcast/static Slice contracts over frozen geometry.
 
 Printed IR labels describe already-frozen native dimensions; they never grant
 symbolic authority. A foreign runtime shape origin remains unverified until a
@@ -11,14 +11,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import prod
-from typing import Final, TypeAlias
+from typing import Final, TypeAlias, cast
 
 import jax
 import numpy as np
 from numpy.typing import NDArray
 import onnx_ir as ir
 
-from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn, Literal, ShapedArray, Var
 from jax2onnx.converter.source_profile import _PLACEMENT_PARAMS
 from jax2onnx.converter.source_representation import (
     native_shape_contract,
@@ -54,6 +54,7 @@ _KNOWN_OPERATORS: Final = frozenset(
         "Mul",
         "Div",
         "Neg",
+        "Slice",
     }
 )
 
@@ -271,6 +272,178 @@ class _Checker:
 
 
 @dataclass(frozen=True)
+class _SliceRule:
+    source: TensorContract
+    output: TensorContract
+    starts: tuple[int, ...]
+    limits: tuple[int, ...]
+    axes: tuple[int, ...]
+    steps: tuple[int, ...]
+    literals: tuple[tuple[tuple[int, ...], LiteralOperand], ...]
+
+    def check(
+        self,
+        graph: ir.Graph,
+        inputs: tuple[RuleOperand, ...],
+        outputs: tuple[ir.Value, ...],
+        match_literal: LiteralMatcher,
+    ) -> tuple[ir.Node, ...]:
+        if len(inputs) != 1 or len(outputs) != 1:
+            raise StructureMismatch("slice-boundary-arity-differs")
+        checker = _Checker(graph, inputs[0], self.source, self.literals, match_literal)
+        result = checker.value(outputs[0], self.output.shape, self.output.dtype)
+        opset = graph.opset_imports.get("")
+        if type(opset) is not int or opset < 10:
+            raise StructureUnavailable("slice-opset-contract-unavailable")
+        producer = result.producer()
+        identity = (
+            self.starts == (0,) * len(self.axes)
+            and self.limits == self.source.shape
+            and self.steps == (1,) * len(self.axes)
+        )
+        if identity:
+            if isinstance(inputs[0], ir.Value) and result is inputs[0]:
+                return ()
+            if isinstance(inputs[0], LiteralOperand) and (
+                producer is None or producer.op_type == "Constant"
+            ):
+                match_literal(result, inputs[0])
+                return ()
+            if producer is not None and producer.op_type == "Identity":
+                node = checker.node(
+                    result, "Identity", 1, (), self.output.shape, self.output.dtype
+                )
+                checker.source(node.inputs[0])
+                return checker.finish()
+        if producer is None:
+            raise StructureUnavailable("slice-producer-unavailable")
+        arity = len(producer.inputs)
+        if arity not in (4, 5):
+            raise StructureMismatch("slice-input-arity-differs")
+        if arity == 4 and self.steps != (1,) * len(self.axes):
+            raise StructureMismatch("slice-stride-input-missing")
+        node = checker.node(
+            result, "Slice", arity, (), self.output.shape, self.output.dtype
+        )
+        checker.source(node.inputs[0])
+        for actual, vector in zip(
+            node.inputs[1:4], (self.starts, self.limits, self.axes), strict=True
+        ):
+            checker.integers(actual, vector)
+        if arity == 5:
+            checker.integers(node.inputs[4], self.steps)
+        return checker.finish()
+
+
+def _freeze_slice_structure_rule(
+    eqn: JaxprEqn,
+    inputs: tuple[TensorContract, ...],
+    outputs: tuple[TensorContract, ...],
+) -> _SliceRule | None:
+    if (
+        type(eqn) is not JaxprEqn
+        or eqn.primitive is not jax.lax.slice_p
+        or eqn.effects
+        or type(eqn.params) is not dict
+        or set(eqn.params) != {"start_indices", "limit_indices", "strides"}
+        or len(eqn.invars) != 1
+        or len(inputs) != 1
+        or len(eqn.outvars) != 1
+        or len(outputs) != 1
+    ):
+        return None
+    source, output = inputs[0], outputs[0]
+    dtypes = {
+        "bool",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float32",
+        "float64",
+    }
+    maximum = np.iinfo(np.int64).max
+    for var, value in zip((*eqn.invars, *eqn.outvars), (source, output), strict=True):
+        if type(var) not in (Var, Literal):
+            return None
+        aval = var.aval
+        if type(aval) is not ShapedArray:
+            return None
+        if (
+            value.logical_dtype not in dtypes
+            or value.dtype != ir.DataType.from_numpy(np.dtype(value.logical_dtype))
+            or value.encoding != "identity"
+            or value.shape != value.logical_shape
+            or value.symbol_token is not None
+            or value.symbol_axis is not None
+            or value.logical_symbol_axis is not None
+            or type(value.weak_type) is not bool
+            or any(
+                type(dim) is not int or not 0 <= dim <= maximum for dim in value.shape
+            )
+            or not isinstance(aval.dtype, np.dtype)
+            or aval.dtype.name != value.logical_dtype
+            or tuple(aval.shape) != value.shape
+            or aval.weak_type != value.weak_type
+        ):
+            return None
+    if (
+        source.logical_dtype != output.logical_dtype
+        or source.weak_type != output.weak_type
+    ):
+        return None
+    rank = len(source.shape)
+    vectors = [
+        eqn.params["start_indices"],
+        eqn.params["limit_indices"],
+        eqn.params["strides"],
+    ]
+    if vectors[2] is None:
+        vectors[2] = (1,) * rank
+    if any(
+        type(vector) is not tuple
+        or len(vector) != rank
+        or any(
+            not isinstance(word, (int, np.integer))
+            or isinstance(word, (bool, np.bool_))
+            or not 0 <= word <= maximum
+            for word in vector
+        )
+        for vector in vectors
+    ):
+        return None
+    starts, limits, steps = (tuple(int(word) for word in vector) for vector in vectors)
+    static_shape = tuple(int(dim) for dim in source.shape)
+    if any(
+        not 0 <= start <= limit <= dim or step <= 0
+        for start, limit, step, dim in zip(
+            starts, limits, steps, static_shape, strict=True
+        )
+    ):
+        return None
+    expected = tuple(
+        (limit - start + step - 1) // step
+        for start, limit, step in zip(starts, limits, steps, strict=True)
+    )
+    if output.shape != expected:
+        return None
+    axes = tuple(range(rank))
+    return _SliceRule(
+        source,
+        output,
+        starts,
+        limits,
+        axes,
+        steps,
+        tuple((v, _literal(v)) for v in sorted({starts, limits, axes, steps})),
+    )
+
+
+@dataclass(frozen=True)
 class _ShapeRule:
     source: TensorContract
     output: TensorContract
@@ -332,7 +505,12 @@ class _ShapeRule:
                 checker.source(transpose.inputs[0])
                 return checker.finish()
             reshape = checker.node(
-                result, "Reshape", 2, (), self.output.shape, self.output.dtype
+                result,
+                "Reshape",
+                2,
+                (("allowzero", 1),) if 0 in self.output.shape else (),
+                self.output.shape,
+                self.output.dtype,
             )
             checker.vector(reshape.inputs[1], self.output.shape)
             current = reshape.inputs[0]
@@ -382,7 +560,12 @@ class _ShapeRule:
                         checker.gaps.add("shape-broadcast-normalization-unavailable")
                 else:
                     reshape = checker.node(
-                        current, "Reshape", 2, (), tuple(aligned), self.source.dtype
+                        current,
+                        "Reshape",
+                        2,
+                        (("allowzero", 1),) if 0 in aligned else (),
+                        tuple(aligned),
+                        self.source.dtype,
                     )
                     checker.vector(reshape.inputs[1], tuple(aligned))
                     current = reshape.inputs[0]
@@ -395,6 +578,10 @@ def freeze_shape_structure_rule(
     inputs: tuple[TensorContract, ...],
     outputs: tuple[TensorContract, ...],
 ) -> EquationRule | None:
+    if type(eqn) is not JaxprEqn:
+        return None
+    if eqn.primitive is jax.lax.slice_p:
+        return _freeze_slice_structure_rule(eqn, inputs, outputs)
     reshape = eqn.primitive is jax.lax.reshape_p
     if (
         not reshape
@@ -417,16 +604,58 @@ def freeze_shape_structure_rule(
     ):
         return None
     source, output = inputs[0], outputs[0]
-    if (
+    discrete = {
+        "bool",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+    }
+    static_discrete = all(
+        value.logical_dtype in discrete
+        and value.dtype == ir.DataType.from_numpy(np.dtype(value.logical_dtype))
+        and value.encoding == "identity"
+        and value.shape == value.logical_shape
+        and value.symbol_token is None
+        and value.symbol_axis is None
+        and value.logical_symbol_axis is None
+        and type(value.weak_type) is bool
+        and all(type(dim) is int and 0 <= dim <= 2**63 - 1 for dim in value.shape)
+        # The preceding exact-int guard proves this tuple without coercion.
+        and prod(cast(tuple[int, ...], value.shape)) <= 2**63 - 1
+        for value in (source, output)
+    )
+    if static_discrete:
+        for var, value in zip(
+            (*eqn.invars, *eqn.outvars), (source, output), strict=True
+        ):
+            if (
+                type(var) not in {Var, Literal}
+                or type(var.aval) is not ShapedArray
+                or type(var.aval.weak_type) is not bool
+                or not isinstance(var.aval.dtype, np.dtype)
+                or var.aval.dtype.name != value.logical_dtype
+                or tuple(var.aval.shape) != value.shape
+                or var.aval.weak_type != value.weak_type
+            ):
+                return None
+    elif (
         any(
             value.encoding != "identity" or value.dtype not in _FLOATS
             for value in (source, output)
         )
-        or source.dtype != output.dtype
-        or source.logical_dtype != output.logical_dtype
-        or source.weak_type != output.weak_type
         or 0 in source.shape
         or 0 in output.shape
+    ):
+        return None
+    if (
+        source.dtype != output.dtype
+        or source.logical_dtype != output.logical_dtype
+        or source.weak_type != output.weak_type
         or any(
             type(dim) is int and dim > np.iinfo(np.int64).max
             for value in (source, output)
@@ -435,7 +664,11 @@ def freeze_shape_structure_rule(
     ):
         return None
     declared = eqn.params["new_sizes" if reshape else "shape"]
-    if not isinstance(declared, tuple):
+    if (
+        not isinstance(declared, tuple)
+        or static_discrete
+        and any(type(dim) is not int or not 0 <= dim <= 2**63 - 1 for dim in declared)
+    ):
         return None
     try:
         native = (
@@ -491,7 +724,7 @@ def freeze_shape_structure_rule(
     else:
         raw = eqn.params["broadcast_dimensions"]
         if (
-            not output.shape
+            (not output.shape and not static_discrete)
             or not isinstance(raw, tuple)
             or len(raw) != len(source.shape)
             or any(

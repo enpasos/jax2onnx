@@ -1955,6 +1955,8 @@ def _shapes_match_exact(
 
 
 def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
+    from .source_structure import _VALUES
+
     nodes = list(graph)
     if not nodes:
         return
@@ -1990,6 +1992,10 @@ def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
             dst_val = outs[0]
             dst_dims = _value_dims(dst_val)
             if dst_dims is not None and not _shapes_match_exact(dst_dims, target_dims):
+                continue
+            # Removing this original SOURCE result would lose its witness.
+            # Presence is conservative even when the marker itself is malformed.
+            if _VALUES in dst_val.meta:
                 continue
             ir.convenience.replace_all_uses_with(
                 dst_val, data_val, replace_graph_outputs=True

@@ -1324,15 +1324,1486 @@ def source_metadata_pytest_statuses(
     return result
 
 
+def _source_compact_trace_manifest(value: Any) -> Any:
+    """The existing replay projection, shared with its retained-evidence reader."""
+    if isinstance(value, dict):
+        payload = value.pop("bytes_hex", None)
+        if payload is not None:
+            value["payload_sha256"] = hashlib.sha256(bytes.fromhex(payload)).hexdigest()
+        for key in tuple(value):
+            if key in {"literal", "const_payloads"}:
+                payload = json.dumps(
+                    value[key], sort_keys=True, separators=(",", ":")
+                ).encode()
+                value[key] = {
+                    "canonical_payload": {
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                        "bytes": len(payload),
+                    }
+                }
+                del payload
+            else:
+                value[key] = _source_compact_trace_manifest(value[key])
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            value[index] = _source_compact_trace_manifest(item)
+    elif isinstance(value, tuple):
+        return [_source_compact_trace_manifest(item) for item in value]
+    return value
+
+
+def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
+    """Replay the closed discrete source/IR relation, including owned storage.
+
+    This remains a finite proof: bitwise expressions, discrete casts, reviewed
+    static data movement and pure plain-JIT bodies. Every final node/value and
+    initializer must be reached and semantically matched, including shape data.
+    """
+    import math
+    import numpy as np
+    import onnx
+
+    types = {
+        name: onnx.helper.np_dtype_to_tensor_dtype(np.dtype(name))
+        for name in (
+            "bool",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        )
+    }
+    limit = 2**63 - 1
+    expressions: list[dict[str, Any]] = []
+    source_scopes = []
+    source_equations = 0
+    source_storage = []
+
+    def aval(value: Any) -> bool:
+        return (
+            type(value) in (list, tuple)
+            and len(value) == 3
+            and type(value[0]) is str
+            and value[0] in types
+            and type(value[1]) in (list, tuple)
+            and all(type(x) is int and 0 <= x <= limit for x in value[1])
+            and math.prod(value[1]) <= limit
+            and type(value[2]) is bool
+        )
+
+    def add(operation: str, tensor: Any, args: list[int], params: Any) -> int:
+        if not aval(tensor):
+            raise ValueError("non-discrete-source-tensor")
+        index = len(expressions)
+        expressions.append(
+            {"operation": operation, "aval": tensor, "args": args, "params": params}
+        )
+        return index
+
+    def constant(payload: Any, tensor: Any, role: str) -> int:
+        if not aval(tensor):
+            raise ValueError("non-discrete-source-constant")
+        dtype, shape, _ = tensor
+        if type(payload) is dict and "array_dtype" in payload:
+            if payload["array_dtype"] != dtype or payload.get("shape") != list(shape):
+                raise ValueError("source-constant-type-differs")
+            digest = payload.get("sha256")
+            if type(digest) is not str or len(digest) != 64:
+                raise ValueError("source-constant-storage-unavailable")
+        else:
+            if type(payload) is dict:
+                if set(payload) != {"scalar_dtype", "dtype_str", "bytes_hex"} or shape:
+                    raise ValueError("source-literal-storage-unavailable")
+                if (
+                    payload["scalar_dtype"] != dtype
+                    or payload["dtype_str"] != np.dtype(dtype).str
+                ):
+                    raise ValueError("source-literal-type-differs")
+                raw = bytes.fromhex(payload["bytes_hex"])
+                if len(raw) != np.dtype(dtype).itemsize:
+                    raise ValueError("source-literal-size-differs")
+            else:
+                if type(payload) not in (bool, int) or shape:
+                    raise ValueError("source-literal-kind-unavailable")
+                raw = np.asarray(payload, dtype=np.dtype(dtype)).tobytes()
+            digest = hashlib.sha256(raw).hexdigest()
+        descriptor = {
+            "dtype": np.dtype(dtype).str,
+            "shape": list(shape),
+            "byte_count": math.prod(shape) * np.dtype(dtype).itemsize,
+            "sha256": digest,
+        }
+        source_storage.append(
+            {
+                "role": role,
+                "logical_dtype": dtype,
+                "weak_type": tensor[2],
+                "logical": descriptor,
+                "physical": descriptor,
+                "encoding": "identity",
+            }
+        )
+        return add("constant", tensor, [], digest)
+
+    def body(
+        value: Any, arguments: list[int], scope: str, ancestors: frozenset[int]
+    ) -> list[int]:
+        nonlocal source_equations
+        if (
+            type(value) is not dict
+            or id(value) in ancestors
+            or len(ancestors) >= 32
+            or set(value)
+            != {
+                "inputs",
+                "outputs",
+                "consts",
+                "const_payloads",
+                "equations",
+                "effects",
+                "unresolved_parameters",
+            }
+            or any(type(value[k]) is not list for k in value)
+            or value["effects"]
+            or value["unresolved_parameters"]
+            or len(arguments) != len(value["inputs"])
+            or len(value["consts"]) != len(value["const_payloads"])
+        ):
+            raise ValueError("source-scope-unavailable")
+        ancestors = ancestors | {id(value)}
+        mapping = {}
+        for i, (tensor, payload) in enumerate(
+            zip(value["consts"], value["const_payloads"], strict=True)
+        ):
+            mapping[i] = constant(payload, tensor, scope + f"constant:{i}")
+        for i, (tensor, expr) in enumerate(
+            zip(value["inputs"], arguments, strict=True), len(mapping)
+        ):
+            if not aval(tensor) or expressions[expr]["aval"] != tensor:
+                raise ValueError("source-child-input-differs")
+            mapping[i] = expr
+
+        def port(item: Any, role: str) -> int:
+            if type(item) is not dict or not aval(item.get("aval")):
+                raise ValueError("source-port-unavailable")
+            if set(item) == {"literal", "aval"}:
+                return constant(item["literal"], item["aval"], scope + role)
+            if (
+                set(item) != {"var", "aval"}
+                or type(item["var"]) is not int
+                or item["var"] not in mapping
+            ):
+                raise ValueError("source-var-unbound")
+            expr = mapping[item["var"]]
+            if expressions[expr]["aval"] != item["aval"]:
+                raise ValueError("source-port-type-differs")
+            return expr
+
+        count = 0
+        for ordinal, equation in enumerate(value["equations"]):
+            if (
+                type(equation) is not dict
+                or set(equation)
+                != {"primitive", "inputs", "outputs", "params", "effects"}
+                or type(equation["params"]) is not dict
+                or equation["effects"]
+                or type(equation["inputs"]) is not list
+                or type(equation["outputs"]) is not list
+            ):
+                raise ValueError("source-equation-unavailable")
+            name, params = equation["primitive"], equation["params"]
+            args = [
+                port(item, f"equation:{ordinal}:input:{i}")
+                for i, item in enumerate(equation["inputs"])
+            ]
+            outs = equation["outputs"]
+            source_equations += 1
+            count += 1
+            if name == "jit":
+                fields = {
+                    "jaxpr",
+                    "in_shardings",
+                    "out_shardings",
+                    "in_layouts",
+                    "out_layouts",
+                    "donated_invars",
+                    "ctx_mesh",
+                    "name",
+                    "keep_unused",
+                    "inline",
+                    "compiler_options_kvs",
+                }
+                if (
+                    set(params) != fields
+                    or type(params["name"]) is not str
+                    or type(params["keep_unused"]) is not bool
+                ):
+                    raise ValueError("source-jit-schema-differs")
+                for side, arity in (("in", len(args)), ("out", len(outs))):
+                    if (
+                        params[side + "_shardings"]
+                        != [{"placement": "unspecified"}] * arity
+                        or params[side + "_layouts"] != [None] * arity
+                    ):
+                        raise ValueError("source-jit-placement-unavailable")
+                inline = params["inline"]
+                if not (
+                    type(inline) is bool
+                    or inline
+                    in (
+                        {"enum": "jax._src.api.Inline", "name": "AUTO"},
+                        {"enum": "jax._src.api.Inline", "name": "JAX_LATE"},
+                    )
+                ):
+                    raise ValueError("source-jit-inline-unavailable")
+                mesh = params["ctx_mesh"]
+                if (
+                    params["donated_invars"] != [False] * len(args)
+                    or params["compiler_options_kvs"] != []
+                    or type(mesh) is not dict
+                    or set(mesh)
+                    != {"mesh_type", "axis_names", "axis_sizes", "axis_types"}
+                    or mesh["mesh_type"]
+                    not in {"jax._src.mesh.Mesh", "jax._src.mesh.AbstractMesh"}
+                    or mesh["axis_names"] != []
+                    or mesh["axis_sizes"] != {}
+                    or mesh["axis_types"] not in (None, [])
+                ):
+                    raise ValueError("source-jit-metadata-unavailable")
+                results = body(
+                    params["jaxpr"], args, scope + f"equation:{ordinal}:jit/", ancestors
+                )
+                if len(results) != len(outs):
+                    raise ValueError("source-jit-output-arity-differs")
+            else:
+                if len(outs) != 1 or not aval(outs[0].get("aval")):
+                    raise ValueError("source-output-unavailable")
+                tensor = outs[0]["aval"]
+                operands = [expressions[i]["aval"] for i in args]
+                if name in {"and", "or", "xor", "not"}:
+                    if (
+                        params
+                        or len(args) != (1 if name == "not" else 2)
+                        or any(x[0] != tensor[0] for x in operands)
+                    ):
+                        raise ValueError("source-bitwise-contract-differs")
+                    ranks = {len(x[1]) for x in operands if x[1]}
+                    rank = max(ranks, default=0)
+                    shape = []
+                    for axis in range(rank):
+                        extents = {
+                            x[1][axis] for x in operands if x[1] and x[1][axis] != 1
+                        }
+                        if len(extents) > 1:
+                            raise ValueError("source-broadcast-differs")
+                        shape.append(next(iter(extents), 1))
+                    if (
+                        len(ranks) > 1
+                        or shape != list(tensor[1])
+                        or tensor[2] != all(x[2] for x in operands)
+                    ):
+                        raise ValueError("source-bitwise-shape-or-weakness-differs")
+                elif name == "convert_element_type":
+                    if (
+                        len(args) != 1
+                        or set(params)
+                        not in (
+                            {"new_dtype", "weak_type"},
+                            {"new_dtype", "weak_type", "sharding"},
+                        )
+                        or params.get("sharding") is not None
+                        or params["new_dtype"] != {"dtype": tensor[0]}
+                        or type(params["weak_type"]) is not bool
+                        or params["weak_type"] != tensor[2]
+                        or operands[0][1] != tensor[1]
+                    ):
+                        raise ValueError("source-discrete-cast-differs")
+                elif name in {
+                    "reshape",
+                    "broadcast_in_dim",
+                    "transpose",
+                    "slice",
+                    "stop_gradient",
+                }:
+                    if (
+                        len(args) != 1
+                        or operands[0][0] != tensor[0]
+                        or operands[0][2] != tensor[2]
+                    ):
+                        raise ValueError("source-shape-type-differs")
+                    source_shape, target_shape = list(operands[0][1]), list(tensor[1])
+                    if name == "reshape":
+                        if (
+                            set(params)
+                            - {"new_sizes", "dimensions", "sharding", "out_sharding"}
+                            or params.get("sharding") is not None
+                            or params.get("out_sharding") is not None
+                        ):
+                            raise ValueError("source-reshape-placement-unavailable")
+                        permutation = params.get("dimensions")
+                        if (
+                            params.get("new_sizes") != target_shape
+                            or math.prod(source_shape) != math.prod(target_shape)
+                            or permutation is not None
+                            and (
+                                type(permutation) is not list
+                                or any(type(x) is not int for x in permutation)
+                                or sorted(permutation) != list(range(len(source_shape)))
+                            )
+                        ):
+                            raise ValueError("source-reshape-geometry-differs")
+                    elif name == "broadcast_in_dim":
+                        dimensions = params.get("broadcast_dimensions")
+                        if (
+                            set(params)
+                            - {
+                                "shape",
+                                "broadcast_dimensions",
+                                "sharding",
+                                "out_sharding",
+                            }
+                            or params.get("sharding") is not None
+                            or params.get("out_sharding") is not None
+                            or params.get("shape") != target_shape
+                            or type(dimensions) is not list
+                            or len(dimensions) != len(source_shape)
+                            or any(
+                                type(x) is not int or not 0 <= x < len(target_shape)
+                                for x in dimensions
+                            )
+                            or sorted(set(dimensions)) != dimensions
+                            or any(
+                                size not in (1, target_shape[axis])
+                                for size, axis in zip(
+                                    source_shape, dimensions, strict=True
+                                )
+                            )
+                        ):
+                            raise ValueError("source-broadcast-geometry-differs")
+                    elif name == "transpose":
+                        permutation = params.get("permutation")
+                        if (
+                            set(params) != {"permutation"}
+                            or type(permutation) is not list
+                            or any(type(x) is not int for x in permutation)
+                            or sorted(permutation) != list(range(len(source_shape)))
+                            or [source_shape[x] for x in permutation] != target_shape
+                        ):
+                            raise ValueError("source-transpose-geometry-differs")
+                    elif name == "slice":
+                        if set(params) != {"start_indices", "limit_indices", "strides"}:
+                            raise ValueError("source-slice-schema-differs")
+                        starts, ends = params["start_indices"], params["limit_indices"]
+                        steps = (
+                            params["strides"]
+                            if params["strides"] is not None
+                            else [1] * len(source_shape)
+                        )
+                        if (
+                            any(
+                                type(x) is not list or len(x) != len(source_shape)
+                                for x in (starts, ends, steps)
+                            )
+                            or any(
+                                type(x) is not int or not 0 <= x <= limit
+                                for x in (*starts, *ends, *steps)
+                            )
+                            or any(
+                                not (0 <= a <= b <= size and step > 0)
+                                for a, b, size, step in zip(
+                                    starts, ends, source_shape, steps, strict=True
+                                )
+                            )
+                            or [
+                                (b - a + step - 1) // step
+                                for a, b, step in zip(starts, ends, steps, strict=True)
+                            ]
+                            != target_shape
+                        ):
+                            raise ValueError("source-slice-geometry-differs")
+                    elif params or source_shape != target_shape:
+                        raise ValueError("source-identity-differs")
+                else:
+                    raise ValueError("source-operation-unavailable")
+                results = [add(name, tensor, args, params)]
+            for item, expr in zip(outs, results, strict=True):
+                if (
+                    type(item) is not dict
+                    or set(item) != {"var", "aval"}
+                    or type(item["var"]) is not int
+                    or item["var"] != len(mapping)
+                    or item["aval"] != expressions[expr]["aval"]
+                ):
+                    raise ValueError("source-result-port-differs")
+                mapping[item["var"]] = expr
+        results = [port(item, f"output:{i}") for i, item in enumerate(value["outputs"])]
+        # Every source equation must contribute to a returned result, even if IR
+        # contains a matching dead expression.
+        live = {item["var"] for item in value["outputs"] if "var" in item}
+        for equation in reversed(value["equations"]):
+            if not any(item.get("var") in live for item in equation["outputs"]):
+                raise ValueError("dead-source-equation")
+            live.update(item["var"] for item in equation["inputs"] if "var" in item)
+        if any(i not in live for i in range(len(value["consts"]))):
+            raise ValueError("unused-source-constant")
+        source_scopes.append({"scope": scope, "equations": count})
+        return results
+
+    try:
+        if type(manifest) is not dict or type(model) is not onnx.ModelProto:
+            return None
+        if (
+            model.functions
+            or model.training_info
+            or any(item.domain for item in model.opset_import)
+        ):
+            return None
+        arguments = [
+            add("input", tensor, [], i) for i, tensor in enumerate(manifest["inputs"])
+        ]
+        results = body(manifest, arguments, "", frozenset())
+        if not source_equations:
+            return None
+        graph = model.graph
+        if (
+            graph.sparse_initializer
+            or graph.quantization_annotation
+            or len(graph.input) != len(arguments)
+            or len(graph.output) != len(results)
+        ):
+            return None
+        values = {}
+        for value in (*graph.input, *graph.value_info, *graph.output):
+            if not value.name or value.type.WhichOneof("value") != "tensor_type":
+                return None
+            tensor = value.type.tensor_type
+            if (
+                tensor.elem_type not in types.values()
+                or not tensor.HasField("shape")
+                or any(
+                    not x.HasField("dim_value") or x.dim_value < 0
+                    for x in tensor.shape.dim
+                )
+            ):
+                return None
+            descriptor = (
+                tensor.elem_type,
+                tuple(x.dim_value for x in tensor.shape.dim),
+            )
+            if value.name in values and values[value.name] != descriptor:
+                return None
+            values[value.name] = descriptor
+        initializers = {}
+        producers = {}
+        for value in graph.initializer:
+            if (
+                not value.name
+                or value.name in initializers
+                or value.data_location != onnx.TensorProto.DEFAULT
+                or value.external_data
+                or value.data_type not in types.values()
+            ):
+                return None
+            initializers[value.name] = value
+            descriptor = (value.data_type, tuple(value.dims))
+            if value.name in values and values[value.name] != descriptor:
+                return None
+            values[value.name] = descriptor
+        input_names = [value.name for value in graph.input]
+        if len(set(input_names)) != len(input_names) or set(input_names) & set(
+            initializers
+        ):
+            return None
+        for index, node in enumerate(graph.node):
+            if (
+                node.domain
+                or node.overload
+                or len(node.output) != 1
+                or not node.output[0]
+                or node.output[0] in {*input_names, *initializers, *producers}
+            ):
+                return None
+            producers[node.output[0]] = (index, node)
+        declared = set(input_names) | set(initializers) | set(producers)
+        if set(values) != declared:
+            return None
+        used_nodes: set[int] = set()
+        used_constants: set[str] = set()
+        active: set[str] = set()
+
+        def typed(name: str, tensor: Any) -> bool:
+            return aval(tensor) and values.get(name) == (
+                types[tensor[0]],
+                tuple(tensor[1]),
+            )
+
+        def node(name: str, operation: str, arity: int, attrs: dict[str, Any]) -> Any:
+            index, current = producers[name]
+            if (
+                current.op_type != operation
+                or len(current.input) != arity
+                or any(not x for x in current.input)
+            ):
+                raise ValueError("final-node-form-differs")
+            attributes = {
+                x.name: onnx.helper.get_attribute_value(x) for x in current.attribute
+            }
+            if len(attributes) != len(current.attribute) or attributes != attrs:
+                raise ValueError("final-node-attributes-differ")
+            used_nodes.add(index)
+            return current
+
+        def storage(name: str) -> Any:
+            if name in initializers:
+                value = initializers[name]
+            else:
+                index, current = producers[name]
+                if (
+                    current.op_type != "Constant"
+                    or current.input
+                    or len(current.attribute) != 1
+                    or current.attribute[0].name != "value"
+                    or current.attribute[0].type != onnx.AttributeProto.TENSOR
+                ):
+                    raise ValueError("unowned-final-constant")
+                used_nodes.add(index)
+                value = current.attribute[0].t
+                if (
+                    value.external_data
+                    or value.data_location != onnx.TensorProto.DEFAULT
+                ):
+                    raise ValueError("external-final-constant")
+            if value.data_type not in types.values() or (
+                value.data_type,
+                tuple(value.dims),
+            ) != values.get(name):
+                raise ValueError("final-constant-type-differs")
+            array = onnx.numpy_helper.to_array(value)
+            used_constants.add(name)
+            return array
+
+        def vector(name: str, expected: list[int]) -> None:
+            if name in producers and producers[name][1].op_type == "Concat":
+                if not expected or values.get(name) != (
+                    types["int64"],
+                    (len(expected),),
+                ):
+                    raise ValueError("final-shape-concat-type-differs")
+                concat = node(name, "Concat", len(expected), {"axis": 0})
+                if concat.attribute[0].type != onnx.AttributeProto.INT:
+                    raise ValueError("final-shape-concat-axis-type-differs")
+                for edge, word in zip(concat.input, expected, strict=True):
+                    piece = storage(edge)
+                    if (
+                        piece.dtype != np.dtype("int64")
+                        or piece.shape != (1,)
+                        or piece.tolist() != [word]
+                    ):
+                        raise ValueError("final-shape-concat-piece-differs")
+                return
+            array = storage(name)
+            if (
+                array.dtype != np.dtype("int64")
+                or list(array.shape) != [len(expected)]
+                or array.tolist() != expected
+            ):
+                raise ValueError("final-shape-constant-differs")
+
+        def match(expr: int, name: str) -> None:
+            if name in active:
+                raise ValueError("cyclic-final-graph")
+            expected = expressions[expr]
+            tensor = expected["aval"]
+            operation = expected["operation"]
+            if not typed(name, tensor):
+                raise ValueError("final-source-type-differs")
+            if operation == "input":
+                if name != input_names[expected["params"]]:
+                    raise ValueError("final-original-input-edge-differs")
+                return
+            if operation == "constant":
+                if (
+                    hashlib.sha256(storage(name).tobytes(order="C")).hexdigest()
+                    != expected["params"]
+                ):
+                    raise ValueError("final-source-constant-words-differ")
+                return
+            active.add(name)
+            args, params = expected["args"], expected["params"]
+            if operation in {"and", "or", "xor", "not"}:
+                operations = {
+                    "and": ("And", "BitwiseAnd"),
+                    "or": ("Or", "BitwiseOr"),
+                    "xor": ("Xor", "BitwiseXor"),
+                    "not": ("Not", "BitwiseNot"),
+                }
+                current = node(
+                    name, operations[operation][tensor[0] != "bool"], len(args), {}
+                )
+                for child, edge in zip(args, current.input, strict=True):
+                    match(child, edge)
+            else:
+                source = expressions[args[0]]["aval"]
+                identity = (
+                    operation == "stop_gradient"
+                    or operation == "convert_element_type"
+                    and source[0] == tensor[0]
+                )
+                if operation == "reshape":
+                    identity = source[1] == tensor[1] and params.get("dimensions") in (
+                        None,
+                        list(range(len(source[1]))),
+                    )
+                if operation == "broadcast_in_dim":
+                    identity = source[1] == tensor[1] and params[
+                        "broadcast_dimensions"
+                    ] == list(range(len(source[1])))
+                if operation == "slice":
+                    identity = (
+                        params["start_indices"] == [0] * len(source[1])
+                        and params["limit_indices"] == list(source[1])
+                        and (
+                            params["strides"] is None
+                            or params["strides"] == [1] * len(source[1])
+                        )
+                    )
+                if operation == "transpose":
+                    identity = params["permutation"] == list(range(len(source[1])))
+                if identity:
+                    if name in producers and producers[name][1].op_type == "Identity":
+                        current = node(name, "Identity", 1, {})
+                        match(args[0], current.input[0])
+                    else:
+                        # Distinct expression identity, so allow the same actual
+                        # value without treating its name as a cycle.
+                        active.remove(name)
+                        match(args[0], name)
+                        return
+                elif operation == "convert_element_type":
+                    current = node(name, "Cast", 1, {"to": types[tensor[0]]})
+                    match(args[0], current.input[0])
+                elif operation == "transpose":
+                    current = node(
+                        name, "Transpose", 1, {"perm": params["permutation"]}
+                    )
+                    match(args[0], current.input[0])
+                elif operation == "reshape":
+                    permutation = params["dimensions"]
+                    if (
+                        permutation is not None
+                        and [source[1][i] for i in permutation] == list(tensor[1])
+                        and producers[name][1].op_type == "Transpose"
+                    ):
+                        current = node(name, "Transpose", 1, {"perm": permutation})
+                        match(args[0], current.input[0])
+                    else:
+                        current = node(
+                            name,
+                            "Reshape",
+                            2,
+                            {"allowzero": 1} if 0 in tensor[1] else {},
+                        )
+                        vector(current.input[1], list(tensor[1]))
+                        edge = current.input[0]
+                        if permutation is not None and permutation != list(
+                            range(len(source[1]))
+                        ):
+                            if values[edge] != (
+                                types[source[0]],
+                                tuple(source[1][i] for i in permutation),
+                            ):
+                                raise ValueError(
+                                    "final-transpose-intermediate-type-differs"
+                                )
+                            transposed = node(
+                                edge, "Transpose", 1, {"perm": permutation}
+                            )
+                            edge = transposed.input[0]
+                        match(args[0], edge)
+                elif operation == "broadcast_in_dim":
+                    current = node(name, "Expand", 2, {})
+                    vector(current.input[1], list(tensor[1]))
+                    edge = current.input[0]
+                    dimensions = params["broadcast_dimensions"]
+                    if source[1] and len(source[1]) != len(tensor[1]):
+                        aligned = [1] * len(tensor[1])
+                        for size, destination in zip(
+                            source[1], dimensions, strict=True
+                        ):
+                            aligned[destination] = size
+                        if (
+                            edge in producers
+                            and producers[edge][1].op_type == "Reshape"
+                        ):
+                            if values[edge] != (types[source[0]], tuple(aligned)):
+                                raise ValueError(
+                                    "final-broadcast-intermediate-type-differs"
+                                )
+                            reshaped = node(
+                                edge,
+                                "Reshape",
+                                2,
+                                {"allowzero": 1} if 0 in aligned else {},
+                            )
+                            vector(reshaped.input[1], aligned)
+                            edge = reshaped.input[0]
+                        elif dimensions != list(
+                            range(len(tensor[1]) - len(source[1]), len(tensor[1]))
+                        ):
+                            raise ValueError("final-broadcast-axis-differs")
+                    match(args[0], edge)
+                elif operation == "slice":
+                    current = producers[name][1]
+                    arity = len(current.input)
+                    if arity not in (4, 5):
+                        raise ValueError("final-slice-arity-differs")
+                    current = node(name, "Slice", arity, {})
+                    steps = params["strides"] or [1] * len(source[1])
+                    for edge, expected_vector in zip(
+                        current.input[1:4],
+                        (
+                            params["start_indices"],
+                            params["limit_indices"],
+                            list(range(len(source[1]))),
+                        ),
+                        strict=True,
+                    ):
+                        vector(edge, expected_vector)
+                    if arity == 5:
+                        vector(current.input[4], steps)
+                    elif any(x != 1 for x in steps):
+                        raise ValueError("final-slice-steps-missing")
+                    match(args[0], current.input[0])
+                else:
+                    raise ValueError("final-operation-unavailable")
+            active.remove(name)
+
+        for expr, value in zip(arguments, graph.input, strict=True):
+            if not typed(value.name, expressions[expr]["aval"]):
+                return None
+        for expr, value in zip(results, graph.output, strict=True):
+            match(expr, value.name)
+        if (
+            used_nodes != set(range(len(graph.node)))
+            or set(initializers) - used_constants
+        ):
+            return None
+        return {
+            "source_trace_sha256": _contract_hash(manifest),
+            "source_values": [[i, x["aval"]] for i, x in enumerate(expressions)],
+            "source_equation_count": source_equations,
+            "source_scopes": source_scopes,
+            "source_storage": source_storage,
+            "ir_nodes": [
+                {"op": x.op_type, "inputs": list(x.input), "outputs": list(x.output)}
+                for x in graph.node
+            ],
+            "ir_values": [
+                [name, dtype, list(shape)]
+                for name, (dtype, shape) in sorted(values.items())
+            ],
+            "constant_count": len(used_constants),
+            "function_count": 0,
+        }
+    except (ValueError, TypeError, KeyError, IndexError, OverflowError, RecursionError):
+        return None
+
+
+def _source_metadata_protocol_checks(
+    row: Any,
+    evidence: Mapping[str, Any],
+    checks: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Project immutable producer facts, rejecting detached or stale bindings."""
+    capture = evidence.get("replay_capture") or {}
+    binding = capture.get("protocol_binding") or {}
+    if (
+        tuple(binding.get("cell_identity", ())) != tuple(evidence["cell_identity"])
+        or binding.get("row_contract_sha256") != evidence["row_contract_sha256"]
+        or binding.get("scenario_sha256") != evidence["scenario_sha256"]
+        or binding.get("row_contract_sha256") != row.contract_sha256
+    ):
+        raise ValueError("SOURCE scientific producer contract/scenario binding differs")
+    native = capture.get("native_protocol") or {}
+    if (
+        native.get("choice") != {"mode": "stateless-three-role-v1", "reviewed": True}
+        or type(native["choice"].get("reviewed")) is not bool
+        or native.get("contract_sha256") != row.contract_sha256
+    ):
+        raise ValueError(
+            "SOURCE scientific producer lacks the exact reviewed native protocol"
+        )
+    adapter_record = capture.get("adapter") or {}
+    adapter_payload = (
+        Path(adapter_record["path"]).read_bytes()
+        if adapter_record.get("status") == "captured"
+        else b""
+    )
+    if adapter_record.get("status") != "captured" or hashlib.sha256(
+        adapter_payload
+    ).hexdigest() != adapter_record.get("sha256"):
+        raise ValueError("Scientific adapter capture missing or changed")
+    adapter = json.loads(adapter_payload)
+    if (
+        adapter.get("contract_sha256") != row.contract_sha256
+        or adapter.get("native_protocol") != native["choice"]
+    ):
+        raise ValueError(
+            "Scientific adapter choice differs from captured source protocol"
+        )
+    expected_scenario = _contract_hash(
+        {
+            "identity": evidence["cell_identity"],
+            "contract": row.contract_sha256,
+            "adapter": adapter,
+            "criteria": asdict(row.criteria) if row.criteria else None,
+        }
+    )
+    if expected_scenario != evidence["scenario_sha256"]:
+        raise ValueError("Scientific adapter/criterion scenario digest differs")
+
+    def status(values: Sequence[str]) -> str:
+        if any(v not in {"validated", "unverified", "failed"} for v in values):
+            raise ValueError("Unknown scientific producer check status")
+        return (
+            "failed"
+            if "failed" in values
+            else (
+                "validated"
+                if values and all(v == "validated" for v in values)
+                else "unverified"
+            )
+        )
+
+    def captured(role: str) -> Mapping[str, Any] | None:
+        record = capture.get(role, {})
+        if record.get("status") != "captured":
+            return None
+        if (
+            hashlib.sha256(Path(record["path"]).read_bytes()).hexdigest()
+            != record["sha256"]
+        ):
+            raise ValueError("Retained scientific array capture bytes changed")
+        return record
+
+    resolution = capture.get("criteria_resolution") or {}
+    discrete_proof = False
+    if resolution.get("status") == "validated":
+        document = capture.get("criteria-resolution") or {}
+        if document.get("status") == "captured":
+            payload = Path(document["path"]).read_bytes()
+            if hashlib.sha256(payload).hexdigest() != document.get(
+                "sha256"
+            ) or _contract_hash(json.loads(payload)) != _contract_hash(resolution):
+                raise ValueError("Conditional discrete criterion document differs")
+            expected_choice = {"mode": "exact", "applicability": "all-logical-discrete"}
+            if (
+                row.criteria is not None
+                or adapter.get("criteria") != expected_choice
+                or resolution.get("choice") != expected_choice
+                or resolution.get("contract_sha256") != row.contract_sha256
+                or _contract_hash(resolution.get("protocol_binding"))
+                != _contract_hash(binding)
+                or resolution.get("adapter_sha256") != adapter_record.get("sha256")
+                or resolution.get("trace_role") != "declared-typed-trace"
+                or resolution.get("trace_sha256")
+                != capture.get("declared-typed-trace", {}).get("sha256")
+                or resolution.get("output_applicability")
+                != {
+                    "component_nan_masks": "not-applicable",
+                    "zero_signs": "not-applicable",
+                }
+            ):
+                raise ValueError(
+                    "Conditional discrete criterion source/adapter/applicability binding differs"
+                )
+            from jax2onnx.precision import SampleCriteria
+
+            if resolution.get("criteria") != asdict(SampleCriteria("exact")):
+                raise ValueError("Conditional criterion is not the existing exact rule")
+            trace = capture.get("declared-typed-trace", {})
+            trace_payload = Path(trace["path"]).read_bytes()
+            if trace.get("status") != "captured" or hashlib.sha256(
+                trace_payload
+            ).hexdigest() != trace.get("sha256"):
+                raise ValueError("Conditional criterion original typed trace differs")
+            manifest = json.loads(trace_payload)
+            names = {
+                "bool",
+                "int8",
+                "int16",
+                "int32",
+                "int64",
+                "uint8",
+                "uint16",
+                "uint32",
+                "uint64",
+            }
+            expected = []
+            for output in manifest.get("outputs", ()):
+                aval = output.get("aval", ())
+                if len(aval) != 3 or aval[0] not in names or type(aval[2]) is not bool:
+                    raise ValueError(
+                        "Conditional criterion trace is not exclusively logical discrete outputs"
+                    )
+                expected.append(
+                    {"dtype": aval[0], "shape": aval[1], "weak_type": aval[2]}
+                )
+            if not expected:
+                raise ValueError(
+                    "Zero logical output leaves cannot prove conditional criteria"
+                )
+            proof_samples = resolution.get("samples", ())
+            samples_by_label = native.get("samples", {})
+            labels = [item.get("label") for item in proof_samples]
+            if (
+                len(labels) != len(set(labels))
+                or set(labels) != set(samples_by_label)
+                or labels
+                != [""]
+                + [f"metadata-runtime-reference-{i}" for i in range(len(labels) - 1)]
+            ):
+                raise ValueError(
+                    "Conditional criterion original sample identities differ"
+                )
+            discrete_proof = bool(labels)
+            for proof in proof_samples:
+                sample = samples_by_label[proof["label"]]
+                roles = sample.get("roles", {})
+                if proof.get("trace_outputs") != expected or set(
+                    proof.get("roles", {})
+                ) != {"eager", "fresh-jit", "warm-jit"}:
+                    raise ValueError(
+                        "Conditional criterion logical proof arity/roles differ"
+                    )
+                for role in ("eager", "fresh-jit", "warm-jit"):
+                    actual_role = (
+                        proof["label"] + "-" if proof["label"] else ""
+                    ) + role
+                    actual = captured(actual_role)
+                    if actual is None or role not in roles:
+                        discrete_proof = False
+                        continue
+                    array_evidence = actual.get("array_evidence", ())
+                    if (
+                        actual.get("properties") != expected
+                        or len(array_evidence) != len(expected)
+                        or any(
+                            item.get("dtype") != prop["dtype"]
+                            or list(item.get("shape", ())) != prop["shape"]
+                            for item, prop in zip(array_evidence, expected, strict=True)
+                        )
+                        or proof["roles"][role]
+                        != {
+                            "capture_role": actual_role,
+                            "properties": expected,
+                            "capture_sha256": actual["sha256"],
+                        }
+                        or proof.get("tree") != roles[role].get("tree")
+                    ):
+                        raise ValueError(
+                            "Conditional criterion is detached from actual logical native captures"
+                        )
+            if discrete_proof:
+                runtime = capture.get("metadata_runtime") or {}
+                runtime_identities = runtime.get("sample_identities", ())
+                criterion_copies = [runtime.get("criteria")] + [
+                    identity.get("criteria") for identity in runtime_identities
+                ]
+                if any(
+                    value is not None and value != resolution["criteria"]
+                    for value in criterion_copies
+                ):
+                    raise ValueError(
+                        "Conditional criterion differs from actual runtime/sample criteria"
+                    )
+                # The existing per-mode/validator identity checks below carry
+                # this exact criterion binding to every actual sample report.
+                if not runtime_identities or any(
+                    value is None for value in criterion_copies
+                ):
+                    discrete_proof = False
+            if discrete_proof:
+                checks["reviewed_criteria"] = {
+                    "status": "validated",
+                    "detail": "Source-bound reviewed exact rule applies to all genuine logical Boolean/integer Native3 outputs",
+                }
+                checks["declared_criteria_pair"]["informational"] = "true"
+
+    categories = {
+        "dtype_shape_output_count",
+        "criteria_comparison",
+        "component_nan_masks",
+        "zero_signs",
+    }
+    native_values: list[str] = []
+    component_values: dict[str, list[str]] = {name: [] for name in categories}
+    samples = native.get("samples", {})
+    wrapper_ids = [
+        sample.get("wrapper_identity")
+        for sample in samples.values()
+        if sample.get("wrapper_identity") is not None
+    ]
+    if len(set(wrapper_ids)) != len(wrapper_ids):
+        raise ValueError(
+            "The same JIT wrapper was reused across distinct original samples"
+        )
+    trace_complete = True
+    for role in ("concrete-typed-trace", "declared-typed-trace"):
+        record = capture.get(role, {})
+        if record.get("status") != "captured":
+            trace_complete = False
+            continue
+        payload = Path(record["path"]).read_bytes()
+        if hashlib.sha256(payload).hexdigest() != record.get("sha256"):
+            raise ValueError("Original native typed trace capture changed")
+        if (
+            role == "declared-typed-trace"
+            and evidence.get("original_trace_sha256") is not None
+            and _contract_hash(json.loads(payload)) != evidence["original_trace_sha256"]
+        ):
+            raise ValueError(
+                "Original native trace differs from immutable stage evidence"
+            )
+    if not trace_complete:
+        native_values.append("unverified")
+    for label, sample in samples.items():
+        roles = sample.get("roles", {})
+        if set(roles) != {"eager", "fresh-jit", "warm-jit"}:
+            native_values.append("unverified")
+            continue
+        if any(
+            item.get("outcome", {}).get("status") == "raised" for item in roles.values()
+        ):
+            native_values.append("failed")
+            continue
+        if (
+            sample.get("wrapper_calls") != 2
+            or type(sample.get("wrapper_identity")) is not int
+        ):
+            native_values.append("unverified")
+            continue
+        roles_captured = []
+        for role, value in roles.items():
+            expected = (label + "-" if label else "") + role
+            if value.get("capture_role") != expected:
+                raise ValueError("Native role capture identity differs")
+            if role != "eager" and value.get("jit_wrapper_identity") != sample.get(
+                "wrapper_identity"
+            ):
+                raise ValueError("First/warm did not call the same sample wrapper")
+            if (
+                value.get("input_identity_before") != sample.get("input_identity")
+                or value.get("input_identity_after") != sample.get("input_identity")
+                or value.get("settings_before") != value.get("settings_after")
+            ):
+                raise ValueError("Native role input/settings binding differs")
+            roles_captured.append(captured(expected))
+        if any(item is None for item in roles_captured):
+            native_values.append("unverified")
+            continue
+        comparisons = sample.get("comparisons", ())
+        if len(comparisons) != 2 or {item["role"] for item in comparisons} != {
+            "fresh-jit",
+            "warm-jit",
+        }:
+            raise ValueError("Native comparison roles missing or duplicated")
+        for comparison in comparisons:
+            entries = comparison.get("checks", ())
+            if (
+                len(entries) != 4
+                or {item["category"] for item in entries} != categories
+            ):
+                native_values.append("unverified")
+                continue
+            values = []
+            for item in entries:
+                value = item["status"]
+                if (
+                    item["category"] in {"component_nan_masks", "zero_signs"}
+                    and comparison.get("applicability", {}).get(item["category"])
+                    == "not-applicable"
+                    and not discrete_proof
+                ):
+                    value = "unverified"
+                component_values[item["category"]].append(value)
+                values.append(value)
+            native_values.append(status(values))
+    checks["native_three_role_agreement"] = {
+        "status": status(native_values),
+        "detail": f"Retained original roles and two comparisons for {len(samples)} admitted samples",
+    }
+    for name in categories:
+        checks[name] = {
+            "status": status(component_values[name]),
+            "detail": "Actual retained native comparisons only; applicable counts remain in producer evidence",
+        }
+    runtime = capture.get("metadata_runtime") or {}
+    if not runtime:
+        return checks
+    modes = runtime.get("modes", {})
+    identities = runtime.get("sample_identities", ())
+    labels = runtime.get("native_sample_labels", ())
+    if identities:
+        if (
+            len(labels) != len(identities)
+            or len(set(labels)) != len(labels)
+            or set(labels) != set(samples)
+        ):
+            raise ValueError("Native/target sample identities missing or duplicated")
+        for label, identity in zip(labels, identities, strict=True):
+            physical = [
+                item.get("physical") for item in samples[label]["input_identity"]
+            ]
+            target_inputs = [
+                {key: value for key, value in item.items() if key != "name"}
+                for item in identity["inputs"]
+            ]
+            if _contract_hash(physical) != _contract_hash(target_inputs):
+                raise ValueError("Native and target sample physical feeds differ")
+    if runtime.get("contract_sha256") != row.contract_sha256:
+        raise ValueError("Runtime protocol contract binding differs")
+    if modes and (
+        runtime.get("artifact_sha256") != evidence.get("artifact_sha256")
+        or runtime.get("loaded_artifact_sha256") != evidence.get("artifact_sha256")
+    ):
+        raise ValueError("Runtime saved/loaded scientific artifact binding differs")
+    if set(modes) - {"disabled", "all"}:
+        raise ValueError("Unknown scientific target mode")
+    complete_array_bindings = True
+    expected_indices = set(range(len(identities)))
+    for mode, record in modes.items():
+        target = record.get("target") or {}
+        expected_mode = {"disabled": "ORT_DISABLE_ALL", "all": "ORT_ENABLE_ALL"}[mode]
+        if target and target.get("optimization") != expected_mode:
+            raise ValueError("Actual scientific target optimization differs")
+        if record.get("artifact_sha256") is not None and record.get(
+            "artifact_sha256"
+        ) != evidence.get("artifact_sha256"):
+            raise ValueError("Actual scientific validation artifact differs")
+        if _contract_hash(record.get("sample_identities")) != _contract_hash(
+            identities
+        ):
+            raise ValueError(
+                "Scientific ordered feed/reference identities differ between modes"
+            )
+        actual_samples = record.get("samples", ())
+        actual_indices = [item["index"] for item in actual_samples]
+        if (
+            any(
+                type(index) is not int or index not in expected_indices
+                for index in actual_indices
+            )
+            or len(set(actual_indices)) != len(actual_indices)
+            or actual_indices != sorted(actual_indices)
+        ):
+            raise ValueError(
+                "Actual scientific target sample indices are invalid or duplicated"
+            )
+        actual_by_index = {item["index"]: item for item in actual_samples}
+        verdicts = [
+            item["status"]
+            for item in record.get("checks", ())
+            if item["status"] == "failed"
+        ]
+
+        def missing_arrays() -> None:
+            nonlocal complete_array_bindings
+            complete_array_bindings = False
+            verdicts.append("unverified")
+            for name in categories:
+                component_values[name].append("unverified")
+
+        if set(actual_indices) != expected_indices:
+            missing_arrays()
+        for actual in actual_samples:
+            identity = identities[actual["index"]]
+            actual_identity = {
+                name: actual[name] for name in ("inputs", "references", "criteria")
+            }
+            if _contract_hash(actual_identity) != _contract_hash(identity):
+                raise ValueError(
+                    "Actual validator feeds/references/criteria differ from producer identity"
+                )
+            reference_role = (
+                labels[actual["index"]] + "-" if labels[actual["index"]] else ""
+            ) + "eager-physical-reference"
+            reference_capture = captured(reference_role)
+            if reference_capture is None or not reference_capture.get("array_evidence"):
+                missing_arrays()
+            elif _contract_hash(reference_capture["array_evidence"]) != _contract_hash(
+                actual["references"]
+            ):
+                raise ValueError(
+                    "Actual validator references differ from retained native eager physical arrays"
+                )
+            verdicts += [
+                item["status"]
+                for item in actual.get("checks", ())
+                if item["category"] in {"runtime-execution", "numerical-acceptance"}
+            ]
+            if any(
+                item["category"] == "numerical-acceptance"
+                and item["status"] == "failed"
+                for item in actual.get("checks", ())
+            ):
+                component_values["criteria_comparison"].append("failed")
+        outputs = record.get("output_captures", ())
+        output_indices = [item["index"] for item in outputs]
+        if any(
+            type(index) is not int or index not in expected_indices
+            for index in output_indices
+        ) or len(set(output_indices)) != len(output_indices):
+            raise ValueError(
+                "Scientific target output indices are invalid or duplicated"
+            )
+        if set(output_indices) != expected_indices:
+            missing_arrays()
+        for output in outputs:
+            index = output["index"]
+            role = f"metadata-ort-{mode}-{index}"
+            if output.get("capture_role") != role or index not in actual_by_index:
+                raise ValueError(
+                    "Scientific target array capture/sample identity differs"
+                )
+            output_capture = captured(role)
+            if output_capture is None or not output_capture.get("array_evidence"):
+                missing_arrays()
+                continue
+            if _contract_hash(output_capture["array_evidence"]) != _contract_hash(
+                output.get("outputs")
+            ) or _contract_hash(output_capture["array_evidence"]) != _contract_hash(
+                actual_by_index[index]["outputs"]
+            ):
+                raise ValueError(
+                    "Copied target arrays differ from actual validator outputs"
+                )
+            entries = output.get("checks", ())
+            if (
+                len(entries) != 4
+                or {item["category"] for item in entries} != categories
+            ):
+                raise ValueError(
+                    "Scientific target check categories missing or duplicated"
+                )
+            for item in entries:
+                value = item["status"]
+                if (
+                    item["category"] in {"component_nan_masks", "zero_signs"}
+                    and output.get("applicability", {}).get(item["category"])
+                    == "not-applicable"
+                    and not discrete_proof
+                ):
+                    value = "unverified"
+                component_values[item["category"]].append(value)
+                verdicts.append(value)
+        checks["ort_" + mode] = {
+            "status": status(verdicts),
+            "detail": "Actual retained validator and copied outputs in this mode",
+        }
+    both_executed = set(modes) == {"disabled", "all"} and all(
+        record.get("artifact_sha256") == evidence.get("artifact_sha256")
+        and record.get("target")
+        and len(record.get("samples", ())) == len(identities)
+        and all(
+            any(
+                item["category"] == "runtime-execution"
+                and item["status"] == "validated"
+                for item in sample.get("checks", ())
+            )
+            for sample in record.get("samples", ())
+        )
+        for record in modes.values()
+    )
+    if (
+        both_executed
+        and complete_array_bindings
+        and identities
+        and len(samples) == len(identities)
+        and runtime.get("binding_status") == "validated"
+    ):
+        checks["same_artifact_and_feeds_both_modes"] = {
+            "status": "validated",
+            "detail": "Both actual reports bind the same saved artifact, loaded blob and ordered sample feeds/references",
+        }
+    elif runtime.get("binding_status") == "failed":
+        checks["same_artifact_and_feeds_both_modes"] = {
+            "status": "failed",
+            "detail": runtime.get("detail", "Producer binding changed"),
+        }
+    if runtime.get("optimization") == "both" and set(modes) != {"disabled", "all"}:
+        for name in categories:
+            component_values[name].append("unverified")
+    for name in categories:
+        checks[name] = {
+            "status": status(component_values[name]),
+            "detail": "Actual retained native/target comparisons only; applicable counts remain in producer evidence",
+        }
+        if discrete_proof and name in {"component_nan_masks", "zero_signs"}:
+            checks[name].update(
+                applicability="not-applicable",
+                detail="Not applicable to proved all-logical-discrete original outputs; no observed NaN/zero coverage claimed",
+            )
+    structure = capture.get("source_structure") or {}
+    proof = structure.get("floating_applicability") or {}
+    document = capture.get("source-bitwise-applicability") or {}
+    if proof.get("status") == "validated" and document.get("status") == "captured":
+        payload = Path(document["path"]).read_bytes()
+        if hashlib.sha256(payload).hexdigest() != document.get(
+            "sha256"
+        ) or _contract_hash(json.loads(payload)) != _contract_hash(proof):
+            raise ValueError("Bitwise applicability document differs")
+        source = structure.get("source_binding") or {}
+        artifact_binding = structure.get("artifact_binding") or {}
+        ir_result = structure.get("ir_result") or {}
+        if (
+            evidence.get("structure") != "validated"
+            or structure.get("status") != "validated"
+            or source.get("status") != "validated"
+            or artifact_binding.get("status") != "validated"
+        ):
+            return checks
+        if (
+            _contract_hash(proof.get("protocol_binding")) != _contract_hash(binding)
+            or proof.get("source_structure_sha256")
+            != _contract_hash(
+                {
+                    key: value
+                    for key, value in structure.items()
+                    if key != "floating_applicability"
+                }
+            )
+            or proof.get("artifact_sha256") != evidence.get("artifact_sha256")
+            or proof.get("applicability")
+            != {
+                "operation_rounding": "not-applicable",
+                "required_internal_fp64": "not-applicable",
+            }
+            or type(structure.get("collector_calls")) is not int
+            or structure.get("collector_calls") != 1
+            or source.get("native_primitive_relation")
+            not in {"identical-flat-sequence", "bounded-plain-jit-tree"}
+            or source.get("prepared_trace_pending") is not False
+            or artifact_binding.get("fenced_after_callback") is not True
+        ):
+            raise ValueError("Bitwise applicability source/artifact binding differs")
+        original_trace = captured("declared-typed-trace")
+        artifact = captured("artifact")
+        if original_trace is None or artifact is None:
+            return checks
+        manifest = json.loads(Path(original_trace["path"]).read_bytes())
+        trace_sha = _contract_hash(manifest)
+        original_json = evidence.get("original_trace_json")
+        original_sha = evidence.get("original_trace_sha256")
+        exported = source.get("export_trace_manifest")
+        if original_json is None or original_sha is None or not exported:
+            return checks
+        if (
+            type(original_json) is not str
+            or _contract_hash(json.loads(original_json)) != original_sha
+            or original_sha != trace_sha
+        ):
+            raise ValueError("Bitwise applicability immutable original trace differs")
+        export_payload = Path(exported["path"]).read_bytes()
+        if hashlib.sha256(export_payload).hexdigest() != exported.get("sha256") or len(
+            export_payload
+        ) != exported.get("bytes"):
+            raise ValueError("Bitwise applicability retained export trace bytes differ")
+        expected_export = {
+            "canonical_typed_trace_sha256": trace_sha,
+            "manifest": _source_compact_trace_manifest(
+                json.loads(json.dumps(manifest))
+            ),
+        }
+        if _contract_hash(json.loads(export_payload)) != _contract_hash(
+            expected_export
+        ):
+            raise ValueError(
+                "Bitwise applicability complete exported trace content differs"
+            )
+        if (
+            any(
+                source.get(key) != trace_sha
+                for key in (
+                    "prepared_trace_sha256",
+                    "actual_trace_sha256",
+                    "fresh_prepared_trace_sha256",
+                )
+            )
+            or not all(
+                type(source.get(key)) is list
+                for key in (
+                    "prepared_storage",
+                    "actual_storage",
+                    "fresh_prepared_storage",
+                )
+            )
+            or not (
+                source["prepared_storage"]
+                == source["actual_storage"]
+                == source["fresh_prepared_storage"]
+            )
+        ):
+            raise ValueError(
+                "Bitwise applicability original typed trace/storage differs"
+            )
+        import onnx
+
+        saved = Path(artifact["path"]).read_bytes()
+        digest = {"sha256": hashlib.sha256(saved).hexdigest(), "bytes": len(saved)}
+        if digest["sha256"] != evidence.get("artifact_sha256") or any(
+            artifact_binding.get(key) != digest
+            for key in (
+                "checked_ir_proto",
+                "actual_return",
+                "normalized_return",
+                "saved_artifact",
+                "after_callback",
+                "facade_after_callback",
+            )
+        ):
+            raise ValueError(
+                "Bitwise applicability is detached from the checked saved artifact"
+            )
+        closure = _source_bitwise_closure(manifest, onnx.load_model_from_string(saved))
+        if (
+            closure is None
+            or _contract_hash(closure) != _contract_hash(proof.get("closure"))
+            or ir_result.get("status") != "validated"
+            or ir_result.get("reasons") != []
+            or type(ir_result.get("expected_equations")) is not int
+            or type(ir_result.get("checked_equations")) is not int
+            or ir_result.get("expected_equations") != closure["source_equation_count"]
+            or ir_result.get("checked_equations") != closure["source_equation_count"]
+            or _contract_hash(source["prepared_storage"])
+            != _contract_hash(closure["source_storage"])
+        ):
+            raise ValueError(
+                "Bitwise applicability lacks complete canonical source/final-IR coverage"
+            )
+        for name in ("operation_rounding", "required_internal_fp64"):
+            if checks[name]["status"] != "failed":
+                checks[name] = {
+                    "status": "validated",
+                    "applicability": "not-applicable",
+                    "detail": "Complete canonical typed bitwise source and the same checked saved IR have no floating operations, values or constants",
+                }
+    return checks
+
+
 def source_metadata_numerical_checks(
     row: Any, evidence: Mapping[str, Any] | None
 ) -> dict[str, dict[str, str]]:
     """Account for scientific proof without upgrading the replay's evidence.
 
-    The current replay records only eager/fresh-JIT and one target mode. Its
-    tolerance result cannot prove warm-JIT agreement, component NaN masks,
-    signed zeros, deliberate rounding or required internal accumulation. There
-    is deliberately no caller-supplied verdict or generic proof override here.
+    Legacy single-mode replay does not prove the new protocol obligations.
+    Explicitly admitted producer facts can prove only their actual retained
+    samples; declared criteria, rounding and internal accumulation remain
+    independent. There is no caller verdict or generic proof override here.
     """
     missing = {
         "native_three_role_agreement": "No retained eager/first/warm numerical agreement",
@@ -1374,6 +2845,9 @@ def source_metadata_numerical_checks(
         "detail": evidence["detail"],
     }
     runtime = (evidence.get("replay_capture") or {}).get("metadata_runtime", {})
+    native_protocol = (evidence.get("replay_capture") or {}).get("native_protocol", {})
+    if native_protocol.get("choice") is not None:
+        return _source_metadata_protocol_checks(row, evidence, checks)
     mode = runtime.get("optimization")
     if mode not in {"disabled", "all"}:
         return checks
@@ -2248,7 +3722,11 @@ def reconcile_source_metadata(
             row, retained_evidence[result["evidence_sha256"]] if result else None
         )
         record["required_numerical_checks"] = scientific
-        statuses = [item["status"] for item in scientific.values()]
+        statuses = [
+            item["status"]
+            for name, item in scientific.items()
+            if name != "declared_criteria_pair" or item.get("informational") != "true"
+        ]
         record["numerical_acceptance"] = (
             "failed"
             if "failed" in statuses or record["pytest_outcome"] == "failed"
@@ -2374,6 +3852,13 @@ def reconcile_source_metadata(
             ),
             "numerically_accepted_raw_cells": sum(
                 item["numerical_acceptance"] == "validated" for item in raw
+            ),
+            "conditionally_resolved_criteria_raw_cells": sum(
+                item["required_numerical_checks"]["declared_criteria_pair"].get(
+                    "informational"
+                )
+                == "true"
+                for item in raw
             ),
             "metadata_free_registrations": len(inventory["registry_without_metadata"]),
             "opaque_raw_rows": len(opaque),
