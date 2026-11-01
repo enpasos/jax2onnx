@@ -5749,6 +5749,50 @@
       "complete_extra_obligation": "All A, including every R and these unchanged mandatory scientific tests, remains required at milestone/final and affected-assumption campaigns. Existing official native BF16 FAILURE stays FAILED; no continue-on-error or criteria/pin/input change.",
       "independent_required_extrema_command": "poetry run python tests/extra_tests/converter/test_source_reduce_extrema_semantics.py --profile default-strict --report <fresh>/extrema-default-strict.json",
       "nonpytest_obligations": "Native3/ORT2, current3712 inventory plus opaque/manual/metadata-free accounting, frozen-source replay, unchanged numerics, all model artifacts and Node/Chrome contexts remain independently required; public/release and B-F are unqualified."
+    },
+    "web_float16_owner_source_bridge": {
+      "scope": "SOURCE_BRIDGE_FROM_GENUINE312_CHANGED_OWNER_COLLECTION; NOT_NEW_GLOBAL_C_OR_HOSTED_ACCEPTANCE",
+      "retained_global_run": {
+        "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/hosted-ci-574b277e-watch-cqbqi4ba/extra-focused312-success-primary/run.json",
+        "sha256": "82833a8f4462c8a9e016dc8c0ef717d6da6671779a982f1c4e4dc360ae5ed64a",
+        "head": "574b277e1a90eed4d03605cd4c922f4e0d20486c"
+      },
+      "changed_owner_observation": {
+        "path": "/mnt/d/jax2onnx-ci-baseline-20261029-6dufZ6/ci-web-float16-repair-cc7-AScpIvqZ/controls312/execution/ordered-owner-C.json",
+        "sha256": "f9609057eceebe08eed364b7dacf681b6849d7e85eee51c772543035157aad70",
+        "count": 18
+      },
+      "original_owner_count": 17,
+      "projected_C_count": 20807,
+      "projected_C_ordered_sha256": "c113734109a574330fc69629d6ee7759b31b3b04f658a981939d9d36d09f4b78",
+      "S_count_unchanged": 4621,
+      "A_count_projected": 16186,
+      "F_count_literal": 1661,
+      "F_ordered_sha256": "5bdebccc459599005e6ccb9c36f72a64be76aef4ca42c51865b5f9eab2cd69c2",
+      "R_count_unchanged": 14525,
+      "R_ordered_sha256": "dc9b564b5f6dfae22e09ac3046a8aca5c19bafbb1400ddde89175f164d35adbf",
+      "new_observed_ID": "tests/extra_tests/test_return_modes.py::test_onnxruntime_web_float16_comparison_storage",
+      "default_Node_branch_in_F": true,
+      "native_Float16Array_branch_additionally_owned_by_mandatory_full_Chrome": true,
+      "original_source_prefix_and_skip_lines_unchanged": true,
+      "input_and_criteria_changes": false,
+      "node_smoke_additional_case_ownership": {
+        "source_projected_C": 51,
+        "frozen_S_unchanged": 50,
+        "source_projected_A": 1,
+        "default_Node_branch_owners": [
+          "global focused EXTRA F",
+          "required exact-head full Node"
+        ],
+        "required_full_Node_route": {
+          "workflow": ".github/workflows/nightly-qs.yml",
+          "command": "scripts/run_onnxruntime_web_full.sh",
+          "head": "one resolved required campaign head"
+        },
+        "native_Float16Array_branch_owner": "required exact-head full Chrome plus exact-lock local validation",
+        "canonical_support_EXTRA_acceptance_from_direct_table": false,
+        "minimum312_A146_unchanged": true
+      }
     }
   },
   "focused_extra_ids": [
@@ -7411,7 +7455,8 @@
     "tests/extra_tests/framework/test_source_caller_configuration.py::test_source_whole_entry_restores_finalization_settings_after_late_scope[True-False-save]",
     "tests/extra_tests/framework/test_source_caller_configuration.py::test_source_whole_entry_restores_finalization_settings_after_late_scope[True-True-naming]",
     "tests/extra_tests/framework/test_source_caller_configuration.py::test_source_whole_entry_restores_finalization_settings_after_late_scope[True-True-report]",
-    "tests/extra_tests/framework/test_source_caller_configuration.py::test_source_whole_entry_restores_finalization_settings_after_late_scope[True-True-save]"
+    "tests/extra_tests/framework/test_source_caller_configuration.py::test_source_whole_entry_restores_finalization_settings_after_late_scope[True-True-save]",
+    "tests/extra_tests/test_return_modes.py::test_onnxruntime_web_float16_comparison_storage"
   ],
   "extra_allowed_skips": []
 }

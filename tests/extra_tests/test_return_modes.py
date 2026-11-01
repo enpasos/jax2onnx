@@ -530,3 +530,139 @@ def test_flip_sequences_web_export_expands_broadcast_index_grid(tmp_path: Path):
         atol=1e-6,
     )
     assert passed_web, web_msg
+
+
+def test_onnxruntime_web_float16_comparison_storage():
+    import json
+    import os
+    import subprocess
+
+    runner = os.getenv("JAX2ONNX_ONNXRUNTIME_WEB_RUNNER", "node").strip().lower()
+    assert runner in {"node", "chrome", "browser"}, runner
+    node = shutil.which("node")
+    if node is None:
+        if runner != "node":
+            pytest.fail(
+                "Node.js is required for explicitly requested Chrome comparison controls"
+            )
+        pytest.skip("Node.js is required for onnxruntime-web comparison controls")
+    repo_root = Path(__file__).resolve().parents[2]
+    program = r"""
+import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+
+function probe(helper, native) {
+  const words = [11903, 44671, 0x7bff, 0xfbff, 1, 0x03ff, 0x8001,
+                 0x83ff, 0x0400, 0, 0x8000, 0x7c00, 0xfc00, 0x7e00, 0x7e01];
+  function tensor(values, dims = [values.length]) {
+    const raw = Uint16Array.from([0x55aa, ...values, 0xaa55]);
+    const view = raw.subarray(1, raw.length - 1);
+    const data = native
+      ? new globalThis.Float16Array(view.buffer, view.byteOffset, view.length).subarray(0)
+      : view;
+    return { type: "float16", dims, data };
+  }
+  const expected = (data, dims = [data.length]) => ({ type: "float16", dims, data });
+  const compare = (actual, reference, rtol = 0, atol = 0) =>
+    helper.compareTensor("float16", actual, reference, rtol, atol);
+  const actual = tensor(words);
+  const payloads = [...words];
+  payloads[13] = 0x7fff;
+  payloads[14] = 0xfe00;
+  const negatives = [
+    ["zero", () => compare(tensor([0]), expected([11903]), 0.001, 0.001)],
+    ["beyond-tolerance", () => compare(tensor([0x3000]), expected([11903]), 0.001, 0.001)],
+    ["shifted-NaN", () => compare(tensor([0x7e00, 11903]), expected([11903, 0x7e00]))],
+    ["NaN-to-finite", () => compare(tensor([0x7e00]), expected([11903]))],
+    ["finite-to-NaN", () => compare(tensor([11903]), expected([0x7e00]))],
+    ["opposite-infinities", () => compare(tensor([0x7c00]), expected([0xfc00]))],
+    ["type", () => compare(tensor([11903]), { type: "float32", dims: [1], data: [0.10150146484375] })],
+    ["shape", () => compare(tensor([11903]), expected([11903], [1, 1]))],
+    ["length", () => compare(tensor([11903, 11903], [1]), expected([11903]))],
+  ];
+  return {
+    nativeAvailable: typeof globalThis.Float16Array === "function",
+    nativeInstance: typeof globalThis.Float16Array === "function"
+      && actual.data instanceof globalThis.Float16Array,
+    constructor: actual.data.constructor.name,
+    byteOffset: actual.data.byteOffset,
+    rawWords: Array.from(new Uint16Array(actual.data.buffer, actual.data.byteOffset, actual.data.length)),
+    expectedWords: words,
+    tableDiff: compare(actual, expected(words)),
+    NaNPayloadDiff: compare(actual, expected(payloads)),
+    specDiff: helper.compareTensorSpec("float16", expected(words), expected(payloads), 0, 0),
+    zeroDiff: compare(tensor([0x8000]), expected([0])),
+    negativeZeroDecoded: Object.is(helper.float16BitsToNumber(0x8000), -0),
+    nativeNegativeZero: !native || Object.is(tensor([0x8000]).data[0], -0),
+    inputWords: Array.from(helper.makeTypedData("float16", [11903, 0x8000, 0x7e01])),
+    withinToleranceDiff: compare(tensor([11904]), expected([11903]), 0.001, 0.001),
+    negatives: negatives.map(([name, run]) => {
+      try { return { name, returned: run() }; }
+      catch (error) { return { name, error: error.message }; }
+    }),
+  };
+}
+
+const url = pathToFileURL(process.argv[1]);
+const browser = process.argv[2] !== "node";
+let result;
+if (browser) {
+  const { chromium } = await import("playwright");
+  const context = await chromium.launch({ headless: true, args: ["--disable-dev-shm-usage"] });
+  try {
+    const page = await context.newPage();
+    const source = await readFile(url, "utf8");
+    const moduleUrl = "data:text/javascript;base64," + Buffer.from(source).toString("base64");
+    result = await page.evaluate(`(async () => {
+      const helper = await import(${JSON.stringify(moduleUrl)});
+      return (${probe.toString()})(helper, true);
+    })()`);
+  } finally {
+    await context.close();
+  }
+} else {
+  result = probe(await import(url.href), false);
+}
+console.log(JSON.stringify(result));
+"""
+    completed = subprocess.run(
+        [
+            node,
+            "--input-type=module",
+            "-e",
+            program,
+            str(repo_root / "scripts" / "onnxruntime_web_validation_utils.mjs"),
+            runner,
+        ],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise AssertionError(
+            f"Invalid Node result: stdout={completed.stdout!r}; stderr={completed.stderr!r}"
+        ) from error
+    assert result["constructor"] == (
+        "Uint16Array" if runner == "node" else "Float16Array"
+    )
+    if runner != "node":
+        assert result["nativeAvailable"] and result["nativeInstance"]
+    assert result["byteOffset"] == 2
+    assert result["rawWords"] == result["expectedWords"]
+    assert result["tableDiff"] == result["NaNPayloadDiff"] == result["specDiff"] == 0
+    assert result["zeroDiff"] == 0 and result["negativeZeroDecoded"]
+    assert result["nativeNegativeZero"]
+    assert result["inputWords"] == [11903, 0x8000, 0x7E01]
+    assert result["withinToleranceDiff"] == 1 / 16384
+    for case in result["negatives"]:
+        assert "error" in case, case
+        expected_message = {
+            "type": "type mismatch",
+            "shape": "shape mismatch",
+            "length": "element count mismatch",
+        }.get(case["name"], "mismatch at flat index")
+        assert expected_message in case["error"], case

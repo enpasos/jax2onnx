@@ -69,6 +69,12 @@ export function makeTensor(ort, spec) {
 function comparableData(type, data) {
   switch (type) {
     case "float16":
+      if (
+        typeof globalThis.Float16Array === "function" &&
+        data instanceof globalThis.Float16Array
+      ) {
+        return Array.from(data, Number);
+      }
       return Array.from(data, float16BitsToNumber);
     case "float32":
     case "float64":

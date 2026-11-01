@@ -64,6 +64,16 @@ it never receives the trusted focused 2,000-second extension. The four focused
 rows retain their existing 35-minute / 4-GiB envelope and share EXTRA's separate
 160-minute / 100-MiB successful-evidence aggregate with this support job.
 
+The appended FP16 comparison control in `test_return_modes.py` belongs to the
+focused EXTRA set in its default Node context. Its addition projects the
+node-smoke support inventory to 51 collected cases, with the frozen STANDARD
+selection still at 50 and one additional case. That additional case is also
+owned by the existing required full Node job in `nightly-qs.yml`, which runs
+`run_onnxruntime_web_full.sh` at the resolved head. The native `Float16Array`
+branch is separately required by the full Chrome job and exact-lock local
+validation. Direct local table evidence does not constitute complete canonical
+support-EXTRA acceptance. The minimum 3.12 support complement remains 146.
+
 Full Node and Chrome retain their original contexts. The existing nightly
 workflow can also be called by the full-acceptance CI route at the same resolved
 SHA; no agent dispatch is needed. Scheduled/manual standalone execution resolves
