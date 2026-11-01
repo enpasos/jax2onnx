@@ -1638,6 +1638,7 @@ def _ci_standard_batch_size(profile: str, batch_size: int) -> None:
             "internal_docs/precision/ci_standard/py311-owners.json",
             "internal_docs/precision/ci_standard/py312-owners.json",
             "internal_docs/precision/ci_standard/py313-owners.json",
+            "internal_docs/precision/ci_standard/py314-owners.json",
         }
         and batch_size != 500
     ):
@@ -1646,7 +1647,7 @@ def _ci_standard_batch_size(profile: str, batch_size: int) -> None:
 
 def _ci_standard_resource(summary: Any, *, python_minor: str = "3.12") -> None:
     """Accept the existing cohort envelope with cleanup and real capacity."""
-    if python_minor not in {"3.11", "3.12", "3.13"}:
+    if python_minor not in {"3.11", "3.12", "3.13", "3.14"}:
         raise ValueError("unsupported STANDARD part Python cohort")
     locked312 = python_minor == "3.12"
     rss_mib = 5120 if locked312 else 4096
@@ -1709,7 +1710,7 @@ def _ci_standard_resource(summary: Any, *, python_minor: str = "3.12") -> None:
 def _ci_standard_job_times(
     observations: Any, marker: dict[str, Any], *, python_minor: str = "3.12"
 ) -> dict[str, Any]:
-    if python_minor not in {"3.11", "3.12", "3.13"}:
+    if python_minor not in {"3.11", "3.12", "3.13", "3.14"}:
         raise ValueError("unsupported STANDARD part Python cohort")
     cohort = python_minor.replace(".", "")
     suffix = " (5GiB)" if python_minor == "3.12" else ""
@@ -1973,6 +1974,7 @@ def _ci_join_standard_parts(
                     "internal_docs/precision/ci_standard/py311-owners.json",
                     "internal_docs/precision/ci_standard/py312-owners.json",
                     "internal_docs/precision/ci_standard/py313-owners.json",
+                    "internal_docs/precision/ci_standard/py314-owners.json",
                 }
                 and worker_root != checkout
             ):
@@ -2121,6 +2123,7 @@ def _ci_join_standard_parts(
             elif marker["profile"] in {
                 "internal_docs/precision/ci_standard/py311-owners.json",
                 "internal_docs/precision/ci_standard/py313-owners.json",
+                "internal_docs/precision/ci_standard/py314-owners.json",
             }:
                 if (
                     resource["limits"]["rss_mib"] != 4096
@@ -3734,7 +3737,7 @@ def _ci_standard_part_ids(manifest: dict[str, Any], root: Path) -> list[str]:
             "run_attempt",
         }
         or marker["id"] not in {"a", "b"}
-        or manifest["python_minor"] not in {"3.11", "3.12", "3.13"}
+        or manifest["python_minor"] not in {"3.11", "3.12", "3.13", "3.14"}
         or any(
             not _ci_node_digest(marker[key])
             for key in (

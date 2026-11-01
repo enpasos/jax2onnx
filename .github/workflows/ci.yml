@@ -533,7 +533,7 @@ jobs:
   # Qualification keeps original owners and all focused rows alongside new
   # owners. After independent acceptance, the tracked switch enables routine
   # scheduling and full acceptance suppresses duplicate focused bodies.
-  # Locked311/312/313 STANDARD close only through their fixed joins below.
+  # Locked311/312/313/314 STANDARD close only through their fixed joins below.
   candidate-standard:
     name: candidate ${{ matrix.scope == 'all' && 'support EXTRA all' || matrix.lane == 'extra' && 'focused EXTRA' || 'STANDARD' }} (${{ matrix.label || matrix.id }})
     needs: acceptance-context
@@ -549,7 +549,8 @@ jobs:
         - {id: locked312-b, part: b, python: '3.12', cohort: py312-owners, role: locked, label: 'locked312 serial part b (5GiB)'}
         - {id: locked313-a, part: a, python: '3.13', cohort: py313-owners, role: locked, label: 'locked313 serial part a'}
         - {id: locked313-b, part: b, python: '3.13', cohort: py313-owners, role: locked, label: 'locked313 serial part b'}
-        - {id: locked314, python: '3.14', cohort: py314, role: locked}
+        - {id: locked314-a, part: a, python: '3.14', cohort: py314-owners, role: locked, label: 'locked314 serial part a'}
+        - {id: locked314-b, part: b, python: '3.14', cohort: py314-owners, role: locked, label: 'locked314 serial part b'}
         - {id: minimum312, python: '3.12', cohort: minimum312, role: minimum}
         - {id: minimum312-extra, python: '3.12', cohort: minimum312, role: minimum, lane: extra, scope: all}
         - {id: normalization312, python: '3.12', cohort: normalization312, role: normalization}
@@ -998,7 +999,7 @@ jobs:
                 if focused_extra else
                 "Complete minimum312 support EXTRA span <=1200s; same separate EXTRA aggregate <=9600s (160 job-minutes); separate successful uploaded artifacts <=104857600 bytes"
                 if extra else
-                "All eleven STANDARD compute spans, minimum311, shared acceptance resolver and three fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes"
+                "All twelve STANDARD compute spans, minimum311, shared acceptance resolver and four fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes"
             ),
             "work_timeout_seconds": 2000 if focused_extra else 1100,
             "whole_job_timeout_seconds": 2100 if focused_extra else 1200,
@@ -1068,6 +1069,7 @@ jobs:
         - {id: locked311, python: '3.11', cohort: py311-owners}
         - {id: locked312, python: '3.12', cohort: py312-owners}
         - {id: locked313, python: '3.13', cohort: py313-owners}
+        - {id: locked314, python: '3.14', cohort: py314-owners}
     permissions:
       contents: read
       actions: read
@@ -1362,7 +1364,7 @@ jobs:
             "standard_acceptance_rss_mib": 4096,
             "managed_actions_resource_intervals": "UNOBSERVED: checkout, setup-python, downloads, uploads, post hooks",
             "whole_job_timing": "UNVERIFIED until actual Actions started_at/completed_at including post hooks",
-            "campaign_budgets": "All eleven STANDARD compute spans, minimum311, shared acceptance resolver and three fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
+            "campaign_budgets": "All twelve STANDARD compute spans, minimum311, shared acceptance resolver and four fixed joins <=1200s each; aggregate <=9600s (160 job-minutes); successful uploaded artifacts <=104857600 bytes",
         }, indent=2) + "\n")
         PY
 

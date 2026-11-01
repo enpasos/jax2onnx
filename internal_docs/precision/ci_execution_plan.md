@@ -94,10 +94,16 @@ remain required. Temporary LEGACY bridges serve demonstrated CI/reference needs;
 complete compatibility and numerical validation are merge gates, not blanket
 barriers to reviewed implementation in this unmerged branch.
 
-The fixed layout remains eleven STANDARD compute roles and three strict unions:
-1,658 + 2,913 / 2,915 on 3.11/3.13, and 216 + 4,405 on 3.12. Each part retains
-genuine C/O, original within-case behavior and skip/numerical criteria; part a
-owns original hooks once. This reviewed layout supersedes the historical
+The fixed layout uses twelve STANDARD compute roles and four strict unions:
+1,658 + 2,913 on 3.11, 216 + 4,405 on 3.12, and 1,658 + 2,915 on both
+3.13 and 3.14. Together, each cohort’s two parts preserve the original full S
+and its original 500-case batch order; each part retains genuine C/O. Part a
+owns the original hooks once. The retained 3.14
+owner count of 4,809 included 236 extras; STANDARD remains the original 4,573
+cases. Each part and join keeps the 1,200-second whole-job cap. Compute jobs,
+joins, minimum311 and the shared resolver all count toward the unchanged
+160-job-minute / 100-MiB successful-evidence budgets. This reviewed layout
+supersedes the historical
 2026-10-30 eight-candidate / "Do not shard" scheduling amendment below. Cases'
 internal samples and comparison phases are never split.
 

@@ -30,9 +30,10 @@ head until actual campaigns and independent resource/outcome review close.
 The profiles preserve baseline, packages/plugins, generated and optional-source
 contracts. Both opt-in flags bind startup, collected and final environments.
 The original non-3.12 smoke allowance keeps its exact source line 274, phases,
-JUnit and reason; 3.12 has no such allowance. New 3.11/3.13 real tiny joins execute
-under the existing opt-in flag, while 3.12/3.14 reject the unsupported fixture
-through their exact existing preworker guard. No general skip rule is added.
+JUnit and reason; 3.12 has no such allowance. The fixed-parts smoke control uses
+the existing opt-in flag on 3.11/3.13/3.14; 3.12 retains its separate real positive
+control. Genuinely unsupported cohorts fail before a canonical worker starts.
+No general skip rule is added.
 
 Focused uses `--ci-lane extra --ci-extra-scope focused` with the GLOBAL extra
 profile, no test-path and no part. Focused 3.12 retains both pinned optional

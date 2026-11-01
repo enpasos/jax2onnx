@@ -35,13 +35,14 @@ whole-job, aggregate-time and successful-evidence budgets. This establishes
 routine pytest and resource coverage only. Complete added coverage, numerical
 acceptance and full integration acceptance remain separate obligations.
 
-The latest observed published checkpoint, `7d33b9d1`,
-[CI604](https://github.com/enpasos/jax2onnx/actions/runs/41296409719), finished
-with 25 successful checks and six failed checks. All three strict STANDARD
-joins succeeded. The four full Python jobs stopped at outdated Eqx state-record
-assertions; full Node and Chrome stopped at a BitCast test that supplied a
-synthetic equation where a native JAX equation is required. Overall acceptance
-remains open.
+Historical [CI606](https://github.com/enpasos/jax2onnx/actions/runs/41309780121)
+on `03da78cb` recorded 24 successful checks, six failed checks and one cancelled
+check on 2026-11-01. Four full Python jobs stopped at stale formatted
+corpus-control provenance; the full Node and Chrome jobs stopped in their
+Python tests at an unrecorded ORT 1.31.1 subnormal failed-witness pair. Python
+3.14 STANDARD reached its existing 1,100-second work deadline and was cancelled.
+These outcomes remain failed; [current PR checks](https://github.com/enpasos/jax2onnx/pull/277/checks)
+and all precision gates must qualify the exact candidate head.
 
 This branch integrates current main and the four dependency updates, including
 mechanical formatting and corrections to three test files. Bounded local runtime
@@ -117,6 +118,10 @@ within its canonical campaign. Preserve collection imports, registration,
 fixtures, process order and context-sensitive predecessors. An accepted
 Main-owner collection route is a scoped exception, not permission to stop full
 inventory discovery. Part executions qualify only with the strict complete join.
+The fixed layout has twelve compute jobs and four joins, including 3.14 parts
+a/b over the unchanged original S. Every part and join keeps the 1,200-second
+whole-job cap; these jobs, minimum311 and the shared resolver share the existing
+160-job-minute / 100-MiB successful-evidence budgets.
 Keep each test case intact; splitting its internal samples or comparison phases
 to fit a budget is not allowed. Direct native xdist remains unqualified.
 

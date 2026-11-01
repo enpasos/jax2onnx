@@ -1127,7 +1127,7 @@ def test_reviewed_global_EXTRA_profile_preserves_STANDARD_and_critical_ownership
         )
 
 
-@pytest.mark.parametrize("minor", ["3.11", "3.13"])
+@pytest.mark.parametrize("minor", ["3.11", "3.13", "3.14"])
 @pytest.mark.parametrize("part", ["a", "b"])
 def test_ordinary_split_renderer_keeps_full_authority_and_exact_cohort(
     authority, monkeypatch, minor, part
@@ -1174,7 +1174,7 @@ def test_ordinary_split_renderer_keeps_full_authority_and_exact_cohort(
     assert marker["run_id"] == "123456" and marker["run_attempt"] == "2"
 
 
-@pytest.mark.parametrize("minor", ["3.11", "3.13"])
+@pytest.mark.parametrize("minor", ["3.11", "3.13", "3.14"])
 @pytest.mark.parametrize(
     "fault", ["missing-part", "missing-attempt", "unsupported-minor"]
 )
@@ -1182,7 +1182,7 @@ def test_ordinary_split_renderer_rejects_unbound_or_unsupported_authority(
     authority, monkeypatch, minor, fault
 ):
     module, root, path, event, run, data = _split_authority(authority, monkeypatch)
-    data["python_minor"] = "3.14" if fault == "unsupported-minor" else minor
+    data["python_minor"] = "3.10" if fault == "unsupported-minor" else minor
     _write_json(path, data)
     module._git(root, "add", ".")
     module._git(

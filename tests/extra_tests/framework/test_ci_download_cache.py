@@ -393,6 +393,8 @@ def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp
         ("locked312-b", "b"),
         ("locked313", ""),
         ("locked314", ""),
+        ("locked314-a", "a"),
+        ("locked314-b", "b"),
         ("minimum312", ""),
         ("normalization312", ""),
         ("normalization313", ""),
@@ -542,7 +544,7 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
         for entry in job["strategy"]["matrix"]["include"]
         if entry.get("lane", "standard") == "standard"
     ]
-    assert len(matrix) == 11
+    assert len(matrix) == 12
     assert {entry["id"] for entry in matrix} == {
         "locked311-a",
         "locked311-b",
@@ -550,7 +552,8 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
         "locked312-b",
         "locked313-a",
         "locked313-b",
-        "locked314",
+        "locked314-a",
+        "locked314-b",
         "minimum312",
         "normalization312",
         "normalization313",
@@ -559,7 +562,7 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
     parts = [entry for entry in matrix if entry.get("part")]
     assert [(entry["id"], entry["part"]) for entry in parts] == [
         ("locked" + minor + "-" + part, part)
-        for minor in ("311", "312", "313")
+        for minor in ("311", "312", "313", "314")
         for part in ("a", "b")
     ]
     assert all(
@@ -599,7 +602,7 @@ def test_fixed_parts_keep_the_full_profile_serial_and_reject_parallel_policy():
 def test_focused_extra_rows_add_four_global_cohorts_with_separate_job_limits():
     job = _workflow()["jobs"]["candidate-standard"]
     matrix = job["strategy"]["matrix"]["include"]
-    assert len(matrix) == 16 and job["strategy"]["fail-fast"] is False
+    assert len(matrix) == 17 and job["strategy"]["fail-fast"] is False
     focused = [entry for entry in matrix if entry.get("scope") == "focused"]
     assert focused == [
         {
@@ -675,6 +678,8 @@ def test_focused_resource_extension_requires_its_exact_lane_role_scope_and_no_pa
         "locked312-b",
         "locked313",
         "locked314",
+        "locked314-a",
+        "locked314-b",
         "minimum312",
         "minimum312-extra",
         "normalization312",
@@ -696,7 +701,7 @@ def test_canonical_dispatch_preserves_standard_parts_and_explicit_focused_scope(
             for item in job["strategy"]["matrix"]["include"]
             if item["id"] == candidate
         )
-        if candidate not in {"locked311", "locked313"}
+        if candidate not in {"locked311", "locked313", "locked314"}
         else {"role": "locked"}
     )
     work = next(step["run"] for step in job["steps"] if step.get("id") == "work")
@@ -832,7 +837,7 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
         "locked311-a": "3.11",
         "locked312-a": "3.12",
         "locked313-a": "3.13",
-        "locked314": "3.14",
+        "locked314-a": "3.14",
     }
     original = (ROOT / "scripts/run_all_checks.sh").read_text()
     for invocation in (
@@ -875,6 +880,8 @@ def test_candidate_quality_uses_original_pins_before_optional_installs_and_gener
         ("locked312-b", False),
         ("locked313", True),
         ("locked314", True),
+        ("locked314-a", True),
+        ("locked314-b", False),
         ("minimum312", False),
         ("normalization312", False),
         ("normalization313", False),
@@ -895,7 +902,7 @@ def test_candidate_quality_runs_once_per_locked_cohort_without_support_hooks(
             for value in job["strategy"]["matrix"]["include"]
             if value["id"] == candidate
         )
-        if candidate not in {"locked311", "locked313"}
+        if candidate not in {"locked311", "locked313", "locked314"}
         else {"role": "locked"}
     )
     result = subprocess.run(
@@ -935,7 +942,7 @@ def test_candidate_quality_runs_once_per_locked_cohort_without_support_hooks(
         pytest.param("locked311-a", id="locked311"),
         "locked312-a",
         pytest.param("locked313-a", id="locked313"),
-        "locked314",
+        pytest.param("locked314-a", id="locked314"),
     ],
 )
 @pytest.mark.parametrize("failure", ["markers", "hooks"])
@@ -948,7 +955,7 @@ def test_candidate_quality_failure_stops_work_before_optional_setup(candidate, f
     )
     assert entry["role"] == "locked"
     assert entry.get("lane", "standard") == "standard"
-    assert entry.get("part") == (None if candidate == "locked314" else "a")
+    assert entry.get("part") == "a"
     result = subprocess.run(
         [
             "bash",
@@ -1160,7 +1167,14 @@ def test_bulk_pack_separates_routine_sources_and_preserves_full_failure_payload(
 
 @pytest.mark.parametrize(
     "candidate",
-    ["locked311-a", "locked312-a", "locked313-a", "focused312", "minimum312-extra"],
+    [
+        "locked311-a",
+        "locked312-a",
+        "locked313-a",
+        "locked314-a",
+        "focused312",
+        "minimum312-extra",
+    ],
 )
 def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
     tmp_path, candidate
@@ -1216,7 +1230,7 @@ def test_accounting_keeps_focused_extra_budgets_separate_from_standard(
         assert "standard_acceptance_rss_mib" not in accounting
     else:
         assert (
-            "eleven STANDARD compute spans, minimum311, shared acceptance resolver and three fixed joins <=1200s each"
+            "twelve STANDARD compute spans, minimum311, shared acceptance resolver and four fixed joins <=1200s each"
             in accounting["campaign_budgets"]
         )
         assert accounting["standard_acceptance_rss_mib"] == expected_rss
@@ -1237,7 +1251,7 @@ def test_fixed_join_requires_both_complete_parts_and_original_authority_paths():
             "python": "3." + minor[1:],
             "cohort": "py" + minor + "-owners",
         }
-        for minor in ("311", "312", "313")
+        for minor in ("311", "312", "313", "314")
     ]
     assert job["name"] == "candidate STANDARD ${{ matrix.id }} complete union"
     assert job["env"]["CANDIDATE_STANDARD_ID"] == "${{ matrix.id }}"
@@ -1380,7 +1394,7 @@ def test_join_paths_are_initialized_from_real_runner_temp_before_any_consumer(tm
     _assert_early_env_has_no_runner_context(workflow)
 
 
-@pytest.mark.parametrize("minor", ["311", "313"])
+@pytest.mark.parametrize("minor", ["311", "313", "314"])
 def test_ordinary_fixed_union_paths_use_real_runner_temp_and_exact_cohort(
     tmp_path, minor
 ):

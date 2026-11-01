@@ -490,7 +490,8 @@
       "review": "Literalmoduleorderindependentlyreviewed; no firstimport/transitive/lazyorderclaim. Historicalpaths referenceonly; runtimeMUSTNOTdereferencethese developer-localrefs."
     },
     "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
-    "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines."
+    "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines.",
+    "fixed_standard_parts": "Reviewed static normalization force_decomposed cut only: original fullS4573=1658+2915, original13batch500 order retained(a1-7,b8-13). O4809 retains236ownerextras outsideSTANDARD. Eachordinarypart4096MiB/1100sWORK/1200swhole; strictsamehead/attempt union required. Currenthead hostedqualification remains pending; no old314deadline observation relabelled."
   },
   "collection_args": [
     "tests/examples/test_eqx.py",
@@ -681,5 +682,8 @@
     "tests/primitives/test_nnx.py",
     "tests/primitives/test_random.py",
     "tests/test_gpt_oss_components.py"
-  ]
+  ],
+  "standard_parts": {
+    "split_after": "tests/extra_tests/test_normalization_export_policy.py::test_normalization_mode_reaches_control_flow_contexts[force_decomposed]"
+  }
 }

@@ -561,7 +561,7 @@ def _exercise_current_fixed_parts_join(tmp_path, monkeypatch, python_minor):
     assert join([root_a, incomplete], "incomplete")[0] == 1
 
 
-@pytest.mark.parametrize("minor,second", [("311", 2913), ("313", 2915)])
+@pytest.mark.parametrize("minor,second", [("311", 2913), ("313", 2915), ("314", 2915)])
 def test_fixed_ordinary_profiles_preserve_full_s_and_exact_reviewed_cut(minor, second):
     module = _runner()
     directory = _RUNNER.parents[1] / "internal_docs/precision/ci_standard"
@@ -574,6 +574,34 @@ def test_fixed_ordinary_profiles_preserve_full_s_and_exact_reviewed_cut(minor, s
     assert len(parts["a"]) == 1658 and len(parts["b"]) == second
     assert parts["a"] + parts["b"] == full
     assert set(parts["a"]).isdisjoint(parts["b"])
+    if minor == "314":
+        assert len(full) == 4573
+        items = [
+            {
+                "nodeid": node,
+                "module": node.split("::", 1)[0],
+                "class": node.rsplit("::", 1)[0] if node.count("::") > 1 else None,
+            }
+            for node in full
+        ]
+        batches = module._plan(items, 500, isolated_owners=module._CI_STANDARD_OWNERS)
+        assert [len(batch) for batch in batches] == [
+            10,
+            15,
+            126,
+            15,
+            499,
+            496,
+            497,
+            491,
+            489,
+            489,
+            497,
+            496,
+            453,
+        ]
+        assert [node for batch in batches[:7] for node in batch] == parts["a"]
+        assert [node for batch in batches[7:] for node in batch] == parts["b"]
     assert parts["a"][-1] == (
         "tests/extra_tests/test_normalization_export_policy.py::"
         "test_normalization_mode_reaches_control_flow_contexts[force_decomposed]"
@@ -583,7 +611,7 @@ def test_fixed_ordinary_profiles_preserve_full_s_and_exact_reviewed_cut(minor, s
     )
 
 
-@pytest.mark.parametrize("minor", ["3.11", "3.13"])
+@pytest.mark.parametrize("minor", ["3.11", "3.13", "3.14"])
 def test_ordinary_parts_bind_exact_cohort_job_names_and_reject_foreign_jobs(minor):
     module = _runner()
     head = "a" * 40
@@ -591,7 +619,7 @@ def test_ordinary_parts_bind_exact_cohort_job_names_and_reject_foreign_jobs(mino
     observations = _observations_for_minor(head, minor)
     times = module._ci_standard_job_times(observations, marker, python_minor=minor)
     assert times["a"]["elapsed_seconds"] == times["b"]["elapsed_seconds"] == 60
-    for foreign in {"3.11", "3.12", "3.13"} - {minor}:
+    for foreign in {"3.11", "3.12", "3.13", "3.14"} - {minor}:
         with pytest.raises(ValueError, match="missing or duplicated"):
             module._ci_standard_job_times(
                 _observations_for_minor(head, foreign), marker, python_minor=minor
@@ -604,34 +632,30 @@ def test_ordinary_parts_bind_exact_cohort_job_names_and_reject_foreign_jobs(mino
 )
 def test_real_current_cohort_serial_parts_join_and_fail_closed(tmp_path, monkeypatch):
     minor = f"{sys.version_info.major}.{sys.version_info.minor}"
-    if minor in {"3.11", "3.13"}:
+    if minor in {"3.11", "3.13", "3.14"}:
         _exercise_current_fixed_parts_join(tmp_path, monkeypatch, minor)
     else:
         # The original real312 positive remains its separately collected control.
-        # 3.14 has no reviewed fixed split. Prove that unsupported part admission
-        # fails before any worker, without inventing an off-cohort skip allowance.
+        # Prove a genuinely unsupported3.10 cohort fails before any worker,
+        # without inventing an off-cohort skip allowance.
         fixture = _tiny_parts(tmp_path, monkeypatch)
         module, suite, payload, environment, cohort, selectors, head, base = fixture
         data = json.loads(cohort.read_bytes())
-        data["python_minor"] = payload["python_minor"] = "3.14"
+        data["python_minor"] = payload["python_minor"] = "3.10"
         module._write(cohort, data)
         payload["source_files"][cohort.name] = hashlib.sha256(
             cohort.read_bytes()
         ).hexdigest()
         actual, root = _run_tiny_part(fixture, "a")
         assert actual.returncode != 0
-        expected = (
-            "unsupported STANDARD part authority"
-            if minor == "3.14"
-            else "unqualified Python cohort"
-        )
+        expected = "unqualified Python cohort"
         assert expected in actual.stdout + actual.stderr
         assert not (root / "global-collection").exists()
         assert not (root / "collection").exists()
         assert not list(root.glob("batch-*"))
 
 
-@pytest.mark.parametrize("minor", ["311", "313"])
+@pytest.mark.parametrize("minor", ["311", "313", "314"])
 @pytest.mark.parametrize("batch_size", [1, 499])
 def test_actual_cli_rejects_ordinary_hosted_part_repacking_before_any_run(
     tmp_path, minor, batch_size
