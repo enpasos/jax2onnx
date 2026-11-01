@@ -2035,10 +2035,119 @@ def test_browser_full_acceptance_cannot_age_skip_or_drift_from_selected_head(
             if step.get("uses", "").startswith("actions/checkout@")
         )
         assert checkout["with"]["ref"] == "${{ needs.check-changes.outputs.head_sha }}"
-        assert any(
-            step.get("run") == command + " -n auto --dist=loadscope -q --ff -x"
+        run_step = next(
+            step
             for step in value["steps"]
+            if step.get("name")
+            == (
+                "Run onnxruntime-web Chrome full validation"
+                if "chrome" in job
+                else "Run onnxruntime-web full validation"
+            )
         )
+        collect = next(
+            step
+            for step in value["steps"]
+            if step.get("name") == "Collect bounded full-web diagnostics"
+        )
+        upload = next(
+            step
+            for step in value["steps"]
+            if step.get("name") == "Upload bounded full-web diagnostics"
+        )
+        assert collect["if"] == upload["if"] == "always()"
+        assert (
+            upload["uses"]
+            == "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+        )
+        assert upload["with"]["if-no-files-found"] == "error"
+        assert upload["with"]["retention-days"] == 7
+        assert "github.run_attempt" in upload["with"]["name"]
+        assert "not a process-tree aggregate" in run_step["run"]
+        assert (
+            "--timeout" not in run_step["run"]
+            and "run_with_resources" not in run_step["run"]
+        )
+        assert "/usr/bin/time -v" in run_step["run"]
+        for fault in ["none", "missing", "oversized"]:
+            route = tmp_path / (job + "-" + fault)
+            route.mkdir()
+            executable = route / command
+            executable.parent.mkdir()
+            executable.write_text(
+                "#!" + sys.executable + "\n"
+                "import json, os, sys\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['WEB_OBSERVED_ARGUMENTS']).write_text(json.dumps(sys.argv[1:]))\n"
+                "report = next(value.split('=', 1)[1] for value in sys.argv[1:] if value.startswith('--junitxml='))\n"
+                'Path(report).write_text(\'<testsuites><testsuite tests="1"><testcase classname="synthetic" name="route"/></testsuite></testsuites>\')\n'
+                "raise SystemExit(int(os.environ['WEB_SYNTHETIC_STATUS']))\n"
+            )
+            executable.chmod(0o755)
+            diagnostics = route / "diagnostics"
+            arguments = route / "arguments.json"
+            child_status = 0 if full else 7
+            route_env = {
+                **os.environ,
+                "WEB_DIAGNOSTICS_DIR": str(diagnostics),
+                "WEB_OBSERVED_ARGUMENTS": str(arguments),
+                "WEB_SYNTHETIC_STATUS": str(child_status),
+            }
+            actual = subprocess.run(
+                ["bash", "-euo", "pipefail", "-c", run_step["run"]],
+                cwd=route,
+                env=route_env,
+                text=True,
+                capture_output=True,
+            )
+            assert actual.returncode == child_status, actual.stderr
+            assert json.loads(arguments.read_text()) == [
+                "-n",
+                "auto",
+                "--dist=loadscope",
+                "-vv",
+                "--ff",
+                "-x",
+                "--junitxml=" + str(diagnostics / "junit.xml"),
+            ]
+            assert "Web pytest exit status: " + str(child_status) in actual.stdout
+            assert (diagnostics / "exit-code.txt").read_text().strip() == str(
+                child_status
+            )
+            assert (diagnostics / "process-time.txt").is_file()
+            if fault == "missing":
+                (diagnostics / "junit.xml").unlink()
+            elif fault == "oversized":
+                (diagnostics / "exit-code.txt").write_bytes(b"x" * 65)
+            captured = subprocess.run(
+                ["bash", "-euo", "pipefail", "-c", collect["run"]],
+                cwd=route,
+                env=route_env,
+                text=True,
+                capture_output=True,
+            )
+            assert captured.returncode == (0 if fault == "none" else 1), captured.stderr
+            bounded = diagnostics / "upload"
+            assert (bounded / "diagnostic-status.txt").read_text().strip() == (
+                "CAPTURED" if fault == "none" else "INCOMPLETE"
+            )
+            assert (
+                "not a process-tree aggregate"
+                in (bounded / "capture-scope.txt").read_text()
+            )
+            for filename, limit in {
+                "junit.xml": 33554432,
+                "process-time.txt": 262144,
+                "exit-code.txt": 64,
+            }.items():
+                destination = bounded / filename
+                if destination.exists():
+                    assert 0 < destination.stat().st_size <= limit
+            if fault == "missing":
+                assert not (bounded / "junit.xml").exists()
+            elif fault == "oversized":
+                assert not (bounded / "exit-code.txt").exists()
+                assert (diagnostics / "exit-code.txt").stat().st_size == 65
     assert workflow["concurrency"]["cancel-in-progress"] is False
 
 
