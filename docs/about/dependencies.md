@@ -131,7 +131,17 @@ or evidence that gradual underflow was preserved.
 The retained full-feed default-target comparison records numerical **FAILED**
 on both tested framework variants: CPU ORT 1.31.0 preserves subnormal words where
 the official eager and fresh-JIT references return signed zero. Successful
-diagnostic tests are not numerical acceptance. The exporter does not
+diagnostic tests are not numerical acceptance.
+
+The strict FP32/FP64 matrix and Min/Max subnormal probes also record numerical
+**FAILED** on CPU ORT 1.31.1 with official JAX/jaxlib 0.10.2 and 0.12.0.1,
+with optimization disabled and enabled. Actual eager and fresh-JIT references
+are retained before the target sessions; the target outputs differ from those
+references. The original bitwise checks, exact artifact/output evidence and
+raising gates remain in force. Passing tests that preserve these failed
+witnesses do not establish numerical acceptance or migration completion.
+
+The exporter does not
 unconditionally flush inputs or replace the native reference to hide this
 difference. ORT's documented
 [`session.set_denormal_as_zero` setting](https://github.com/microsoft/onnxruntime/blob/v1.24.1/include/onnxruntime/core/session/onnxruntime_session_options_config_keys.h#L28-L35)

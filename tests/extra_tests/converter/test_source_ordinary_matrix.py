@@ -62,7 +62,12 @@ _LONG_CRITERIA = {
 # 2026-10-21 ORT 1.24.1: unchanged four matrix artifacts retain bit2 and
 # raising gates in both modes (actual37-observation audit 6ced5aac6509fbce).
 # These failed witnesses do not establish numerical acceptance.
+# Measured 2026-11-01 on original diagnostic/audited F32/F64 artifacts:
+# JAX 0.10.2 and 0.12.0.1 / ORT 1.31.1, x86_64 CPU, both modes:
+# all 16 reports remain FAILED with bit2; Native references retain +0.
 _SUBNORMAL_TARGETS = {
+    ("0.10.2", "1.31.1"),
+    ("0.12.0.1", "1.31.1"),
     ("0.10.2", "1.24.1"),
     ("0.11.2", "1.31.0"),
     ("0.10.2", "1.29.0"),

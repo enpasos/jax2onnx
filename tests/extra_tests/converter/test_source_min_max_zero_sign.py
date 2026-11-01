@@ -47,7 +47,12 @@ _ORIGINALS = (jnp.minimum, jnp.maximum)
 # JAX 0.8.1 and 0.10.2 / ORT 1.31.0: 48 additional FAILED reports total
 # (24 per stack: 8 matrix + 16 Min/Max), both CPU modes and raising gates.
 # These failed witnesses do not establish numerical acceptance.
+# Measured 2026-11-01: original Min/Max helper fixtures on JAX 0.10.2
+# and 0.12.0.1 / ORT 1.31.1 retain 32 FAILED CPU reports, both modes
+# and eager/JIT references: native signed zero versus target signed word 1.
 _TARGETS = {
+    ("0.10.2", "1.31.1"),
+    ("0.12.0.1", "1.31.1"),
     ("0.11.2", "1.31.0"),
     ("0.10.2", "1.29.0"),
     ("0.12.0", "1.31.0"),
