@@ -12,6 +12,7 @@ from typing import Callable, Final, List, Optional
 import jax
 from jax import lax
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 from flax import nnx
 
 from jax2onnx._compat import jax as jax_compat
@@ -48,9 +49,9 @@ _NORMAL_002: Final = jax.nn.initializers.normal(stddev=0.02)
 
 def _init_param(
     key: jax.Array,
-    initializer: Callable[[jax.Array, tuple[int, ...], jnp.dtype], jax.Array],
+    initializer: Callable[[jax.Array, tuple[int, ...], DTypeLike], jax.Array],
     shape: tuple[int, ...],
-    dtype: jnp.dtype = jnp.float32,
+    dtype: DTypeLike = jnp.float32,
 ) -> nnx.Param:
     return nnx.Param(initializer(key, shape, dtype))
 
@@ -167,7 +168,7 @@ def _build_rmsnorm_apply(
     hidden_size: int,
     *,
     init_key: jax.Array,
-    dtype: jnp.dtype,
+    dtype: DTypeLike,
 ) -> Callable[[jax.Array], jax.Array]:
     module = RMSNorm(hidden_size)
 
@@ -320,7 +321,7 @@ def _build_rotary_apply(
     sequence_length: int,
     table_length: int,
     init_key: jax.Array,
-    dtype: jnp.dtype,
+    dtype: DTypeLike,
 ) -> Callable[[jax.Array, jax.Array], tuple[jax.Array, jax.Array]]:
     cos_table, sin_table = _rotary_tables(
         head_dim=head_dim,
@@ -384,7 +385,7 @@ class TokenEmbedding(nnx.Module):
         hidden_size: int,
         *,
         rng: jax.Array,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
     ):
         self.embedding = _init_param(
             rng,
@@ -408,7 +409,7 @@ class AttentionCore(nnx.Module):
         sin_table: jax.Array,
         sequence_length: int,
         mask: jax.Array,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rng: jax.Array | int | None = None,
     ):
         self.config = config
@@ -517,7 +518,7 @@ class AttentionBlock(nnx.Module):
         sin_table: jax.Array,
         sequence_length: int,
         mask: jax.Array,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rng: jax.Array | int | None = None,
     ):
         self.norm = RMSNorm(config.hidden_size)
@@ -551,7 +552,7 @@ class MLPBlockCore(nnx.Module):
         *,
         config: GPTOSSConfig,
         sequence_length: int,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rng: jax.Array | int | None = None,
     ):
         self.config = config
@@ -703,7 +704,7 @@ class MLPBlock(nnx.Module):
         *,
         config: GPTOSSConfig,
         sequence_length: int,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rng: jax.Array | int | None = None,
     ):
         self.norm = RMSNorm(config.hidden_size)
@@ -742,7 +743,7 @@ class TransformerBlock(nnx.Module):
         sin_table: jax.Array,
         sequence_length: int,
         mask: jax.Array,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rng: jax.Array | int | None = None,
     ):
         rng_seq = _KeySeq(rng)
@@ -800,7 +801,7 @@ class Transformer(nnx.Module):
         sequence_length: int,
         mask_sliding: jax.Array,
         mask_causal: jax.Array,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rng: jax.Array | int | None = None,
     ):
         self.config = config
@@ -1054,7 +1055,7 @@ def _build_attention_apply(
     sequence_length: int,
     table_length: int,
     init_key: jax.Array,
-    dtype: jnp.dtype,
+    dtype: DTypeLike,
 ) -> Callable[[jax.Array], jax.Array]:
     cos, sin = _rotary_tables_for_config(config, min_length=table_length)
     module = AttentionBlock(
@@ -1118,7 +1119,7 @@ def _build_mlp_apply(
     *,
     config: GPTOSSConfig,
     init_key: jax.Array,
-    dtype: jnp.dtype,
+    dtype: DTypeLike,
 ) -> Callable[[jax.Array], jax.Array]:
     sequence_length = 3
     module = MLPBlock(
@@ -1180,7 +1181,7 @@ def _build_transformer_apply(
     sequence_length: int,
     table_length: int,
     init_key: jax.Array,
-    dtype: jnp.dtype,
+    dtype: DTypeLike,
 ) -> Callable[[jax.Array], jax.Array]:
     cos, sin = _rotary_tables_for_config(config, min_length=table_length)
     module = TransformerBlock(
@@ -1254,7 +1255,7 @@ def _build_transformer_model_apply(
     sequence_length: int,
     table_length: int,
     init_key: jax.Array,
-    dtype: jnp.dtype,
+    dtype: DTypeLike,
 ) -> Callable[[jax.Array], jax.Array]:
     cos, sin = _rotary_tables_for_config(config, min_length=table_length)
     mask_sliding = _causal_mask(

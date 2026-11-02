@@ -8,6 +8,7 @@ from typing import Any, ClassVar, Final, TypeAlias, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.typing import DTypeLike
 from numpy.typing import ArrayLike
 import onnx_ir as ir
 from flax import nnx
@@ -46,7 +47,7 @@ class _ArangeTakeModule(nnx.Module):
         num_embeddings: int,
         features: int,
         *,
-        dtype: jnp.dtype | type = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.embedding = nnx.Param(

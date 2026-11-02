@@ -1426,20 +1426,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 axis=0,
                 _outputs=[loop_ctx.fresh_name("GatherScanInput")],
             )
+            # Gather preserves its sequence's actual data dtype. In particular,
+            # half inputs stay half regardless of the legacy precision flag.
+            per_step_val.type = seq_state.type
+            _ensure_value_metadata(loop_ctx, per_step_val)
             loop_ctx.bind_value_for_var(per_step_var, per_step_val)
-            aval_dtype = getattr(getattr(per_step_var, "aval", None), "dtype", None)
-            if aval_dtype is not None:
-                try:
-                    np_dtype = np.dtype(aval_dtype)
-                except TypeError:
-                    np_dtype = None
-                if np_dtype is not None and np.issubdtype(np_dtype, np.floating):
-                    target_enum = ir.DataType.DOUBLE
-                    if keep_float32:
-                        target_enum = ir.DataType.FLOAT
-                    per_step_val.type = ir.TensorType(target_enum)
-                    _ensure_value_metadata(loop_ctx, per_step_val)
-                    loop_ctx.bind_value_for_var(per_step_var, per_step_val)
             if (
                 scatter_static_extent is not None
                 and isinstance(scatter_static_extent, (int, np.integer))

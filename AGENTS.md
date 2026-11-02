@@ -47,8 +47,8 @@ Keep these handy—most deep-dives live there instead of here.
   - Flax NNX requires attributes that hold arrays to be wrapped in `nnx.List` / `nnx.data`.
 - **Two supported stacks.** `poetry.lock` resolves Python 3.11 and 3.12 to the
   older `jax 0.10.2` / `numpy 2.4` / `scipy 1.17` stack and Python 3.13+ to
-  `jax 0.11.x` (CI's 3.13/3.14 jobs assert this), so testing on 3.12 does not
-  exercise JAX 0.11. Both must keep working — route version-sensitive APIs
+  `jax 0.12.x` (CI's 3.13/3.14 jobs assert this), so testing on 3.12 does not
+  exercise JAX 0.12. Both must keep working — route version-sensitive APIs
   through `jax2onnx/_compat/jax.py` instead of importing them directly.
   (`[tool.mypy] python_version` is 3.12 because numpy's stubs need PEP 695 parsing.)
 - JAX 0.11 specifics:
