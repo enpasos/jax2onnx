@@ -49,7 +49,7 @@ from jax2onnx._compat.jax import (
     native_jit_primitive,
     is_unspecified_jit_sharding,
     is_empty_jit_mesh,
-    native_jit_boolean_inline_hints,
+    native_plain_jit_inline_hints,
     canonical_code_fingerprint,
     is_selected_prng_key_dtype,
     selected_prng_key_words,
@@ -59,6 +59,8 @@ from jax2onnx._compat.jax import (
     native_transformed_closure_state,
     selected_native_transformed_function,
     source_original_jit_capture,
+    source_internal_dtype_capture,
+    source_numpy_capture_guard,
     NativeTransformedExecutionError,
     native_transformed_execution_context,
 )
@@ -70,6 +72,8 @@ from jax2onnx.converter.source_structure import ConstantContract, StructureResul
 from scripts.source_precision_inventory import (
     canonical_contract,
     _source_bitwise_closure,
+    _source_predicate_input_samples,
+    _contract_hash,
     _source_compact_trace_manifest,
 )
 from scripts._source_inventory_epoch import validate_replay_manifest
@@ -297,7 +301,7 @@ def _structure_plain_jit_child(eqn: Any) -> tuple[Any, dict[str, Any]] | None:
                 raise _StructureBindingGap("plain-jit-placement-or-layout-unverified")
         _structure_ports(outer, inner, literal_kinds=False)
     donated = params["donated_invars"]
-    inline_hints = native_jit_boolean_inline_hints()
+    inline_hints = native_plain_jit_inline_hints()
     if (
         type(donated) is not tuple
         or len(donated) != len(eqn.invars)
@@ -379,6 +383,24 @@ def _structure_trace_storage(
 
 def _structure_flat_parameters(value: Any) -> None:
     if value is None or type(value) in (bool, int, str) or isinstance(value, np.dtype):
+        return
+    # Ownership only: canonical trace hashes still bind the exact dtype/bytes.
+    # Do not normalize these original native parameter objects.
+    if any(
+        type(value) is scalar_type
+        for scalar_type in (
+            np.int8,
+            np.int16,
+            np.int32,
+            np.int64,
+            np.longlong,
+            np.uint8,
+            np.uint16,
+            np.uint32,
+            np.uint64,
+            np.ulonglong,
+        )
+    ):
         return
     if type(value) in (tuple, list):
         for item in value:
@@ -874,6 +896,9 @@ class RawReplayCapture:
         self.target_witness: _ReplayReferenceWitness | None = None
         self.preparation_complete = False
         self._bitwise_document_written: bool | None = None
+        self._predicate_scope_validated = False
+        self._original_sample_count: int | None = None
+        self._predicate_original_samples: list[Any] | None = None
         self.records["native_outcomes"] = {}
         self.records["replay_readiness"] = {"status": "unverified", "gaps": self.gaps}
         self.records["source_structure"] = {
@@ -1012,6 +1037,7 @@ class RawReplayCapture:
         from jax2onnx.converter.source_structure import TensorContract, _ShapeFreezer
         from jax2onnx.plugins._source_structure import (
             _DirectRule,
+            _PredicateRule,
             freeze_source_structure_rule,
         )
 
@@ -1021,7 +1047,11 @@ class RawReplayCapture:
             _SliceRule,
         )
 
-        discrete = {
+        from jax2onnx.plugins.jax.lax._source_reduce_structure import (
+            _BooleanReductionRule,
+        )
+
+        ordinary = {
             "bool",
             "int8",
             "int16",
@@ -1031,6 +1061,8 @@ class RawReplayCapture:
             "uint16",
             "uint32",
             "uint64",
+            "float32",
+            "float64",
         }
         allowed = (
             jax.lax.and_p,
@@ -1043,6 +1075,16 @@ class RawReplayCapture:
             jax.lax.transpose_p,
             jax.lax.slice_p,
             jax.lax.stop_gradient_p,
+            jax.lax.eq_p,
+            jax.lax.ne_p,
+            jax.lax.lt_p,
+            jax.lax.le_p,
+            jax.lax.gt_p,
+            jax.lax.ge_p,
+            jax.lax.is_finite_p,
+            jax.lax.reduce_and_p,
+            jax.lax.reduce_or_p,
+            jax.lax.reduce_xor_p,
         )
         shapes = _ShapeFreezer()
 
@@ -1052,7 +1094,7 @@ class RawReplayCapture:
                 and type(var.aval) is JaxShapedArray
                 and type(var.aval.weak_type) is bool
                 and isinstance(var.aval.dtype, np.dtype)
-                and var.aval.dtype.name in discrete
+                and var.aval.dtype.name in ordinary
                 and all(
                     type(dim) is int and 0 <= dim <= 2**63 - 1 for dim in var.aval.shape
                 )
@@ -1089,7 +1131,13 @@ class RawReplayCapture:
                         for var in equation.outvars
                     ),
                 )
-                if type(rule) not in {_DirectRule, _ShapeRule, _SliceRule}:
+                if type(rule) not in {
+                    _DirectRule,
+                    _ShapeRule,
+                    _SliceRule,
+                    _PredicateRule,
+                    _BooleanReductionRule,
+                }:
                     return False
             return True
 
@@ -1105,6 +1153,7 @@ class RawReplayCapture:
             raise _StructureBindingMismatch(
                 "bitwise-observed-ir-and-checked-artifact-differ"
             )
+        self._predicate_scope_validated = True
         closure = _source_bitwise_closure(manifest, proto)
         if closure is not None:
             record["floating_applicability"] = {
@@ -1115,6 +1164,70 @@ class RawReplayCapture:
                     "required_internal_fp64": "not-applicable",
                 },
             }
+
+    def _refresh_predicate_applicability(self) -> None:
+        """Complete only sample-dependent conversion proof after all references.
+
+        The genuine native/rule eligibility was checked by the one collector.
+        Re-read its bound original trace and saved model; never re-export or
+        retrace, and never rewrite a previously written applicability document.
+        """
+        if not self._predicate_scope_validated:
+            return
+        record = self.records["source_structure"]
+        proof = record["floating_applicability"]
+        if proof.get("closure") is not None and not proof["closure"].get(
+            "lossless_conversions"
+        ):
+            return
+        samples = _source_predicate_input_samples(
+            self.records,
+            expected_sample_count=self._original_sample_count,
+            original_samples=self._predicate_original_samples,
+        )
+        if samples is None:
+            return
+        arrays, sample_bindings = samples
+        trace = self.records.get("declared-typed-trace", {})
+        artifact = self.records.get("artifact", {})
+        if trace.get("status") != "captured" or artifact.get("status") != "captured":
+            return
+        payload = Path(trace["path"]).read_bytes()
+        saved = Path(artifact["path"]).read_bytes()
+        if hashlib.sha256(payload).hexdigest() != trace.get("sha256") or hashlib.sha256(
+            saved
+        ).hexdigest() != artifact.get("sha256"):
+            raise _StructureBindingMismatch(
+                "predicate-original-trace-or-artifact-mutation"
+            )
+        manifest = json.loads(payload)
+        if _contract_hash(manifest) != record["source_binding"].get(
+            "actual_trace_sha256"
+        ):
+            raise _StructureBindingMismatch("predicate-original-trace-binding-differs")
+        closure = _source_bitwise_closure(
+            manifest, onnx.load_model_from_string(saved), sample_inputs=arrays
+        )
+        if closure is None:
+            return
+        if self._bitwise_document_written is True:
+            if (
+                proof.get("closure") != closure
+                or proof.get("lossless_input_samples") != sample_bindings
+            ):
+                raise _StructureBindingMismatch(
+                    "predicate-sample-bound-applicability-changed"
+                )
+            return
+        record["floating_applicability"] = {
+            "status": "unverified",
+            "closure": closure,
+            "lossless_input_samples": sample_bindings,
+            "applicability": {
+                "operation_rounding": "not-applicable",
+                "required_internal_fp64": "not-applicable",
+            },
+        }
 
     def _collect_structure_source(
         self, prepared: PreparedSourceCase, trace: Any
@@ -1269,6 +1382,17 @@ class RawReplayCapture:
                     )
         except Exception as exc:
             self._structure_error("source_binding", "export-trace-fence", exc)
+        try:
+            self._refresh_predicate_applicability()
+        except Exception as exc:
+            mismatch = (
+                exc
+                if type(exc) is _StructureBindingMismatch
+                else _StructureBindingMismatch(
+                    "predicate-original-input-binding-differs: " + str(exc)
+                )
+            )
+            self._structure_error("artifact_binding", "predicate-input-proof", mismatch)
         status = self.source_structure_status()
         record = self.records.get("source_structure", {})
         proof = record.get("floating_applicability", {})
@@ -1464,6 +1588,9 @@ class RawReplayCapture:
                     category="replay-lane-gap",
                 )
 
+            input_capture_role = name + "-inputs"
+            self.save_arrays(input_capture_role, arguments)
+
             def invoke_role() -> Any:
                 nonlocal wrapper
                 if role == "eager":
@@ -1491,6 +1618,7 @@ class RawReplayCapture:
             entry: dict[str, Any] = {
                 "outcome": dict(self.records["native_outcomes"].get(name, {})),
                 "capture_role": name,
+                "input_capture_role": input_capture_role,
                 "input_identity_before": before,
                 "settings_before": asdict(settings),
                 "jit_wrapper_identity": (
@@ -1846,6 +1974,7 @@ def _capture_recipe(value: Any, *, location: str = "callable", depth: int = 0) -
     No object is rebuilt, copied into a different model or replaced for export.
     Unknown mutable state, identity tokens and unsupported fields stay lane gaps.
     """
+    source_numpy_capture_guard(np)
     if depth > 48:
         raise SourcePreparationError(
             "Original recipe nesting needs an adapter", category="replay-lane-gap"
@@ -2073,6 +2202,7 @@ def _capture_actual_target_state(
     target: Any, *, witness: _ReplayReferenceWitness | None = None
 ) -> Any:
     """Require an actual callable adapter; recursive type tokens are metadata."""
+    source_numpy_capture_guard(np)
     if isinstance(target, type):
         binding = _jax_scalar_dtype_binding(target)
         if binding is not None:
@@ -2329,6 +2459,12 @@ def _function_global_state(
         native = _selected_native_state(value)
         if native is not None:
             return native
+        selected_dtype = source_internal_dtype_capture(value)
+        if selected_dtype is not None:
+            if witness is not None:
+                witness.selected[location] = selected_dtype.document["role"]
+                witness.native_references.extend(selected_dtype.retained)
+            return selected_dtype.document
         binding = _imported_executable_binding(value)
         if binding is not None:
             # Imported implementation is owned by the environment/source pins.
@@ -3751,6 +3887,16 @@ def prepare_raw_source_case(
     )
 
     three_roles = _stateless_native_protocol(adapter)
+    alternate_samples = metadata.get("runtime_input_values")
+    capture._original_sample_count = (
+        1
+        if alternate_samples is None
+        else (
+            1 + len(alternate_samples)
+            if type(alternate_samples) in (list, tuple)
+            else None
+        )
+    )
     identity = tuple(
         str(metadata.get(key, "default"))
         for key in ("context", "component", "testcase")
@@ -3798,6 +3944,15 @@ def prepare_raw_source_case(
                 "Supplied input bytes do not match the explicit original sample binding",
                 category="replay-lane-gap",
             )
+        if (
+            supplied is not None
+            and not named
+            and (alternate_samples is None or type(alternate_samples) in (list, tuple))
+        ):
+            capture._predicate_original_samples = [
+                canonical_contract(values, unresolved=[])
+                for values in (supplied, *(alternate_samples or ()))
+            ]
         capture.save_arrays("inputs", all_arguments)
         _save_physical(
             capture, "physical-feeds", all_arguments, metadata.get("inputs_as_nchw")

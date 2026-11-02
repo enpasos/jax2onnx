@@ -1642,3 +1642,168 @@ def _compute_live_node_indices(g: Any) -> Set[int]:
             if ivn:
                 frontier.append(ivn)
     return live_nodes
+
+
+def boolean_axis_keepdims_v2(operation: str) -> Callable[[Any], bool]:
+    """Versioned callback for the two original integer all/any keepdims rows."""
+    from functools import partial
+
+    if operation not in {"ReduceMin", "ReduceSum"}:
+        raise ValueError("Expected the registered all/any reduction")
+    return partial(
+        _check_boolean_axis_keepdims_v2,
+        operation=operation,
+        input_shape=(2, 3),
+        axis=1,
+        output_shape=(2, 1),
+    )
+
+
+def _check_boolean_axis_keepdims_v2(
+    model: Any,
+    *,
+    operation: str,
+    input_shape: tuple[int, int],
+    axis: int,
+    output_shape: tuple[int, int],
+) -> bool:
+    """Own every port, typed attribute, literal and node of either exact form.
+
+    The LEGACY primitive retains its reduced dimension directly. The unchanged
+    SOURCE callable instead reduces rank and then restores the original JAX
+    broadcast. This callback changes no lowering or numerical acceptance gate.
+    """
+    import onnx_ir as ir
+
+    try:
+        if (operation, input_shape, axis, output_shape) not in {
+            ("ReduceMin", (2, 3), 1, (2, 1)),
+            ("ReduceSum", (2, 3), 1, (2, 1)),
+        }:
+            return False
+        inspected = (
+            model if isinstance(model, ir.Model) else ir.serde.deserialize_model(model)
+        )
+        graph = inspected.graph
+        nodes = tuple(graph)
+        initializers = tuple(graph.initializers.values())
+        if inspected.functions or len(graph.inputs) != 1 or len(graph.outputs) != 1:
+            return False
+        claimed_nodes: set[Any] = set()
+        claimed_initializers: set[Any] = set()
+        producers = {value: node for node in nodes for value in node.outputs}
+        if len(producers) != sum(len(node.outputs) for node in nodes):
+            return False
+
+        def tensor(value: Any, dtype: Any, shape: tuple[int, ...]) -> bool:
+            return (
+                value is not None
+                and value.graph is graph
+                and value.dtype is dtype
+                and value.shape is not None
+                and tuple(value.shape) == shape
+            )
+
+        def node(value: Any, op: str, arity: int, attrs: dict[str, int]) -> Any:
+            found = producers.get(value)
+            if (
+                found is None
+                or found.graph is not graph
+                or found.overload
+                or found.domain != ""
+                or found.op_type != op
+                or len(found.inputs) != arity
+                or len(found.outputs) != 1
+                or found.outputs[0] is not value
+                or set(found.attributes) != set(attrs)
+            ):
+                raise ValueError("Wrong connected node contract")
+            for name, expected in attrs.items():
+                attribute = found.attributes[name]
+                if (
+                    attribute.type is not ir.AttributeType.INT
+                    or attribute.as_int() != expected
+                ):
+                    raise ValueError("Wrong typed scalar attribute")
+            claimed_nodes.add(found)
+            return found
+
+        def literal(value: Any, words: tuple[int, ...]) -> None:
+            if (
+                not any(value is item for item in initializers)
+                or not tensor(value, ir.DataType.INT64, (len(words),))
+                or type(value.const_value) not in {ir.Tensor, ir.TensorProtoTensor}
+            ):
+                raise ValueError("Wrong owned INT64 literal")
+            array = value.const_value.numpy()
+            if (
+                array.dtype != np.dtype(np.int64)
+                or array.shape != (len(words),)
+                or array.tobytes() != np.asarray(words, dtype=np.int64).tobytes()
+            ):
+                raise ValueError("Wrong literal words")
+            claimed_initializers.add(value)
+
+        def shape_vector(value: Any) -> None:
+            if any(value is item for item in initializers):
+                literal(value, output_shape)
+                return
+            concat = node(value, "Concat", 2, {"axis": 0})
+            if not tensor(value, ir.DataType.INT64, (2,)):
+                raise ValueError("Wrong restore-vector type/shape")
+            literal(concat.inputs[0], (2,))
+            literal(concat.inputs[1], (1,))
+
+        original = graph.inputs[0]
+        output = graph.outputs[0]
+        if not tensor(original, ir.DataType.INT32, input_shape) or not tensor(
+            output, ir.DataType.BOOL, output_shape
+        ):
+            return False
+        final = producers.get(output)
+        if final is None:
+            return False
+        reduction_shape: tuple[int, ...]
+        if final.op_type == "Cast":
+            keepdims = 1
+            boolean_result = output
+            reduction_shape = output_shape
+        else:
+            keepdims = 0
+            reduction_shape = (2,)
+            if final.op_type == "Expand":
+                expand = node(output, "Expand", 2, {})
+                shape_vector(expand.inputs[1])
+                restored = expand.inputs[0]
+            else:
+                restored = output
+            if not tensor(restored, ir.DataType.BOOL, output_shape):
+                return False
+            reshape = node(restored, "Reshape", 2, {})
+            shape_vector(reshape.inputs[1])
+            boolean_result = reshape.inputs[0]
+        if not tensor(boolean_result, ir.DataType.BOOL, reduction_shape):
+            return False
+        cast_back = node(boolean_result, "Cast", 1, {"to": int(ir.DataType.BOOL)})
+        reduced = cast_back.inputs[0]
+        if not tensor(reduced, ir.DataType.INT64, reduction_shape):
+            return False
+        reduction = node(reduced, operation, 2, {"keepdims": keepdims})
+        literal(reduction.inputs[1], (axis,))
+        integer_input = reduction.inputs[0]
+        if not tensor(integer_input, ir.DataType.INT64, input_shape):
+            return False
+        cast_work = node(integer_input, "Cast", 1, {"to": int(ir.DataType.INT64)})
+        boolean_input = cast_work.inputs[0]
+        if not tensor(boolean_input, ir.DataType.BOOL, input_shape):
+            return False
+        cast_input = node(boolean_input, "Cast", 1, {"to": int(ir.DataType.BOOL)})
+        if cast_input.inputs[0] is not original:
+            return False
+        if claimed_nodes != set(nodes) or claimed_initializers != set(initializers):
+            return False
+        # The original public boundary must be consumed, and no claimed internal
+        # value may be detached from the one connected output proof above.
+        return all(value is not None for current in nodes for value in current.inputs)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError, RuntimeError):
+        return False

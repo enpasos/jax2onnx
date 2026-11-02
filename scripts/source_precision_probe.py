@@ -1026,6 +1026,7 @@ def _raw_metadata_runtime_protocol(
         "reference_status": "unverified",
         "alternate_inputs_status": "unverified",
         "contract_sha256": adapter.get("contract_sha256"),
+        "original_sample_count": capture._original_sample_count,
         "criteria": (
             asdict(prepared.criteria)
             if prepared is not None and prepared.criteria

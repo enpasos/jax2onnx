@@ -1,6 +1,6 @@
 # Computation precision: current state
 
-Updated 2026-11-01. Public `to_onnx` still uses the existing **LEGACY** precision
+Updated 2026-11-02. Public `to_onnx` still uses the existing **LEGACY** precision
 policy. **SOURCE** is the private migration path that aims to preserve the typed
 JAX computation. It has useful, independently reviewed capabilities, but the
 complete migration and public transition are unfinished. The unmerged PR may
@@ -17,19 +17,12 @@ and failed predecessors. For practical export guidance, read the
 
 ## Published checkpoint and validation limits
 
-At the latest observed published checkpoint, `7d33b9d1`,
-[CI604](https://github.com/enpasos/jax2onnx/actions/runs/41296409719) finished
-with 25 successful checks and six failed checks. All three strict STANDARD
-joins succeeded. The four full Python jobs failed on outdated Eqx state-record
-assertions. Full Node and Chrome failed on a BitCast test that supplied a
-synthetic equation where a native JAX equation is required. Complete added-suite,
-numerical and integration acceptance remain open.
-
-This branch integrates current main and the four dependency updates, including
-mechanical formatting and corrections to three test files. Bounded local runtime
-checks pass on both framework variants, the existing ONNX Runtime minimum and
-the updated Node/Chrome stack. Exact-head hosted acceptance and the precision
-merge gates remain required.
+The SOURCE results below are bounded local branch qualification. Current
+exact-head hosted checks, the complete scientific gate and integrated acceptance
+remain required. The [PR checks](https://github.com/enpasos/jax2onnx/pull/277/checks)
+and [CI gate](precision_ci_gate.md) record hosted qualification; passing local
+metadata samples do not supply it. Supported locked ORT is 1.31.1; minimum
+runtime evidence is separately executed on its declared stack.
 
 Earlier failed and interrupted campaigns retain their own causes and outcomes in
 the [execution plan](ci_execution_plan.md) and [handoff](implementation_handoff.md).
@@ -125,6 +118,13 @@ feedback, replay and full numerical acceptance.
 
 ### Numerical defects and unresolved references
 
+The twelve special-float comparison fixtures still have **FAILED** scientific
+stages: official Native3 agrees, but default CPU ORT differs for the original
+signed smallest-subnormal comparisons. Their passing outer tests verify the
+retained rejection, exact mismatches and raising gates; they do not accept those
+calculations. The two separate finite-value predicates pass. No general
+subnormal normalization or comparison algorithm is qualified by this checkpoint.
+
 SOURCE floating `reduce_min`/`reduce_max` now preserve the tested NaN propagation
 and signed-zero choices, including reciprocal infinity signs. Their strict
 default-target gate is still **FAILED**: subnormal results differ between the
@@ -161,20 +161,38 @@ obligations and explicit cohort differences. These are coverage obligations,
 not passing scientific cases. Original sources, factory recipes, inputs,
 structural callbacks and numerical criteria retain their provenance.
 
-Strict metadata accounting is implemented, but its complete reports retain
-**global ERROR and zero accepted scientific cells**. There are still **1,838
-missing tolerance pairs**; the existing declarations also need scientific
-review. Missing criteria cannot become an implicit exact test, a default
-tolerance or a successful numerical outcome. Original callback failures remain
-visible beside separately reviewed SOURCE structural counterparts.
+The local predicate and Boolean-reduction checkpoint qualifies **44 original
+registered rows / 88 caller cells** on locked Python 3.11 and 3.13 and the
+Python 3.11 minimum stack (ONNX 1.20.1, ONNX IR 1.0.0, ORT 1.24.1).
+Each cohort executes the same 88 identities with x64 disabled and enabled,
+using the unchanged original callables, complete inputs and exact Boolean
+criteria. Official eager execution and the first and warmed calls of one fresh
+JIT wrapper agree with both ORT optimization modes on the same saved artifacts
+and feeds. These are 88 distinct obligations, not 264.
 
-A private proof-producer is still being developed. Finite JIT/storage, metadata
-and consumer controls have passing evidence. Complete qualification and
-production-row scientific acceptance remain open. This
-harness work does not accept a production row: an `x + 1` control cannot prove
-the original model, criteria, native roles or target results. The broader
-Native3/ORT2 obligation requires the unchanged eager, fresh-JIT and warmed-JIT
-references and both ORT optimization modes on the bound artifact and feeds.
+Each report records **88 conditionally numerically validated / 3,624 unverified**
+raw cells in the full **3,712-cell** ledger. Global `ERROR`, strict exit `1`,
+**1,838 missing frozen criterion pairs**, and all manual, metadata-free, opaque,
+optional-model and prepared LEGACY obligations remain. The earlier bitwise
+checkpoint's 52 conditional cells belong to its own recorded source epoch;
+they are not added to 88 or transported into this checkpoint.
+
+CURRENT now adopts exactly the two reviewed `all::1` and `any::1` callback
+contracts. The new structural check accepts the exact public LEGACY keepdims
+form and the semantically equivalent SOURCE reduction plus shape restoration;
+independent source and saved-IR checks remain mandatory. All original callables,
+inputs and numerical criteria are unchanged. Historical contracts and the
+357-row historical adapter manifest remain intact; the explicit reviewed
+44-row current adapter supplies this numerical scope. The existing epoch mapping
+records the two callback changes without transporting acceptance or adding a
+registry.
+
+The producer executes these original rows, rather than substituting synthetic
+examples. Whole typed-source and saved-IR matching, Native3 ownership/settings,
+artifact/feed identity and both actual target modes support the conditional
+exact criterion. Missing frozen criteria never acquire an implicit tolerance;
+these finite results do not qualify complete operator families or arbitrary
+compositions.
 
 ## ONNX feasibility and runtime evidence
 

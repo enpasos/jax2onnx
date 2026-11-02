@@ -1278,3 +1278,278 @@ def test_discrete_family_native_weak_scalar_is_not_restamped(operation):
         rules.freeze_source_structure_rule(native, forged_inputs, forged_outputs)
         is None
     )
+
+
+def _predicate_source(
+    operation: str,
+    dtype: Any,
+    shapes: tuple[tuple[int, ...], ...],
+    tmp_path: Any,
+    *,
+    supplied_jit: bool = False,
+    retain_input: bool = False,
+) -> ir.Model:
+    fn = {
+        "eq": jax.lax.eq,
+        "ne": jax.lax.ne,
+        "lt": jax.lax.lt,
+        "le": jax.lax.le,
+        "gt": jax.lax.gt,
+        "ge": jax.lax.ge,
+        "is_finite": jax.lax.is_finite,
+    }[operation]
+    arity = 1 if operation == "is_finite" else 2
+
+    def original(*values: Any) -> Any:
+        result = fn(*values[:arity])
+        return (result, values[-1]) if retain_input else result
+
+    target = jax.jit(original) if supplied_jit else original
+    with jax.enable_x64(True):
+        model = ui._to_onnx(
+            target,
+            [jax.ShapeDtypeStruct(shape, dtype) for shape in shapes],
+            precision_policy=PrecisionPolicy.SOURCE,
+            opset=23,
+            return_mode="ir",
+        )
+    assert isinstance(model, ir.Model)
+    # Preserve actual emitted IR/result before asserting a newly admitted rule.
+    onnx.save_model(ir.to_proto(model), tmp_path / "predicate-source.onnx")
+    (tmp_path / "predicate-source-result.txt").write_text(
+        repr(model.meta[structure.RESULT_KEY]) + "\n"
+    )
+    return model
+
+
+@pytest.mark.parametrize("operation", ["eq", "ne", "lt", "le", "gt", "ge"])
+@pytest.mark.parametrize(
+    "dtype,shape",
+    [
+        (np.float32, (7,)),
+        (np.float64, (2, 3)),
+        (np.int32, (0,)),
+        (np.uint32, ()),
+    ],
+)
+def test_static_predicate_vector_contracts_are_checked(
+    operation: str, dtype: Any, shape: tuple[int, ...], tmp_path: Any
+) -> None:
+    model = _predicate_source(operation, dtype, (shape, shape), tmp_path)
+    result = model.meta[structure.RESULT_KEY]
+    assert result.status == "validated"
+    assert result.expected_equations == result.checked_equations == 1
+    expected = {
+        "eq": ["Equal"],
+        "ne": ["Equal", "Not"],
+        "lt": ["Less"],
+        "le": ["LessOrEqual"],
+        "gt": ["Greater"],
+        "ge": ["GreaterOrEqual"],
+    }[operation]
+    assert [node.op_type for node in model.graph] == expected
+    assert model.graph.outputs[0].dtype is ir.DataType.BOOL
+    assert normalized_shape_dimensions(tuple(model.graph.outputs[0].shape)) == shape
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+@pytest.mark.parametrize("operation", ["eq", "ne", "lt", "le", "gt", "ge"])
+def test_static_predicate_native_broadcast_geometry_is_checked(
+    operation: str, tmp_path: Any
+) -> None:
+    model = _predicate_source(operation, np.float32, ((2, 3), (1, 3)), tmp_path)
+    result = model.meta[structure.RESULT_KEY]
+    assert result.status == "validated"
+    assert result.expected_equations == result.checked_equations == 1
+    assert normalized_shape_dimensions(tuple(model.graph.outputs[0].shape)) == (2, 3)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+@pytest.mark.parametrize("operation", ["eq", "ne"])
+def test_static_boolean_equality_contract_is_checked(
+    operation: str, tmp_path: Any
+) -> None:
+    model = _predicate_source(operation, np.bool_, ((3,), (3,)), tmp_path)
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+@pytest.mark.parametrize(
+    "dtype,shape,supplied_jit",
+    [(np.float32, (7,), False), (np.float64, (), True), (np.float32, (0,), False)],
+)
+def test_static_finite_predicate_composition_is_checked(
+    dtype: Any, shape: tuple[int, ...], supplied_jit: bool, tmp_path: Any
+) -> None:
+    model = _predicate_source(
+        "is_finite", dtype, (shape,), tmp_path, supplied_jit=supplied_jit
+    )
+    result = model.meta[structure.RESULT_KEY]
+    assert result.status == "validated"
+    assert (
+        result.expected_equations
+        == result.checked_equations
+        == (2 if supplied_jit else 1)
+    )
+    assert [node.op_type for node in model.graph] == ["IsInf", "IsNaN", "Or", "Not"]
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+
+
+@pytest.mark.parametrize("operation", ["ne", "is_finite"])
+@pytest.mark.parametrize(
+    "fault",
+    ["operator", "edge", "attribute", "intermediate-dtype", "intermediate-shape"],
+)
+def test_composed_predicate_final_ir_counterexamples_are_rejected(
+    operation: str, fault: str, tmp_path: Any
+) -> None:
+    arity = 1 if operation == "is_finite" else 2
+    model = _predicate_source(
+        operation,
+        np.float32,
+        ((3,),) * (arity + 1),
+        tmp_path,
+        retain_input=True,
+    )
+    assert model.meta[structure.RESULT_KEY].status == "validated"
+    node = next(
+        node
+        for node in model.graph
+        if node.op_type == ("Equal" if operation == "ne" else "IsInf")
+    )
+    if fault == "operator":
+        node.op_type = "Greater" if operation == "ne" else "IsNaN"
+    elif fault == "edge":
+        assert model.graph.inputs[-1] is not node.inputs[0]
+        assert model.graph.outputs[-1] is model.graph.inputs[-1]
+        node.replace_input_with(0, model.graph.inputs[-1])
+    elif fault == "attribute":
+        node.attributes["unexpected"] = ir.AttrInt64("unexpected", 1)
+    elif fault == "intermediate-dtype":
+        node.outputs[0].dtype = ir.DataType.DOUBLE
+    else:
+        node.outputs[0].shape = ir.Shape((1, 3))
+    assert structure.validate_source_structure(model).status == "failed"
+
+
+@pytest.mark.parametrize("operation", ["eq", "ne", "is_finite"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "primitive",
+        "equation",
+        "effects",
+        "params",
+        "params-type",
+        "input-arity",
+        "output-arity",
+        "logical-dtype",
+        "physical-dtype",
+        "encoding",
+        "logical-shape",
+        "shape",
+        "symbol",
+        "weakness",
+        "weakness-type",
+    ],
+)
+def test_static_predicate_rule_rejects_unowned_or_incompatible_contracts(
+    operation: str, fault: str
+) -> None:
+    fn = {"eq": jax.lax.eq, "ne": jax.lax.ne, "is_finite": jax.lax.is_finite}[operation]
+    arity = 1 if operation == "is_finite" else 2
+    native = jax.make_jaxpr(fn)(
+        *[jax.ShapeDtypeStruct((3,), np.float32)] * arity
+    ).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.outvars
+    )
+    assert rules.freeze_source_structure_rule(native, inputs, outputs) is not None
+    eqn = native
+    if fault == "primitive":
+        eqn = native.replace(primitive=Primitive(operation))
+    elif fault == "equation":
+        eqn = SimpleNamespace(primitive=native.primitive, params={}, effects=())
+    elif fault == "effects":
+        eqn = native.replace(effects=frozenset({object()}))
+    elif fault == "params":
+        eqn = native.replace(params={"placement": None})
+    elif fault == "params-type":
+
+        class Params(dict):
+            pass
+
+        eqn = native.replace(params=Params())
+    elif fault == "input-arity":
+        inputs = inputs[:-1]
+    elif fault == "output-arity":
+        outputs = outputs * 2
+    else:
+        changes = {
+            "logical-dtype": {"logical_dtype": "int8"},
+            "physical-dtype": {"dtype": ir.DataType.INT32},
+            "encoding": {"encoding": "complex-real-pair"},
+            "logical-shape": {"logical_shape": (1, 3)},
+            "shape": {"shape": (1, 3), "logical_shape": (1, 3)},
+            "symbol": {"symbol_token": object()},
+            "weakness": {"weak_type": True},
+            "weakness-type": {"weak_type": 0},
+        }[fault]
+        outputs = (replace(outputs[0], **changes),)
+    assert rules.freeze_source_structure_rule(eqn, inputs, outputs) is None
+    assert rules.freeze_source_semantic_key(eqn, inputs, outputs) is None
+
+
+@pytest.mark.parametrize("operation", ["eq", "ne", "is_finite"])
+def test_static_predicate_weak_scalar_matches_native_conjunction(
+    operation: str,
+) -> None:
+    fn = {"eq": jax.lax.eq, "ne": jax.lax.ne, "is_finite": jax.lax.is_finite}[operation]
+    arity = 1 if operation == "is_finite" else 2
+    with jax.enable_x64(False):
+        eqn = jax.make_jaxpr(fn)(*((1.0,) * arity)).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in eqn.outvars
+    )
+    assert all(value.weak_type for value in (*inputs, *outputs))
+    assert rules.freeze_source_structure_rule(eqn, inputs, outputs) is not None
+
+
+@pytest.mark.parametrize("operation", ["eq", "ne", "is_finite"])
+def test_static_predicate_rejects_nonboolean_native_weak_flag_before_other_fields(
+    operation: str,
+) -> None:
+    from jax2onnx._compat.jax import ShapedArray
+
+    fn = {"eq": jax.lax.eq, "ne": jax.lax.ne, "is_finite": jax.lax.is_finite}[operation]
+    arity = 1 if operation == "is_finite" else 2
+    native = jax.make_jaxpr(fn)(
+        *[jax.ShapeDtypeStruct((3,), np.float32)] * arity
+    ).jaxpr.eqns[0]
+    shapes = structure._ShapeFreezer()
+    inputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.invars
+    )
+    outputs = tuple(
+        structure.TensorContract.from_aval(v.aval, shapes) for v in native.outvars
+    )
+    invalid = object.__new__(ShapedArray)
+    object.__setattr__(invalid, "weak_type", 1)
+    assert type(invalid) is ShapedArray
+    assert type(invalid.weak_type) is int and invalid.weak_type == 1
+    var = native.invars[0]
+    original = var.aval
+    try:
+        var.aval = invalid
+        assert rules.freeze_source_structure_rule(native, inputs, outputs) is None
+        assert rules.freeze_source_semantic_key(native, inputs, outputs) is None
+    finally:
+        var.aval = original

@@ -5918,3 +5918,2554 @@ def test_discrete_family_native_owner_state_mutations_stop_before_call(
         compat.selected_native_capture(target)
     assert not capture.check_target("changed-family-native-owner")
     assert capture.target is target and invoked == []
+
+
+def _predicate_protocol_case(tmp_path, case, *, expected=None):
+    scope = _discrete_protocol_scope(case)
+    scope[3]["rows"]["plugin::synthetic::0"]["capture_original_object"] = True
+    descriptor = _descriptors(
+        scope, selection=[("plugin::synthetic", 0, "raw-x64-on")]
+    )[0]
+    function = _function(
+        scope,
+        descriptor,
+        tmp_path,
+        runtime="both",
+        expected=expected or {"runtime": "validated", "numerics": "validated"},
+    )
+    return scope, function
+
+
+def _predicate_retained_outputs(capture, expected_samples):
+    labels = capture["metadata_runtime"]["native_sample_labels"]
+    assert labels == [""] + [
+        f"metadata-runtime-reference-{i}" for i in range(len(expected_samples) - 1)
+    ]
+    assert set(capture["metadata_runtime"]["modes"]) == {"disabled", "all"}
+    wrappers = []
+    for index, (label, expected) in enumerate(
+        zip(labels, expected_samples, strict=True)
+    ):
+        expected = np.asarray(expected, dtype=np.bool_)
+        sample = capture["native_protocol"]["samples"][label]
+        wrappers.append(sample["wrapper_identity"])
+        assert sample["wrapper_calls"] == 2
+        assert (
+            sample["roles"]["fresh-jit"]["jit_wrapper_identity"]
+            == sample["roles"]["warm-jit"]["jit_wrapper_identity"]
+            == sample["wrapper_identity"]
+        )
+        names = [
+            (label + "-" if label else "") + role
+            for role in ("eager", "fresh-jit", "warm-jit")
+        ] + [f"metadata-ort-{mode}-{index}" for mode in ("disabled", "all")]
+        for name in names:
+            with np.load(capture[name]["path"], allow_pickle=False) as saved:
+                assert saved.files == ["value_0"]
+                actual = saved["value_0"]
+                assert (
+                    actual.dtype == np.dtype("bool") and actual.shape == expected.shape
+                )
+                np.testing.assert_array_equal(actual, expected)
+    assert len(set(wrappers)) == len(wrappers)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "name,target,oracle",
+    [
+        ("eq", jnp.equal, np.equal),
+        ("ne", jnp.not_equal, np.not_equal),
+        ("lt", jnp.less, np.less),
+        ("le", jnp.less_equal, np.less_equal),
+        ("gt", jnp.greater, np.greater),
+        ("ge", jnp.greater_equal, np.greater_equal),
+        ("finite", jnp.isfinite, np.isfinite),
+    ],
+)
+def test_predicate_protocol_retains_special_float_input_words_and_boolean_results(
+    tmp_path, monkeypatch, dtype, name, target, oracle
+):
+    if dtype is np.float32:
+        words = np.asarray(
+            [
+                0xFF800000,
+                0xBF800000,
+                0x80000000,
+                0,
+                0x7F800000,
+                0x7FC00001,
+                1,
+                0x80000001,
+            ],
+            dtype=np.uint32,
+        )
+        other_words = np.asarray(
+            [0xFF800000, 0x3F800000, 0, 0x80000000, 0xFF800000, 0x7FC00002, 0, 0],
+            dtype=np.uint32,
+        )
+    else:
+        words = np.asarray(
+            [
+                0xFFF0000000000000,
+                0xBFF0000000000000,
+                0x8000000000000000,
+                0,
+                0x7FF0000000000000,
+                0x7FF8000000000001,
+                1,
+                0x8000000000000001,
+            ],
+            dtype=np.uint64,
+        )
+        other_words = np.asarray(
+            [
+                0xFFF0000000000000,
+                0x3FF0000000000000,
+                0,
+                0x8000000000000000,
+                0xFFF0000000000000,
+                0x7FF8000000000002,
+                0,
+                0,
+            ],
+            dtype=np.uint64,
+        )
+    import io
+    import re
+
+    from jax2onnx import precision
+
+    reports = []
+    original_validate = precision._validate_source_samples
+
+    def observe_validation(*args, **kwargs):
+        report = original_validate(*args, **kwargs)
+        reports.append((kwargs["optimization"], report))
+        return report
+
+    monkeypatch.setattr(precision, "_validate_source_samples", observe_validation)
+    inputs = [words.view(dtype)]
+    if name != "finite":
+        inputs.append(other_words.view(dtype))
+    expected = oracle(*inputs)
+    scope, function = _predicate_protocol_case(
+        tmp_path,
+        {
+            "testcase": "predicate-special-" + name,
+            "callable": target,
+            "input_values": inputs,
+        },
+    )
+    if name == "finite":
+        function()
+    else:
+        # The generated scientific stage still requests positive acceptance and fails.
+        with pytest.raises(
+            AssertionError,
+            match=r"^SOURCE stage contract incomplete: numerics: requested validated, observed CheckStatus\.FAILED \(Product export/schema checked; raw callback recorded separately\. Runtime/numerics unverified\.\)$",
+        ):
+            function()
+    outcome = function._source_outcome
+    assert outcome["stage_body_complete"] is True
+    assert outcome["stage_contract"] == {
+        "runtime": "validated",
+        "numerics": "validated",
+    }
+    assert outcome["stage_contract_passed"] is (name == "finite")
+    assert outcome["capability_status"] == (
+        "validated" if name == "finite" else "failed"
+    )
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    assert (
+        record.schema
+        is record.artifact
+        is record.structure
+        is record.lowering_audit
+        is CheckStatus.VALIDATED
+    )
+    assert record.source_reference is record.runtime is CheckStatus.VALIDATED
+    assert record.numerics is (
+        CheckStatus.VALIDATED if name == "finite" else CheckStatus.FAILED
+    )
+    decoded = {}
+
+    def arrays(role):
+        if role not in decoded:
+            entry = capture[role]
+            assert entry["status"] == "captured"
+            payload = Path(entry["path"]).read_bytes()
+            assert hashlib.sha256(payload).hexdigest() == entry["sha256"]
+            with np.load(io.BytesIO(payload), allow_pickle=False) as saved:
+                assert saved.files == [f"value_{i}" for i in range(len(saved.files))]
+                decoded[role] = tuple(saved[key] for key in saved.files)
+        return decoded[role]
+
+    def exact_arrays(actual, original):
+        assert len(actual) == len(original)
+        for value, reference in zip(actual, original, strict=True):
+            assert value.dtype == reference.dtype and value.shape == reference.shape
+            assert value.tobytes() == reference.tobytes()
+
+    if name == "finite":
+        native_expected = target_expected = expected
+        _predicate_retained_outputs(capture, [expected])
+    else:
+        bits = np.dtype(dtype).itemsize * 8
+        signatures = [
+            np.asarray(
+                [
+                    _predicate_comparison_word_oracle(
+                        int(left), int(right), name, bits, flush_subnormals=flush
+                    )
+                    for left, right in zip(words, other_words, strict=True)
+                ],
+                dtype=np.bool_,
+            )
+            for flush in (True, False)
+        ]
+        native_expected, target_expected = signatures
+        exact_arrays(
+            [target_expected], [expected]
+        )  # NumPy is only an extra target cross-check.
+        mismatch_indices = {
+            "eq": [6, 7],
+            "ne": [6, 7],
+            "lt": [7],
+            "ge": [7],
+            "gt": [6],
+            "le": [6],
+        }[name]
+        assert (
+            np.flatnonzero(native_expected != target_expected).tolist()
+            == mismatch_indices
+        )
+    assert native_expected.dtype == target_expected.dtype == np.dtype("bool")
+    assert native_expected.shape == target_expected.shape == (8,)
+    sample = capture["native_protocol"]["samples"][""]
+    assert set(sample["roles"]) == {"eager", "fresh-jit", "warm-jit"}
+    assert sample["wrapper_calls"] == 2
+    assert (
+        sample["roles"]["fresh-jit"]["jit_wrapper_identity"]
+        == sample["roles"]["warm-jit"]["jit_wrapper_identity"]
+        == sample["wrapper_identity"]
+    )
+    for role, entry in sample["roles"].items():
+        assert entry["input_capture_role"] == role + "-inputs"
+        assert entry["outcome"]["status"] == "returned"
+        assert entry["settings_before"] == entry["settings_after"]
+        assert entry["settings_before"]["x64_enabled"] is True
+        assert entry["settings_before"]["default_matmul_precision"] is None
+        assert (
+            entry["input_identity_before"]
+            == entry["input_identity_after"]
+            == sample["input_identity"]
+        )
+        exact_arrays(arrays(entry["input_capture_role"]), inputs)
+        exact_arrays(arrays(entry["capture_role"]), [native_expected])
+    runtime = capture["metadata_runtime"]
+    assert runtime["native_sample_labels"] == [""]
+    assert runtime["reference_status"] == runtime["binding_status"] == "validated"
+    assert (
+        runtime["reference_role"] == "original-eager-first-warm-same-wrapper-per-sample"
+    )
+    assert runtime["criteria"] == {
+        "mode": "exact",
+        "rtol": None,
+        "atol": None,
+        "equal_nan": True,
+    }
+    assert (
+        runtime["artifact_sha256"]
+        == runtime["loaded_artifact_sha256"]
+        == record.artifact_sha256
+    )
+    artifact = Path(capture["artifact"]["path"])
+    assert hashlib.sha256(artifact.read_bytes()).hexdigest() == record.artifact_sha256
+    exact_arrays(arrays("metadata-protocol-0-feeds"), inputs)
+    exact_arrays(arrays("metadata-protocol-0-references"), [native_expected])
+    assert [mode for mode, _ in reports] == ["disabled", "all"]
+    assert set(runtime["modes"]) == {"disabled", "all"}
+    for mode, report in reports:
+        retained = runtime["modes"][mode]
+        assert report._artifact == artifact
+        assert (
+            report.artifact_sha256
+            == retained["artifact_sha256"]
+            == record.artifact_sha256
+        )
+        assert asdict(report.target) == retained["target"]
+        assert [asdict(check) for check in report.checks] == retained["checks"]
+        assert [asdict(value) for value in report.samples] == retained["samples"]
+        assert all(check.status is CheckStatus.VALIDATED for check in report.checks)
+        assert len(report.samples) == len(retained["sample_identities"]) == 1
+        identity = retained["sample_identities"][0]
+        assert retained["sample_identities"] == runtime["sample_identities"]
+        evidence = report.samples[0]
+        assert asdict(evidence.criteria) == identity["criteria"] == runtime["criteria"]
+        assert [asdict(value) for value in evidence.inputs] == identity["inputs"]
+        assert [asdict(value) for value in evidence.references] == identity[
+            "references"
+        ]
+        exact_arrays(arrays(f"metadata-ort-{mode}-0"), [target_expected])
+        assert len(retained["output_captures"]) == 1
+        assert [asdict(value) for value in evidence.outputs] == retained[
+            "output_captures"
+        ][0]["outputs"]
+        for records, values in (
+            (evidence.inputs, inputs),
+            (evidence.references, [native_expected]),
+            (evidence.outputs, [target_expected]),
+        ):
+            for item, value in zip(records, values, strict=True):
+                header = json.dumps(
+                    {
+                        "dtype": value.dtype.name,
+                        "dtype_str": value.dtype.str,
+                        "shape": list(value.shape),
+                    },
+                    sort_keys=True,
+                ).encode()
+                assert item.dtype == value.dtype.name and item.shape == value.shape
+                assert (
+                    item.sha256
+                    == hashlib.sha256(header + b"\0" + value.tobytes()).hexdigest()
+                )
+        sample_checks = {check.category: check for check in evidence.checks}
+        assert sample_checks["runtime-execution"].status is CheckStatus.VALIDATED
+        if name == "finite":
+            assert report.status is CheckStatus.VALIDATED
+            report.require_sample_acceptance()
+        else:
+            mismatch = "Output 0: values fail exact integer/Boolean comparison"
+            assert report.status is CheckStatus.FAILED
+            assert sample_checks["numerical-acceptance"].status is CheckStatus.FAILED
+            assert sample_checks["numerical-acceptance"].detail == mismatch
+            with pytest.raises(
+                precision.SampleAcceptanceError,
+                match="^failed: " + re.escape(mismatch) + "$",
+            ):
+                report.require_sample_acceptance()
+    checks = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0],
+        asdict(record),
+        _original_contract=scope[0]["contracts"][scope[0]["cases"][0][5]],
+    )
+    for category in (
+        "native_three_role_agreement",
+        "same_artifact_and_feeds_both_modes",
+        "reviewed_criteria",
+        "dtype_shape_output_count",
+    ):
+        assert checks[category]["status"] == "validated"
+    for category in ("ort_disabled", "ort_all", "criteria_comparison"):
+        assert checks[category]["status"] == (
+            "validated" if name == "finite" else "failed"
+        )
+    for category in ("operation_rounding", "required_internal_fp64"):
+        assert checks[category]["status"] == "validated"
+        assert checks[category]["applicability"] == "not-applicable"
+        assert (
+            "no floating operations, values or constants"
+            not in checks[category]["detail"]
+        )
+    assert any(
+        value[1][0] == np.dtype(dtype).name
+        for value in capture["source_structure"]["floating_applicability"]["closure"][
+            "source_values"
+        ]
+    )
+    _retained_stage_record(function)
+
+
+def _predicate_comparison_word_oracle(left, right, name, bits, *, flush_subnormals):
+    """Independent integer-only IEEE ordering, optionally collapsing exponent zero."""
+    assert type(left) is type(right) is int and bits in (32, 64)
+    fraction_bits = 23 if bits == 32 else 52
+    sign = 1 << (bits - 1)
+    fraction_mask = (1 << fraction_bits) - 1
+    exponent_mask = (sign - 1) ^ fraction_mask
+    assert 0 <= left < sign * 2 and 0 <= right < sign * 2
+
+    def is_nan(word):
+        return word & exponent_mask == exponent_mask and word & fraction_mask != 0
+
+    if is_nan(left) or is_nan(right):
+        return name == "ne"
+
+    def canonical(word):
+        magnitude = word & (sign - 1)
+        if magnitude == 0 or (flush_subnormals and magnitude & exponent_mask == 0):
+            return 0
+        return word
+
+    left, right = canonical(left), canonical(right)
+    equal = left == right
+    if bool(left & sign) != bool(right & sign):
+        less = bool(left & sign)
+    elif left & sign:
+        less = (left & (sign - 1)) > (right & (sign - 1))
+    else:
+        less = left < right
+    return {
+        "eq": equal,
+        "ne": not equal,
+        "lt": less,
+        "le": less or equal,
+        "gt": not less and not equal,
+        "ge": not less,
+    }[name]
+
+
+def _predicate_comparison_law_words(bits):
+    if bits == 32:
+        magnitudes = (
+            0,
+            1,
+            2,
+            0x007FFFFF,
+            0x00800000,
+            0x00800001,
+            0x3F800000,
+            0x7F800000,
+            0x7FC00001,
+            0x7FC00002,
+            0x7F800001,
+        )
+    else:
+        assert bits == 64
+        magnitudes = (
+            0,
+            1,
+            2,
+            0x000FFFFFFFFFFFFF,
+            0x0010000000000000,
+            0x0010000000000001,
+            0x3FF0000000000000,
+            0x7FF0000000000000,
+            0x7FF8000000000001,
+            0x7FF8000000000002,
+            0x7FF0000000000001,
+        )
+    words = magnitudes + tuple(word | (1 << (bits - 1)) for word in magnitudes)
+    assert len(words) == len(set(words)) == 22
+    return words
+
+
+@pytest.mark.parametrize(
+    "dtype,x64",
+    [(np.float32, False), (np.float32, True), (np.float64, True)],
+    ids=["f32-x64off", "f32-x64on", "f64-x64on"],
+)
+@pytest.mark.parametrize(
+    "case,target",
+    [
+        ("eq", jnp.equal),
+        ("ne", jnp.not_equal),
+        ("lt", jnp.less),
+        ("le", jnp.less_equal),
+        ("gt", jnp.greater),
+        ("ge", jnp.greater_equal),
+        ("scalar-left", None),
+        ("scalar-right", None),
+    ],
+)
+def test_predicate_native_comparison_law_full_words_before_target(
+    tmp_path, monkeypatch, record_property, dtype, x64, case, target
+):
+    """Observe native comparison law; retain actual per-sample target failures."""
+    import io
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    bits = 32 if dtype is np.float32 else 64
+    uint = np.uint32 if bits == 32 else np.uint64
+    words = _predicate_comparison_law_words(bits)
+    names = ("eq", "ne", "lt", "le", "gt", "ge")
+    scalar_case = case.startswith("scalar-")
+
+    def composites(left, right):
+        return (
+            jnp.equal(left, right),
+            jnp.not_equal(left, right),
+            jnp.less(left, right),
+            jnp.less_equal(left, right),
+            jnp.greater(left, right),
+            jnp.greater_equal(left, right),
+        )
+
+    if scalar_case:
+        target = composites
+        sign = 1 << (bits - 1)
+        tiny = sign | 1
+        minimum_normal = sign | (1 << (23 if bits == 32 else 52))
+        word_samples = [
+            ((tiny,), words),
+            ((minimum_normal,), tuple(reversed(words))),
+        ]
+        if case == "scalar-right":
+            word_samples = [(right, left) for left, right in word_samples]
+        shapes = [(), (22,)] if case == "scalar-left" else [(22,), ()]
+        output_shape = (22,)
+        output_names = names
+    else:
+        word_samples = [
+            (words, words),
+            (tuple(reversed(words)), words[-7:] + words[:-7]),
+        ]
+        shapes = [(22, 1), (1, 22)]
+        output_shape = (22, 22)
+        output_names = (case,)
+    assert target is not None
+    samples = [
+        [
+            np.asarray(value, dtype=uint).view(dtype).reshape(shape)
+            for value, shape in zip(sample, shapes, strict=True)
+        ]
+        for sample in word_samples
+    ]
+
+    def expected(sample, *, flush_subnormals):
+        left, right = sample
+        if scalar_case:
+            pairs = (
+                [(left[0], word) for word in right]
+                if len(left) == 1
+                else [(word, right[0]) for word in left]
+            )
+        else:
+            pairs = [(a, b) for a in left for b in right]
+        return [
+            np.asarray(
+                [
+                    _predicate_comparison_word_oracle(
+                        a, b, name, bits, flush_subnormals=flush_subnormals
+                    )
+                    for a, b in pairs
+                ],
+                dtype=np.bool_,
+            ).reshape(output_shape)
+            for name in output_names
+        ]
+
+    source_expected = [
+        expected(sample, flush_subnormals=True) for sample in word_samples
+    ]
+    ieee_expected = [
+        expected(sample, flush_subnormals=False) for sample in word_samples
+    ]
+    scope = _discrete_protocol_scope(
+        {
+            "testcase": "native-comparison-law-" + case,
+            "callable": target,
+            "input_values": samples[0],
+            "runtime_input_values": [samples[1]],
+        }
+    )
+    scope[3]["rows"]["plugin::synthetic::0"]["capture_original_object"] = True
+    caller = "raw-x64-on" if x64 else "raw-x64-off"
+    descriptor = _descriptors(scope, selection=[("plugin::synthetic", 0, caller)])[0]
+    function = _function(
+        scope,
+        descriptor,
+        tmp_path,
+        runtime="both",
+        expected={"source_reference": "validated"},
+    )
+    original_resolve = raw._resolve_discrete_criteria
+    gates = []
+
+    def arrays(entry):
+        assert entry["status"] == "captured"
+        payload = Path(entry["path"]).read_bytes()
+        assert hashlib.sha256(payload).hexdigest() == entry["sha256"]
+        with np.load(io.BytesIO(payload), allow_pickle=False) as saved:
+            assert saved.files == [f"value_{i}" for i in range(len(saved.files))]
+            return [saved[name].copy() for name in saved.files]
+
+    def assert_arrays(actual, wanted):
+        assert len(actual) == len(wanted)
+        for observed, reference in zip(actual, wanted, strict=True):
+            assert (
+                observed.dtype == reference.dtype and observed.shape == reference.shape
+            )
+            assert observed.tobytes() == reference.tobytes()
+
+    def native_gate(prepared, capture, **kwargs):
+        assert capture.target is target
+        assert kwargs["labels"] == ["", "metadata-runtime-reference-0"]
+        assert len(gates) == 0
+        wrappers = []
+        for index, label in enumerate(kwargs["labels"]):
+            sample = capture.records["native_protocol"]["samples"][label]
+            assert sample["wrapper_calls"] == 2
+            wrappers.append(sample["wrapper_identity"])
+            for role in ("eager", "fresh-jit", "warm-jit"):
+                entry = sample["roles"][role]
+                assert entry["outcome"]["status"] == "returned"
+                assert entry["input_identity_before"] == entry["input_identity_after"]
+                assert entry["settings_before"] == entry["settings_after"]
+                assert entry["settings_before"]["x64_enabled"] is x64
+                prefix = (label + "-" if label else "") + role
+                assert entry["capture_role"] == prefix
+                assert_arrays(arrays(capture.records[prefix]), source_expected[index])
+                assert_arrays(
+                    arrays(capture.records[entry["input_capture_role"]]), samples[index]
+                )
+                if role != "eager":
+                    assert entry["jit_wrapper_identity"] == sample["wrapper_identity"]
+        assert len(set(wrappers)) == 2
+        gates.append(capture)
+        return original_resolve(prepared, capture, **kwargs)
+
+    monkeypatch.setattr(raw, "_resolve_discrete_criteria", native_gate)
+    function()
+    assert len(gates) == 1
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    assert (
+        record.source_reference
+        is record.structure
+        is record.runtime
+        is CheckStatus.VALIDATED
+    )
+    assert capture["metadata_runtime"]["native_sample_labels"] == [
+        "",
+        "metadata-runtime-reference-0",
+    ]
+    observations = []
+    any_failed = False
+    for mode in ("disabled", "all"):
+        result = capture["metadata_runtime"]["modes"][mode]
+        assert len(result["samples"]) == 2
+        for index, sample in enumerate(result["samples"]):
+            actual = arrays(capture[f"metadata-ort-{mode}-{index}"])
+            assert len(actual) == len(source_expected[index])
+            matches_source = True
+            matches_ieee = True
+            for output, src, ieee in zip(
+                actual, source_expected[index], ieee_expected[index], strict=True
+            ):
+                assert output.dtype == np.dtype("bool") and output.shape == output_shape
+                matches_source &= output.tobytes() == src.tobytes()
+                matches_ieee &= output.tobytes() == ieee.tobytes()
+            expected_status = "validated" if matches_source else "failed"
+            checks = {check["category"]: check["status"] for check in sample["checks"]}
+            assert checks["runtime-execution"] == "validated"
+            assert checks["numerical-acceptance"] == expected_status
+            any_failed |= not matches_source
+            assert_arrays(
+                arrays(capture[f"metadata-protocol-{index}-feeds"]), samples[index]
+            )
+            assert_arrays(
+                arrays(capture[f"metadata-protocol-{index}-references"]),
+                source_expected[index],
+            )
+            observations.append(
+                {
+                    "mode": mode,
+                    "sample": index,
+                    "scientific_status": expected_status,
+                    "matches_ieee_word_order": matches_ieee,
+                    "outputs_hex": [output.tobytes().hex() for output in actual],
+                }
+            )
+    assert record.numerics is (
+        CheckStatus.FAILED if any_failed else CheckStatus.VALIDATED
+    )
+    record_property(
+        "native_comparison_law",
+        json.dumps(
+            {
+                "case": case,
+                "bits": bits,
+                "x64": x64,
+                "canonical_words": words,
+                "samples": word_samples,
+                "source_outputs_hex": [
+                    [value.tobytes().hex() for value in sample]
+                    for sample in source_expected
+                ],
+                "actual_native_protocol": capture["native_protocol"],
+                "target_observations": observations,
+                "scope": "Diagnostic Native3 integer-word law; actual ORT statuses retained, no numerical acceptance inferred",
+            },
+            sort_keys=True,
+        ),
+    )
+    _retained_stage_record(function)
+
+
+@pytest.mark.parametrize("mode", ["and", "or", "xor"])
+@pytest.mark.parametrize(
+    "geometry",
+    ["columns", "keepdims", "vmap", "no-axes", "empty-reduced", "empty-retained"],
+)
+def test_predicate_protocol_boolean_reductions_keep_native_geometry_and_exact_results(
+    tmp_path, mode, geometry
+):
+    def original(x):
+        if geometry == "vmap":
+            if mode == "and":
+                return jax.vmap(lambda row: jax.lax.reduce_and(row, (0,)))(x)
+            if mode == "or":
+                return jax.vmap(lambda row: jax.lax.reduce_or(row, (0,)))(x)
+            return jax.vmap(lambda row: jax.lax.reduce_xor(row, (0,)))(x)
+        axes = () if geometry == "no-axes" else (0,)
+        if mode == "and":
+            result = jax.lax.reduce_and(x, axes)
+        elif mode == "or":
+            result = jax.lax.reduce_or(x, axes)
+        else:
+            result = jax.lax.reduce_xor(x, axes)
+        if geometry == "keepdims":
+            return jax.lax.broadcast_in_dim(result, (1, x.shape[1]), (1,))
+        return result
+
+    values = np.asarray([[True, False, True], [True, False, False]], dtype=np.bool_)
+    if geometry == "empty-reduced":
+        values = np.zeros((0, 3), dtype=np.bool_)
+    elif geometry == "empty-retained":
+        values = np.zeros((2, 0), dtype=np.bool_)
+    alternate = np.logical_not(values)
+    axis = () if geometry == "no-axes" else 1 if geometry == "vmap" else 0
+    oracle = {"and": np.logical_and, "or": np.logical_or, "xor": np.logical_xor}[mode]
+    expected = [
+        oracle.reduce(value, axis=axis, keepdims=geometry == "keepdims")
+        for value in (values, alternate)
+    ]
+    if mode == "xor" and geometry == "columns":
+        np.testing.assert_array_equal(expected[0], np.asarray([False, False, True]))
+    scope, function = _predicate_protocol_case(
+        tmp_path,
+        {
+            "testcase": "boolean-reduction-" + mode + "-" + geometry,
+            "callable": original,
+            "input_values": [values],
+            "runtime_input_values": [[alternate]],
+        },
+    )
+    function()
+    record = function._source_cell.history[-1]
+    _predicate_retained_outputs(record.replay_capture, expected)
+    assert record.structure is record.numerics is CheckStatus.VALIDATED
+    checks = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0],
+        asdict(record),
+        _original_contract=scope[0]["contracts"][scope[0]["cases"][0][5]],
+    )
+    assert all(
+        checks[name]["status"] == "validated"
+        for name in (
+            "native_three_role_agreement",
+            "ort_disabled",
+            "ort_all",
+            "operation_rounding",
+            "required_internal_fp64",
+        )
+    )
+    import onnx
+
+    capture = record.replay_capture
+    manifest = json.loads(Path(capture["declared-typed-trace"]["path"]).read_bytes())
+    model = onnx.load_model(capture["artifact"]["path"])
+    assert inventory_owner._source_bitwise_closure(manifest, model) is not None
+    checked = set()
+    for index, node in enumerate(model.graph.node):
+        for attribute_index, attribute in enumerate(node.attribute):
+            if (node.op_type, attribute.name) not in {
+                ("ReduceMin", "keepdims"),
+                ("ReduceSum", "keepdims"),
+                ("Mod", "fmod"),
+                ("Cast", "to"),
+            }:
+                continue
+            assert attribute.type == onnx.AttributeProto.INT
+            forged = copy.deepcopy(model)
+            replacement = onnx.helper.make_attribute(attribute.name, float(attribute.i))
+            assert replacement.type == onnx.AttributeProto.FLOAT
+            assert onnx.helper.get_attribute_value(
+                replacement
+            ) == onnx.helper.get_attribute_value(attribute)
+            forged.graph.node[index].attribute[attribute_index].CopyFrom(replacement)
+            assert inventory_owner._source_bitwise_closure(manifest, forged) is None
+            checked.add((node.op_type, attribute.name))
+    if geometry in {"columns", "keepdims", "vmap", "empty-retained"}:
+        assert ("ReduceMin" if mode == "and" else "ReduceSum", "keepdims") in checked
+        assert ("Cast", "to") in checked
+        if mode == "xor":
+            assert ("Mod", "fmod") in checked
+    _retained_stage_record(function)
+
+
+@pytest.mark.parametrize(
+    "scalar_type",
+    [
+        np.int8,
+        np.int16,
+        np.int32,
+        np.int64,
+        np.longlong,
+        np.uint8,
+        np.uint16,
+        np.uint32,
+        np.uint64,
+        np.ulonglong,
+    ],
+)
+def test_source_relation_owns_exact_numpy_integer_parameters(scalar_type):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    axis = scalar_type(1)
+    params = {"axes": (axis,)}
+    before = axis.tobytes()
+    assert raw._structure_flat_parameters(params) is None
+    assert params["axes"][0] is axis
+    assert type(params["axes"][0]) is scalar_type
+    assert params["axes"][0].tobytes() == before
+    # Existing Python Boolean JIT metadata is still owned, not an axis proof.
+    assert raw._structure_flat_parameters({"keep_unused": False}) is None
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["numpy-bool", "numpy-float", "python-float", "integer-like", "subclass", "array"],
+)
+def test_source_relation_rejects_unowned_integer_parameter_objects(kind):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    called = []
+
+    class IntegerLike:
+        def __int__(self):
+            called.append("int")
+            raise AssertionError("Foreign integer conversion executed")
+
+        def __index__(self):
+            called.append("index")
+            raise AssertionError("Foreign integer index executed")
+
+        @property
+        def dtype(self):
+            called.append("dtype")
+            raise AssertionError("Foreign dtype getter executed")
+
+        @property
+        def shape(self):
+            called.append("shape")
+            raise AssertionError("Foreign shape getter executed")
+
+    class IntegerSubclass(np.int64):
+        def __int__(self):
+            called.append("subclass-int")
+            raise AssertionError("Scalar subclass conversion executed")
+
+        def __index__(self):
+            called.append("subclass-index")
+            raise AssertionError("Scalar subclass index executed")
+
+        @property
+        def dtype(self):
+            called.append("subclass-dtype")
+            raise AssertionError("Scalar subclass dtype getter executed")
+
+    value = {
+        "numpy-bool": lambda: np.bool_(True),
+        "numpy-float": lambda: np.float64(1),
+        "python-float": lambda: 1.0,
+        "integer-like": IntegerLike,
+        "subclass": lambda: np.int64.__new__(IntegerSubclass, 1),
+        "array": lambda: np.asarray([1], dtype=np.int64),
+    }[kind]()
+    assert called == []
+    with pytest.raises(
+        raw._StructureBindingGap, match="nested-or-unowned-source-parameter"
+    ):
+        raw._structure_flat_parameters({"axes": (value,)})
+    assert called == []
+
+
+@pytest.mark.parametrize("mutation", ["dtype", "word"])
+def test_source_relation_rejects_changed_numpy_axis_storage(
+    tmp_path, monkeypatch, mutation
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    def original(x):
+        return jax.vmap(lambda row: jax.lax.reduce_and(row, (0,)))(x)
+
+    values = np.asarray([[True, True, True], [True, False, False]], dtype=np.bool_)
+    _, function = _predicate_protocol_case(
+        tmp_path,
+        {
+            "testcase": "changed-numpy-axis-" + mutation,
+            "callable": original,
+            "input_values": [values],
+        },
+        expected={
+            "structure": "failed",
+            "runtime": "unverified",
+            "numerics": "unverified",
+        },
+    )
+    actual = user_interface._to_onnx
+    observations = []
+
+    def export(**kwargs):
+        collector = kwargs["source_structure_collector"]
+
+        def changed_trace(trace, final_ir, result, returned):
+            closed = trace.closed_jaxpr
+            body = raw._structure_body(closed)
+            assert len(body.eqns) == 1
+            equation = body.eqns[0]
+            assert equation.primitive is jax.lax.reduce_and_p
+            axis = equation.params["axes"][0]
+            assert type(axis) is np.int64 and axis == 1
+            original_manifest, original_sha, pending = raw._structure_trace_manifest(
+                closed
+            )
+            assert not pending
+            changed = np.int32(1) if mutation == "dtype" else np.int64(0)
+            changed_params = {**equation.params, "axes": (changed,)}
+            assert raw._structure_flat_parameters(changed_params) is None
+            changed_body = body.replace(eqns=[equation.replace(params=changed_params)])
+            changed_closed = (
+                changed_body if closed is body else closed.replace(jaxpr=changed_body)
+            )
+            changed = replace(trace, closed_jaxpr=changed_closed, jaxpr=changed_body)
+            collector(changed, final_ir, result, returned)
+            assert raw._structure_trace_manifest(closed) == (
+                original_manifest,
+                original_sha,
+                pending,
+            )
+            assert equation.params["axes"][0] is axis
+            observations.append((original_manifest, original_sha))
+
+        kwargs["source_structure_collector"] = changed_trace
+        return actual(**kwargs)
+
+    monkeypatch.setattr(user_interface, "_to_onnx", export)
+    function()
+    record = function._source_cell.history[-1]
+    capture = record.replay_capture
+    structure = capture["source_structure"]
+    binding = structure["source_binding"]
+    assert len(observations) == 1
+    original_manifest, original_sha = observations[0]
+    assert binding["status"] == "failed"
+    assert "complete-source-trace-differs" in binding["reasons"]
+    assert (
+        binding["prepared_trace_sha256"]
+        == binding["fresh_prepared_trace_sha256"]
+        == original_sha
+    )
+    assert binding["actual_trace_sha256"] != original_sha
+    assert structure["ir_result"]["status"] == "validated"
+    assert structure["artifact_binding"]["status"] == "validated"
+    assert record.runtime is record.numerics is CheckStatus.UNVERIFIED
+    assert capture["metadata_runtime"]["modes"] == {}
+    declared = Path(capture["declared-typed-trace"]["path"]).read_bytes()
+    assert (
+        hashlib.sha256(declared).hexdigest()
+        == capture["declared-typed-trace"]["sha256"]
+    )
+    assert json.loads(declared) == json.loads(json.dumps(original_manifest))
+    assert record.original_trace_json == json.dumps(
+        original_manifest, sort_keys=True, separators=(",", ":")
+    )
+    _retained_stage_record(function)
+
+
+def test_predicate_boolean_reduction_reader_preserves_canonical_numpy_axes(tmp_path):
+    import onnx
+
+    def original(x):
+        return jax.vmap(lambda row: jax.lax.reduce_and(row, (0,)))(x)
+
+    values = np.asarray([[True, True, True], [True, False, False]], dtype=np.bool_)
+    _, function = _predicate_protocol_case(
+        tmp_path,
+        {
+            "testcase": "boolean-reduction-reader-numpy-axes",
+            "callable": original,
+            "input_values": [values],
+            "runtime_input_values": [[np.logical_not(values)]],
+        },
+    )
+    function()
+    record = function._source_cell.history[-1]
+    assert (
+        record.structure
+        is record.lowering_audit
+        is record.numerics
+        is CheckStatus.VALIDATED
+    )
+    capture = record.replay_capture
+    _predicate_retained_outputs(capture, [[True, False], [False, False]])
+    manifest_path = Path(capture["declared-typed-trace"]["path"])
+    manifest_payload = manifest_path.read_bytes()
+    manifest = json.loads(manifest_payload)
+    artifact_path = Path(capture["artifact"]["path"])
+    artifact_payload = artifact_path.read_bytes()
+    model = onnx.load_model(artifact_path)
+    unresolved = []
+    scalar = inventory_owner.canonical_contract(np.int64(1), unresolved=unresolved)
+    assert unresolved == []
+    assert len(manifest["equations"]) == 1
+    equation = manifest["equations"][0]
+    assert equation["primitive"] == "reduce_and"
+    assert equation["params"] == {"axes": [scalar]}
+    assert equation["outputs"][0]["aval"] == ["bool", [2], False]
+    original_manifest = copy.deepcopy(manifest)
+    original_sha256 = inventory_owner._contract_hash(manifest)
+    assert json.loads(record.original_trace_json) == original_manifest
+    assert (
+        original_sha256
+        == hashlib.sha256(record.original_trace_json.encode()).hexdigest()
+    )
+    assert inventory_owner._source_bitwise_closure(manifest, model) is not None
+    assert manifest == original_manifest
+    assert inventory_owner._contract_hash(manifest) == original_sha256
+
+    for mutation in (
+        "dtype-name",
+        "dtype-str",
+        "byte-length",
+        "hex",
+        "noncanonical-hex",
+        "extra-key",
+        "boolean-scalar",
+        "floating-scalar",
+        "boolean-axis",
+        "floating-axis",
+        "mixed-duplicate",
+        "coherent-wrong-axis",
+    ):
+        forged = copy.deepcopy(manifest)
+        forged_equation = forged["equations"][0]
+        axis = forged_equation["params"]["axes"][0]
+        if mutation == "dtype-name":
+            axis["scalar_dtype"] = "int128"
+        elif mutation == "dtype-str":
+            axis["dtype_str"] = np.dtype("int32").str
+        elif mutation == "byte-length":
+            axis["bytes_hex"] = axis["bytes_hex"][:-2]
+        elif mutation == "hex":
+            axis["bytes_hex"] = "zz" * np.dtype("int64").itemsize
+        elif mutation == "noncanonical-hex":
+            axis["bytes_hex"] += " "
+        elif mutation == "extra-key":
+            axis["extra"] = None
+        elif mutation in {"boolean-scalar", "floating-scalar"}:
+            value = np.bool_(True) if mutation == "boolean-scalar" else np.float64(1)
+            forged_equation["params"]["axes"] = [
+                inventory_owner.canonical_contract(value, unresolved=unresolved)
+            ]
+        elif mutation in {"boolean-axis", "floating-axis"}:
+            forged_equation["params"]["axes"] = [
+                True if mutation == "boolean-axis" else 1.0
+            ]
+        elif mutation == "mixed-duplicate":
+            forged_equation["params"]["axes"] = [1, axis]
+        else:
+            forged_equation["params"]["axes"] = [
+                inventory_owner.canonical_contract(np.int64(0), unresolved=unresolved)
+            ]
+            # Axis zero gives shape [3] for the same source input [2, 3].
+            # Keep this source internally coherent while retaining the saved IR.
+            forged_equation["outputs"][0]["aval"][1] = [3]
+            forged["outputs"][0]["aval"][1] = [3]
+        before_replay = copy.deepcopy(forged)
+        before_sha256 = inventory_owner._contract_hash(forged)
+        assert inventory_owner._source_bitwise_closure(forged, model) is None, mutation
+        assert forged == before_replay, mutation
+        assert inventory_owner._contract_hash(forged) == before_sha256, mutation
+    assert unresolved == []
+    assert manifest == original_manifest
+    assert inventory_owner._contract_hash(manifest) == original_sha256
+    assert manifest_path.read_bytes() == manifest_payload
+    assert artifact_path.read_bytes() == artifact_payload
+    _retained_stage_record(function)
+
+
+def _predicate_mixed_promotion(tmp_path, *, lossy=False):
+    def original(x, y):
+        return jnp.equal(x, y)
+
+    primary = [
+        np.asarray([1, 2, 3], dtype=np.int32),
+        np.asarray([1, 2.5, 3], dtype=np.float32),
+    ]
+    alternate = [
+        np.asarray([2**24 + int(lossy), -(2**24), 0], dtype=np.int32),
+        np.asarray([2**24, -(2**24), 0.5], dtype=np.float32),
+    ]
+    scope, function = _predicate_protocol_case(
+        tmp_path,
+        {
+            "testcase": "mixed-predicate-promotion",
+            "callable": original,
+            "input_values": primary,
+            "runtime_input_values": [alternate],
+        },
+    )
+    return scope, function, primary, alternate
+
+
+@pytest.mark.parametrize("lossy", [False, True])
+def test_predicate_protocol_promotion_needs_losslessness_for_every_original_sample(
+    tmp_path, lossy
+):
+    scope, function, primary, alternate = _predicate_mixed_promotion(
+        tmp_path, lossy=lossy
+    )
+    function()
+    record = function._source_cell.history[-1]
+    expected = [
+        np.equal(values[0].astype(np.float32), values[1])
+        for values in (primary, alternate)
+    ]
+    _predicate_retained_outputs(record.replay_capture, expected)
+    assert record.runtime is record.numerics is CheckStatus.VALIDATED
+    checks = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0],
+        asdict(record),
+        _original_contract=scope[0]["contracts"][scope[0]["cases"][0][5]],
+    )
+    if lossy:
+        assert int(alternate[0][0]) == 2**24 + 1
+        assert float(np.float32(alternate[0][0])) != int(alternate[0][0])
+        for category in ("operation_rounding", "required_internal_fp64"):
+            assert checks[category]["status"] == "unverified"
+            assert checks[category].get("applicability") != "not-applicable"
+    else:
+        proof = record.replay_capture["source_structure"]["floating_applicability"]
+        assert proof["status"] == "validated"
+        assert [item["label"] for item in proof["lossless_input_samples"]] == [
+            "",
+            "metadata-runtime-reference-0",
+        ]
+        for conversion in proof["closure"]["lossless_conversions"]:
+            assert [item["sample_index"] for item in conversion["samples"]] == [0, 1]
+        assert proof["closure"]["lossless_conversions"]
+        for category in ("operation_rounding", "required_internal_fp64"):
+            assert checks[category]["status"] == "validated"
+            assert checks[category]["applicability"] == "not-applicable"
+    _retained_stage_record(function)
+
+
+def test_predicate_protocol_lossless_proof_cannot_detach_from_actual_input_copies(
+    tmp_path, monkeypatch
+):
+    scope, function, _, _ = _predicate_mixed_promotion(tmp_path)
+    function()
+    record = asdict(function._source_cell.history[-1])
+    original_contract = scope[0]["contracts"][scope[0]["cases"][0][5]]
+    capture = record["replay_capture"]
+    copied = copy.deepcopy(capture)
+    original_path = Path(capture["inputs"]["path"])
+    replacement = tmp_path / "predicate-input-replaced-after-read.npz"
+    replacement.write_bytes(original_path.read_bytes())
+    alternate_payload = Path(
+        capture["metadata-runtime-reference-0-inputs"]["path"]
+    ).read_bytes()
+    assert hashlib.sha256(alternate_payload).hexdigest() != capture["inputs"]["sha256"]
+    copied["inputs"]["path"] = str(replacement)
+    read_bytes = Path.read_bytes
+    replaced = []
+
+    def replace_after_read(path):
+        payload = read_bytes(path)
+        if path == replacement:
+            assert replaced == []
+            replaced.append(path)
+            path.write_bytes(alternate_payload)
+        return payload
+
+    primary = inventory_owner._canonical_container(original_contract["input_values"])
+    alternate = inventory_owner._canonical_container(
+        original_contract["runtime_input_values"]
+    )
+    with monkeypatch.context() as guarded:
+        guarded.setattr(Path, "read_bytes", replace_after_read)
+        retained = inventory_owner._source_predicate_input_samples(
+            copied, expected_sample_count=2, original_samples=[primary, *alternate]
+        )
+    assert replaced == [replacement]
+    assert retained is not None
+    assert retained[1][0]["original_input_sha256"] == capture["inputs"]["sha256"]
+    assert (
+        hashlib.sha256(retained[0][0][0].tobytes()).hexdigest() == primary[0]["sha256"]
+    )
+    assert replacement.read_bytes() == alternate_payload
+    assert (
+        hashlib.sha256(original_path.read_bytes()).hexdigest()
+        == capture["inputs"]["sha256"]
+    )
+    for mutation in (
+        "missing-warm-input",
+        "wrong-role",
+        "original-sample-copy",
+        "input-digest",
+        "duplicate-sample",
+        "cast-edge",
+        "missing-lossless-bindings",
+    ):
+        forged = copy.deepcopy(record)
+        capture = forged["replay_capture"]
+        sample = capture["native_protocol"]["samples"]["metadata-runtime-reference-0"]
+        proof = capture["source_structure"]["floating_applicability"]
+        if mutation == "missing-warm-input":
+            capture.pop(sample["roles"]["warm-jit"]["input_capture_role"])
+        elif mutation == "wrong-role":
+            sample["roles"]["warm-jit"]["input_capture_role"] = sample["roles"][
+                "eager"
+            ]["input_capture_role"]
+        elif mutation == "original-sample-copy":
+            capture["metadata-runtime-reference-0-inputs"] = copy.deepcopy(
+                capture["inputs"]
+            )
+        elif mutation == "input-digest":
+            proof["closure"]["lossless_conversions"][0]["samples"][1][
+                "input_sha256"
+            ] = ("0" * 64)
+        elif mutation == "duplicate-sample":
+            proof["closure"]["lossless_conversions"][0]["samples"][1][
+                "sample_index"
+            ] = 0
+        elif mutation == "cast-edge":
+            proof["closure"]["lossless_conversions"][0][
+                "cast_input_edge"
+            ] = "unattested-input"
+        else:
+            proof.pop("lossless_input_samples")
+        path = tmp_path / ("predicate-forged-" + mutation + ".json")
+        path.write_text(json.dumps(proof, sort_keys=True, separators=(",", ":")) + "\n")
+        capture["source-bitwise-applicability"] = {
+            "status": "captured",
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        try:
+            checks = inventory_owner.source_metadata_numerical_checks(
+                scope[1].rows[0], forged, _original_contract=original_contract
+            )
+        except ValueError:
+            continue
+        for category in ("operation_rounding", "required_internal_fp64"):
+            assert checks[category]["status"] != "validated", mutation
+    altered = copy.deepcopy(original_contract)
+    altered["runtime_input_values"] = []
+    with pytest.raises(ValueError):
+        inventory_owner.source_metadata_numerical_checks(
+            scope[1].rows[0], record, _original_contract=altered
+        )
+
+
+@pytest.mark.parametrize("failed_mode", ["disabled", "all"])
+def test_predicate_protocol_target_mismatch_keeps_both_modes_and_failure(
+    tmp_path, monkeypatch, failed_mode
+):
+    import jax2onnx.precision as precision
+
+    active, modes = [], []
+    original_validate, original_run = (
+        precision._validate_source_samples,
+        precision._run_cpu_samples,
+    )
+
+    def validate(*args, **kwargs):
+        mode = kwargs["optimization"]
+        modes.append(mode)
+        active.append(mode)
+        try:
+            return original_validate(*args, **kwargs)
+        finally:
+            active.pop()
+
+    def run(*args, **kwargs):
+        returned = original_run(*args, **kwargs)
+        if active[-1] == failed_mode:
+            changed = np.array(returned[0], copy=True)
+            changed.flat[0] = not changed.flat[0]
+            return (changed, *returned[1:])
+        return returned
+
+    monkeypatch.setattr(precision, "_validate_source_samples", validate)
+    monkeypatch.setattr(precision, "_run_cpu_samples", run)
+    scope, function = _predicate_protocol_case(
+        tmp_path,
+        {
+            "testcase": "predicate-target-mismatch",
+            "callable": jnp.isfinite,
+            "input_values": [np.asarray([0.0, np.inf, np.nan], dtype=np.float32)],
+        },
+        expected={"runtime": "validated", "numerics": "failed"},
+    )
+    function()
+    record = function._source_cell.history[-1]
+    assert modes == ["disabled", "all"] and record.numerics is CheckStatus.FAILED
+    runtime = record.replay_capture["metadata_runtime"]
+    other = "all" if failed_mode == "disabled" else "disabled"
+    assert runtime["modes"][failed_mode]["status"] == "failed"
+    assert runtime["modes"][other]["status"] == "validated"
+    for mode in modes:
+        with np.load(
+            record.replay_capture[f"metadata-ort-{mode}-0"]["path"], allow_pickle=False
+        ) as saved:
+            assert bool(saved["value_0"][0]) is (mode != failed_mode)
+    checks = inventory_owner.source_metadata_numerical_checks(
+        scope[1].rows[0],
+        asdict(record),
+        _original_contract=scope[0]["contracts"][scope[0]["cases"][0][5]],
+    )
+    assert checks["ort_" + failed_mode]["status"] == "failed"
+    assert checks["ort_" + other]["status"] == "validated"
+    assert checks["criteria_comparison"]["status"] == "failed"
+    _retained_stage_record(function)
+
+
+def test_predicate_plain_jit_hint_keeps_actual_early_member_without_boolean_aliasing():
+    hints = compat.native_plain_jit_inline_hints()
+    assert hints[:2] == compat.native_jit_boolean_inline_hints()
+    kind = compat._NATIVE_PLAIN_JIT_INLINE_CLASS
+    if kind is None:
+        assert hints == (False, True)
+    else:
+        assert len(hints) == 3
+        assert hints[2] is vars(kind)["JAX_EARLY"]
+        assert type(hints[2]) is kind
+        assert all(hints[2] is not value for value in hints[:2])
+
+
+def test_predicate_plain_jit_hint_rejects_foreign_class_before_getters(monkeypatch):
+    called = []
+
+    class ForeignMeta(type):
+        def __getattribute__(self, name):
+            called.append(name)
+            raise AssertionError("Foreign inline class must not be inspected")
+
+    class ForeignInline(metaclass=ForeignMeta):
+        pass
+
+    monkeypatch.setitem(vars(compat._native_api), "Inline", ForeignInline)
+    with pytest.raises(TypeError, match="inline class binding changed"):
+        compat.native_plain_jit_inline_hints()
+    assert called == []
+
+
+def test_predicate_plain_jit_hint_rejects_replaced_native_member():
+    kind = compat._NATIVE_PLAIN_JIT_INLINE_CLASS
+    if kind is None:
+        assert compat.native_plain_jit_inline_hints() == (False, True)
+        return
+    original = vars(kind)["JAX_EARLY"]
+    try:
+        type.__setattr__(kind, "JAX_EARLY", object())
+        with pytest.raises(TypeError, match="inline member binding changed"):
+            compat.native_plain_jit_inline_hints()
+    finally:
+        type.__setattr__(kind, "JAX_EARLY", original)
+    assert compat.native_plain_jit_inline_hints()[2] is original
+
+
+def test_predicate_plain_jit_reader_rejects_same_name_foreign_hint_before_use():
+    from enum import Enum
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    supplied = jax.jit(lambda value: jax.lax.eq(value, value))
+    closed = jax.make_jaxpr(supplied)(np.asarray([1.0, -0.0], dtype=np.float32))
+    eqn = closed.jaxpr.eqns[0]
+    assert eqn.primitive is compat.native_jit_primitive()
+    foreign = Enum("Inline", {"JAX_EARLY": 2}).JAX_EARLY
+    original = eqn.params["inline"]
+    try:
+        for value in (foreign, "JAX_EARLY"):
+            eqn.params["inline"] = value
+            with pytest.raises(
+                ValueError, match="plain-jit-compilation-metadata-unverified"
+            ):
+                raw._structure_plain_jit_child(eqn)
+    finally:
+        eqn.params["inline"] = original
+    assert raw._structure_plain_jit_child(eqn) is not None
+
+
+def test_isfinite_original_target_capture_keeps_ordinary_issubdtype_cache_growth(
+    tmp_path,
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = jnp.isfinite
+    function = vars(target)["_fun"]
+    owner = function.__globals__["dtypes"]
+    issubdtype = vars(owner)["issubdtype"]
+    cached = vars(owner)["_issubdtype_cached"]
+    capture = raw.RawReplayCapture(tmp_path / "isfinite-dtype-cache-growth")
+    capture.bind_target(target)
+    original_state = copy.deepcopy(capture.target_state)
+    assert capture.target is target
+    assert capture.records["instantiated-target-state"]["status"] == "captured"
+    assert capture.check_target("unchanged-isfinite")
+
+    class SourceFiniteFloat(np.float32):
+        pass
+
+    before = cached.cache_info()
+    assert issubdtype(SourceFiniteFloat, np.floating)
+    assert not issubdtype(SourceFiniteFloat, np.integer)
+    assert issubdtype(np.float64, np.floating)
+    after = cached.cache_info()
+    assert after.misses >= before.misses + 2
+    assert after.hits + after.misses >= before.hits + before.misses + 3
+    assert capture.check_target("after-ordinary-issubdtype-cache-growth")
+    assert capture.target is target and capture.target_state == original_state
+    assert capture.records["native_outcomes"] == {}
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "issubdtype-code",
+        "cached-code",
+        "issubclass-code",
+        "cached-global",
+        "foreign-cache",
+        "equal-types-tuple",
+        "custom-float-membership",
+    ],
+)
+def test_isfinite_dtype_dependency_mutations_reject_without_invocation(
+    tmp_path, monkeypatch, mutation
+):
+    import functools
+    from jax._src import util as native_util
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = jnp.isfinite
+    owner = vars(target)["_fun"].__globals__["dtypes"]
+    namespace = vars(owner)
+    function = namespace["issubdtype"]
+    cached = namespace["_issubdtype_cached"]
+    helper = namespace["_issubclass"]
+    scalar_types = namespace["_custom_float_scalar_types"]
+    original_members = scalar_types[:]
+    capture = raw.RawReplayCapture(tmp_path / mutation)
+    capture.bind_target(target)
+    assert capture.target is target and capture.check_target("unchanged-isfinite")
+    attempted = []
+
+    def changed(*args, **kwargs):
+        raise AssertionError("Altered dtype code must never execute")
+
+    class ForeignCache:
+        def __getattribute__(self, name):
+            attempted.append(("get", name))
+            raise AssertionError("Foreign dtype cache getters must never execute")
+
+        def __call__(self, *args, **kwargs):
+            attempted.append(("call",))
+            raise AssertionError("Foreign dtype cache must never execute")
+
+    ForeignCache.__name__ = type(cached).__name__
+    ForeignCache.__qualname__ = type(cached).__qualname__
+    ForeignCache.__module__ = type(cached).__module__
+    try:
+        with monkeypatch.context() as patch:
+            if mutation in {"issubdtype-code", "cached-code", "issubclass-code"}:
+                selected = {
+                    "issubdtype-code": function,
+                    "cached-code": cached.__wrapped__,
+                    "issubclass-code": helper,
+                }[mutation]
+                assert selected.__closure__ is None
+                patch.setattr(
+                    selected,
+                    "__code__",
+                    changed.__code__.replace(
+                        co_name=selected.__code__.co_name,
+                        co_qualname=selected.__code__.co_qualname,
+                    ),
+                )
+            elif mutation == "cached-global":
+                if type(cached) is vars(functools)["_lru_cache_wrapper"]:
+                    replacement = functools.lru_cache(maxsize=512)(cached.__wrapped__)
+                else:
+                    native = vars(native_util)["lib_weakref_lru_cache"]
+                    assert type(cached) is vars(native)["StrongLRUCache"]
+                    replacement = vars(native)["strong_lru_cache"](
+                        cached.__wrapped__, None, 512, num_shards=64
+                    )
+                assert type(replacement) is type(cached) and replacement is not cached
+                patch.setitem(namespace, "_issubdtype_cached", replacement)
+            elif mutation == "foreign-cache":
+                patch.setitem(namespace, "_issubdtype_cached", ForeignCache())
+            elif mutation == "equal-types-tuple":
+                original = namespace["_types_for_issubdtype"]
+                replacement = tuple(list(original))
+                assert replacement == original and replacement is not original
+                patch.setitem(namespace, "_types_for_issubdtype", replacement)
+            else:
+                assert np.float32 not in scalar_types
+                scalar_types.append(np.float32)
+            assert not capture.check_target("changed-isfinite-dtype-dependency")
+            assert attempted == [] and capture.records["native_outcomes"] == {}
+    finally:
+        scalar_types[:] = original_members
+    assert capture.target is target
+    assert capture.check_target("restored-isfinite-dtype-dependency")
+    assert attempted == []
+
+
+@pytest.mark.parametrize(
+    "scope,name",
+    [
+        ("numpy", "dtype"),
+        ("numpy", "generic"),
+        ("numpy", "floating"),
+        ("numpy", "inexact"),
+        ("numpy", "number"),
+        ("numpy", "signedinteger"),
+        ("numpy", "unsignedinteger"),
+        ("numpy", "integer"),
+        ("numpy-code", "issubdtype"),
+        ("numpy-code", "issubclass_"),
+        ("numpy-global", "issubclass_"),
+        ("numpy-global", "dtype"),
+        ("numpy-global", "generic"),
+        ("numpy-global", "issubclass"),
+        ("numpy-global", "TypeError"),
+        ("jax-global", "isinstance"),
+        ("jax-global", "type"),
+        ("jax-global", "bool"),
+        ("jax-global", "issubclass"),
+        ("jax-global", "TypeError"),
+    ],
+)
+def test_isfinite_numpy_dtype_aliases_and_resolved_builtins_reject_mutations(
+    tmp_path, monkeypatch, scope, name
+):
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = jnp.isfinite
+    owner = vars(target)["_fun"].__globals__["dtypes"]
+    numpy_function = vars(np)["issubdtype"]
+    numpy_namespace = numpy_function.__globals__
+    capture = raw.RawReplayCapture(tmp_path / (scope + "-" + name))
+    capture.bind_target(target)
+    assert capture.target is target and capture.check_target("unchanged-isfinite")
+
+    def changed(*args, **kwargs):
+        raise AssertionError("Altered dtype binding must never execute")
+
+    with monkeypatch.context() as patch:
+        if scope == "numpy-code":
+            function = numpy_function if name == "issubdtype" else numpy_namespace[name]
+            assert function.__closure__ is None
+            patch.setattr(
+                function,
+                "__code__",
+                changed.__code__.replace(
+                    co_name=function.__code__.co_name,
+                    co_qualname=function.__code__.co_qualname,
+                ),
+            )
+        else:
+            namespace = (
+                vars(np)
+                if scope == "numpy"
+                else numpy_namespace if scope == "numpy-global" else vars(owner)
+            )
+            # Shadow resolved builtins in the owning library's globals. The
+            # interpreter's shared builtins dictionary remains untouched.
+            patch.setitem(namespace, name, changed)
+        assert not capture.check_target("changed-isfinite-numpy-dependency")
+        assert capture.records["native_outcomes"] == {}
+    assert capture.target is target
+    assert capture.check_target("restored-isfinite-numpy-dependency")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "numpy-module",
+        "strong-module",
+        "foreign-object",
+        "foreign-class",
+        "strict-instancecheck",
+        "strict-subclasscheck",
+    ],
+)
+def test_isfinite_selected_module_and_class_edges_reject_without_getters(
+    tmp_path, monkeypatch, mutation
+):
+    import functools
+    import types
+    from jax._src import util as native_util
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = jnp.isfinite
+    namespace = vars(vars(target)["_fun"].__globals__["dtypes"])
+    util_namespace = vars(native_util)
+    capture = raw.RawReplayCapture(tmp_path / mutation)
+    capture.bind_target(target)
+    assert capture.target is target and capture.check_target("unchanged-isfinite")
+    attempted = []
+
+    class ForeignModule(types.ModuleType):
+        def __getattribute__(self, name):
+            attempted.append(("module", name))
+            raise AssertionError("Foreign module getters must never execute")
+
+    class ForeignObject:
+        def __getattribute__(self, name):
+            attempted.append(("object", name))
+            raise AssertionError("Foreign __class__ getters must never execute")
+
+    class ForeignMeta(type):
+        def __getattribute__(self, name):
+            attempted.append(("metaclass", name))
+            raise AssertionError("Foreign metaclass getters must never execute")
+
+        def __eq__(self, other):
+            attempted.append(("equal",))
+            raise AssertionError("Foreign class equality must never execute")
+
+        def __hash__(self):
+            attempted.append(("hash",))
+            raise AssertionError("Foreign class hash must never execute")
+
+    class ForeignClass(metaclass=ForeignMeta):
+        pass
+
+    def changed_check(*args, **kwargs):
+        attempted.append(("type-check",))
+        raise AssertionError("Altered StrictABC checks must never execute")
+
+    members = namespace["_custom_float_scalar_types"]
+    original_members = members[:]
+    try:
+        with monkeypatch.context() as patch:
+            if mutation == "numpy-module":
+                patch.setitem(namespace, "np", ForeignModule("numpy"))
+            elif mutation == "strong-module":
+                cached = namespace["_issubdtype_cached"]
+                if type(cached) is vars(functools)["_lru_cache_wrapper"]:
+                    patch.setitem(vars(functools), "lru_cache", changed_check)
+                else:
+                    patch.setitem(
+                        util_namespace,
+                        "lib_weakref_lru_cache",
+                        ForeignModule("jaxlib.weakref_lru_cache"),
+                    )
+            elif mutation == "foreign-object":
+                members.append(ForeignObject())
+            elif mutation == "foreign-class":
+                members.append(ForeignClass)
+            else:
+                method = (
+                    "__instancecheck__"
+                    if mutation == "strict-instancecheck"
+                    else "__subclasscheck__"
+                )
+                patch.setattr(util_namespace["StrictABCMeta"], method, changed_check)
+            assert not capture.check_target("changed-selected-dtype-edge")
+            assert attempted == [] and capture.records["native_outcomes"] == {}
+    finally:
+        members[:] = original_members
+    assert capture.target is target and capture.check_target(
+        "restored-selected-dtype-edge"
+    )
+    assert attempted == []
+
+
+@pytest.mark.parametrize(
+    "mutation", ["fn", "cache_context_fn", "maxsize", "explain", "num_shards"]
+)
+def test_isfinite_owned_native_cache_state_is_reread_without_live_mutation(
+    tmp_path, mutation
+):
+    import functools
+    from jax2onnx._compat import jax as compat
+
+    live = compat._SOURCE_DTYPE_CACHE
+    graph = compat._NativeCaptureGraph()
+    original_fn, original_state = compat._source_dtype_cache_state(live, graph)
+    live_class = type(live)
+    if live_class is vars(functools)["_lru_cache_wrapper"]:
+        # The old cohort has a different exact implementation, not a Strong
+        # state protocol. Its separately owned wrapper still has the strict
+        # callback/configuration identity fence.
+        owned = functools.lru_cache(maxsize=512)(original_fn)
+        before_graph = compat._NativeCaptureGraph()
+        before_fn, before = compat._source_dtype_cache_state(owned, before_graph)
+        assert before_fn is original_fn and before["kind"] == "functools"
+        if mutation == "fn":
+
+            def changed(*args, **kwargs):
+                raise AssertionError("Owned altered callback must never execute")
+
+            vars(owned)["__wrapped__"] = changed
+            after_graph = compat._NativeCaptureGraph()
+            after_fn, after = compat._source_dtype_cache_state(owned, after_graph)
+            assert after_fn is changed
+            assert (after, after_graph.nodes) != (before, before_graph.nodes)
+        else:
+            invalid = functools.lru_cache(maxsize=511)(original_fn)
+            with pytest.raises(ValueError, match="configuration changed"):
+                compat._source_dtype_cache_state(invalid, compat._NativeCaptureGraph())
+    else:
+        native = compat._SOURCE_DTYPE_STRONG_NAMESPACE
+        assert native is not None and native["StrongLRUCache"] is live_class
+        owned = native["strong_lru_cache"](original_fn, None, 512, num_shards=64)
+        assert type(owned) is live_class and owned is not live
+        before_graph = compat._NativeCaptureGraph()
+        before_fn, before = compat._source_dtype_cache_state(owned, before_graph)
+        assert before_fn is original_fn and before["kind"] == "strong"
+        before_graph.take(before_fn)
+        fields = dict(compat._SOURCE_DTYPE_CACHE_MEMBERS)
+        state = fields["__getstate__"](owned)
+        assert type(state) is dict and set(state) == {
+            "version",
+            "fn",
+            "cache_context_fn",
+            "maxsize",
+            "explain",
+            "num_shards",
+        }
+        assert state["version"] == 1 and state["fn"] is original_fn
+        assert state["cache_context_fn"] is None and state["maxsize"] == 512
+        assert state["explain"] is None and state["num_shards"] == 64
+        attempted = []
+
+        def changed(*args, **kwargs):
+            attempted.append("callback")
+            raise AssertionError("Owned altered callback must never execute")
+
+        factory_arguments = {
+            "fn": original_fn,
+            "cache_context_fn": None,
+            "maxsize": 512,
+            "explain": None,
+            "num_shards": 64,
+        }
+        factory_arguments[mutation] = (
+            changed
+            if mutation in {"fn", "cache_context_fn", "explain"}
+            else 511 if mutation == "maxsize" else 32
+        )
+        # The native setter is pickle construction, not mutation of an already
+        # initialized cache. Use a second genuine owned factory instance.
+        altered = native["strong_lru_cache"](**factory_arguments)
+        assert (
+            type(altered) is live_class and altered is not owned and altered is not live
+        )
+        actual = fields["__getstate__"](altered)
+        assert type(actual) is dict and set(actual) == set(state)
+        for field_name in state:
+            expected = 1 if field_name == "version" else factory_arguments[field_name]
+            if field_name in {"fn", "cache_context_fn", "explain"}:
+                assert actual[field_name] is expected
+            else:
+                assert (
+                    type(actual[field_name]) is int and actual[field_name] == expected
+                )
+        if mutation == "fn":
+            after_graph = compat._NativeCaptureGraph()
+            after_fn, after = compat._source_dtype_cache_state(altered, after_graph)
+            assert after_fn is changed
+            after_graph.take(after_fn)
+            assert after_graph.nodes[str(id(changed))]["code_identity"] == id(
+                changed.__code__
+            )
+            assert (after, after_graph.nodes) != (before, before_graph.nodes)
+        else:
+            with pytest.raises(ValueError, match="immutable state changed"):
+                compat._source_dtype_cache_state(altered, compat._NativeCaptureGraph())
+        baseline_graph = compat._NativeCaptureGraph()
+        baseline_fn, baseline_state = compat._source_dtype_cache_state(
+            owned, baseline_graph
+        )
+        baseline_graph.take(baseline_fn)
+        assert baseline_fn is original_fn
+        assert (baseline_state, baseline_graph.nodes) == (before, before_graph.nodes)
+        assert attempted == []
+    final_graph = compat._NativeCaptureGraph()
+    final_fn, final_state = compat._source_dtype_cache_state(live, final_graph)
+    assert final_fn is original_fn
+    assert (final_state, final_graph.nodes) == (original_state, graph.nodes)
+
+
+def test_isfinite_functools_module_class_rejects_before_dictionary_getter(tmp_path):
+    import functools
+    import types
+    from jax2onnx._compat import jax as compat
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    capture = raw.RawReplayCapture(tmp_path / "functools-module-class")
+    capture.bind_target(jnp.isfinite)
+    assert capture.check_target("unchanged-isfinite")
+    attempted = []
+
+    class ForeignModule(types.ModuleType):
+        def __getattribute__(self, name):
+            attempted.append(name)
+            raise AssertionError("Reclassified functools getters must not execute")
+
+    setter = next(
+        vars(base)["__setattr__"]
+        for base in vars(type)["__mro__"].__get__(types.ModuleType)
+        if "__setattr__" in vars(base)
+    )
+    failure = None
+    setter(functools, "__class__", ForeignModule)
+    try:
+        try:
+            compat.source_internal_dtype_capture(compat._SOURCE_DTYPE_HELPER)
+        except ValueError as error:
+            failure = str(error)
+    finally:
+        setter(functools, "__class__", types.ModuleType)
+    assert failure is not None and "functools module changed" in failure
+    assert capture.check_target("restored-functools-module-class")
+    assert capture.records["native_outcomes"] == {} and attempted == []
+
+
+@pytest.mark.parametrize("mutation", ["dict-subclass", "non-string-key"])
+def test_isfinite_owned_functools_fields_reject_before_getters(mutation):
+    import functools
+    from jax2onnx._compat import jax as compat
+
+    attempted = []
+
+    def callback(*args, **kwargs):
+        attempted.append("callback")
+        raise AssertionError("Unowned cache must not execute")
+
+    class ForeignFields(dict):
+        def get(self, *args, **kwargs):
+            attempted.append("get")
+            raise AssertionError("Foreign field get must not execute")
+
+        def __iter__(self):
+            attempted.append("iter")
+            raise AssertionError("Foreign field iteration must not execute")
+
+    class ForeignKey:
+        def __hash__(self):
+            return 42
+
+        def __eq__(self, other):
+            attempted.append("equal")
+            raise AssertionError("Foreign key equality must not execute")
+
+    owned = functools.lru_cache(maxsize=512)(callback)
+    fields = dict(vars(owned))
+    if mutation == "dict-subclass":
+        fields = ForeignFields(fields)
+    else:
+        fields[ForeignKey()] = None
+    owned.__dict__ = fields
+    assert vars(owned) is fields
+    # 3.11 reaches the exact dictionary fence. On the Strong-cache cohort,
+    # this foreign native cache class is rejected even earlier.
+    reason = (
+        "field dictionary changed"
+        if type(owned) is compat._SOURCE_DTYPE_CACHE_CLASS
+        else "native cache type changed"
+    )
+    with pytest.raises(ValueError, match=reason):
+        compat._source_dtype_cache_state(owned, compat._NativeCaptureGraph())
+    assert attempted == []
+
+
+def test_isfinite_selected_ml_scalar_snapshot_covers_original_finite_set(tmp_path):
+    from jax2onnx._compat import jax as compat
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = jnp.isfinite
+    capture = raw.RawReplayCapture(tmp_path / "selected-ml-scalar-set")
+    capture.bind_target(target)
+    assert capture.target is target and capture.check_target("selected-ml-original")
+    snapshot = compat.source_internal_dtype_capture(compat._SOURCE_DTYPE_HELPER)
+    assert snapshot is not None
+    classes = snapshot.document["classes"]
+    records = {
+        int(key): record for key, record in classes.items() if "selected_ml" in record
+    }
+    assert set(records) == {id(value) for value in compat._SOURCE_DTYPE_ML_SCALARS}
+    public = compat._SOURCE_DTYPE_ML_NAMESPACE
+    extension = compat._SOURCE_DTYPE_ML_EXTENSION_NAMESPACE
+    assert public is not None and extension is not None
+    for identity, record in records.items():
+        detail = record["selected_ml"]
+        name = detail["name"]
+        original = next(
+            value for value in compat._SOURCE_DTYPE_ML_SCALARS if id(value) == identity
+        )
+        assert public[name] is original and extension[name] is original
+        assert record["metaclass"] == id(type)
+        assert record["mro"][0] == identity
+        assert detail["heaptype"] or detail["immutabletype"]
+        assert (
+            type(detail["heaptype"]) is bool and type(detail["immutabletype"]) is bool
+        )
+        assert set(detail["member_schema"]) == set(record["members"])
+        assert detail["member_schema"]["dtype"] == "simple-native-dtype"
+        assert detail["dtype"]["identity"] in {id(item) for item in snapshot.retained}
+    assert capture.check_target("all-selected-ml-classes-retained")
+    assert capture.records["native_outcomes"] == {}
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "public-alias",
+        "extension-alias",
+        "jax-module-alias",
+        "heap-add",
+        "heap-delete",
+        "heap-replace",
+        "dtype-replace",
+        "python-function",
+        "python-property",
+        "foreign-module",
+        "foreign-metaclass",
+    ],
+)
+def test_isfinite_selected_ml_scalar_mutations_reject_before_foreign_hooks(
+    tmp_path, monkeypatch, mutation
+):
+    import sys
+    import types
+    from jax2onnx._compat import jax as compat
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = jnp.isfinite
+    capture = raw.RawReplayCapture(tmp_path / mutation)
+    capture.bind_target(target)
+    assert capture.target is target and capture.check_target("selected-ml-unchanged")
+    selected = next(
+        value
+        for value in compat._SOURCE_DTYPE_ML_SCALARS
+        if compat._SOURCE_DTYPE_TYPE_FLAGS.__get__(value) & (1 << 9)
+        and not compat._SOURCE_DTYPE_TYPE_FLAGS.__get__(value) & (1 << 8)
+    )
+    name = next(
+        name for name, value in compat._SOURCE_DTYPE_ML_EXPORTS if value is selected
+    )
+    attempted = []
+
+    class ForeignModule(types.ModuleType):
+        def __getattribute__(self, key):
+            attempted.append(("module", key))
+            raise AssertionError("Foreign ML module getters must not execute")
+
+    class ForeignMeta(type):
+        def __getattribute__(self, key):
+            attempted.append(("metaclass", key))
+            raise AssertionError("Foreign ML class getters must not execute")
+
+        def __eq__(self, other):
+            attempted.append(("equal",))
+            raise AssertionError("Foreign ML class equality must not execute")
+
+        def __hash__(self):
+            attempted.append(("hash",))
+            raise AssertionError("Foreign ML class hash must not execute")
+
+    class ForeignClass(metaclass=ForeignMeta):
+        pass
+
+    def changed(*args, **kwargs):
+        attempted.append(("call",))
+        raise AssertionError("Altered ML class callbacks must not execute")
+
+    with monkeypatch.context() as patch:
+        if mutation == "public-alias":
+            patch.setitem(compat._SOURCE_DTYPE_ML_NAMESPACE, name, ForeignClass)
+        elif mutation == "extension-alias":
+            patch.setitem(
+                compat._SOURCE_DTYPE_ML_EXTENSION_NAMESPACE, name, ForeignClass
+            )
+        elif mutation == "jax-module-alias":
+            patch.setitem(
+                compat._SOURCE_DTYPE_NAMESPACE, "ml_dtypes", ForeignModule("ml_dtypes")
+            )
+        elif mutation == "heap-add":
+            patch.setattr(selected, "source_finite_added", 7, raising=False)
+        elif mutation == "heap-delete":
+            patch.delattr(selected, "__format__")
+        elif mutation == "heap-replace":
+            patch.setattr(selected, "__eq__", changed)
+        elif mutation == "dtype-replace":
+            patch.setattr(selected, "dtype", np.dtype("float32"))
+        elif mutation == "python-function":
+            patch.setattr(selected, "source_finite_added", changed, raising=False)
+        elif mutation == "python-property":
+            patch.setattr(
+                selected, "source_finite_added", property(changed), raising=False
+            )
+        elif mutation == "foreign-module":
+            patch.setitem(
+                sys.modules,
+                "ml_dtypes._ml_dtypes_ext",
+                ForeignModule("ml_dtypes._ml_dtypes_ext"),
+            )
+        else:
+            patch.setattr(selected, "source_finite_added", ForeignClass, raising=False)
+        assert not capture.check_target("changed-selected-ml-class")
+        assert attempted == [] and capture.records["native_outcomes"] == {}
+    assert capture.target is target and capture.check_target(
+        "restored-selected-ml-class"
+    )
+    assert attempted == []
+
+
+def test_isfinite_direct_numpy_classes_have_exact_native_witness_roles(tmp_path):
+    from jax2onnx._compat import jax as compat
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    capture = raw.RawReplayCapture(tmp_path / "isfinite-direct-numpy-classes")
+    capture.bind_target(jnp.isfinite)
+    assert capture.target is jnp.isfinite and capture.check_target(
+        "original-direct-classes"
+    )
+    assert capture.target_witness is not None
+    for name, original in compat._SOURCE_ISFINITE_NUMPY_CLASSES:
+        snapshot = compat.source_internal_dtype_capture(original)
+        assert snapshot is not None
+        assert snapshot.document["role"] == "source-isfinite-numpy-class"
+        assert snapshot.document["selected_name"] == "numpy." + name
+        assert snapshot.document["class_ref"] == str(id(original))
+        record = snapshot.document["classes"][str(id(original))]
+        assert record["identity"] == id(original) and record["metaclass"] == id(type)
+        assert record["selected_numpy"]["immutabletype"] is True
+        assert record["selected_numpy"]["name"] == name
+        assert record["mro"][0] == id(original)
+        assert any(item is original for item in snapshot.retained)
+        assert any(
+            path[-2:] == ("global:np", "attribute:" + name)
+            and role == "source-isfinite-numpy-class"
+            for path, role in capture.target_witness.selected.items()
+        )
+    assert capture.check_target("all-original-direct-class-roles-retained")
+    assert capture.records["native_outcomes"] == {}
+
+
+@pytest.mark.parametrize(
+    "scope,name",
+    [
+        (scope, name)
+        for scope in ("public", "definition")
+        for name in ("floating", "complexfloating", "bool_")
+    ]
+    + [
+        ("public-module", "numpy"),
+        ("native-module", "numpy._core._multiarray_umath"),
+        ("foreign-metaclass", "complexfloating"),
+        ("typeinfo-key", "bool_"),
+    ],
+)
+def test_isfinite_direct_numpy_alias_mutations_reject_without_foreign_hooks(
+    tmp_path, monkeypatch, scope, name
+):
+    import sys
+    import types
+    from jax2onnx._compat import jax as compat
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    target = jnp.isfinite
+    capture = raw.RawReplayCapture(tmp_path / (scope + "-" + name))
+    capture.bind_target(target)
+    assert capture.target is target and capture.check_target(
+        "original-direct-numpy-aliases"
+    )
+    attempted = []
+
+    class ForeignMeta(type):
+        def __getattribute__(self, key):
+            attempted.append(("class", key))
+            raise AssertionError("Foreign NumPy class getters must not execute")
+
+        def __eq__(self, other):
+            attempted.append(("equal",))
+            raise AssertionError("Foreign NumPy class equality must not execute")
+
+        def __hash__(self):
+            attempted.append(("hash",))
+            raise AssertionError("Foreign NumPy class hash must not execute")
+
+    class ForeignClass(metaclass=ForeignMeta):
+        pass
+
+    class ForeignModule(types.ModuleType):
+        def __getattribute__(self, key):
+            attempted.append(("module", key))
+            raise AssertionError("Foreign NumPy module getters must not execute")
+
+    collision_hash = hash("bool")
+
+    class ForeignKey:
+        def __hash__(self):
+            return collision_hash
+
+        def __eq__(self, other):
+            attempted.append(("typeinfo-key-equality",))
+            raise AssertionError("Non-string typeinfo keys must reject before lookup")
+
+    if scope == "typeinfo-key":
+        mapping = compat._SOURCE_DTYPE_NUMPY_TYPEINFO
+        assert type(mapping) is dict and all(type(key) is str for key in mapping)
+        assert sum(hash(key) == collision_hash for key in mapping) == 1
+        original = mapping.pop("bool")
+        key = ForeignKey()
+        mapping[key] = original
+        try:
+            assert not capture.check_target("non-string-typeinfo-key")
+            assert attempted == [] and capture.records["native_outcomes"] == {}
+        finally:
+            del mapping[key]
+            mapping["bool"] = original
+        assert capture.check_target("restored-typeinfo-keys")
+        assert attempted == []
+        return
+
+    with monkeypatch.context() as patch:
+        if scope in {"public", "foreign-metaclass"}:
+            assert compat.source_internal_dtype_capture(ForeignClass) is None
+            patch.setitem(compat._SOURCE_DTYPE_NUMPY_NAMESPACE, name, ForeignClass)
+        elif scope == "definition":
+            if name == "bool_":
+                patch.setitem(compat._SOURCE_DTYPE_NUMPY_TYPEINFO, "bool", ForeignClass)
+            else:
+                patch.setitem(
+                    compat._SOURCE_DTYPE_NUMPY_NATIVE_NAMESPACE, name, ForeignClass
+                )
+        else:
+            patch.setitem(sys.modules, name, ForeignModule(name))
+        assert not capture.check_target("changed-direct-numpy-alias")
+        assert attempted == [] and capture.records["native_outcomes"] == {}
+    assert capture.target is target and capture.check_target(
+        "restored-direct-numpy-alias"
+    )
+    assert attempted == []
+
+
+@pytest.mark.parametrize("entry", ["recipe", "target"])
+@pytest.mark.parametrize(
+    "mutation", ["sys-module", "module-class", "generic-alias", "raw-alias"]
+)
+def test_source_numpy_entry_guards_reject_before_import_or_foreign_hooks(
+    tmp_path, monkeypatch, entry, mutation
+):
+    import sys
+    import types
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+    from tests.extra_tests.converter.source_precision_support import (
+        SourcePreparationError,
+    )
+
+    original_module = np
+    namespace = vars(types.ModuleType)["__dict__"].__get__(original_module)
+    native_setattr = next(
+        vars(base)["__setattr__"]
+        for base in vars(type)["__mro__"].__get__(types.ModuleType)
+        if "__setattr__" in vars(base)
+    )
+    capture = raw.RawReplayCapture(tmp_path / (entry + "-" + mutation))
+    unbound = raw.RawReplayCapture(tmp_path / "unbound-target")
+    capture.bind_target(jnp.isfinite)
+    assert capture.check_target("original-entry-guard-state")
+    assert raw._capture_recipe(None) is None
+    attempted = []
+
+    class ForeignModule(types.ModuleType):
+        def __getattribute__(self, name):
+            attempted.append(("module", name))
+            raise AssertionError(
+                "Entry guard must reject before foreign module getters"
+            )
+
+    class ForeignMeta(type):
+        def __getattribute__(self, name):
+            attempted.append(("class", name))
+            raise AssertionError("Entry guard must reject before foreign class getters")
+
+        def __instancecheck__(self, instance):
+            attempted.append(("instancecheck",))
+            raise AssertionError("Entry guard must reject before foreign type checks")
+
+        def __eq__(self, other):
+            attempted.append(("equal",))
+            raise AssertionError("Entry guard must reject before foreign equality")
+
+        def __hash__(self):
+            attempted.append(("hash",))
+            raise AssertionError("Entry guard must reject before foreign hashing")
+
+    class ForeignGeneric(metaclass=ForeignMeta):
+        pass
+
+    reclassified = False
+    with monkeypatch.context() as patch:
+        try:
+            if mutation == "sys-module":
+                patch.setitem(sys.modules, "numpy", ForeignModule("numpy"))
+            elif mutation == "module-class":
+                native_setattr(original_module, "__class__", ForeignModule)
+                reclassified = True
+            elif mutation == "generic-alias":
+                patch.setitem(namespace, "generic", ForeignGeneric)
+            else:
+                patch.setattr(raw, "np", ForeignModule("numpy"))
+            if entry == "recipe":
+                failure = None
+                try:
+                    raw._capture_recipe(None)
+                except ValueError as error:
+                    failure = str(error)
+                assert failure == "Source NumPy capture dependency changed"
+            else:
+                assert not capture.check_target("changed-entry-module")
+                failure = None
+                try:
+                    unbound.bind_target(jnp.isfinite)
+                except SourcePreparationError as error:
+                    failure = error.category
+                assert failure == "replay-lane-gap"
+            assert attempted == []
+            assert capture.records["native_outcomes"] == {}
+        finally:
+            if reclassified:
+                native_setattr(original_module, "__class__", types.ModuleType)
+    assert raw._capture_recipe(None) is None
+    assert capture.target is jnp.isfinite and capture.check_target(
+        "restored-entry-guard-state"
+    )
+    assert attempted == []
+
+
+def test_source_numpy_entry_guard_keeps_exact_original_recipe_encoding():
+    from tests.extra_tests.converter import source_precision_raw_replay as raw
+
+    assert raw._capture_recipe(None) is None
+    scalar = np.int64(7)
+    assert raw._capture_recipe(scalar) == {
+        "scalar_dtype": "int64",
+        "dtype_str": "<i8",
+        "bytes_hex": "0700000000000000",
+    }
+    array = np.asarray([1, -2], dtype=np.int32)
+    assert raw._capture_recipe(array) == {
+        "array_dtype": "int32",
+        "shape": [2],
+        "sha256": hashlib.sha256(bytes.fromhex("01000000feffffff")).hexdigest(),
+    }
+
+
+@pytest.fixture(scope="module")
+def _keepdims_callback_models_v2(tmp_path_factory):
+    import onnx
+    from jax2onnx.plugins._post_check_onnx_graph import expect_graph
+
+    registrations, _ = inventory_owner.raw_registrations()
+    result = {}
+    for name, operation in (("all", "ReduceMin"), ("any", "ReduceSum")):
+        metadata = next(
+            item[2] for item in registrations if item[0] == "plugin::jax.numpy." + name
+        )
+        case = metadata["testcases"][1]
+        original = case["callable"]
+        values = case["input_values"]
+        legacy = user_interface.to_onnx(
+            original,
+            inputs=[jax.ShapeDtypeStruct(value.shape, value.dtype) for value in values],
+            model_name="original_" + name + "_keepdims",
+            opset=23,
+            return_mode="proto",
+        )
+        callers = {}
+        for caller in ("raw-x64-off", "raw-x64-on"):
+            directory = tmp_path_factory.mktemp("original-" + name + "-" + caller)
+            scope = _discrete_protocol_scope(dict(case))
+            scope[3]["rows"]["plugin::synthetic::0"]["capture_original_object"] = True
+            descriptor = _descriptors(
+                scope, selection=[("plugin::synthetic", 0, caller)]
+            )[0]
+            function = _function(
+                scope,
+                descriptor,
+                directory,
+                runtime="both",
+                expected={"runtime": "validated", "numerics": "validated"},
+            )
+            function()
+            record = function._source_cell.history[-1]
+            source = onnx.load_model(record.replay_capture["artifact"]["path"])
+            callers[caller] = (source, scope, function)
+        source, scope, function = callers["raw-x64-on"]
+        result[name + "-callers"] = callers
+        old_callback = expect_graph(
+            [f"Cast:2x3 -> Cast:2x3 -> {operation}:2x1 -> Cast:2x1"],
+            no_unused_inputs=True,
+        )
+        result[name] = (case, legacy, source, scope, function, old_callback)
+    return result
+
+
+def test_keepdims_callback_v2_preserves_original_two_contracts():
+    frozen = _ORIGINAL[0]
+    registrations, _ = inventory_owner.raw_registrations()
+    for name in ("all", "any"):
+        origin = "plugin::jax.numpy." + name
+        metadata = next(item[2] for item in registrations if item[0] == origin)
+        rows = [
+            row
+            for row in frozen["cases"]
+            if frozen["registrations"][row[0]][0] == origin
+        ]
+        for row in rows:
+            case = metadata["testcases"][row[1]]
+            unresolved = []
+            actual = inventory_owner.canonical_contract(
+                {
+                    key: value
+                    for key, value in case.items()
+                    if key not in {"testcase", "description"}
+                },
+                unresolved=unresolved,
+            )
+            assert unresolved == []
+            previous = frozen["contracts"][row[5]]
+            if row[1] != 1:
+                assert actual == previous
+                continue
+            old_hash = {
+                "all": "e321afc95b4026216a265819047b15d30cf7280c0e7f6a781ccc57d17aa566ca",
+                "any": "005db3792fe595103f715e86cc6a81ccf3cb22cae4367123fe15c37685fd3595",
+            }[name]
+            assert inventory_owner._contract_hash(previous) == old_hash
+            assert {
+                key: value
+                for key, value in actual.items()
+                if key != "post_check_onnx_graph"
+            } == {
+                key: value
+                for key, value in previous.items()
+                if key != "post_check_onnx_graph"
+            }
+            callback = actual["post_check_onnx_graph"]
+            assert callback == {
+                "partial": {
+                    "callable": "jax2onnx.plugins._post_check_onnx_graph._check_boolean_axis_keepdims_v2"
+                },
+                "args": {"tuple": []},
+                "kwargs": {
+                    "operation": "ReduceMin" if name == "all" else "ReduceSum",
+                    "input_shape": {"tuple": [2, 3]},
+                    "axis": 1,
+                    "output_shape": {"tuple": [2, 1]},
+                },
+            }
+            assert inventory_owner._contract_hash(actual) != old_hash
+
+
+@pytest.mark.parametrize("name", ["all", "any"])
+@pytest.mark.parametrize("caller", ["raw-x64-off", "raw-x64-on"])
+def test_keepdims_callback_v2_accepts_actual_legacy_and_source_graphs(
+    _keepdims_callback_models_v2, name, caller
+):
+    case, legacy, _, _, _, old_callback = _keepdims_callback_models_v2[name]
+    source, scope, function = _keepdims_callback_models_v2[name + "-callers"][caller]
+    callback = case["post_check_onnx_graph"]
+    assert old_callback(legacy) is True
+    assert old_callback(source) is False
+    assert callback(legacy) is True
+    assert callback(source) is True
+    record = function._source_cell.history[-1]
+    assert record.raw_callback_status == "passed"
+    assert record.actual_settings.x64_enabled is (caller == "raw-x64-on")
+    assert (
+        record.structure is record.runtime is record.numerics is CheckStatus.VALIDATED
+    )
+    assert function._source_outcome["stage_contract_passed"] is True
+    assert function._source_outcome["capability_status"] == "validated"
+    expected = np.asarray([[False], [True]], dtype=np.bool_)
+    _predicate_retained_outputs(record.replay_capture, [expected])
+    manifest = json.loads(
+        Path(record.replay_capture["declared-typed-trace"]["path"]).read_bytes()
+    )
+    assert inventory_owner._source_bitwise_closure(manifest, source) is not None
+    _retained_stage_record(function)
+
+
+@pytest.mark.parametrize("name", ["all", "any"])
+@pytest.mark.parametrize("variant", ["legacy", "source"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "axis-word",
+        "axis-attribute-kind",
+        "keepdims",
+        "reduction-kind",
+        "cast-dtype",
+        "input-edge",
+        "output-edge",
+        "restore-shape",
+        "broadcast-axis",
+        "extra-node",
+        "extra-initializer",
+        "axis-literal-dtype",
+        "node-overload",
+    ],
+)
+def test_keepdims_callback_v2_rejects_wrong_typed_connected_contracts(
+    tmp_path, _keepdims_callback_models_v2, name, variant, mutation
+):
+    import onnx
+    from onnx import helper, numpy_helper
+
+    case, legacy, source, scope, function, _ = _keepdims_callback_models_v2[name]
+    original = source if variant == "source" else legacy
+    original_payload = original.SerializeToString(deterministic=True)
+    model = copy.deepcopy(original)
+    operation = "ReduceMin" if name == "all" else "ReduceSum"
+    reduction = next(node for node in model.graph.node if node.op_type == operation)
+    axes = next(
+        value for value in model.graph.initializer if value.name == reduction.input[1]
+    )
+    casts = [node for node in model.graph.node if node.op_type == "Cast"]
+    if mutation == "axis-word":
+        axes.CopyFrom(
+            numpy_helper.from_array(np.asarray([0], dtype=np.int64), name=axes.name)
+        )
+    elif mutation == "axis-attribute-kind":
+        attribute = next(
+            item for item in reduction.attribute if item.name == "keepdims"
+        )
+        attribute.CopyFrom(helper.make_attribute("keepdims", float(attribute.i)))
+    elif mutation == "keepdims":
+        next(item for item in reduction.attribute if item.name == "keepdims").i = (
+            0 if variant == "legacy" else 1
+        )
+    elif mutation == "reduction-kind":
+        reduction.op_type = "ReduceSum" if operation == "ReduceMin" else "ReduceMin"
+    elif mutation == "cast-dtype":
+        next(item for item in casts[1].attribute if item.name == "to").i = (
+            onnx.TensorProto.INT32
+        )
+    elif mutation == "input-edge":
+        reduction.input[0] = model.graph.input[0].name
+    elif mutation == "output-edge":
+        model.graph.output[0].name = casts[0].output[0]
+    elif mutation == "restore-shape":
+        if variant == "legacy":
+            model.graph.output[0].type.tensor_type.shape.dim[1].dim_value = 2
+        else:
+            restore = next(
+                node for node in model.graph.node if node.op_type == "Reshape"
+            )
+            producer = next(
+                node for node in model.graph.node if restore.input[1] in node.output
+            )
+            literal = next(
+                value
+                for value in model.graph.initializer
+                if value.name == producer.input[1]
+            )
+            literal.CopyFrom(
+                numpy_helper.from_array(
+                    np.asarray([2], dtype=np.int64), name=literal.name
+                )
+            )
+    elif mutation == "broadcast-axis":
+        if variant == "source":
+            concat = next(node for node in model.graph.node if node.op_type == "Concat")
+            next(item for item in concat.attribute if item.name == "axis").i = 1
+        else:
+            reduction.input[1] = casts[0].output[0]
+    elif mutation == "extra-node":
+        model.graph.node.append(
+            helper.make_node(
+                "Identity", [model.graph.input[0].name], ["unclaimed_dead_value"]
+            )
+        )
+    elif mutation == "extra-initializer":
+        model.graph.initializer.append(
+            numpy_helper.from_array(
+                np.asarray([1], dtype=np.int64), name="unclaimed_dead_literal"
+            )
+        )
+    elif mutation == "node-overload":
+        reduction.overload = "foreign-overload"
+    else:
+        axes.CopyFrom(
+            numpy_helper.from_array(np.asarray([1], dtype=np.int32), name=axes.name)
+        )
+    assert case["post_check_onnx_graph"](model) is False
+    if variant == "source":
+        record = function._source_cell.history[-1]
+        manifest = json.loads(
+            Path(record.replay_capture["declared-typed-trace"]["path"]).read_bytes()
+        )
+        assert inventory_owner._source_bitwise_closure(manifest, model) is None
+    assert original.SerializeToString(deterministic=True) == original_payload
+
+
+@pytest.mark.parametrize("name", ["all", "any"])
+@pytest.mark.parametrize(
+    "mutation", ["sparse-storage", "training-info", "foreign-opset", "quantization"]
+)
+def test_keepdims_saved_ir_reader_retains_complete_protobuf_boundary(
+    _keepdims_callback_models_v2, name, mutation
+):
+    from onnx import helper, numpy_helper
+
+    case, _, source, _, function, _ = _keepdims_callback_models_v2[name]
+    model = copy.deepcopy(source)
+    if mutation == "sparse-storage":
+        model.graph.sparse_initializer.append(
+            helper.make_sparse_tensor(
+                numpy_helper.from_array(
+                    np.asarray([1], dtype=np.int64), name="unclaimed_sparse"
+                ),
+                numpy_helper.from_array(np.asarray([0], dtype=np.int64)),
+                [1],
+            )
+        )
+    elif mutation == "training-info":
+        model.training_info.add()
+    elif mutation == "foreign-opset":
+        model.opset_import.append(helper.make_opsetid("unclaimed.domain", 1))
+    else:
+        model.graph.quantization_annotation.add().tensor_name = model.graph.input[
+            0
+        ].name
+    record = function._source_cell.history[-1]
+    manifest = json.loads(
+        Path(record.replay_capture["declared-typed-trace"]["path"]).read_bytes()
+    )
+    # IR normalization need not preserve these full-Proto storage declarations.
+    # The independent saved-artifact reader remains an additional required gate.
+    assert inventory_owner._source_bitwise_closure(manifest, model) is None
+
+
+@pytest.mark.parametrize("name", ["all", "any"])
+def test_keepdims_callback_v2_rejects_foreign_ir_graph_ownership(
+    _keepdims_callback_models_v2, name
+):
+    import onnx_ir as ir
+
+    case, _, source, _, _, _ = _keepdims_callback_models_v2[name]
+    for mutation in ("node-owner", "value-owner"):
+        model = ir.serde.deserialize_model(source)
+        foreign = ir.Graph([], [], nodes=[])
+        if mutation == "node-owner":
+            next(iter(model.graph)).graph = foreign
+        else:
+            model.graph.inputs[0]._graph = foreign
+        assert case["post_check_onnx_graph"](model) is False

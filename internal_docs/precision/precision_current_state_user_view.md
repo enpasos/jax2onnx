@@ -3,7 +3,7 @@
 The public exporter still uses its existing precision behavior. The planned
 source-preserving behavior is being developed privately and is **not a public
 export mode**. This page describes the current interface and its limitations,
-as of 2026-10-31. The [target user guide](precision_target_state_user_view.md)
+as of 2026-11-02. The [target user guide](precision_target_state_user_view.md)
 describes the intended result; the [migration guide](precision_migration_plan_user_view.md)
 explains how the transition will work. The unmerged PR may change its ordinary
 export path while implementation continues. Complete functionality and validation
@@ -119,18 +119,28 @@ has been repaired without clearing JAX caches globally. Unsupported NNX mutable
 static payloads are rejected before the original model runs or changes; general
 state migration remains unfinished.
 
-The main numerical blockers are still visible. Default-runtime extrema
-comparisons remain failed for subnormal cases. Some official JAX eager and JIT
-results disagree on zero signs, and the official BF16 TopK counterexample remains
-open. A configured runtime profile or a passing diagnostic does not settle those
-broader failures. Only official supported dependencies are currently permitted;
-custom compiler builds need separate explicit approval.
+The private path now has direct numerical evidence for 44 original predicate
+and Boolean-reduction examples with x64 disabled and enabled: 88 distinct caller
+cases, repeated on the two locked framework variants and the genuine minimum
+runtime stack. The original inputs and JAX calculations are preserved. Eager
+execution and the first and warmed calls of the same fresh JIT wrapper agree
+with both runtime optimization modes for those samples.
+This is limited sample evidence, not general acceptance of those operations.
+The earlier 52-case bitwise result has its own source context; the counts are
+not added together.
 
-At the documented 2026-10-31 published checkpoint, focused regression lanes
-passed, but the complete scientific gate and CI timing qualification across the
-supported Python/JAX versions were unfinished. The [technical current state](precision_current_state.md)
-explains these boundaries. Test counts do not measure how much of the migration
-is complete.
+The complete 3,712-case inventory still reports `ERROR`; 1,838 frozen numerical
+criteria and the broader model, state, option and deployment work remain open.
+Twelve special comparison examples still fail for subnormal inputs despite
+passing ordinary examples. Default-runtime extrema also retain subnormal
+failures, some official eager/JIT extrema references contradict each other, and
+the mandatory native BF16 TopK counterexample remains **FAILED**. Tests that
+correctly detect these failures do not validate the calculations. These local
+results do not establish browser or full-model readiness, change the public API,
+or waive exact-head CI and complete migration acceptance.
+
+Only supported official dependencies are used; custom compiler builds require
+separate explicit approval.
 
 ## What to do now
 

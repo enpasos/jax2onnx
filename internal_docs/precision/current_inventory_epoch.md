@@ -1,8 +1,37 @@
 # Current inventory after main #279
 
-## Finite registered bitwise family qualification
+## Scoped registered numerical qualification
 
-The complete registered AND/OR/XOR/NOT family now has finite numerical evidence:
+The local predicate and Boolean-reduction checkpoint qualifies **44 original
+registered rows / 88 caller cells** on locked Python 3.11 and 3.13 and the
+Python 3.11 minimum stack (ONNX 1.20.1, ONNX IR 1.0.0, ORT 1.24.1).
+Each cohort executes the same 88 identities with x64 disabled and enabled,
+using the unchanged original callables, complete inputs and exact Boolean
+criteria. Official eager execution and the first and warmed calls of one fresh
+JIT wrapper agree with both ORT optimization modes on the same saved artifacts
+and feeds. These are 88 distinct obligations, not 264.
+
+Each report records **88 conditionally numerically validated / 3,624 unverified**
+raw cells in the full **3,712-cell** ledger. Global `ERROR`, strict exit `1`,
+**1,838 missing frozen criterion pairs**, and all manual, metadata-free, opaque,
+optional-model and prepared LEGACY obligations remain. The earlier bitwise
+checkpoint's 52 conditional cells belong to its own recorded source epoch;
+they are not added to 88 or transported into this checkpoint.
+
+CURRENT now adopts exactly the two reviewed `all::1` and `any::1` callback
+contracts. The new structural check accepts the exact public LEGACY keepdims
+form and the semantically equivalent SOURCE reduction plus shape restoration;
+independent source and saved-IR checks remain mandatory. All original callables,
+inputs and numerical criteria are unchanged. Historical contracts and the
+357-row historical adapter manifest remain intact; the explicit reviewed
+44-row current adapter supplies this numerical scope. The existing epoch mapping
+records the two callback changes without transporting acceptance or adding a
+registry.
+
+## Earlier bitwise evidence boundary
+
+The complete registered AND/OR/XOR/NOT family had finite numerical evidence
+at that checkpoint:
 **26 original rows / 52 caller cells**, on both locked Python 3.11/3.13 stacks
 and the existing Python 3.11 / ORT 1.24.1 minimum stack. The 52-cell runs retain the original Boolean/integer, mixed Boolean/integer,
 broadcast and vmap cases, full inputs and opset 23. Separate focused guards

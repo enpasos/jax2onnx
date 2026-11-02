@@ -1351,12 +1351,196 @@ def _source_compact_trace_manifest(value: Any) -> Any:
     return value
 
 
-def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
-    """Replay the closed discrete source/IR relation, including owned storage.
+def _source_predicate_input_samples(
+    capture: Mapping[str, Any],
+    *,
+    expected_sample_count: int | None,
+    original_samples: Sequence[Any] | None,
+) -> tuple[list[tuple[Any, ...]], list[dict[str, Any]]] | None:
+    """Read full actual Native3 input copies and their identical target feeds.
 
-    This remains a finite proof: bitwise expressions, discrete casts, reviewed
-    static data movement and pure plain-JIT bodies. Every final node/value and
-    initializer must be reached and semantically matched, including shape data.
+    Missing required captures leave a conversion unproved. Contradictions in
+    retained bytes, roles or sample identities reject rather than defaulting to
+    a lossless conversion. No values are synthesized from metadata or outputs.
+    """
+    import numpy as np
+    from jax2onnx.precision import _array_evidence
+
+    runtime = capture.get("metadata_runtime") or {}
+    native = (capture.get("native_protocol") or {}).get("samples", {})
+    labels = runtime.get("native_sample_labels", ())
+    identities = runtime.get("sample_identities", ())
+    if (
+        expected_sample_count is None
+        or original_samples is None
+        or not labels
+        or not identities
+    ):
+        return None
+    if (
+        type(expected_sample_count) is not int
+        or expected_sample_count < 1
+        or len(original_samples) != expected_sample_count
+        or len(labels) != expected_sample_count
+        or len(identities) != expected_sample_count
+        or len(set(labels)) != len(labels)
+        or set(labels) != set(native)
+    ):
+        raise ValueError("Predicate proof lost or duplicated an original sample")
+
+    def arrays(
+        role: str, count: int
+    ) -> tuple[tuple[Any, ...], Mapping[str, Any]] | None:
+        record = capture.get(role, {})
+        if record.get("status") != "captured" or not record.get("array_evidence"):
+            return None
+        payload = Path(record["path"]).read_bytes()
+        if hashlib.sha256(payload).hexdigest() != record.get("sha256"):
+            raise ValueError("Predicate original input capture bytes changed")
+        with np.load(io.BytesIO(payload), allow_pickle=False) as saved:
+            names = [f"value_{index}" for index in range(count)]
+            if set(saved.files) != set(names) or len(saved.files) != count:
+                raise ValueError("Predicate input capture arity differs")
+            actual = tuple(np.array(saved[name], copy=True) for name in names)
+        evidence = [
+            asdict(_array_evidence(str(index), value))
+            for index, value in enumerate(actual)
+        ]
+        if _contract_hash(evidence) != _contract_hash(record["array_evidence"]):
+            raise ValueError("Predicate input copy differs from ArrayEvidence")
+        return actual, record
+
+    samples, proof = [], []
+    for index, (label, identity) in enumerate(zip(labels, identities, strict=True)):
+        sample = native[label]
+        roles = sample.get("roles", {})
+        expected = sample.get("input_identity", ())
+        if set(roles) != {"eager", "fresh-jit", "warm-jit"}:
+            return None
+        original_role = (label + "-inputs") if label else "inputs"
+        original = arrays(original_role, len(expected))
+        feeds = arrays(f"metadata-protocol-{index}-feeds", len(expected))
+        if original is None or feeds is None:
+            return None
+        values, original_record = original
+        feed_values, feed_record = feeds
+        declared = _canonical_container(original_samples[index])
+        if declared is None or len(declared) != len(values):
+            return None
+        for item, actual in zip(declared, values, strict=True):
+            if type(item) is not dict or not {"array_dtype", "shape", "sha256"} <= set(
+                item
+            ):
+                return None
+            if (
+                item["array_dtype"] != actual.dtype.name
+                or item["shape"] != list(actual.shape)
+                or item["sha256"]
+                != hashlib.sha256(actual.tobytes(order="C")).hexdigest()
+            ):
+                raise ValueError(
+                    "Predicate actual input differs from the original frozen sample"
+                )
+        if len(identity.get("inputs", ())) != len(expected):
+            raise ValueError("Predicate original/target input count differs")
+        bindings = {
+            "sample_index": index,
+            "label": label,
+            "original_input_role": original_role,
+            "original_input_sha256": original_record["sha256"],
+            "declared_sample_sha256": _contract_hash(declared),
+            "feed_capture_sha256": feed_record["sha256"],
+            "roles": {},
+        }
+        for input_index, (value, feed, source, target) in enumerate(
+            zip(values, feed_values, expected, identity["inputs"], strict=True)
+        ):
+            if (
+                value.dtype.kind not in "biuf"
+                or value.dtype.name
+                not in {
+                    "bool",
+                    "int8",
+                    "int16",
+                    "int32",
+                    "int64",
+                    "uint8",
+                    "uint16",
+                    "uint32",
+                    "uint64",
+                    "float32",
+                    "float64",
+                }
+                or value.dtype != feed.dtype
+                or value.shape != feed.shape
+                or value.tobytes(order="C") != feed.tobytes(order="C")
+            ):
+                raise ValueError(
+                    "Predicate original input/physical feed is not an identity encoding"
+                )
+            if (
+                source.get("dtype") != value.dtype.name
+                or source.get("shape") != list(value.shape)
+                or source.get("sha256")
+                != hashlib.sha256(value.tobytes(order="C")).hexdigest()
+            ):
+                raise ValueError("Predicate original source input identity differs")
+            observed = asdict(_array_evidence("", value))
+            observed.pop("name")
+            if _contract_hash(source.get("physical")) != _contract_hash(
+                observed
+            ) or _contract_hash(
+                {k: v for k, v in target.items() if k != "name"}
+            ) != _contract_hash(
+                observed
+            ):
+                raise ValueError("Predicate source/native/target input words differ")
+        for role in ("eager", "fresh-jit", "warm-jit"):
+            entry = roles[role]
+            name = (label + "-" if label else "") + role + "-inputs"
+            if (
+                entry.get("outcome", {}).get("status") != "returned"
+                or entry.get("input_capture_role") != name
+                or entry.get("input_identity_before") != expected
+                or entry.get("input_identity_after") != expected
+            ):
+                raise ValueError(
+                    "Predicate Native3 original input role binding differs"
+                )
+            copied = arrays(name, len(expected))
+            if copied is None:
+                return None
+            actual, record = copied
+            if len(record.get("properties", ())) != len(expected) or any(
+                prop.get("encoding") is not None
+                or prop.get("dtype") != source["dtype"]
+                or prop.get("shape") != source["shape"]
+                or prop.get("weak_type") != source["weak_type"]
+                for prop, source in zip(record["properties"], expected, strict=True)
+            ):
+                raise ValueError("Predicate Native3 logical input type differs")
+            if any(
+                a.dtype != b.dtype
+                or a.shape != b.shape
+                or a.tobytes(order="C") != b.tobytes(order="C")
+                for a, b in zip(actual, values, strict=True)
+            ):
+                raise ValueError("Predicate Native3 original input copies disagree")
+            bindings["roles"][role] = {"capture_role": name, "sha256": record["sha256"]}
+        samples.append(values)
+        proof.append(bindings)
+    return samples, proof
+
+
+def _source_bitwise_closure(
+    manifest: Any, model: Any, *, sample_inputs: Sequence[Sequence[Any]] | None = None
+) -> dict[str, Any] | None:
+    """Replay finite typed bitwise/predicate/Boolean-reduction source and IR.
+
+    Floating values may traverse only reviewed copies, predicates and the
+    explicitly sample-proved int32-to-float32 conversion below. This proves no
+    floating arithmetic or unresolved rounding, not absence of floating data.
+    Every final node/value/storage must be reached and semantically matched.
     """
     import math
     import numpy as np
@@ -1374,9 +1558,13 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
             "uint16",
             "uint32",
             "uint64",
+            "float32",
+            "float64",
         )
     }
+    discrete_types = set(types) - {"float32", "float64"}
     limit = 2**63 - 1
+    lossless_conversions: list[dict[str, Any]] = []
     expressions: list[dict[str, Any]] = []
     source_scopes = []
     source_equations = 0
@@ -1426,7 +1614,7 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
                 if len(raw) != np.dtype(dtype).itemsize:
                     raise ValueError("source-literal-size-differs")
             else:
-                if type(payload) not in (bool, int) or shape:
+                if type(payload) not in (bool, int, float) or shape:
                     raise ValueError("source-literal-kind-unavailable")
                 raw = np.asarray(payload, dtype=np.dtype(dtype)).tobytes()
             digest = hashlib.sha256(raw).hexdigest()
@@ -1515,6 +1703,7 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
             ):
                 raise ValueError("source-equation-unavailable")
             name, params = equation["primitive"], equation["params"]
+            expression_params = params
             args = [
                 port(item, f"equation:{ordinal}:input:{i}")
                 for i, item in enumerate(equation["inputs"])
@@ -1556,6 +1745,7 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
                     in (
                         {"enum": "jax._src.api.Inline", "name": "AUTO"},
                         {"enum": "jax._src.api.Inline", "name": "JAX_LATE"},
+                        {"enum": "jax._src.api.Inline", "name": "JAX_EARLY"},
                     )
                 ):
                     raise ValueError("source-jit-inline-unavailable")
@@ -1583,11 +1773,34 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
                     raise ValueError("source-output-unavailable")
                 tensor = outs[0]["aval"]
                 operands = [expressions[i]["aval"] for i in args]
-                if name in {"and", "or", "xor", "not"}:
+                if name in {
+                    "and",
+                    "or",
+                    "xor",
+                    "not",
+                    "eq",
+                    "ne",
+                    "lt",
+                    "le",
+                    "gt",
+                    "ge",
+                }:
+                    predicate = name in {"eq", "ne", "lt", "le", "gt", "ge"}
                     if (
                         params
                         or len(args) != (1 if name == "not" else 2)
-                        or any(x[0] != tensor[0] for x in operands)
+                        or predicate
+                        and (
+                            tensor[0] != "bool"
+                            or any(x[0] != operands[0][0] for x in operands)
+                            or name not in {"eq", "ne"}
+                            and operands[0][0] == "bool"
+                        )
+                        or not predicate
+                        and (
+                            tensor[0] not in discrete_types
+                            or any(x[0] != tensor[0] for x in operands)
+                        )
                     ):
                         raise ValueError("source-bitwise-contract-differs")
                     ranks = {len(x[1]) for x in operands if x[1]}
@@ -1606,6 +1819,67 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
                         or tensor[2] != all(x[2] for x in operands)
                     ):
                         raise ValueError("source-bitwise-shape-or-weakness-differs")
+                elif name == "is_finite":
+                    if (
+                        params
+                        or len(args) != 1
+                        or operands[0][0] not in {"float32", "float64"}
+                        or tensor[0] != "bool"
+                        or tensor[1] != operands[0][1]
+                        or tensor[2] != operands[0][2]
+                    ):
+                        raise ValueError("source-finite-contract-differs")
+                elif name in {"reduce_and", "reduce_or", "reduce_xor"}:
+                    native_axes = params.get("axes")
+                    if type(native_axes) is not list:
+                        raise ValueError("source-boolean-reduction-axes-unavailable")
+                    axes = []
+                    for axis in native_axes:
+                        if type(axis) is int:
+                            axes.append(axis)
+                            continue
+                        if (
+                            type(axis) is not dict
+                            or set(axis) != {"scalar_dtype", "dtype_str", "bytes_hex"}
+                            or any(type(value) is not str for value in axis.values())
+                            or axis["scalar_dtype"] not in discrete_types - {"bool"}
+                        ):
+                            raise ValueError("source-boolean-reduction-axis-kind")
+                        dtype = np.dtype(axis["scalar_dtype"])
+                        if axis["dtype_str"] != dtype.str:
+                            raise ValueError("source-boolean-reduction-axis-dtype")
+                        raw = bytes.fromhex(axis["bytes_hex"])
+                        if len(raw) != dtype.itemsize or raw.hex() != axis["bytes_hex"]:
+                            raise ValueError("source-boolean-reduction-axis-storage")
+                        axes.append(
+                            int.from_bytes(
+                                raw,
+                                byteorder="little" if np.little_endian else "big",
+                                signed=dtype.kind == "i",
+                            )
+                        )
+                    if (
+                        len(args) != 1
+                        or set(params) != {"axes"}
+                        or operands[0][0] != "bool"
+                        or tensor[0] != "bool"
+                        or tensor[2] is not False
+                        or type(axes) is not list
+                        or any(
+                            type(axis) is not int or not 0 <= axis < len(operands[0][1])
+                            for axis in axes
+                        )
+                        or len(set(axes)) != len(axes)
+                        or list(tensor[1])
+                        != [
+                            size
+                            for axis, size in enumerate(operands[0][1])
+                            if axis not in axes
+                        ]
+                        or math.prod(operands[0][1][axis] for axis in axes) > limit
+                    ):
+                        raise ValueError("source-boolean-reduction-contract-differs")
+                    expression_params = {**params, "axes": axes}
                 elif name == "convert_element_type":
                     if (
                         len(args) != 1
@@ -1621,6 +1895,15 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
                         or operands[0][1] != tensor[1]
                     ):
                         raise ValueError("source-discrete-cast-differs")
+                    if (
+                        operands[0][0] not in discrete_types
+                        or tensor[0] not in discrete_types
+                    ):
+                        if operands[0][0] != tensor[0] and (
+                            operands[0][0],
+                            tensor[0],
+                        ) != ("int32", "float32"):
+                            raise ValueError("source-floating-conversion-unreviewed")
                 elif name in {
                     "reshape",
                     "broadcast_in_dim",
@@ -1728,7 +2011,7 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
                         raise ValueError("source-identity-differs")
                 else:
                     raise ValueError("source-operation-unavailable")
-                results = [add(name, tensor, args, params)]
+                results = [add(name, tensor, args, expression_params)]
             for item, expr in zip(outs, results, strict=True):
                 if (
                     type(item) is not dict
@@ -1853,6 +2136,20 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
             }
             if len(attributes) != len(current.attribute) or attributes != attrs:
                 raise ValueError("final-node-attributes-differ")
+            for attribute in current.attribute:
+                expected = attrs[attribute.name]
+                kind = (
+                    onnx.AttributeProto.INT
+                    if type(expected) is int
+                    else (
+                        onnx.AttributeProto.INTS
+                        if type(expected) in (list, tuple)
+                        and all(type(word) is int for word in expected)
+                        else None
+                    )
+                )
+                if kind is None or attribute.type != kind:
+                    raise ValueError("final-node-attribute-kind-differs")
             used_nodes.add(index)
             return current
 
@@ -1912,6 +2209,109 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
             ):
                 raise ValueError("final-shape-constant-differs")
 
+        def lossless_input(
+            expr: int, sample: Sequence[Any], ancestors: frozenset[int] = frozenset()
+        ) -> Any:
+            if expr in ancestors or len(ancestors) >= 32:
+                raise ValueError("cyclic-lossless-input-lineage")
+            expected = expressions[expr]
+            operation, tensor, args, params = (
+                expected[k] for k in ("operation", "aval", "args", "params")
+            )
+            if tensor[0] != "int32":
+                raise ValueError("lossless-conversion-input-is-not-int32")
+            if operation == "input":
+                array = np.asarray(sample[params])
+                if array.dtype != np.dtype("int32") or list(array.shape) != list(
+                    tensor[1]
+                ):
+                    raise ValueError("lossless-original-sample-type-differs")
+                return array
+            if operation not in {
+                "reshape",
+                "broadcast_in_dim",
+                "transpose",
+                "slice",
+                "stop_gradient",
+                "convert_element_type",
+            }:
+                raise ValueError(
+                    "lossless-conversion-needs-original-input-copy-lineage"
+                )
+            value = lossless_input(args[0], sample, ancestors | {expr})
+            if operation == "reshape":
+                if params["dimensions"] is not None:
+                    value = np.transpose(value, params["dimensions"])
+                value = np.reshape(value, tensor[1])
+            elif operation == "transpose":
+                value = np.transpose(value, params["permutation"])
+            elif operation == "broadcast_in_dim":
+                aligned = [1] * len(tensor[1])
+                for size, axis in zip(
+                    value.shape, params["broadcast_dimensions"], strict=True
+                ):
+                    aligned[axis] = size
+                value = np.broadcast_to(np.reshape(value, aligned), tensor[1])
+            elif operation == "slice":
+                steps = params["strides"] or [1] * value.ndim
+                value = value[
+                    tuple(
+                        slice(a, b, step)
+                        for a, b, step in zip(
+                            params["start_indices"],
+                            params["limit_indices"],
+                            steps,
+                            strict=True,
+                        )
+                    )
+                ]
+            elif (
+                operation == "convert_element_type"
+                and expressions[args[0]]["aval"][0] != "int32"
+            ):
+                raise ValueError("lossless-input-lineage-contains-a-conversion")
+            if value.dtype != np.dtype("int32") or list(value.shape) != list(tensor[1]):
+                raise ValueError("lossless-copy-lineage-type-differs")
+            return value
+
+        def prove_lossless(expr: int, edge: str, result_name: str) -> None:
+            if not sample_inputs:
+                raise ValueError("lossless-conversion-all-original-samples-unavailable")
+            proofs = []
+            for index, sample in enumerate(sample_inputs):
+                if len(sample) != len(arguments):
+                    raise ValueError("lossless-original-sample-input-count-differs")
+                value = lossless_input(expr, sample)
+                converted = value.astype(np.float32)
+                if any(
+                    not np.isfinite(b) or int(a) != int(b)
+                    for a, b in zip(value.flat, converted.flat, strict=True)
+                ):
+                    raise ValueError("original-int32-to-float32-conversion-is-lossy")
+                proofs.append(
+                    {
+                        "sample_index": index,
+                        "input_dtype": "int32",
+                        "input_shape": list(value.shape),
+                        "input_sha256": hashlib.sha256(
+                            value.tobytes(order="C")
+                        ).hexdigest(),
+                        "converted_dtype": "float32",
+                        "converted_sha256": hashlib.sha256(
+                            converted.tobytes(order="C")
+                        ).hexdigest(),
+                        "element_count": int(value.size),
+                    }
+                )
+            item = {
+                "source_expression": expr,
+                "cast_input_edge": edge,
+                "cast_output_edge": result_name,
+                "samples": proofs,
+            }
+            if item not in lossless_conversions:
+                lossless_conversions.append(item)
+
         def match(expr: int, name: str) -> None:
             if name in active:
                 raise ValueError("cyclic-final-graph")
@@ -1945,6 +2345,111 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
                 )
                 for child, edge in zip(args, current.input, strict=True):
                     match(child, edge)
+            elif operation in {"eq", "ne", "lt", "le", "gt", "ge"}:
+                edge = name
+                if operation == "ne":
+                    edge = node(name, "Not", 1, {}).input[0]
+                    if values.get(edge) != (types["bool"], tuple(tensor[1])):
+                        raise ValueError("final-predicate-intermediate-type-differs")
+                current = node(
+                    edge,
+                    {
+                        "eq": "Equal",
+                        "ne": "Equal",
+                        "lt": "Less",
+                        "le": "LessOrEqual",
+                        "gt": "Greater",
+                        "ge": "GreaterOrEqual",
+                    }[operation],
+                    2,
+                    {},
+                )
+                for child, input_edge in zip(args, current.input, strict=True):
+                    match(child, input_edge)
+            elif operation == "is_finite":
+                either = node(name, "Not", 1, {}).input[0]
+                if values.get(either) != (types["bool"], tuple(tensor[1])):
+                    raise ValueError("final-finite-intermediate-type-differs")
+                current = node(either, "Or", 2, {})
+                for input_edge, kind in zip(
+                    current.input, ("IsInf", "IsNaN"), strict=True
+                ):
+                    if values.get(input_edge) != (types["bool"], tuple(tensor[1])):
+                        raise ValueError("final-finite-predicate-type-differs")
+                    match(args[0], node(input_edge, kind, 1, {}).input[0])
+            elif operation in {"reduce_and", "reduce_or", "reduce_xor"}:
+                source = expressions[args[0]]["aval"]
+                axes = params["axes"]
+                if not axes:
+                    match(args[0], node(name, "Identity", 1, {}).input[0])
+                elif any(source[1][axis] == 0 for axis in axes):
+                    current = node(name, "Expand", 2, {})
+                    identity = storage(current.input[0])
+                    if (
+                        identity.dtype != np.dtype("bool")
+                        or identity.shape != ()
+                        or bool(identity.item()) != (operation == "reduce_and")
+                    ):
+                        raise ValueError("final-boolean-empty-identity-differs")
+                    retained = [
+                        axis for axis in range(len(source[1])) if axis not in axes
+                    ]
+                    shape_edge = current.input[1]
+                    if values.get(shape_edge) != (types["int64"], (len(retained),)):
+                        raise ValueError("final-boolean-empty-shape-type-differs")
+                    gathered = node(shape_edge, "Gather", 2, {"axis": 0})
+                    vector(gathered.input[1], retained)
+                    if values.get(gathered.input[0]) != (
+                        types["int64"],
+                        (len(source[1]),),
+                    ):
+                        raise ValueError("final-boolean-source-shape-type-differs")
+                    match(args[0], node(gathered.input[0], "Shape", 1, {}).input[0])
+                else:
+                    reduced_edge = name
+                    if operation == "reduce_xor":
+                        equality = node(name, "Equal", 2, {})
+                        one = storage(equality.input[1])
+                        if (
+                            one.dtype != np.dtype("int64")
+                            or one.shape != ()
+                            or one.item() != 1
+                        ):
+                            raise ValueError("final-boolean-xor-one-differs")
+                        if values.get(equality.input[0]) != (
+                            types["int64"],
+                            tuple(tensor[1]),
+                        ):
+                            raise ValueError("final-boolean-xor-type-differs")
+                        modulo = node(equality.input[0], "Mod", 2, {"fmod": 0})
+                        two = storage(modulo.input[1])
+                        if (
+                            two.dtype != np.dtype("int64")
+                            or two.shape != ()
+                            or two.item() != 2
+                        ):
+                            raise ValueError("final-boolean-xor-two-differs")
+                        reduced_edge = modulo.input[0]
+                    else:
+                        reduced_edge = node(
+                            name, "Cast", 1, {"to": types["bool"]}
+                        ).input[0]
+                    if values.get(reduced_edge) != (types["int64"], tuple(tensor[1])):
+                        raise ValueError("final-boolean-accumulator-type-differs")
+                    reduced = node(
+                        reduced_edge,
+                        "ReduceMin" if operation == "reduce_and" else "ReduceSum",
+                        2,
+                        {"keepdims": 0},
+                    )
+                    vector(reduced.input[1], axes)
+                    work_edge = reduced.input[0]
+                    if values.get(work_edge) != (types["int64"], tuple(source[1])):
+                        raise ValueError("final-boolean-work-type-differs")
+                    match(
+                        args[0],
+                        node(work_edge, "Cast", 1, {"to": types["int64"]}).input[0],
+                    )
             else:
                 source = expressions[args[0]]["aval"]
                 identity = (
@@ -1985,6 +2490,8 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
                 elif operation == "convert_element_type":
                     current = node(name, "Cast", 1, {"to": types[tensor[0]]})
                     match(args[0], current.input[0])
+                    if (source[0], tensor[0]) == ("int32", "float32"):
+                        prove_lossless(args[0], current.input[0], name)
                 elif operation == "transpose":
                     current = node(
                         name, "Transpose", 1, {"perm": params["permutation"]}
@@ -2107,6 +2614,7 @@ def _source_bitwise_closure(manifest: Any, model: Any) -> dict[str, Any] | None:
             ],
             "constant_count": len(used_constants),
             "function_count": 0,
+            "lossless_conversions": lossless_conversions,
         }
     except (ValueError, TypeError, KeyError, IndexError, OverflowError, RecursionError):
         return None
@@ -2116,6 +2624,8 @@ def _source_metadata_protocol_checks(
     row: Any,
     evidence: Mapping[str, Any],
     checks: dict[str, dict[str, str]],
+    *,
+    _original_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, str]]:
     """Project immutable producer facts, rejecting detached or stale bindings."""
     capture = evidence.get("replay_capture") or {}
@@ -2768,7 +3278,41 @@ def _source_metadata_protocol_checks(
             raise ValueError(
                 "Bitwise applicability is detached from the checked saved artifact"
             )
-        closure = _source_bitwise_closure(manifest, onnx.load_model_from_string(saved))
+        sample_arrays = None
+        if proof.get("closure", {}).get("lossless_conversions"):
+            if _original_contract is None:
+                return checks
+            if _contract_hash(_original_contract) != row.contract_sha256:
+                raise ValueError("Predicate original sample contract differs")
+            primary = _canonical_container(_original_contract.get("input_values"))
+            alternate = _original_contract.get("runtime_input_values")
+            alternate = [] if alternate is None else _canonical_container(alternate)
+            if (
+                primary is None
+                or alternate is None
+                or _original_contract.get("input_params")
+            ):
+                return checks
+            original_samples = [primary, *alternate]
+            if runtime.get("original_sample_count") != len(original_samples):
+                raise ValueError(
+                    "Predicate proof count differs from all original samples"
+                )
+            retained = _source_predicate_input_samples(
+                capture,
+                expected_sample_count=len(original_samples),
+                original_samples=original_samples,
+            )
+            if retained is None or proof.get("lossless_input_samples") is None:
+                return checks
+            sample_arrays, sample_bindings = retained
+            if _contract_hash(sample_bindings) != _contract_hash(
+                proof["lossless_input_samples"]
+            ):
+                raise ValueError("Predicate sample-bound losslessness proof differs")
+        closure = _source_bitwise_closure(
+            manifest, onnx.load_model_from_string(saved), sample_inputs=sample_arrays
+        )
         if (
             closure is None
             or _contract_hash(closure) != _contract_hash(proof.get("closure"))
@@ -2789,13 +3333,16 @@ def _source_metadata_protocol_checks(
                 checks[name] = {
                     "status": "validated",
                     "applicability": "not-applicable",
-                    "detail": "Complete canonical typed bitwise source and the same checked saved IR have no floating operations, values or constants",
+                    "detail": "Complete canonical source and the same checked saved IR use only discrete operations or reviewed predicate/copy roles; floating data performs no floating arithmetic, and any int32-to-float32 conversion is lossless for every original sample",
                 }
     return checks
 
 
 def source_metadata_numerical_checks(
-    row: Any, evidence: Mapping[str, Any] | None
+    row: Any,
+    evidence: Mapping[str, Any] | None,
+    *,
+    _original_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, str]]:
     """Account for scientific proof without upgrading the replay's evidence.
 
@@ -2846,7 +3393,9 @@ def source_metadata_numerical_checks(
     runtime = (evidence.get("replay_capture") or {}).get("metadata_runtime", {})
     native_protocol = (evidence.get("replay_capture") or {}).get("native_protocol", {})
     if native_protocol.get("choice") is not None:
-        return _source_metadata_protocol_checks(row, evidence, checks)
+        return _source_metadata_protocol_checks(
+            row, evidence, checks, _original_contract=_original_contract
+        )
     mode = runtime.get("optimization")
     if mode not in {"disabled", "all"}:
         return checks
@@ -3718,7 +4267,9 @@ def reconcile_source_metadata(
         }
         obligations.append(record)
         scientific = source_metadata_numerical_checks(
-            row, retained_evidence[result["evidence_sha256"]] if result else None
+            row,
+            retained_evidence[result["evidence_sha256"]] if result else None,
+            _original_contract=inventory["contracts"][frozen_rows[identity[:2]][5]],
         )
         record["required_numerical_checks"] = scientific
         statuses = [

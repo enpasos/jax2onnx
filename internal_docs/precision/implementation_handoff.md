@@ -1,6 +1,51 @@
-# Precision migration handoff — 2026-11-01
+# Precision migration handoff — 2026-11-02
 
-## Local registered bitwise family checkpoint
+## Current predicate and Boolean-reduction checkpoint
+
+The local predicate and Boolean-reduction checkpoint qualifies **44 original
+registered rows / 88 caller cells** on locked Python 3.11 and 3.13 and the
+Python 3.11 minimum stack (ONNX 1.20.1, ONNX IR 1.0.0, ORT 1.24.1).
+Each cohort executes the same 88 identities with x64 disabled and enabled,
+using the unchanged original callables, complete inputs and exact Boolean
+criteria. Official eager execution and the first and warmed calls of one fresh
+JIT wrapper agree with both ORT optimization modes on the same saved artifacts
+and feeds. These are 88 distinct obligations, not 264.
+
+Each report records **88 conditionally numerically validated / 3,624 unverified**
+raw cells in the full **3,712-cell** ledger. Global `ERROR`, strict exit `1`,
+**1,838 missing frozen criterion pairs**, and all manual, metadata-free, opaque,
+optional-model and prepared LEGACY obligations remain. The earlier bitwise
+checkpoint's 52 conditional cells belong to its own recorded source epoch;
+they are not added to 88 or transported into this checkpoint.
+
+CURRENT now adopts exactly the two reviewed `all::1` and `any::1` callback
+contracts. The new structural check accepts the exact public LEGACY keepdims
+form and the semantically equivalent SOURCE reduction plus shape restoration;
+independent source and saved-IR checks remain mandatory. All original callables,
+inputs and numerical criteria are unchanged. Historical contracts and the
+357-row historical adapter manifest remain intact; the explicit reviewed
+44-row current adapter supplies this numerical scope. The existing epoch mapping
+records the two callback changes without transporting acceptance or adding a
+registry.
+
+The implementation owns genuine NumPy integral-axis metadata without rewriting
+its canonical dtype/storage evidence. It also captures the original internal
+dtype helpers, finite native cache state and selected class/module dependencies
+needed by the unchanged `isfinite` target. Ordinary cache growth remains stable;
+foreign or mutated dependencies reject before their hooks execute.
+
+The twelve special-float comparison fixtures still have **FAILED** scientific
+stages: official Native3 agrees, but default CPU ORT differs for the original
+signed smallest-subnormal comparisons. Their passing outer tests verify the
+retained rejection, exact mismatches and raising gates; they do not accept those
+calculations. The two separate finite-value predicates pass. No general
+subnormal normalization or comparison algorithm is qualified by this checkpoint.
+Native extrema contradictions and the mandatory BF16 TopK counterexample remain
+**FAILED**. Complete B–F acceptance, full models, all supported contexts and
+exact-head hosted integration remain outstanding.
+
+
+## Previously qualified registered bitwise family checkpoint
 
 The local successor to `bfff9d88` qualifies all **26 registered AND/OR/XOR/NOT
 rows / 52 caller cells** on locked Python 3.11/3.13 and the existing Python 3.11
@@ -9,7 +54,9 @@ family**. Each genuine family run has 52 passing Items and 156 passing phases,
 44 passing original callbacks and eight callback-absent vmap contracts, with
 source/schema/lowering/structure and exact Native3/ORT2 artifact/feed bindings.
 The same 52 caller identities are tested on three stacks; these are not 156
-distinct inventory obligations.
+distinct inventory obligations. This is the earlier source epoch; changes to
+CURRENT or the source implementation require fresh qualification and do not
+transport those 52 numerical verdicts.
 
 The implementation preserves exact native ufunc and supplied-JIT ownership,
 including captured-array identity/words and state fences; static shape and

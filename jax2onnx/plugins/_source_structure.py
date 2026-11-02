@@ -65,6 +65,8 @@ _PRIMITIVES: Final = {
     "gt": jax.lax.gt_p,
     "ge": jax.lax.ge_p,
     "eq": jax.lax.eq_p,
+    "ne": jax.lax.ne_p,
+    "is_finite": jax.lax.is_finite_p,
     "not": jax.lax.not_p,
     "and": jax.lax.and_p,
     "or": jax.lax.or_p,
@@ -135,6 +137,170 @@ class _DirectRule:
         return (node,)
 
 
+@dataclass(frozen=True)
+class _PredicateRule:
+    """The two closed predicate compositions, with typed Boolean intermediates."""
+
+    operation: str
+    output: TensorContract
+
+    def check(
+        self,
+        graph: ir.Graph,
+        inputs: tuple[RuleOperand, ...],
+        outputs: tuple[ir.Value, ...],
+        match_literal: LiteralMatcher,
+    ) -> tuple[ir.Node, ...]:
+        arity = 2 if self.operation == "ne" else 1
+        if len(inputs) != arity or len(outputs) != 1:
+            raise StructureMismatch("predicate-boundary-arity-differs")
+        result = outputs[0]
+        if not self.output.matches(result):
+            raise StructureMismatch("predicate-output-type-or-shape-differs")
+        negation = result.producer()
+        if negation is None or len(negation.inputs) != 1 or negation.inputs[0] is None:
+            raise StructureMismatch("predicate-negation-input-differs")
+        inner = negation.inputs[0]
+        assert inner is not None
+        _DirectRule("Not").check(graph, (inner,), outputs, match_literal)
+        if not self.output.matches(inner):
+            raise StructureMismatch("predicate-intermediate-type-or-shape-differs")
+        if self.operation == "ne":
+            equality = _DirectRule("Equal").check(
+                graph, inputs, (inner,), match_literal
+            )
+            return (*equality, negation)
+        if self.operation != "is_finite":
+            raise StructureMismatch("predicate-operation-differs")
+        disjunction = inner.producer()
+        if (
+            disjunction is None
+            or len(disjunction.inputs) != 2
+            or any(value is None for value in disjunction.inputs)
+        ):
+            raise StructureMismatch("predicate-classification-inputs-differ")
+        is_inf, is_nan = disjunction.inputs
+        assert is_inf is not None and is_nan is not None
+        _DirectRule("Or").check(graph, (is_inf, is_nan), (inner,), match_literal)
+        if not self.output.matches(is_inf) or not self.output.matches(is_nan):
+            raise StructureMismatch("predicate-intermediate-type-or-shape-differs")
+        inf_nodes = _DirectRule("IsInf").check(graph, inputs, (is_inf,), match_literal)
+        nan_nodes = _DirectRule("IsNaN").check(graph, inputs, (is_nan,), match_literal)
+        return (*inf_nodes, *nan_nodes, disjunction, negation)
+
+
+def _freeze_predicate_rule(
+    eqn: JaxprEqn,
+    inputs: tuple[TensorContract, ...],
+    outputs: tuple[TensorContract, ...],
+) -> EquationRule | None:
+    """Freeze only canonical static ordinary predicates, before any IR exists."""
+    if type(eqn) is not JaxprEqn or not any(
+        eqn.primitive is primitive
+        for primitive in (*_PREDICATES, jax.lax.ne_p, jax.lax.is_finite_p)
+    ):
+        return None
+    finite = eqn.primitive is jax.lax.is_finite_p
+    arity = 1 if finite else 2
+    if (
+        eqn.effects
+        or type(eqn.params) is not dict
+        or eqn.params
+        or len(inputs) != arity
+        or len(outputs) != 1
+        or len(eqn.invars) != arity
+        or len(eqn.outvars) != 1
+    ):
+        return None
+    ordinary = {
+        "bool",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float32",
+        "float64",
+    }
+    for value in (*inputs, *outputs):
+        if (
+            type(value) is not TensorContract
+            or type(value.logical_dtype) is not str
+            or value.logical_dtype not in ordinary
+            or value.dtype != ir.DataType.from_numpy(np.dtype(value.logical_dtype))
+            or value.encoding != "identity"
+            or type(value.shape) is not tuple
+            or type(value.logical_shape) is not tuple
+            or value.shape != value.logical_shape
+            or any(
+                type(dim) is not int or not 0 <= dim <= 2**63 - 1 for dim in value.shape
+            )
+            or value.symbol_token is not None
+            or value.symbol_axis is not None
+            or value.logical_symbol_axis is not None
+            or type(value.weak_type) is not bool
+        ):
+            return None
+    for var, value in zip(
+        (*eqn.invars, *eqn.outvars), (*inputs, *outputs), strict=True
+    ):
+        if type(var) not in {Var, Literal}:
+            return None
+        aval = var.aval
+        if type(aval) is not ShapedArray or type(aval.weak_type) is not bool:
+            return None
+        if (
+            not isinstance(aval.dtype, np.dtype)
+            or aval.dtype.name != value.logical_dtype
+            or type(aval.shape) is not tuple
+            or any(type(dim) is not int for dim in aval.shape)
+            or aval.shape != value.logical_shape
+            or aval.weak_type != value.weak_type
+        ):
+            return None
+    target = outputs[0]
+    if (
+        target.logical_dtype != "bool"
+        or target.dtype is not ir.DataType.BOOL
+        or target.weak_type != all(value.weak_type for value in inputs)
+        or any(value.logical_dtype != inputs[0].logical_dtype for value in inputs)
+    ):
+        return None
+    if finite:
+        if inputs[0].dtype not in _FLOATS or inputs[0].shape != target.shape:
+            return None
+        return _PredicateRule("is_finite", target)
+    if inputs[0].logical_dtype == "bool" and eqn.primitive not in (
+        jax.lax.eq_p,
+        jax.lax.ne_p,
+    ):
+        # ONNX ordered predicates do not give this rule Boolean-input authority.
+        return None
+    ranks = {len(value.shape) for value in inputs if value.shape}
+    if len(ranks) > 1:
+        return None
+    rank = max((len(value.shape) for value in inputs), default=0)
+    shape = []
+    for axis in range(rank):
+        dimensions = {
+            value.shape[axis]
+            for value in inputs
+            if value.shape and value.shape[axis] != 1
+        }
+        if len(dimensions) > 1:
+            return None
+        shape.append(next(iter(dimensions), 1))
+    if tuple(shape) != target.shape:
+        return None
+    if eqn.primitive is jax.lax.ne_p:
+        return _PredicateRule("ne", target)
+    operation = _PREDICATES.get(eqn.primitive)
+    return _DirectRule(operation) if operation is not None else None
+
+
 def freeze_source_structure_rule(
     eqn: JaxprEqn,
     inputs: tuple[TensorContract, ...],
@@ -179,6 +345,9 @@ def freeze_source_structure_rule(
         primitive is jax.lax.reduce_sum_p
         or primitive is jax.lax.reduce_max_p
         or primitive is jax.lax.reduce_min_p
+        or primitive is jax.lax.reduce_and_p
+        or primitive is jax.lax.reduce_or_p
+        or primitive is jax.lax.reduce_xor_p
     ):
         from jax2onnx.plugins.jax.lax._source_reduce_structure import (
             freeze_reduction_structure_rule,
@@ -198,6 +367,8 @@ def freeze_source_structure_rule(
     name = primitive.name
     if _PRIMITIVES.get(name) is not primitive:
         return None
+    if primitive in _PREDICATES or primitive in (jax.lax.ne_p, jax.lax.is_finite_p):
+        return _freeze_predicate_rule(eqn, inputs, outputs)
     if primitive is jax.lax.bitcast_convert_type_p:
         if (
             eqn.effects
@@ -250,6 +421,61 @@ def freeze_source_structure_rule(
         jax.lax.or_p: ("Or", "BitwiseOr", 2),
         jax.lax.xor_p: ("Xor", "BitwiseXor", 2),
     }
+    if (
+        primitive is jax.lax.convert_element_type_p
+        and len(inputs) == len(outputs) == 1
+        and (inputs[0].logical_dtype, outputs[0].logical_dtype) == ("int32", "float32")
+    ):
+        # This is the original typed Cast, including legitimate source rounding.
+        # Sample-bound losslessness is a separate numerical applicability proof.
+        source, target = inputs[0], outputs[0]
+        params = eqn.params
+        if (
+            eqn.effects
+            or type(params) is not dict
+            or set(params)
+            not in ({"new_dtype", "weak_type"}, {"new_dtype", "weak_type", "sharding"})
+            or params.get("sharding") is not None
+            or not isinstance(params["new_dtype"], np.dtype)
+            or params["new_dtype"] != np.dtype("float32")
+            or type(params["weak_type"]) is not bool
+            or params["weak_type"] != target.weak_type
+            or len(eqn.invars) != 1
+            or len(eqn.outvars) != 1
+            or source.shape != target.shape
+            or any(
+                value.encoding != "identity"
+                or value.shape != value.logical_shape
+                or value.dtype != ir.DataType.from_numpy(np.dtype(value.logical_dtype))
+                or value.symbol_token is not None
+                or value.symbol_axis is not None
+                or value.logical_symbol_axis is not None
+                or type(value.weak_type) is not bool
+                or any(
+                    type(dim) is not int or not 0 <= dim <= 2**63 - 1
+                    for dim in value.shape
+                )
+                for value in (source, target)
+            )
+        ):
+            return None
+        for var, value in zip(
+            (*eqn.invars, *eqn.outvars), (source, target), strict=True
+        ):
+            if (
+                type(var) not in {Var, Literal}
+                or type(var.aval) is not ShapedArray
+                or type(var.aval.weak_type) is not bool
+            ):
+                return None
+            if (
+                not isinstance(var.aval.dtype, np.dtype)
+                or var.aval.dtype.name != value.logical_dtype
+                or tuple(var.aval.shape) != value.logical_shape
+                or var.aval.weak_type != value.weak_type
+            ):
+                return None
+        return _DirectRule("Cast", (("to", int(ir.DataType.FLOAT.value)),))
     discrete = {
         "bool",
         "int8",
@@ -520,6 +746,8 @@ def freeze_source_semantic_key(
     outputs: tuple[TensorContract, ...],
 ) -> tuple[object, ...] | None:
     """Plugin-owned source keys, selected by exact native primitive identity."""
+    if type(eqn) is not JaxprEqn:
+        return None
     primitive = eqn.primitive
     if primitive is None:
         return None
@@ -541,7 +769,10 @@ def freeze_source_semantic_key(
         LiteralIfRule,
     )
     from jax2onnx.plugins.jax.lax._source_dot_structure import _DotRule
-    from jax2onnx.plugins.jax.lax._source_reduce_structure import _ReductionRule
+    from jax2onnx.plugins.jax.lax._source_reduce_structure import (
+        _BooleanReductionRule,
+        _ReductionRule,
+    )
     from jax2onnx.plugins.jax.lax._source_shape_structure import _ShapeRule, _SliceRule
     from jax2onnx.plugins.jax.lax._source_loop_structure import ScanRule, WhileRule
 
@@ -550,6 +781,8 @@ def freeze_source_semantic_key(
     rule = freeze_source_structure_rule(eqn, inputs, outputs)
     if type(rule) is InlineRule:
         # The original frozen child remains the sole body-content authority.
+        if rule.early_inline:
+            return ("inline-jit-native-early", rule.keep_unused)
         return ("inline-jit", rule.inline, rule.keep_unused)
     if type(rule) is BooleanIndexRule:
         return ("boolean-index",)
@@ -585,6 +818,22 @@ def freeze_source_semantic_key(
         or eqn.primitive is jax.lax.reduce_min_p
     ):
         return ("reduction", rule.operation, rule.axes)
+    if type(rule) is _BooleanReductionRule and (
+        primitive is jax.lax.reduce_and_p
+        or primitive is jax.lax.reduce_or_p
+        or primitive is jax.lax.reduce_xor_p
+    ):
+        return (
+            "boolean-reduction",
+            rule.mode,
+            rule.axes,
+            rule.reduction_count,
+            rule.empty_identity,
+        )
+    if type(rule) is _PredicateRule and (
+        primitive is jax.lax.ne_p or primitive is jax.lax.is_finite_p
+    ):
+        return ("predicate", rule.operation)
     if type(rule) is _ShapeRule and (
         eqn.primitive is jax.lax.reshape_p
         or eqn.primitive is jax.lax.broadcast_in_dim_p

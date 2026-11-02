@@ -47,6 +47,8 @@ from jax._src import core as _native_core
 from jax._src import literals as _native_literals
 from jax._src.dtypes import TypePromotionError as TypePromotionError
 from jax._src import config as _native_config
+from jax._src import dtypes as _native_dtypes
+from jax._src import util as _native_util
 from jax._src import mesh as _native_mesh
 from jax._src import xla_metadata_lib as _native_xla_metadata
 from jax._src.lax.control_flow import loops as _native_loops
@@ -2029,6 +2031,41 @@ def native_jit_boolean_inline_hints() -> tuple[object, object]:
     if inline is None:
         return False, True
     return inline.AUTO, inline.JAX_LATE
+
+
+_NATIVE_PLAIN_JIT_INLINE_CLASS = vars(_native_api).get("Inline")
+_NATIVE_PLAIN_JIT_INLINE_MEMBERS: tuple[object, ...] = (
+    (False, True)
+    if _NATIVE_PLAIN_JIT_INLINE_CLASS is None
+    else tuple(
+        vars(_NATIVE_PLAIN_JIT_INLINE_CLASS)[name]
+        for name in ("AUTO", "JAX_LATE", "JAX_EARLY")
+    )
+)
+
+
+def native_plain_jit_inline_hints() -> tuple[object, ...]:
+    """Return only captured native plain-JIT hints, preserving JAX_EARLY.
+
+    The public Boolean spellings keep their existing two-member helper.  This
+    boundary additionally owns the native decorator's early-inline member;
+    neither enum names nor a foreign replacement grant execution authority.
+    """
+    if vars(_native_api).get("Inline") is not _NATIVE_PLAIN_JIT_INLINE_CLASS:
+        raise TypeError("native plain-JIT inline class binding changed")
+    if _NATIVE_PLAIN_JIT_INLINE_CLASS is None:
+        return _NATIVE_PLAIN_JIT_INLINE_MEMBERS
+    if any(
+        type(member) is not _NATIVE_PLAIN_JIT_INLINE_CLASS
+        or vars(_NATIVE_PLAIN_JIT_INLINE_CLASS).get(name) is not member
+        for name, member in zip(
+            ("AUTO", "JAX_LATE", "JAX_EARLY"),
+            _NATIVE_PLAIN_JIT_INLINE_MEMBERS,
+            strict=True,
+        )
+    ):
+        raise TypeError("native plain-JIT inline member binding changed")
+    return _NATIVE_PLAIN_JIT_INLINE_MEMBERS
 
 
 _NATIVE_MUL_SIGNATURE = tuple(
@@ -4866,6 +4903,920 @@ for _wrapper_role in _NATIVE_WRAPPER_ROLES:
 class NativeTransformedSnapshot:
     document: dict[str, Any]
     retained: tuple[object, ...]
+
+
+def _source_dtype_module_dictionary(value: object) -> dict[str, Any] | None:
+    if type(value) is not types.ModuleType:
+        return None
+    return _native_module_dictionary(value)
+
+
+# This boundary selects one actual internal implementation, not advertised aliases.
+_SOURCE_DTYPE_NAMESPACE = _source_dtype_module_dictionary(_native_dtypes)
+_SOURCE_DTYPE_NUMPY_NAMESPACE = cast(
+    dict[str, Any], _source_dtype_module_dictionary(np)
+)
+_SOURCE_CAPTURE_NUMPY_MODULE = np
+_SOURCE_CAPTURE_NUMPY_BINDINGS = tuple(
+    (name, (_SOURCE_DTYPE_NUMPY_NAMESPACE or {}).get(name))
+    for name in ("generic", "dtype", "ndarray", "isfinite", "asarray")
+)
+_SOURCE_DTYPE_UTIL_NAMESPACE = _source_dtype_module_dictionary(_native_util)
+_SOURCE_DTYPE_FUNCTOOLS_NAMESPACE = _source_dtype_module_dictionary(functools)
+_SOURCE_DTYPE_HELPER = (_SOURCE_DTYPE_NAMESPACE or {}).get("issubdtype")
+_SOURCE_DTYPE_CACHE = (_SOURCE_DTYPE_NAMESPACE or {}).get("_issubdtype_cached")
+_SOURCE_DTYPE_CACHE_CLASS = type(_SOURCE_DTYPE_CACHE)
+_SOURCE_DTYPE_CACHE_MEMBERS = tuple(vars(_SOURCE_DTYPE_CACHE_CLASS).items())
+_SOURCE_DTYPE_FUNCTOOLS_FACTORY = (_SOURCE_DTYPE_FUNCTOOLS_NAMESPACE or {}).get(
+    "lru_cache"
+)
+_SOURCE_DTYPE_STRONG_MODULE = (_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get(
+    "lib_weakref_lru_cache"
+)
+_SOURCE_DTYPE_STRONG_NAMESPACE = _source_dtype_module_dictionary(
+    _SOURCE_DTYPE_STRONG_MODULE
+)
+_SOURCE_DTYPE_STRONG_FACTORY = (
+    _SOURCE_DTYPE_STRONG_NAMESPACE.get("strong_lru_cache")
+    if _SOURCE_DTYPE_STRONG_NAMESPACE is not None
+    else None
+)
+_SOURCE_DTYPE_UTIL_FACTORY = (_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get("cache")
+_SOURCE_DTYPE_CUSTOM_CLASSES = (_SOURCE_DTYPE_NAMESPACE or {}).get(
+    "_custom_float_scalar_types"
+)
+_SOURCE_DTYPE_CLASS_LEAVES = (
+    type,
+    TypeError,
+    *(
+        (_SOURCE_DTYPE_NAMESPACE or {}).get(name)
+        for name in (
+            "ExtendedDType",
+            "extended",
+            "int1",
+            "int2",
+            "int4",
+            "uint1",
+            "uint2",
+            "uint4",
+        )
+    ),
+    *(
+        (_SOURCE_DTYPE_NUMPY_NAMESPACE or {}).get(name)
+        for name in (
+            "dtype",
+            "generic",
+            "floating",
+            "inexact",
+            "number",
+            "signedinteger",
+            "unsignedinteger",
+            "integer",
+        )
+    ),
+    *(
+        (_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get(name)
+        for name in ("StrictABC", "StrictABCMeta")
+    ),
+    *(
+        _SOURCE_DTYPE_CUSTOM_CLASSES
+        if type(_SOURCE_DTYPE_CUSTOM_CLASSES) is list
+        else ()
+    ),
+    *(
+        (_SOURCE_DTYPE_NUMPY_NAMESPACE or {}).get(name)
+        for name in ("complexfloating", "bool_")
+    ),
+)
+_SOURCE_DTYPE_NUMPY_NATIVE_MODULE = sys.modules.get("numpy._core._multiarray_umath")
+_SOURCE_DTYPE_NUMPY_NATIVE_NAMESPACE = _source_dtype_module_dictionary(
+    _SOURCE_DTYPE_NUMPY_NATIVE_MODULE
+)
+_SOURCE_ISFINITE_NUMPY_CLASSES = tuple(
+    (name, (_SOURCE_DTYPE_NUMPY_NAMESPACE or {}).get(name))
+    for name in ("floating", "complexfloating", "bool_")
+)
+_SOURCE_DTYPE_ML_MODULE = (_SOURCE_DTYPE_NAMESPACE or {}).get("ml_dtypes")
+_SOURCE_DTYPE_ML_NAMESPACE = _source_dtype_module_dictionary(_SOURCE_DTYPE_ML_MODULE)
+_SOURCE_DTYPE_ML_EXTENSION = sys.modules.get("ml_dtypes._ml_dtypes_ext")
+_SOURCE_DTYPE_ML_EXTENSION_NAMESPACE = _source_dtype_module_dictionary(
+    _SOURCE_DTYPE_ML_EXTENSION
+)
+_SOURCE_DTYPE_ML_SCALARS = (
+    *(
+        _SOURCE_DTYPE_CUSTOM_CLASSES
+        if type(_SOURCE_DTYPE_CUSTOM_CLASSES) is list
+        else ()
+    ),
+    *(
+        (_SOURCE_DTYPE_NAMESPACE or {}).get(name)
+        for name in ("int1", "int2", "int4", "uint1", "uint2", "uint4")
+        if (_SOURCE_DTYPE_NAMESPACE or {}).get(name) is not None
+    ),
+)
+_SOURCE_DTYPE_TYPE_NAMESPACE = vars(type)["__dict__"]
+_SOURCE_DTYPE_TYPE_MRO = vars(type)["__mro__"]
+_SOURCE_DTYPE_TYPE_FLAGS = vars(type)["__flags__"]
+_SOURCE_ISFINITE_NUMPY_ORIGINAL = tuple(
+    (
+        value,
+        vars(type)["__bases__"].__get__(value),
+        _SOURCE_DTYPE_TYPE_MRO.__get__(value),
+        vars(type)["__module__"].__get__(value),
+        vars(type)["__name__"].__get__(value),
+        vars(type)["__qualname__"].__get__(value),
+    )
+    for _, value in _SOURCE_ISFINITE_NUMPY_CLASSES
+    if type(value) is type
+)
+_SOURCE_DTYPE_NUMPY_TYPEINFO = (_SOURCE_DTYPE_NUMPY_NATIVE_NAMESPACE or {}).get(
+    "typeinfo"
+)
+_SOURCE_DTYPE_NUMPY_BOOL_INFO = (
+    _SOURCE_DTYPE_NUMPY_TYPEINFO.get("bool")
+    if type(_SOURCE_DTYPE_NUMPY_TYPEINFO) is dict
+    and all(type(key) is str for key in _SOURCE_DTYPE_NUMPY_TYPEINFO)
+    else None
+)
+_SOURCE_DTYPE_NUMPY_BOOL_INFO_TYPE = type(_SOURCE_DTYPE_NUMPY_BOOL_INFO)
+_SOURCE_DTYPE_NUMPY_BOOL_INFO_MRO = _SOURCE_DTYPE_TYPE_MRO.__get__(
+    _SOURCE_DTYPE_NUMPY_BOOL_INFO_TYPE
+)
+_SOURCE_DTYPE_NUMPY_BOOL_GETTER = _SOURCE_DTYPE_TYPE_NAMESPACE.__get__(
+    _SOURCE_DTYPE_NUMPY_NAMESPACE["dtype"]
+)["type"]
+_SOURCE_DTYPE_ML_EXPORTS = tuple(
+    (name, value)
+    for name, value in (_SOURCE_DTYPE_ML_NAMESPACE or {}).items()
+    if type(name) is str
+    and any(value is selected for selected in _SOURCE_DTYPE_ML_SCALARS)
+)
+_SOURCE_DTYPE_ML_ORIGINAL = tuple(
+    (
+        value,
+        vars(type)["__bases__"].__get__(value),
+        _SOURCE_DTYPE_TYPE_MRO.__get__(value),
+        _SOURCE_DTYPE_TYPE_NAMESPACE.__get__(value).get("dtype"),
+    )
+    for value in _SOURCE_DTYPE_ML_SCALARS
+    if type(value) is type
+)
+_SOURCE_DTYPE_ML_NATIVE_MEMBER_KINDS = (
+    types.BuiltinFunctionType,
+    types.MethodDescriptorType,
+    types.WrapperDescriptorType,
+    types.ClassMethodDescriptorType,
+    types.GetSetDescriptorType,
+    types.MemberDescriptorType,
+)
+_SOURCE_DTYPE_NUMPY_DTYPE_MEMBERS = tuple(
+    (
+        name,
+        _SOURCE_DTYPE_TYPE_NAMESPACE.__get__(_SOURCE_DTYPE_NUMPY_NAMESPACE["dtype"])[
+            name
+        ],
+    )
+    for name in (
+        "type",
+        "fields",
+        "subdtype",
+        "hasobject",
+        "metadata",
+        "str",
+        "itemsize",
+    )
+)
+_SOURCE_DTYPE_META_METHODS = (
+    "__instancecheck__",
+    "__subclasscheck__",
+    "__call__",
+    "__getattribute__",
+    "__eq__",
+    "__ne__",
+    "__hash__",
+    "__new__",
+    "__init__",
+)
+
+
+def source_numpy_capture_guard(module: object) -> None:
+    """Check the original dependency before any recipe/import/type inspection."""
+    if (
+        module is not _SOURCE_CAPTURE_NUMPY_MODULE
+        or type(module) is not types.ModuleType
+        or sys.modules.get("numpy") is not _SOURCE_CAPTURE_NUMPY_MODULE
+        or _source_dtype_module_dictionary(module) is not _SOURCE_DTYPE_NUMPY_NAMESPACE
+        or _SOURCE_DTYPE_NUMPY_NAMESPACE is None
+        or any(type(key) is not str for key in _SOURCE_DTYPE_NUMPY_NAMESPACE)
+    ):
+        raise ValueError("Source NumPy capture dependency changed")
+    if any(
+        original is None or _SOURCE_DTYPE_NUMPY_NAMESPACE.get(name) is not original
+        for name, original in _SOURCE_CAPTURE_NUMPY_BINDINGS
+    ):
+        raise ValueError("Source NumPy capture dependency changed")
+
+
+def _source_dtype_cache_state(
+    cache: object, graph: _NativeCaptureGraph
+) -> tuple[Any, dict[str, Any]]:
+    """Read one anchored cache schema; memo contents are deliberately excluded."""
+    if (
+        _source_dtype_module_dictionary(functools)
+        is not _SOURCE_DTYPE_FUNCTOOLS_NAMESPACE
+        or _SOURCE_DTYPE_FUNCTOOLS_NAMESPACE is None
+        or sys.modules.get("functools") is not functools
+    ):
+        raise ValueError("selected dtype functools module changed")
+    cls = _SOURCE_DTYPE_CACHE_CLASS
+    if type(cache) is not cls:
+        raise ValueError("selected dtype native cache type changed")
+    members = _SOURCE_DTYPE_TYPE_NAMESPACE.__get__(cls, type(cls))
+    if len(members) != len(_SOURCE_DTYPE_CACHE_MEMBERS) or any(
+        members.get(name) is not value for name, value in _SOURCE_DTYPE_CACHE_MEMBERS
+    ):
+        raise ValueError("selected dtype native cache class/schema changed")
+    graph.retain(cache)
+    graph.retain(cls)
+    cache_state: dict[str, Any]
+    if cls is _SOURCE_DTYPE_FUNCTOOLS_NAMESPACE.get("_lru_cache_wrapper"):
+        if (
+            _SOURCE_DTYPE_FUNCTOOLS_NAMESPACE.get("lru_cache")
+            is not _SOURCE_DTYPE_FUNCTOOLS_FACTORY
+        ):
+            raise ValueError("selected dtype functools factory changed")
+        fields = vars(cache)
+        if type(fields) is not dict or any(type(key) is not str for key in fields):
+            raise ValueError("selected dtype functools field dictionary changed")
+        implementation = fields.get("__wrapped__")
+        parameters = fields.get("cache_parameters")
+        if type(parameters) is not types.FunctionType:
+            raise ValueError("selected dtype functools parameters unavailable")
+        cells = parameters.__closure__ or ()
+        if parameters.__code__.co_freevars != ("maxsize", "typed") or len(cells) != 2:
+            raise ValueError("selected dtype functools parameter schema changed")
+        maxsize, typed = (cell.cell_contents for cell in cells)
+        if type(maxsize) is not int or maxsize != 512 or typed is not False:
+            raise ValueError("selected dtype functools configuration changed")
+        cache_state = {
+            "kind": "functools",
+            "identity": id(cache),
+            "fields_identity": id(fields),
+            "fields": graph.take(fields),
+            "factory": graph.take(_SOURCE_DTYPE_FUNCTOOLS_FACTORY),
+        }
+    else:
+        native = _SOURCE_DTYPE_STRONG_NAMESPACE
+        if (
+            native is None
+            or _source_dtype_module_dictionary(_SOURCE_DTYPE_STRONG_MODULE)
+            is not native
+            or (_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get("lib_weakref_lru_cache")
+            is not _SOURCE_DTYPE_STRONG_MODULE
+            or native.get("StrongLRUCache") is not cls
+            or native.get("strong_lru_cache") is not _SOURCE_DTYPE_STRONG_FACTORY
+            or (_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get("cache")
+            is not _SOURCE_DTYPE_UTIL_FACTORY
+        ):
+            raise ValueError("selected dtype strong-cache factory/type changed")
+        state_reader = dict(_SOURCE_DTYPE_CACHE_MEMBERS).get("__getstate__")
+        wrapped_reader = dict(_SOURCE_DTYPE_CACHE_MEMBERS).get("__wrapped__")
+        if state_reader is None or wrapped_reader is None:
+            raise ValueError(
+                "selected dtype strong-cache native descriptors unavailable"
+            )
+        # These are the anchored actual native descriptors, not instance lookup.
+        state = state_reader(cache)
+        implementation = wrapped_reader.__get__(cache, cls)
+        if (
+            type(state) is not dict
+            or len(state) != 6
+            or any(type(key) is not str for key in state)
+            or set(state)
+            != {"version", "fn", "cache_context_fn", "maxsize", "explain", "num_shards"}
+            or type(state["version"]) is not int
+            or state["version"] != 1
+            or state["fn"] is not implementation
+            or state["cache_context_fn"] is not None
+            or type(state["maxsize"]) is not int
+            or state["maxsize"] != 512
+            or state["explain"] is not None
+            or type(state["num_shards"]) is not int
+            or state["num_shards"] != 64
+        ):
+            raise ValueError("selected dtype strong-cache immutable state changed")
+        graph.retain(state_reader)
+        graph.retain(wrapped_reader)
+        graph.retain(_SOURCE_DTYPE_STRONG_FACTORY)
+        cache_state = {
+            "kind": "strong",
+            "identity": id(cache),
+            "class_identity": id(cls),
+            "reader_identity": id(state_reader),
+            "wrapped_reader_identity": id(wrapped_reader),
+            "factory_identity": id(_SOURCE_DTYPE_STRONG_FACTORY),
+            "factory": graph.take(_SOURCE_DTYPE_UTIL_FACTORY),
+            "state": {
+                "version": 1,
+                "fn_identity": id(implementation),
+                "cache_context_fn": None,
+                "maxsize": 512,
+                "explain": None,
+                "num_shards": 64,
+            },
+        }
+    return implementation, cache_state
+
+
+def _source_dtype_capture_snapshot() -> NativeTransformedSnapshot:
+    """Finite executable/dependency witness; never inspect or reset memo entries."""
+    graph = _NativeCaptureGraph()
+    namespace = _source_dtype_module_dictionary(_native_dtypes)
+    if (
+        namespace is not _SOURCE_DTYPE_NAMESPACE
+        or namespace is None
+        or sys.modules.get("jax._src.dtypes") is not _native_dtypes
+        or type(_SOURCE_DTYPE_HELPER) is not types.FunctionType
+        or namespace.get("issubdtype") is not _SOURCE_DTYPE_HELPER
+        or cast(types.FunctionType, _SOURCE_DTYPE_HELPER).__globals__ is not namespace
+        or namespace.get("_issubdtype_cached") is not _SOURCE_DTYPE_CACHE
+        or namespace.get("np") is not np
+        or _source_dtype_module_dictionary(np) is not _SOURCE_DTYPE_NUMPY_NAMESPACE
+        or sys.modules.get("numpy") is not np
+        or _source_dtype_module_dictionary(_native_util)
+        is not _SOURCE_DTYPE_UTIL_NAMESPACE
+        or sys.modules.get("jax._src.util") is not _native_util
+    ):
+        raise ValueError("selected internal dtype namespace/binding changed")
+    type_domain = namespace.get("_types_for_issubdtype")
+    if (
+        type(type_domain) is not tuple
+        or len(type_domain) != 3
+        or any(
+            actual is not expected
+            for actual, expected in zip(
+                type_domain,
+                (
+                    type,
+                    _SOURCE_DTYPE_NUMPY_NAMESPACE["dtype"],
+                    namespace.get("ExtendedDType"),
+                ),
+                strict=True,
+            )
+        )
+        or type(namespace.get("_custom_float_scalar_types")) is not list
+    ):
+        raise ValueError("selected dtype dependency container/domain changed")
+    implementation, cache_state = _source_dtype_cache_state(_SOURCE_DTYPE_CACHE, graph)
+    if (
+        type(implementation) is not types.FunctionType
+        or implementation.__globals__ is not namespace
+    ):
+        raise ValueError("selected dtype cache callback ownership changed")
+    numpy_function = (_SOURCE_DTYPE_NUMPY_NAMESPACE or {}).get("issubdtype")
+    if type(numpy_function) is not types.FunctionType:
+        raise ValueError("selected NumPy dtype callback changed")
+    numpy_globals = numpy_function.__globals__
+    numpy_name = dict.get(numpy_globals, "__name__")
+    if type(numpy_name) is not str:
+        raise ValueError("selected NumPy defining module name changed")
+    numpy_module = sys.modules.get(numpy_name)
+    if (
+        _source_dtype_module_dictionary(numpy_module) is not numpy_globals
+        or numpy_globals.get("issubdtype") is not numpy_function
+    ):
+        raise ValueError("selected NumPy defining namespace changed")
+    functions = (
+        _SOURCE_DTYPE_HELPER,
+        implementation,
+        namespace.get("_issubclass"),
+        numpy_function,
+        numpy_globals.get("issubclass_"),
+    )
+    if any(type(fn) is not types.FunctionType for fn in functions):
+        raise ValueError("selected dtype Python implementation changed")
+    roots = [graph.take(fn) for fn in functions]
+    classes: dict[str, Any] = {}
+    type_namespace = _SOURCE_DTYPE_TYPE_NAMESPACE
+    type_mro = _SOURCE_DTYPE_TYPE_MRO
+
+    def class_leaf(value: type) -> Any:
+        key = str(id(value))
+        if key in classes:
+            return {"class_ref": key}
+        graph.retain(value)
+        own = type_namespace.__get__(value, type(value))
+        mro = type_mro.__get__(value, type(value))
+        meta = type(value)
+        meta_mro = type_mro.__get__(meta, type(meta))
+        for held in (meta, mro, meta_mro, *mro, *meta_mro):
+            graph.retain(held)
+        strict = (_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get("StrictABCMeta")
+        if "_abc_impl" in own:
+            if meta is not strict or any(
+                next(
+                    (
+                        type_namespace.__get__(base, type(base))[name]
+                        for base in meta_mro
+                        if name in type_namespace.__get__(base, type(base))
+                    ),
+                    None,
+                )
+                is not vars(type)[name]
+                for name in ("__instancecheck__", "__subclasscheck__")
+            ):
+                raise ValueError("selected dtype ABC memo requires native type checks")
+        record: dict[str, Any] = {
+            "identity": id(value),
+            "metaclass": id(meta),
+            "mro": [id(item) for item in mro],
+            "meta_methods": {},
+        }
+        classes[key] = record
+        for name in _SOURCE_DTYPE_META_METHODS:
+            found = next(
+                (
+                    dict(type_namespace.__get__(owner, type(owner)))[name]
+                    for owner in meta_mro
+                    if name in type_namespace.__get__(owner, type(owner))
+                ),
+                None,
+            )
+            graph.retain(found)
+            record["meta_methods"][name] = (
+                graph.take(found)
+                if type(found) is types.FunctionType
+                else {"identity": id(found)}
+            )
+        record["constructors"] = {}
+        for name in ("__new__", "__init__"):
+            constructor = next(
+                (
+                    type_namespace.__get__(base, type(base))[name]
+                    for base in mro
+                    if name in type_namespace.__get__(base, type(base))
+                ),
+                None,
+            )
+            graph.retain(constructor)
+            record["constructors"][name] = (
+                graph.take(constructor)
+                if type(constructor) is types.FunctionType
+                else {"identity": id(constructor)}
+            )
+        python_classes = (
+            namespace.get("ExtendedDType"),
+            namespace.get("extended"),
+            (_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get("StrictABC"),
+            (_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get("StrictABCMeta"),
+        )
+        direct_names = [
+            name
+            for name, original in _SOURCE_ISFINITE_NUMPY_CLASSES
+            if value is original
+        ]
+        if direct_names:
+            name = direct_names[0]
+            original: tuple[Any, ...] | None = next(
+                (
+                    entry
+                    for entry in _SOURCE_ISFINITE_NUMPY_ORIGINAL
+                    if entry[0] is value
+                ),
+                None,
+            )
+            native = _SOURCE_DTYPE_NUMPY_NATIVE_NAMESPACE
+            flags = _SOURCE_DTYPE_TYPE_FLAGS.__get__(value)
+            bases = vars(type)["__bases__"].__get__(value)
+            if (
+                len(direct_names) != 1
+                or original is None
+                or native is None
+                or _source_dtype_module_dictionary(_SOURCE_DTYPE_NUMPY_NATIVE_MODULE)
+                is not native
+                or sys.modules.get("numpy._core._multiarray_umath")
+                is not _SOURCE_DTYPE_NUMPY_NATIVE_MODULE
+                or _SOURCE_DTYPE_NUMPY_NAMESPACE.get(name) is not value
+                or meta is not type
+                or not flags & (1 << 8)
+                or bases is not original[1]
+                or mro is not original[2]
+                or any(
+                    not _SOURCE_DTYPE_TYPE_FLAGS.__get__(base) & (1 << 8)
+                    for base in mro[1:]
+                )
+                or any(type(member_name) is not str for member_name in own)
+            ):
+                raise ValueError("selected NumPy class alias/native ownership changed")
+            observed_metadata = tuple(
+                vars(type)[field_name].__get__(value)
+                for field_name in ("__module__", "__name__", "__qualname__")
+            )
+            if (
+                any(type(item) is not str for item in observed_metadata)
+                or observed_metadata != original[3:]
+            ):
+                raise ValueError("selected NumPy class native metadata changed")
+            for held in (
+                _SOURCE_DTYPE_NUMPY_NATIVE_MODULE,
+                native,
+                bases,
+                *own.values(),
+            ):
+                graph.retain(held)
+            definition: dict[str, Any] = {"kind": "native-export", "name": name}
+            if name == "bool_":
+                info = _SOURCE_DTYPE_NUMPY_BOOL_INFO
+                info_type = _SOURCE_DTYPE_NUMPY_BOOL_INFO_TYPE
+                getter = _SOURCE_DTYPE_NUMPY_BOOL_GETTER
+                info_mro = type_mro.__get__(info_type)
+                info_meta = type(info_type)
+                if (
+                    native.get("typeinfo") is not _SOURCE_DTYPE_NUMPY_TYPEINFO
+                    or type(_SOURCE_DTYPE_NUMPY_TYPEINFO) is not dict
+                    or any(type(key) is not str for key in _SOURCE_DTYPE_NUMPY_TYPEINFO)
+                    or _SOURCE_DTYPE_NUMPY_TYPEINFO.get("bool") is not info
+                    or type(info) is not info_type
+                    or info_meta is not type(_SOURCE_DTYPE_NUMPY_NAMESPACE["dtype"])
+                    or info_mro is not _SOURCE_DTYPE_NUMPY_BOOL_INFO_MRO
+                    or not any(
+                        base is _SOURCE_DTYPE_NUMPY_NAMESPACE["dtype"]
+                        for base in info_mro
+                    )
+                    or any(
+                        not _SOURCE_DTYPE_TYPE_FLAGS.__get__(base) & (1 << 8)
+                        for base in info_mro
+                    )
+                    or type_namespace.__get__(_SOURCE_DTYPE_NUMPY_NAMESPACE["dtype"])[
+                        "type"
+                    ]
+                    is not getter
+                ):
+                    raise ValueError("selected NumPy Boolean defining dtype changed")
+                dtype_fields = {
+                    field_name: descriptor.__get__(info, info_type)
+                    for field_name, descriptor in _SOURCE_DTYPE_NUMPY_DTYPE_MEMBERS
+                }
+                if (
+                    dtype_fields["type"] is not value
+                    or dtype_fields["fields"] is not None
+                    or dtype_fields["subdtype"] is not None
+                    or dtype_fields["hasobject"] is not False
+                    or dtype_fields["metadata"] is not None
+                    or type(dtype_fields["str"]) is not str
+                    or type(dtype_fields["itemsize"]) is not int
+                ):
+                    raise ValueError(
+                        "selected NumPy Boolean defining dtype payload changed"
+                    )
+                for held in (
+                    _SOURCE_DTYPE_NUMPY_TYPEINFO,
+                    info,
+                    info_type,
+                    info_meta,
+                    info_mro,
+                    *info_mro,
+                    getter,
+                    *type_namespace.__get__(info_type).values(),
+                    *[
+                        descriptor
+                        for _, descriptor in _SOURCE_DTYPE_NUMPY_DTYPE_MEMBERS
+                    ],
+                ):
+                    graph.retain(held)
+                definition = {
+                    "kind": "native-typeinfo-dtype",
+                    "key": "bool",
+                    "field": "type",
+                    "mapping_identity": id(_SOURCE_DTYPE_NUMPY_TYPEINFO),
+                    "dtype_identity": id(info),
+                    "dtype_type_identity": id(info_type),
+                    "dtype_meta_identity": id(info_meta),
+                    "getter_identity": id(getter),
+                    "dtype_str": dtype_fields["str"],
+                    "dtype_itemsize": dtype_fields["itemsize"],
+                }
+            elif native.get(name) is not value:
+                raise ValueError("selected NumPy class defining export changed")
+            record["selected_numpy"] = {
+                "name": name,
+                "native_metadata": list(observed_metadata),
+                "immutabletype": True,
+                "definition": definition,
+                "public_namespace": id(_SOURCE_DTYPE_NUMPY_NAMESPACE),
+                "native_namespace": id(native),
+            }
+            record["native_members"] = {
+                member_name: id(item) for member_name, item in own.items()
+            }
+        elif any(value is selected for selected in _SOURCE_DTYPE_ML_SCALARS):
+            public = _SOURCE_DTYPE_ML_NAMESPACE
+            extension = _SOURCE_DTYPE_ML_EXTENSION_NAMESPACE
+            if (
+                public is None
+                or extension is None
+                or _source_dtype_module_dictionary(_SOURCE_DTYPE_ML_MODULE)
+                is not public
+                or _source_dtype_module_dictionary(_SOURCE_DTYPE_ML_EXTENSION)
+                is not extension
+                or sys.modules.get("ml_dtypes") is not _SOURCE_DTYPE_ML_MODULE
+                or sys.modules.get("ml_dtypes._ml_dtypes_ext")
+                is not _SOURCE_DTYPE_ML_EXTENSION
+                or namespace.get("ml_dtypes") is not _SOURCE_DTYPE_ML_MODULE
+                or meta is not type
+            ):
+                raise ValueError("selected ML scalar module/metaclass binding changed")
+            aliases = [
+                name for name, selected in _SOURCE_DTYPE_ML_EXPORTS if value is selected
+            ]
+            if len(aliases) != 1:
+                raise ValueError("selected ML scalar export schema changed")
+            name = aliases[0]
+            module_name = vars(type)["__module__"].__get__(value)
+            native_name = vars(type)["__name__"].__get__(value)
+            qualified_name = vars(type)["__qualname__"].__get__(value)
+            if (
+                type(module_name) is not str
+                or module_name != "ml_dtypes"
+                or type(native_name) is not str
+                or native_name != name
+                or type(qualified_name) is not str
+                or qualified_name != name
+                or public.get(name) is not value
+                or extension.get(name) is not value
+            ):
+                raise ValueError("selected ML scalar original export identity changed")
+            original = next(
+                (entry for entry in _SOURCE_DTYPE_ML_ORIGINAL if entry[0] is value),
+                None,
+            )
+            bases = vars(type)["__bases__"].__get__(value)
+            flags = _SOURCE_DTYPE_TYPE_FLAGS.__get__(value)
+            if (
+                original is None
+                or bases is not original[1]
+                or mro is not original[2]
+                or not flags & ((1 << 9) | (1 << 8))
+                or "dtype" not in own
+                or any(
+                    not _SOURCE_DTYPE_TYPE_FLAGS.__get__(base) & (1 << 8)
+                    for base in mro[1:]
+                )
+                or any(type(member_name) is not str for member_name in own)
+            ):
+                raise ValueError("selected ML scalar native bases/schema changed")
+            for held in (
+                _SOURCE_DTYPE_ML_MODULE,
+                public,
+                _SOURCE_DTYPE_ML_EXTENSION,
+                extension,
+                bases,
+            ):
+                graph.retain(held)
+            record["selected_ml"] = {
+                "name": name,
+                "public_namespace": id(public),
+                "extension_namespace": id(extension),
+                "heaptype": bool(flags & (1 << 9)),
+                "immutabletype": bool(flags & (1 << 8)),
+                "member_schema": {},
+            }
+            record["members"] = {
+                member_name: id(item) for member_name, item in own.items()
+            }
+            for member_name, item in own.items():
+                graph.retain(item)
+                kind = type(item)
+                if member_name == "dtype":
+                    if item is not original[3]:
+                        raise ValueError("selected ML scalar dtype identity changed")
+                    dtype_mro = type_mro.__get__(kind)
+                    if not any(
+                        base is _SOURCE_DTYPE_NUMPY_NAMESPACE["dtype"]
+                        for base in dtype_mro
+                    ):
+                        raise ValueError("selected ML scalar dtype owner changed")
+                    fields = {
+                        field_name: descriptor.__get__(item, kind)
+                        for field_name, descriptor in _SOURCE_DTYPE_NUMPY_DTYPE_MEMBERS
+                    }
+                    if (
+                        fields["type"] is not value
+                        or fields["fields"] is not None
+                        or fields["subdtype"] is not None
+                        or fields["hasobject"] is not False
+                        or fields["metadata"] is not None
+                        or type(fields["str"]) is not str
+                        or type(fields["itemsize"]) is not int
+                    ):
+                        raise ValueError(
+                            "selected ML scalar dtype payload is not simple"
+                        )
+                    record["selected_ml"]["dtype"] = {
+                        "identity": id(item),
+                        "native_type_identity": id(kind),
+                        "str": fields["str"],
+                        "itemsize": fields["itemsize"],
+                    }
+                    record["selected_ml"]["member_schema"][
+                        member_name
+                    ] = "simple-native-dtype"
+                elif (
+                    any(
+                        kind is literal_kind
+                        for literal_kind in (str, bytes, int, bool, float, complex)
+                    )
+                    or item is None
+                ):
+                    record["selected_ml"]["member_schema"][
+                        member_name
+                    ] = "immutable-literal"
+                elif any(
+                    kind is native_kind
+                    for native_kind in _SOURCE_DTYPE_ML_NATIVE_MEMBER_KINDS
+                ):
+                    if not _SOURCE_DTYPE_TYPE_FLAGS.__get__(kind) & (1 << 8):
+                        raise ValueError(
+                            "selected ML scalar descriptor kind is mutable"
+                        )
+                    record["selected_ml"]["member_schema"][
+                        member_name
+                    ] = "native-descriptor"
+                else:
+                    # No arbitrary mutable value, Python member executable or
+                    # descriptor is admitted at this native extension boundary.
+                    raise ValueError("unsupported selected ML scalar namespace member")
+        elif any(value is item for item in python_classes):
+            record["members"] = {name: id(item) for name, item in own.items()}
+            record["python_members"] = {}
+            for name, item in own.items():
+                graph.retain(item)
+                if type(item) is types.FunctionType:
+                    record["python_members"][name] = graph.take(item)
+                elif type(item) is property:
+                    record["python_members"][name] = {
+                        "property_identity": id(item),
+                        "getter": graph.take(item.fget),
+                        "setter": graph.take(item.fset),
+                        "deleter": graph.take(item.fdel),
+                    }
+            # StrictABC's pinned native checks do not consult ABC memo contents.
+        else:
+            flags = _SOURCE_DTYPE_TYPE_FLAGS.__get__(value, type(value))
+            if not flags & (1 << 8):
+                module_name = vars(type)["__module__"].__get__(value, type(value))
+                qualified_name = vars(type)["__qualname__"].__get__(value, type(value))
+                keys = tuple(own)
+                if (
+                    type(module_name) is not str
+                    or type(qualified_name) is not str
+                    or type(flags) is not int
+                    or any(type(name) is not str for name in keys)
+                ):
+                    raise ValueError(
+                        "selected native dtype class metadata is unavailable"
+                    )
+                detail = {
+                    "selected_indices": [
+                        index
+                        for index, selected in enumerate(_SOURCE_DTYPE_CLASS_LEAVES)
+                        if value is selected
+                    ],
+                    "module": module_name,
+                    "qualname": qualified_name,
+                    "flags": flags,
+                    "heaptype": bool(flags & (1 << 9)),
+                    "immutabletype": bool(flags & (1 << 8)),
+                    "class_identity": id(value),
+                    "metaclass_identity": id(meta),
+                    "mro_identities": [id(item) for item in mro],
+                    "namespace_keys": sorted(keys),
+                }
+                raise ValueError(
+                    "selected native dtype class is not immutable: "
+                    + json.dumps(detail, sort_keys=True, separators=(",", ":"))
+                )
+            record["native_members"] = {name: id(item) for name, item in own.items()}
+        return {"class_ref": key}
+
+    def leaf(value: Any) -> Any:
+        if value is not None and any(
+            value is selected for selected in _SOURCE_DTYPE_CLASS_LEAVES
+        ):
+            return class_leaf(value)
+        if type(value) in (tuple, list):
+            graph.retain(value)
+            return {
+                "container_identity": id(value),
+                "kind": type(value).__name__,
+                "items": [leaf(item) for item in value],
+            }
+        return graph.take(value)
+
+    edges: dict[str, Any] = {}
+    names = (
+        "_types_for_issubdtype",
+        "_custom_float_scalar_types",
+        "extended",
+        "ExtendedDType",
+        "int1",
+        "int2",
+        "int4",
+        "uint1",
+        "uint2",
+        "uint4",
+    )
+    for name in names:
+        if name not in namespace:
+            raise ValueError("selected dtype dependency is unavailable")
+        edges["dtypes." + name] = leaf(namespace[name])
+    numpy_names = (
+        "dtype",
+        "generic",
+        "floating",
+        "inexact",
+        "number",
+        "signedinteger",
+        "unsignedinteger",
+        "integer",
+        "complexfloating",
+        "bool_",
+    )
+    for name in numpy_names:
+        edges["numpy." + name] = leaf(_SOURCE_DTYPE_NUMPY_NAMESPACE[name])
+    for name in ("StrictABC", "StrictABCMeta"):
+        edges["util." + name] = leaf((_SOURCE_DTYPE_UTIL_NAMESPACE or {}).get(name))
+    for name in ("dtype", "generic"):
+        edges["numerictypes." + name] = leaf(numpy_globals[name])
+    # Record actual lookup resolution, including any new shadowing global.
+    for index, fn in enumerate(cast(tuple[types.FunctionType, ...], functions)):
+        for name in ("type", "isinstance", "issubclass", "bool", "TypeError"):
+            owner = fn.__globals__ if name in fn.__globals__ else fn.__builtins__
+            if type(owner) is not dict or name not in owner:
+                raise ValueError("selected dtype builtin namespace changed")
+            graph.retain(owner)
+            edges[f"function:{index}.builtin:{name}"] = {
+                "namespace": id(owner),
+                "value": leaf(owner[name]),
+            }
+    return NativeTransformedSnapshot(
+        {
+            "role": "source-internal-dtypes-issubdtype",
+            "helper_identity": id(_SOURCE_DTYPE_HELPER),
+            "defining_module": "jax._src.dtypes",
+            "globals_identity": id(namespace),
+            "advertised_module": _SOURCE_DTYPE_HELPER.__module__,
+            "roots": roots,
+            "nodes": graph.nodes,
+            "cache": cache_state,
+            "dependencies": edges,
+            "classes": classes,
+        },
+        tuple(graph.retained.values()),
+    )
+
+
+try:
+    _SOURCE_DTYPE_BASELINE: NativeTransformedSnapshot | None = (
+        _source_dtype_capture_snapshot()
+    )
+    _SOURCE_DTYPE_CAPTURE_GAP = None
+except (TypeError, ValueError, AttributeError, KeyError) as _dtype_capture_error:
+    _SOURCE_DTYPE_BASELINE = None
+    _SOURCE_DTYPE_CAPTURE_GAP = str(_dtype_capture_error)
+
+
+def source_internal_dtype_capture(value: object) -> NativeTransformedSnapshot | None:
+    """Select the original dtype helper or its exact direct NumPy class edges."""
+    direct_name = next(
+        (
+            name
+            for name, original in _SOURCE_ISFINITE_NUMPY_CLASSES
+            if original is not None and value is original
+        ),
+        None,
+    )
+    if direct_name is None and (
+        type(value) is not types.FunctionType or value is not _SOURCE_DTYPE_HELPER
+    ):
+        return None
+    if _SOURCE_DTYPE_CAPTURE_GAP is not None or _SOURCE_DTYPE_BASELINE is None:
+        raise ValueError(
+            "selected internal dtype state unavailable: "
+            + str(_SOURCE_DTYPE_CAPTURE_GAP)
+        )
+    observed = _source_dtype_capture_snapshot()
+    if observed.document != _SOURCE_DTYPE_BASELINE.document:
+        raise ValueError("selected internal dtype executable/dependency state changed")
+    if direct_name is not None:
+        document = dict(observed.document)
+        document.update(
+            role="source-isfinite-numpy-class",
+            selected_name="numpy." + direct_name,
+            class_ref=str(id(value)),
+        )
+        return NativeTransformedSnapshot(document, observed.retained)
+    return observed
 
 
 def native_transformed_function_role(value: object) -> str | None:

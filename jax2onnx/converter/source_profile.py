@@ -31,6 +31,7 @@ import numpy as np
 
 from jax2onnx._compat.jax import (
     AbstractValue,
+    JaxprEqn,
     atomic_symbolic_dimension,
     ClosedJaxpr,
     native_typed_array_payload,
@@ -38,7 +39,7 @@ from jax2onnx._compat.jax import (
     Literal as JaxLiteral,
     is_empty_jit_mesh,
     is_unspecified_jit_sharding,
-    native_jit_boolean_inline_hints,
+    native_plain_jit_inline_hints,
     PRNGKeyDType,
     is_selected_prng_key_dtype,
     selected_prng_key_words,
@@ -2130,6 +2131,110 @@ def _validate_predicate(
     _pointwise_shape(inputs, result, site)
 
 
+def _validate_static_is_finite(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    site.require(
+        type(eqn) is JaxprEqn
+        and eqn.primitive is jax.lax.is_finite_p
+        and not eqn.effects
+        and type(eqn.params) is dict
+        and not eqn.params,
+        "finite classification is not the pure canonical native equation",
+        "canonical is_finite with its exact empty parameter dictionary",
+    )
+    _arity(eqn, 1, 1, site)
+    source, target = inputs[0], outputs[0]
+    site.require(
+        source.dtype in {"float32", "float64"}
+        and target.dtype == "bool"
+        and source.symbol is None
+        and target.symbol is None
+        and all(type(dim) is int and 0 <= dim <= (1 << 63) - 1 for dim in source.shape)
+        and eqn.outvars[0].aval.weak_type is eqn.invars[0].aval.weak_type,
+        "finite predicate dtype, geometry or weakness differs from its native operand",
+        "static ordinary FP32/FP64 to Boolean with native pointwise weakness",
+        category="lowering-defect",
+    )
+    _pointwise_shape(inputs, target, site)
+
+
+def _validate_static_boolean_reduction(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    site.require(
+        type(eqn) is JaxprEqn
+        and (
+            eqn.primitive is jax.lax.reduce_and_p
+            or eqn.primitive is jax.lax.reduce_or_p
+            or eqn.primitive is jax.lax.reduce_xor_p
+        )
+        and not eqn.effects
+        and type(eqn.params) is dict
+        and set(eqn.params) == {"axes"},
+        "Boolean reduction is not the pure canonical native equation",
+        "canonical reduce_and/or/xor with exactly its native axes tuple",
+    )
+    _arity(eqn, 1, 1, site)
+    source, target = inputs[0], outputs[0]
+    site.require(
+        source.dtype == target.dtype == "bool"
+        and source.symbol is None
+        and target.symbol is None
+        and eqn.outvars[0].aval.weak_type is False,
+        "Boolean reduction dtype or native result weakness differs",
+        "static Boolean input/output and the native strong reduction result; integer bitwise reductions remain unsupported",
+        category="lowering-defect",
+    )
+    dimensions: list[int] = []
+    for dimension in source.shape:
+        if type(dimension) is not int or not 0 <= dimension <= (1 << 63) - 1:
+            site.fail(
+                "Boolean reduction extent is not a representable static integer",
+                "nonnegative native integer extents within INT64",
+            )
+        dimensions.append(dimension)
+    native_axes = eqn.params["axes"]
+    site.require(
+        type(native_axes) is tuple
+        and all(
+            type(axis) is not bool
+            and type(axis) is not np.bool_
+            and any(
+                type(axis) is scalar_type
+                for scalar_type in (
+                    int,
+                    np.int8,
+                    np.int16,
+                    np.int32,
+                    np.int64,
+                    np.longlong,
+                    np.uint8,
+                    np.uint16,
+                    np.uint32,
+                    np.uint64,
+                    np.ulonglong,
+                )
+            )
+            for axis in native_axes
+        ),
+        "invalid Boolean reduction axes",
+        "distinct native integer axes within the exact static input rank",
+        category="lowering-defect",
+    )
+    # Validate the scalar domain before the existing helper converts locally.
+    axes = _axes(native_axes, len(dimensions), site, "Boolean reduction axes")
+    site.require(
+        prod(dimensions[axis] for axis in axes) <= (1 << 63) - 1
+        and prod(dimensions) <= (1 << 63) - 1
+        and prod(dim for axis, dim in enumerate(dimensions) if axis not in axes)
+        <= (1 << 63) - 1,
+        "Boolean reduction INT64 work count or physical size is not bounded",
+        "static input/output sizes and every Boolean 0/1 partial count within INT64_MAX",
+    )
+    _reduction_shape(source, target, axes, site)
+
+
 def _validate_bitwise(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
@@ -2502,12 +2607,10 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
     site.require(not any(donated), "JIT requests donation", "no donated inputs")
     site.require(
         isinstance(params["name"], str)
-        and any(
-            params["inline"] is value for value in native_jit_boolean_inline_hints()
-        )
+        and any(params["inline"] is value for value in native_plain_jit_inline_hints())
         and type(params["keep_unused"]) is bool,
         "JIT compilation hints have malformed types",
-        "a string name, native False/True inline representation, and Boolean keep_unused",
+        "a string name, a verified native plain-JIT inline hint, and Boolean keep_unused",
         category="lowering-defect",
     )
     site.require(
@@ -2713,7 +2816,21 @@ def _validate_equation(
     )
     if validate_integer_arithmetic(eqn, inputs, outputs, site):
         return
-    if name in ELEMENTARY_OPERATIONS:
+    if (
+        name in {"reduce_and", "reduce_or", "reduce_xor"}
+        and not symbolic
+        and all(value.dtype == "bool" for value in (*inputs, *outputs))
+    ):
+        _validate_static_boolean_reduction(eqn, inputs, outputs, site)
+    elif (
+        name == "is_finite"
+        and not symbolic
+        and inputs[0].dtype in {"float32", "float64"}
+    ):
+        _validate_static_is_finite(eqn, inputs, outputs, site)
+    elif name in ELEMENTARY_OPERATIONS:
+        # Existing FP16/symbolic elementary eligibility keeps its own scope;
+        # it does not imply the new static predicate applicability proof.
         validate_elementary_equation(eqn, inputs, outputs, site)
     elif name == "jax.numpy.zeros":
         validate_static_zeros(eqn, outputs, site)

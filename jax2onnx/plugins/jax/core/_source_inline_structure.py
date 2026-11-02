@@ -20,7 +20,7 @@ from jax2onnx._compat.jax import (
     Jaxpr,
     is_empty_jit_mesh,
     is_unspecified_jit_sharding,
-    native_jit_boolean_inline_hints,
+    native_plain_jit_inline_hints,
     native_jit_primitive,
 )
 from jax2onnx.converter.source_structure import (
@@ -98,9 +98,7 @@ def native_inline_body(equation: Any) -> Any:
         or not all(type(value) is bool and not value for value in donated)
         or not isinstance(params["name"], str)
         or type(params["keep_unused"]) is not bool
-        or not any(
-            params["inline"] is hint for hint in native_jit_boolean_inline_hints()
-        )
+        or not any(params["inline"] is hint for hint in native_plain_jit_inline_hints())
         or type(params["compiler_options_kvs"]) is not tuple
         or params["compiler_options_kvs"]
         or not is_empty_jit_mesh(params["ctx_mesh"])
@@ -113,6 +111,7 @@ def native_inline_body(equation: Any) -> Any:
 class InlineRule:
     inline: bool
     keep_unused: bool
+    early_inline: bool = False
 
     def check(self, graph: Any, inputs: Any, outputs: Any, match_literal: Any) -> Any:
         raise StructureUnavailable("inline-attachment-unavailable")
@@ -137,9 +136,11 @@ def freeze_inline_rule(
         != outputs
     ):
         return None
-    hints = native_jit_boolean_inline_hints()
+    hints = native_plain_jit_inline_hints()
     return InlineRule(
-        equation.params["inline"] is hints[1], equation.params["keep_unused"]
+        equation.params["inline"] is hints[1],
+        equation.params["keep_unused"],
+        len(hints) == 3 and equation.params["inline"] is hints[2],
     )
 
 

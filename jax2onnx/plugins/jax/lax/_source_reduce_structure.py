@@ -17,7 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 import onnx_ir as ir
 
-from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn, Literal, ShapedArray, Var
 from jax2onnx.converter.source_profile import _PLACEMENT_PARAMS
 from jax2onnx.converter.source_structure import (
     ConstantContract,
@@ -390,6 +390,14 @@ def freeze_reduction_structure_rule(
     inputs: tuple[TensorContract, ...],
     outputs: tuple[TensorContract, ...],
 ) -> EquationRule | None:
+    if type(eqn) is not JaxprEqn:
+        return None
+    if (
+        eqn.primitive is jax.lax.reduce_and_p
+        or eqn.primitive is jax.lax.reduce_or_p
+        or eqn.primitive is jax.lax.reduce_xor_p
+    ):
+        return _freeze_boolean_reduction(eqn, inputs, outputs)
     operation = next(
         (name for primitive, name in _OPERATIONS.items() if eqn.primitive is primitive),
         None,
@@ -471,4 +479,352 @@ def freeze_reduction_structure_rule(
         _REDUCTION_AXES_INPUT_SINCE[operation],
         LiteralOperand(literal_type, ConstantContract.from_array(vector)),
         float_correction=operation in {"ReduceMin", "ReduceMax"} and bool(axes),
+    )
+
+
+def _boolean_literal(
+    value: bool | int | tuple[int, ...], dtype: np.dtype[Any]
+) -> LiteralOperand:
+    array = np.asarray(value, dtype=dtype)
+    shape = tuple(array.shape)
+    tensor = TensorContract(
+        dtype.name,
+        shape,
+        False,
+        ir.DataType.from_numpy(dtype),
+        shape,
+        "identity",
+        None,
+        None,
+        None,
+    )
+    return LiteralOperand(tensor, ConstantContract.from_array(array))
+
+
+def _boolean_dimensions(shape: tuple[int | str, ...]) -> tuple[int, ...] | None:
+    dimensions: list[int] = []
+    for dimension in shape:
+        if type(dimension) is not int or not 0 <= dimension <= (1 << 63) - 1:
+            return None
+        dimensions.append(dimension)
+    return tuple(dimensions)
+
+
+def _boolean_count(dimensions: tuple[int, ...]) -> int | None:
+    if 0 in dimensions:
+        return 0
+    result = 1
+    for dimension in dimensions:
+        result *= dimension
+        if result > (1 << 63) - 1:
+            return None
+    return result
+
+
+@dataclass(frozen=True)
+class _BooleanReductionRule:
+    source: TensorContract
+    output: TensorContract
+    mode: str
+    operation: str
+    axes: tuple[int, ...]
+    axes_input_since: int
+    axes_literal: LiteralOperand
+    reduction_count: int
+    empty_identity: bool | None
+
+    def check(
+        self,
+        graph: ir.Graph,
+        inputs: tuple[RuleOperand, ...],
+        outputs: tuple[ir.Value, ...],
+        match_literal: LiteralMatcher,
+    ) -> tuple[ir.Node, ...]:
+        if len(inputs) != 1 or len(outputs) != 1:
+            raise StructureMismatch("boolean-reduce-boundary-arity-differs")
+        result = outputs[0]
+        if result.dtype is None or result.shape is None:
+            raise StructureUnavailable("boolean-reduce-output-type-unavailable")
+        if not self.output.matches(result):
+            raise StructureMismatch("boolean-reduce-output-type-or-shape-differs")
+        available, checked = set(graph), set[ir.Node]()
+
+        def source(actual: ir.Value | None) -> None:
+            expected = inputs[0]
+            if isinstance(expected, LiteralOperand):
+                match_literal(actual, expected)
+                return
+            if actual is None:
+                raise StructureMismatch("boolean-reduce-input-edge-missing")
+            if actual.dtype is None or actual.shape is None:
+                raise StructureUnavailable("boolean-reduce-input-type-unavailable")
+            if not self.source.matches(actual):
+                raise StructureMismatch("boolean-reduce-input-type-or-shape-differs")
+            if actual is not expected:
+                producer = actual.producer()
+                if producer is not None and (
+                    producer.domain
+                    or producer.overload
+                    or producer.op_type not in _KNOWN_CONTRADICTIONS | {"Identity"}
+                ):
+                    raise StructureUnavailable("boolean-reduce-input-form-unavailable")
+                raise StructureMismatch("boolean-reduce-source-input-edge-differs")
+
+        def node(
+            actual: ir.Value | None,
+            operation: str,
+            arity: int,
+            shape: tuple[int | str, ...],
+            dtype: ir.DataType,
+            attributes: tuple[tuple[str, int | tuple[int, ...]], ...] = (),
+        ) -> ir.Node:
+            if actual is None:
+                raise StructureMismatch("boolean-reduce-input-missing")
+            if actual.dtype is None or actual.shape is None:
+                raise StructureUnavailable("boolean-reduce-type-unavailable")
+            if not replace(self.output, shape=shape, dtype=dtype).matches(actual):
+                raise StructureMismatch("boolean-reduce-type-or-shape-differs")
+            producer = actual.producer()
+            if (
+                producer is None
+                or producer.graph is not graph
+                or actual.graph is not graph
+                or producer not in available
+                or actual.index() != 0
+                or len(producer.outputs) != 1
+                or producer.outputs[0] is not actual
+            ):
+                raise StructureUnavailable("boolean-reduce-producer-port-unavailable")
+            if producer.domain or producer.overload:
+                raise StructureUnavailable("boolean-reduce-domain-unavailable")
+            if producer.op_type != operation:
+                if producer.op_type in _KNOWN_CONTRADICTIONS | {
+                    "Mod",
+                    "Shape",
+                    "Identity",
+                    "Expand",
+                    "BitwiseAnd",
+                    "Xor",
+                    "Greater",
+                }:
+                    raise StructureMismatch("boolean-reduce-operator-differs")
+                raise StructureUnavailable("boolean-reduce-lowering-form-unavailable")
+            if len(producer.inputs) != arity:
+                raise StructureMismatch("boolean-reduce-input-arity-differs")
+            if set(producer.attributes) != {name for name, _ in attributes}:
+                raise StructureMismatch("boolean-reduce-attribute-set-differs")
+            for name, expected in attributes:
+                attribute = producer.attributes[name]
+                matches = (
+                    attribute.type is ir.AttributeType.INTS
+                    and tuple(attribute.as_ints()) == expected
+                    if isinstance(expected, tuple)
+                    else attribute.type is ir.AttributeType.INT
+                    and attribute.as_int() == expected
+                )
+                if not matches:
+                    raise StructureMismatch("boolean-reduce-attribute-differs")
+            checked.add(producer)
+            return producer
+
+        if not self.axes:
+            operand = inputs[0]
+            if isinstance(operand, ir.Value) and result is operand:
+                return ()
+            producer = result.producer()
+            if isinstance(operand, LiteralOperand) and (
+                producer is None or producer.op_type == "Constant"
+            ):
+                match_literal(result, operand)
+                return ()
+            identity = node(result, "Identity", 1, self.output.shape, ir.DataType.BOOL)
+            source(identity.inputs[0])
+        elif self.empty_identity is not None:
+            expanded = node(result, "Expand", 2, self.output.shape, ir.DataType.BOOL)
+            match_literal(
+                expanded.inputs[0],
+                _boolean_literal(self.empty_identity, np.dtype(np.bool_)),
+            )
+            retained = tuple(
+                axis for axis in range(len(self.source.shape)) if axis not in self.axes
+            )
+            gathered = node(
+                expanded.inputs[1],
+                "Gather",
+                2,
+                (len(retained),),
+                ir.DataType.INT64,
+                (("axis", 0),),
+            )
+            match_literal(
+                gathered.inputs[1], _boolean_literal(retained, np.dtype(np.int64))
+            )
+            original_shape = node(
+                gathered.inputs[0],
+                "Shape",
+                1,
+                (len(self.source.shape),),
+                ir.DataType.INT64,
+            )
+            source(original_shape.inputs[0])
+        else:
+            if self.mode == "reduce_xor":
+                equal = node(result, "Equal", 2, self.output.shape, ir.DataType.BOOL)
+                match_literal(equal.inputs[1], _boolean_literal(1, np.dtype(np.int64)))
+                parity = node(
+                    equal.inputs[0],
+                    "Mod",
+                    2,
+                    self.output.shape,
+                    ir.DataType.INT64,
+                    (("fmod", 0),),
+                )
+                match_literal(parity.inputs[1], _boolean_literal(2, np.dtype(np.int64)))
+                reduced_value = parity.inputs[0]
+            else:
+                converted = node(
+                    result,
+                    "Cast",
+                    1,
+                    self.output.shape,
+                    ir.DataType.BOOL,
+                    (("to", int(ir.DataType.BOOL.value)),),
+                )
+                reduced_value = converted.inputs[0]
+            opset = graph.opset_imports.get("")
+            if type(opset) is not int or opset < 1:
+                raise StructureUnavailable("boolean-reduce-opset-unavailable")
+            input_axes = opset >= self.axes_input_since
+            attributes: tuple[tuple[str, int | tuple[int, ...]], ...] = (
+                (("keepdims", 0),)
+                if input_axes
+                else (("keepdims", 0), ("axes", self.axes))
+            )
+            reduced = node(
+                reduced_value,
+                self.operation,
+                2 if input_axes else 1,
+                self.output.shape,
+                ir.DataType.INT64,
+                attributes,
+            )
+            if input_axes:
+                match_literal(reduced.inputs[1], self.axes_literal)
+            work = node(
+                reduced.inputs[0],
+                "Cast",
+                1,
+                self.source.shape,
+                ir.DataType.INT64,
+                (("to", int(ir.DataType.INT64.value)),),
+            )
+            source(work.inputs[0])
+        return tuple(item for item in graph if item in checked)
+
+
+def _freeze_boolean_reduction(
+    eqn: JaxprEqn,
+    inputs: tuple[TensorContract, ...],
+    outputs: tuple[TensorContract, ...],
+) -> _BooleanReductionRule | None:
+    if (
+        type(eqn) is not JaxprEqn
+        or eqn.effects
+        or type(eqn.params) is not dict
+        or set(eqn.params) != {"axes"}
+        or len(eqn.invars) != 1
+        or len(eqn.outvars) != 1
+        or len(inputs) != 1
+        or len(outputs) != 1
+    ):
+        return None
+    if eqn.primitive is jax.lax.reduce_and_p:
+        mode, operation = "reduce_and", "ReduceMin"
+    elif eqn.primitive is jax.lax.reduce_or_p:
+        mode, operation = "reduce_or", "ReduceSum"
+    elif eqn.primitive is jax.lax.reduce_xor_p:
+        mode, operation = "reduce_xor", "ReduceSum"
+    else:
+        return None
+    source, target = inputs[0], outputs[0]
+    if type(eqn.invars[0]) not in {Var, Literal} or type(eqn.outvars[0]) is not Var:
+        return None
+    for variable, tensor in zip(
+        (*eqn.invars, *eqn.outvars), (source, target), strict=True
+    ):
+        if (
+            type(variable) not in {Var, Literal}
+            or type(variable.aval) is not ShapedArray
+            or type(variable.aval.weak_type) is not bool
+            or not isinstance(variable.aval.dtype, np.dtype)
+            or variable.aval.dtype != np.dtype(np.bool_)
+            or variable.aval.weak_type is not tensor.weak_type
+            or tuple(variable.aval.shape) != tensor.logical_shape
+            or tensor.logical_dtype != "bool"
+            or tensor.dtype != ir.DataType.BOOL
+            or tensor.encoding != "identity"
+            or tensor.logical_shape != tensor.shape
+            or tensor.symbol_token is not None
+            or tensor.symbol_axis is not None
+            or tensor.logical_symbol_axis is not None
+        ):
+            return None
+    # Both native cohorts deliberately strip weakness for logical reductions.
+    if target.weak_type is not False:
+        return None
+    shape = _boolean_dimensions(source.shape)
+    output_shape = _boolean_dimensions(target.shape)
+    native_axes = eqn.params["axes"]
+    if (
+        shape is None
+        or output_shape is None
+        or type(native_axes) is not tuple
+        or any(
+            type(axis) is bool
+            or type(axis) is np.bool_
+            or not any(
+                type(axis) is scalar_type
+                for scalar_type in (
+                    int,
+                    np.int8,
+                    np.int16,
+                    np.int32,
+                    np.int64,
+                    np.longlong,
+                    np.uint8,
+                    np.uint16,
+                    np.uint32,
+                    np.uint64,
+                    np.ulonglong,
+                )
+            )
+            for axis in native_axes
+        )
+    ):
+        return None
+    axes = tuple(int(axis) for axis in native_axes)
+    if (
+        any(not 0 <= axis < len(shape) for axis in axes)
+        or len(set(axes)) != len(axes)
+        or output_shape
+        != tuple(dim for axis, dim in enumerate(shape) if axis not in axes)
+    ):
+        return None
+    count = _boolean_count(tuple(shape[axis] for axis in axes))
+    if (
+        count is None
+        or _boolean_count(shape) is None
+        or _boolean_count(output_shape) is None
+    ):
+        return None
+    return _BooleanReductionRule(
+        source,
+        target,
+        mode,
+        operation,
+        axes,
+        _REDUCTION_AXES_INPUT_SINCE[operation],
+        _boolean_literal(axes, np.dtype(np.int64)),
+        count,
+        (mode == "reduce_and") if count == 0 else None,
     )

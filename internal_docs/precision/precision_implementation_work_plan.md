@@ -1,6 +1,6 @@
 # Computation precision implementation work plan
 
-Updated 2026-10-31. This document retains the complete accepted **B–F** scope.
+Updated 2026-11-02. This document retains the complete accepted **B–F** scope.
 Completion means one source-preserving ordinary export contract across existing
 functionality and unchanged supplied sources. A private profile, PoC, green
 regression suite or partial model result cannot replace that scope.
@@ -56,7 +56,7 @@ Preserve each lock, rather than normalizing them to one environment.
 Version-sensitive APIs go through `jax2onnx/_compat/jax.py`. Test actual supported
 cohorts, not only a convenient local Python/framework pair. Minimum dependency
 acceptance is separate, including ONNX IR 1.0.0, ONNX 1.20.1 and ORT 1.24.1.
-Locked ORT 1.31.0 success does not qualify those minima. The
+Locked ORT 1.31.1 success does not qualify those minima. The
 [dependency table](../../docs/about/dependencies.md) owns checked kernel and
 behavior gaps and distinguishes LEGACY algorithms from SOURCE implementations.
 
@@ -137,10 +137,15 @@ Each row keeps baseline and SOURCE outcomes separately:
 
 Final coverage is not an indiscriminate Cartesian product. It includes every
 existing tested contract, precision-sensitive variants identified by the audit
-and representative compositions. The full inventory currently has global ERROR
-and zero accepted scientific cells; accounting controls do not close it. The
-1,838 missing tolerance pairs remain unresolved, and the existing 18 declared
-pairs require scientific review rather than automatic adoption.
+and representative compositions. The full inventory retains global ERROR. The current predicate/reduction
+checkpoint conditionally validates 88 caller cells in its recorded cohorts; see
+the [current numerical scope](precision_current_state.md#inventory-and-numerical-acceptance).
+The earlier registered bitwise checkpoint evidenced 52 conditionally numerically
+validated caller cells and 3,660 unverified cells under its recorded source and
+runtime contexts. Accounting controls do not close numerical obligations, and a
+changed source epoch does not inherit that acceptance. The 1,838 missing tolerance
+pairs remain unresolved; the existing 18 declared pairs require scientific review
+rather than automatic adoption.
 
 ## Full migration phases and review gates
 
@@ -396,18 +401,20 @@ below is work to implement and review, not permission to substitute exit zero.
 | --- | --- | --- |
 | Current inventory | `scripts/source_precision_inventory.py` with the current manifest and genuine optional setup. | Complete identity/contract reconciliation on official families; no automatic refresh to hide drift. |
 | Caller plan and replay | `scripts/source_precision_probe.py` with explicitly current baseline/adapters and a reviewed complete schedule. | Every assigned preparation/export/lowering/artifact outcome is inspected. Planning or process exit zero cannot certify pending/failed cells. |
-| Current metadata numerics | Existing metadata pytest owner with `--source-metadata-acceptance`, exact selected cases/current adapters, and the full retained ledger. | Native references, reviewed criteria, actual ORT results and complete phase accounting for every obligation. Current global ERROR/zero scientific acceptance must be resolved. |
+| Current metadata numerics | Existing metadata pytest owner with `--source-metadata-acceptance`, exact selected cases/current adapters, and the full retained ledger. | Native references, reviewed criteria, actual ORT results and complete phase accounting for every obligation. Global ERROR and the remaining unverified scientific obligations must be resolved. |
 | Historical finite replay/numerics | Existing corpus replay and `scripts/source_precision_numerical_probe.py` with their authenticated historical inputs and fixed criteria. | Only the original bounded evidence; unavailable history stays unverified. Never reheader it as current full-corpus acceptance. |
 | Full CPU/model suites | `scripts/run_pytest_batches.py` and complete existing generated, converter, framework, loop/scan and model owners. | Exact complete/disjoint collection and phase outcomes, genuine model numerical verdicts and resource closure. |
 | Web | `scripts/run_onnxruntime_web_full.sh` and `scripts/run_onnxruntime_web_chrome_full.sh`, with original setup/conditions and reviewed bounded workers. | Complete Node/Chrome behavior against independent references. Existing unbounded settings do not establish resource qualification. |
 | Quality and documentation | Pinned normal hooks, configured Ruff and Black 26.10.1, typing, RNG/policy checks, strict MkDocs and relative links. | Actual successful applicable checks; no hook bypass. Reviewed formatter and dependency transitions retain their original evidence epochs. |
 
-The metadata proof-producer remains WIP. Its finite storage, report and consumer
-controls must not accept production rows through synthetic examples. Complete
-current replay adapters, scientific criteria and artifact-bound verdicts remain
-required. Preserve the coverage obligations for all original, manual and
-prepared-LEGACY counterparts while integrating results through existing reports;
-that does not require permanent legacy runtime paths.
+The existing metadata owner and Native3/ORT2 producer now qualify the recorded
+original registered subsets. Synthetic storage, report or consumer controls
+alone do not accept a production row. The current predicate/reduction scope
+contains 88 conditional caller cells, separate from the earlier 52-cell bitwise
+epoch; no aggregate acceptance is inferred. Complete current replay adapters,
+scientific criteria and artifact-bound verdicts remain required for the rest of
+the inventory. Preserve all original, manual and prepared-LEGACY obligations;
+this does not require permanent legacy runtime paths.
 
 ## Temporary legacy bridges
 
