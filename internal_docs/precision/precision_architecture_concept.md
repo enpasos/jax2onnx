@@ -1,9 +1,14 @@
 # A simpler precision architecture
 
-Status: Step 1 is merged in PR #287. The bounded Step 2 feasibility check is
-complete. The Step 2 goal was activated on 2 November 2026 using the full text
-below. Implementation follows the five checkpoints, with correctness, a clear
-user interface and maintainability as acceptance requirements.
+Status: Step 1 ([PR #287](https://github.com/enpasos/jax2onnx/pull/287)) and
+Step 2 ([PR #288](https://github.com/enpasos/jax2onnx/pull/288)) are merged.
+[PR #277](https://github.com/enpasos/jax2onnx/pull/277) is closed without merge;
+its implementation and unresolved findings remain historical evidence.
+The precision architecture and migration work is complete. The remaining
+trained-classifier demonstration has its own bounded
+[implementation plan and activation text](quantized_classifier_plan.md).
+The older goals, checkpoint sections and status reports below are history,
+not the current work queue; their acceptance claims retain their original scope.
 
 The proposed replacement for [PR #277](https://github.com/enpasos/jax2onnx/pull/277)
 is one consistent precision rule in the existing exporter, demonstrated by a
