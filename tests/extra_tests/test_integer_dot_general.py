@@ -122,8 +122,10 @@ def test_int8_dot_preserves_odd_integer_above_float32_exact_range(
 
 @pytest.mark.parametrize("lhs_dtype", [np.int8, np.uint8])
 @pytest.mark.parametrize("rhs_dtype", [np.int8, np.uint8])
+@pytest.mark.parametrize("optimized", [False, True])
+@pytest.mark.parametrize("opset", [10, 23])
 def test_integer_dot_signedness_and_extreme_values(
-    lhs_dtype: type, rhs_dtype: type
+    lhs_dtype: type, rhs_dtype: type, optimized: bool, opset: int
 ) -> None:
     def values(dtype: type) -> np.ndarray:
         if dtype == np.int8:
@@ -136,9 +138,25 @@ def test_integer_dot_signedness_and_extreme_values(
     native = _native_reference(_matrix_dot, [lhs, rhs])
     np.testing.assert_array_equal(native, expected)
 
-    _, actual = _run(_matrix_dot, [lhs, rhs])
+    model, actual = _run(_matrix_dot, [lhs, rhs], optimized=optimized, opset=opset)
     assert actual.dtype == np.int32
     np.testing.assert_array_equal(actual, expected)
+    if lhs_dtype == np.uint8 and rhs_dtype == np.int8:
+        # U8S8 can saturate adjacent INT16 pair sums on non-VNNI x86 CPUs,
+        # although a VNNI machine produces the correct result for this witness.
+        inferred = onnx.shape_inference.infer_shapes(model, strict_mode=True)
+        types = {
+            value.name: value.type.tensor_type.elem_type
+            for value in (*inferred.graph.input, *inferred.graph.value_info)
+        }
+        types.update(
+            (tensor.name, tensor.data_type) for tensor in inferred.graph.initializer
+        )
+        integer_dot = next(
+            node for node in model.graph.node if node.op_type == "MatMulInteger"
+        )
+        assert types[integer_dot.input[0]] == onnx.TensorProto.UINT8
+        assert types[integer_dot.input[1]] == onnx.TensorProto.UINT8
 
 
 @pytest.mark.parametrize(
@@ -292,17 +310,25 @@ def test_integer_dot_preserves_symbolic_batch_and_free_dimensions() -> None:
 
 
 @pytest.mark.parametrize("optimized", [False, True])
-@pytest.mark.parametrize("dtype", [np.int8, np.uint8])
+@pytest.mark.parametrize(
+    ("lhs_dtype", "rhs_dtype"),
+    [
+        (np.int8, np.int8),
+        (np.uint8, np.uint8),
+        (np.uint8, np.int8),
+        (np.int8, np.uint8),
+    ],
+)
 @pytest.mark.parametrize("opset", [11, 23])
 def test_symbolic_contract_expression_includes_zero_and_exact_large_sum(
-    optimized: bool, dtype: type, opset: int
+    optimized: bool, lhs_dtype: type, rhs_dtype: type, opset: int
 ) -> None:
     model = None
     # K is positive, while the actual contraction dimension K - 1 can be zero.
     # The final size also makes the exact sum odd and larger than 2**24.
     for k in (1, 2, 4, 1042):
-        lhs = np.full((2, k - 1), 127, dtype=dtype)
-        rhs = np.full((k - 1, 3), 127, dtype=dtype)
+        lhs = np.full((2, k - 1), 127, dtype=lhs_dtype)
+        rhs = np.full((k - 1, 3), 127, dtype=rhs_dtype)
         expected = _native_reference(_matrix_dot, [lhs, rhs])
         np.testing.assert_array_equal(
             expected, np.full((2, 3), (k - 1) * 127**2, dtype=np.int32)
@@ -315,8 +341,8 @@ def test_symbolic_contract_expression_includes_zero_and_exact_large_sum(
                 expect_contract_padding=True,
                 opset=opset,
                 input_specs=[
-                    jax.ShapeDtypeStruct((2, "K - 1"), dtype),
-                    jax.ShapeDtypeStruct(("K - 1", 3), dtype),
+                    jax.ShapeDtypeStruct((2, "K - 1"), lhs_dtype),
+                    jax.ShapeDtypeStruct(("K - 1", 3), rhs_dtype),
                 ],
             )
         else:

@@ -38,7 +38,13 @@ minimum.
 | No float64 `Erf` on CPU | CPU 1.24.1, 1.31.0 | float64 exact `jax.nn.gelu`, `nnx.gelu` | None: the export uses `Erf` (or `Gelu`, which expands to it) and fails to load; float64 test variants are skipped. |
 | CPU `Where` returns `+0.0` when it selects `-0.0` | CPU 1.24.1, 1.31.0 | `log1p`, `expm1`, `sinh` | `log1p` and `sinh` end in `Mul` to keep the sign; `expm1(-0.0)` exports as `+0.0`. |
 | `MatMulInteger` with a zero contraction length can leave output values uninitialized | CPU 1.31.0 | INT8/UINT8 `lax.dot_general` with INT32 accumulation | A known empty contraction produces explicit INT32 zeros. Potentially empty symbolic contractions pad both operands with one zero product; this may copy the operands. Fixed positive contractions retain direct integer multiplication. |
+| UINT8 × INT8 `MatMulInteger` can saturate intermediate pair sums on some x86 CPUs | CPU 1.31.0 on GitHub runners | UINT8-left/INT8-right `lax.dot_general` with INT32 accumulation | Re-encode the right operand as UINT8 by adding 128 in INT32, then use a UINT8 right zero point of 128. This keeps the full source range and exact integer accumulation. |
 | BF16 `Clip` and `Where` kernels are unavailable | CPU 1.31.0 | BF16 conversion to INT8/UINT8 | Widen exactly to FP32 for NaN handling and saturation, then cast to the requested integer type. FP16, FP32 and FP64 retain their actual computation type. Minimum-runtime qualification is separate. |
+
+ONNX Runtime documents the [UINT8 × INT8 saturation mechanism and UINT8 × UINT8 workaround](https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-and-why-do-i-need-to-try-u8u8).
+The affected AVX2/AVX512 kernels use saturating INT16 intermediate sums;
+VNNI and Arm paths do not have that issue. A passing local runtime test alone
+therefore does not establish correctness on the other CPU paths.
 
 An ONNX `Cast` alone also differs from the observed JAX FP16/BF16/FP32/FP64
 conversion to INT8/UINT8 at overflow, infinity and NaN boundaries. Those

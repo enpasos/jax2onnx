@@ -551,7 +551,45 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             lhs_matrix_shape[-2],
             rhs_matrix_shape[-1],
         )
-        result = ctx.builder.op("MatMulInteger", [lhs_matrix, rhs_matrix])
+        integer_inputs: list[ir.Value | None] = [lhs_matrix, rhs_matrix]
+        if (
+            _value_ir_dtype(lhs_matrix) == ir.DataType.UINT8
+            and _value_ir_dtype(rhs_matrix) == ir.DataType.INT8
+        ):
+            # MLAS U8S8 kernels can saturate INT16 pair sums on non-VNNI x86.
+            # Re-encode B as UINT8 with zero point 128: (B + 128) - 128 = B.
+            # INT32 Add also works before opset 14. Shift after any zero padding
+            # so padded S8 zeros become the encoded U8 zero point, not U8 zero.
+            widened = ctx.builder.op(
+                "Cast", [rhs_matrix], {"to": int(ir.DataType.INT32)}
+            )
+            widened.type = ir.TensorType(ir.DataType.INT32)
+            widened.shape = rhs_matrix.shape
+            _ensure_value_metadata(ctx, widened)
+            offset = ctx.builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("dot_integer_rhs_offset"),
+                value=np.asarray(128, dtype=np.int32),
+            )
+            shifted = ctx.builder.op("Add", [widened, offset])
+            shifted.type = ir.TensorType(ir.DataType.INT32)
+            shifted.shape = rhs_matrix.shape
+            _ensure_value_metadata(ctx, shifted)
+            unsigned_rhs = ctx.builder.op(
+                "Cast", [shifted], {"to": int(ir.DataType.UINT8)}
+            )
+            unsigned_rhs.type = ir.TensorType(ir.DataType.UINT8)
+            unsigned_rhs.shape = rhs_matrix.shape
+            _ensure_value_metadata(ctx, unsigned_rhs)
+            lhs_zero = ctx.builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("dot_integer_lhs_zero_point"),
+                value=np.asarray(0, dtype=np.uint8),
+            )
+            rhs_zero = ctx.builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("dot_integer_rhs_zero_point"),
+                value=np.asarray(128, dtype=np.uint8),
+            )
+            integer_inputs = [lhs_matrix, unsigned_rhs, lhs_zero, rhs_zero]
+        result = ctx.builder.op("MatMulInteger", integer_inputs)
         result.type = ir.TensorType(ir.DataType.INT32)
         _stamp_type_and_shape(result, matrix_shape)
         _ensure_value_metadata(ctx, result)

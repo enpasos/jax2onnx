@@ -241,6 +241,9 @@ fallback, and FP16/BF16/FP32/FP64 conversions sanitize NaN and saturate before
 casting. No Qwix recognition is present in the converter. Repeated empty
 contractions also exposed uninitialized runtime output; static zeros and local
 padding for potentially empty symbolic contractions avoid that kernel path.
+Hosted CPU tests additionally exposed saturating intermediate sums for
+UINT8-left/INT8-right matrix products. An exact UINT8 encoding with an explicit
+right zero point avoids that CPU-dependent path without narrowing source values.
 
 This checkpoint preserves the current explicit precision-flag behaviour.
 The known double-export example still returns FP64 `1` where the model's FP32
