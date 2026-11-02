@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -366,23 +366,17 @@ class EighPlugin(PrimitiveLeafPlugin):
                     f"({subset_start}, {subset_end})"
                 )
 
-        x_input_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
-        )
+        x_input_dtype: np.dtype[Any] = np.dtype(x_var.aval.dtype)
         if np.issubdtype(x_input_dtype, np.complexfloating):
             raise NotImplementedError("eigh complex input is not supported yet")
 
-        val_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(val_var, "aval", None), "dtype", np.float32)
-        )
-        val_dtype_enum = _dtype_to_ir(val_dtype, ctx.builder.enable_double_precision)
+        val_dtype: np.dtype[Any] = np.dtype(val_var.aval.dtype)
+        val_dtype_enum = numpy_dtype_to_ir(val_dtype)
         if val_dtype_enum is None:
             raise TypeError(f"Unsupported eigh eigenvalue dtype '{val_dtype}'")
 
-        vec_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(vec_var, "aval", None), "dtype", np.float32)
-        )
-        vec_dtype_enum = _dtype_to_ir(vec_dtype, ctx.builder.enable_double_precision)
+        vec_dtype: np.dtype[Any] = np.dtype(vec_var.aval.dtype)
+        vec_dtype_enum = numpy_dtype_to_ir(vec_dtype)
         if vec_dtype_enum is None:
             raise TypeError(f"Unsupported eigh eigenvector dtype '{vec_dtype}'")
 

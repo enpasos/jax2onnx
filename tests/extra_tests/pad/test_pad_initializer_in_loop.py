@@ -30,18 +30,18 @@ def _pad_in_loop_fn(x: jax.Array) -> jax.Array:
 def test_pad_inside_loop_ir_pipeline(dtype):
     """converter should emit a Loop that shape-infers successfully."""
 
-    spec = jnp.ones((2, 3), dtype=dtype)
-    model = to_onnx(
-        _pad_in_loop_fn,
-        inputs=[spec],
-        enable_double_precision=(dtype == jnp.float64),
-        opset=21,
-        model_name=f"pad_in_loop_{np.dtype(dtype).name}",
-    )
+    with jax.enable_x64(dtype == jnp.float64):
+        spec = jnp.ones((2, 3), dtype=dtype)
+        model = to_onnx(
+            _pad_in_loop_fn,
+            inputs=[spec],
+            opset=21,
+            model_name=f"pad_in_loop_{np.dtype(dtype).name}",
+        )
 
-    # structural sanity
-    onnx.checker.check_model(model)
+        # structural sanity
+        onnx.checker.check_model(model)
 
-    # regression: ONNX strict shape inference should also succeed
-    inferred = shape_inference.infer_shapes(model, strict_mode=True)
-    assert inferred is not None
+        # regression: ONNX strict shape inference should also succeed
+        inferred = shape_inference.infer_shapes(model, strict_mode=True)
+        assert inferred is not None

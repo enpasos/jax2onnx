@@ -92,7 +92,13 @@ _SUM_PRIM: Final = make_jnp_primitive("jax.numpy.sum")
             "expected_output_dtypes": [np.int32],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["Cast:3 -> ReduceSum"],
+                [
+                    (
+                        "Cast:3 -> Pad:4 -> CumSum:4 -> Gather",
+                        {"counts": {"Cast": 1, "Pad": 1, "CumSum": 1, "Gather": 1}},
+                    )
+                ],
+                must_absent=["ReduceSum"],
                 no_unused_inputs=True,
             ),
         },
@@ -158,7 +164,9 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
             lower_reduction(ctx, proxy_eqn, op_type="ReduceSum", allow_dtype_param=True)
             return
 
-        if dtype is None:
+        # Integer producers must retain their own wrapping before the exact
+        # integer sum; fused floating reductions do not preserve that rule.
+        if dtype is None and not np.issubdtype(in_dtype, np.integer):
             operand_val = ctx.get_value_for_var(
                 operand_var, name_hint=ctx.fresh_name("jnp_sum_in")
             )

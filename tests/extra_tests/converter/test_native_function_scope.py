@@ -19,7 +19,7 @@ from jax2onnx.converter.ir_context import IRContext
 
 
 def test_function_finalization_owns_its_body_and_preserves_metadata():
-    parent = IRContext(opset=21, enable_double_precision=False)
+    parent = IRContext(opset=21)
     parent_input = ir.Value(
         name="x", type=ir.TensorType(ir.DataType.FLOAT16), shape=ir.Shape(("B", 3))
     )
@@ -77,7 +77,7 @@ def test_function_finalization_owns_its_body_and_preserves_metadata():
 
 
 def test_function_scope_finalizes_once_and_registry_retains_the_native_definition():
-    parent = IRContext(opset=21, enable_double_precision=False)
+    parent = IRContext(opset=21)
     scope = FunctionScope(parent, name="Identity", domain="custom.Identity.1")
     with pytest.raises(RuntimeError, match="begin.*before end"):
         scope.end([])

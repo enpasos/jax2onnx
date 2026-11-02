@@ -17,7 +17,6 @@ from jax2onnx.plugins._loop_extent_meta import (
     set_axis0_override,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax.add import AddPlugin, lower_add
 from jax2onnx.plugins.plugin_system import register_native_primitive
@@ -54,12 +53,10 @@ class AddAnyPlugin(AddPlugin):
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        prefer_dt: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
         a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("add_any_lhs"))
         b_val = ctx.get_value_for_var(
             y_var,
             name_hint=ctx.fresh_name("add_any_rhs"),
-            prefer_np_dtype=prefer_dt,
         )
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("add_any_out")
@@ -78,18 +75,6 @@ class AddAnyPlugin(AddPlugin):
             lower_add(ctx, eqn)
             return
 
-        a_val = promote_float32_operand(
-            ctx,
-            a_val,
-            target_dtype=out_spec.dtype,
-            name_hint="add_any_lhs_double",
-        )
-        b_val = promote_float32_operand(
-            ctx,
-            b_val,
-            target_dtype=out_spec.dtype,
-            name_hint="add_any_rhs_double",
-        )
         result = cast(
             ir.Value,
             ctx.builder.Sum(a_val, b_val, _outputs=[output_name]),

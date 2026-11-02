@@ -151,9 +151,7 @@ def _run_with_raw_bits(
 
 
 def _export(name: str, x: np.ndarray) -> onnx.ModelProto:
-    return to_onnx(
-        _FUNCTIONS[name][0], [x], enable_double_precision=x.dtype == np.float64
-    )
+    return to_onnx(_FUNCTIONS[name][0], [x])
 
 
 @pytest.fixture(
@@ -161,12 +159,8 @@ def _export(name: str, x: np.ndarray) -> onnx.ModelProto:
     ids=["float16", "float32", "float64"],
 )
 def dtype(request: pytest.FixtureRequest) -> Iterator[type]:
-    original_x64 = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", request.param == np.float64)
-    try:
+    with jax.enable_x64(request.param == np.float64):
         yield request.param
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)
 
 
 @pytest.mark.parametrize("name", list(_FUNCTIONS))
@@ -260,41 +254,44 @@ _HALF_PRECISION = {
 @pytest.mark.parametrize("name", list(_FUNCTIONS))
 @pytest.mark.parametrize("half", list(_HALF_PRECISION))
 @pytest.mark.parametrize(
-    "enable_double_precision", [False, True], ids=["default", "double_precision"]
+    "enable_x64", [False, True], ids=["x64_disabled", "x64_enabled"]
 )
 def test_half_precision_keeps_its_dtype_and_accuracy_for_every_input(
-    name: str, half: str, enable_double_precision: bool
+    name: str, half: str, enable_x64: bool
 ) -> None:
-    dtype, onnx_type, max_ulp_error = _HALF_PRECISION[half]
-    bits = np.arange(1 << 16, dtype=np.uint16)
-    x = bits.view(dtype)
-    model = to_onnx(
-        _FUNCTIONS[name][0],
-        [jax.ShapeDtypeStruct(x.shape, dtype)],
-        enable_double_precision=enable_double_precision,
-    )
-    # Double precision widens float32 only; half-precision values keep their
-    # dtype at the model boundary.
-    assert model.graph.output[0].type.tensor_type.elem_type == onnx_type
-    actual = _run_with_raw_bits(model, bits, onnx_type).view(dtype).astype(np.float64)
+    with jax.enable_x64(enable_x64):
+        dtype, onnx_type, max_ulp_error = _HALF_PRECISION[half]
+        bits = np.arange(1 << 16, dtype=np.uint16)
+        x = bits.view(dtype)
+        model = to_onnx(
+            _FUNCTIONS[name][0],
+            [jax.ShapeDtypeStruct(x.shape, dtype)],
+        )
+        # Caller x64 permission leaves the declared half dtype unchanged.
+        assert model.graph.output[0].type.tensor_type.elem_type == onnx_type
+        actual = (
+            _run_with_raw_bits(model, bits, onnx_type).view(dtype).astype(np.float64)
+        )
 
-    with np.errstate(all="ignore"):
-        expected = _FUNCTIONS[name][1](x.astype(np.float64))
-        rounded = expected.astype(dtype).astype(np.float64)
-    exceptional = ~np.isfinite(rounded)
-    np.testing.assert_array_equal(actual[exceptional], rounded[exceptional])
-    finite = ~exceptional
-    magnitude = np.abs(rounded[finite]).astype(dtype)
-    # np.spacing overflows at the largest finite value, which float16
-    # log_sigmoid(-max) returns; use the gap below it there.
-    with np.errstate(over="ignore"):
-        spacing = np.spacing(magnitude)
-    spacing = np.where(
-        np.isinf(spacing), magnitude - np.nextafter(magnitude, dtype(0)), spacing
-    )
-    ulp_error = np.abs(actual[finite] - expected[finite]) / spacing.astype(np.float64)
-    worst = int(np.argmax(ulp_error))
-    assert ulp_error[worst] <= max_ulp_error, (
-        f"{ulp_error[worst]:.2f} ulp at x={x[finite][worst]!r}: "
-        f"got {actual[finite][worst]!r}, expected {expected[finite][worst]!r}"
-    )
+        with np.errstate(all="ignore"):
+            expected = _FUNCTIONS[name][1](x.astype(np.float64))
+            rounded = expected.astype(dtype).astype(np.float64)
+        exceptional = ~np.isfinite(rounded)
+        np.testing.assert_array_equal(actual[exceptional], rounded[exceptional])
+        finite = ~exceptional
+        magnitude = np.abs(rounded[finite]).astype(dtype)
+        # np.spacing overflows at the largest finite value, which float16
+        # log_sigmoid(-max) returns; use the gap below it there.
+        with np.errstate(over="ignore"):
+            spacing = np.spacing(magnitude)
+        spacing = np.where(
+            np.isinf(spacing), magnitude - np.nextafter(magnitude, dtype(0)), spacing
+        )
+        ulp_error = np.abs(actual[finite] - expected[finite]) / spacing.astype(
+            np.float64
+        )
+        worst = int(np.argmax(ulp_error))
+        assert ulp_error[worst] <= max_ulp_error, (
+            f"{ulp_error[worst]:.2f} ulp at x={x[finite][worst]!r}: "
+            f"got {actual[finite][worst]!r}, expected {expected[finite][worst]!r}"
+        )

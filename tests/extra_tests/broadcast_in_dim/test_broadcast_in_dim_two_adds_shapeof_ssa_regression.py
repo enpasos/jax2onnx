@@ -80,46 +80,46 @@ def _body_two_adds_each_needs_shape(y):
 
 @pytest.mark.parametrize("dtype", [jnp.float64])
 def test_two_adds_shape_helpers_are_ssa_unique(tmp_path, dtype):
-    spec = jax.ShapeDtypeStruct(("B", 4), dtype)
-    model = to_onnx(
-        _body_two_adds_each_needs_shape,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name="two_adds_shape_helpers_ssa",
-    )
+    with jax.enable_x64(True):
+        spec = jax.ShapeDtypeStruct(("B", 4), dtype)
+        model = to_onnx(
+            _body_two_adds_each_needs_shape,
+            inputs=[spec],
+            opset=21,
+            model_name="two_adds_shape_helpers_ssa",
+        )
 
-    body = _find_first_loop_body(model.graph)
-    assert body is not None, "Expected Loop body subgraph"
-    outs = _collect_node_outputs_recursive(body)
-    dupes = [name for name, cnt in collections.Counter(outs).items() if cnt > 1]
-    assert not dupes, f"Duplicate outputs in Loop body (SSA violation): {dupes}"
+        body = _find_first_loop_body(model.graph)
+        assert body is not None, "Expected Loop body subgraph"
+        outs = _collect_node_outputs_recursive(body)
+        dupes = [name for name, cnt in collections.Counter(outs).items() if cnt > 1]
+        assert not dupes, f"Duplicate outputs in Loop body (SSA violation): {dupes}"
 
-    if HAS_ORT:
-        out_path = tmp_path / "two_adds_shape_helpers_ssa.onnx"
-        out_path.write_bytes(model.SerializeToString())
-        try:
-            ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-        except Exception as exc:  # pragma: no cover
-            pytest.fail(f"onnxruntime failed to load IR model: {exc}")
+        if HAS_ORT:
+            out_path = tmp_path / "two_adds_shape_helpers_ssa.onnx"
+            out_path.write_bytes(model.SerializeToString())
+            try:
+                ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+            except Exception as exc:  # pragma: no cover
+                pytest.fail(f"onnxruntime failed to load IR model: {exc}")
 
 
 @pytest.mark.parametrize("dtype", [jnp.float64])
 def test_numeric_executes(dtype):
-    if not HAS_ORT:
-        pytest.skip("onnxruntime not available")
-    spec = jax.ShapeDtypeStruct((7, 4), dtype)
-    model = to_onnx(
-        _body_two_adds_each_needs_shape,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name="two_adds_shape_helpers_numeric",
-    )
-    sess = ort.InferenceSession(
-        model.SerializeToString(), providers=["CPUExecutionProvider"]
-    )
-    x = np.zeros((7, 4), np.float64)
-    feeds = {sess.get_inputs()[0].name: x}
-    (y,) = sess.run(None, feeds)
-    assert y.shape == (2, 7, 4)
+    with jax.enable_x64(True):
+        if not HAS_ORT:
+            pytest.skip("onnxruntime not available")
+        spec = jax.ShapeDtypeStruct((7, 4), dtype)
+        model = to_onnx(
+            _body_two_adds_each_needs_shape,
+            inputs=[spec],
+            opset=21,
+            model_name="two_adds_shape_helpers_numeric",
+        )
+        sess = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        x = np.zeros((7, 4), np.float64)
+        feeds = {sess.get_inputs()[0].name: x}
+        (y,) = sess.run(None, feeds)
+        assert y.shape == (2, 7, 4)

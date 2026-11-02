@@ -20,8 +20,6 @@ STACK_WIDTH = 5
 _MODEL_NAME = "issue52_broadcast"
 _IR_VERSION_CAP = 11
 
-jax.config.update("jax_enable_x64", True)
-
 
 def _stack_block(state: jax.Array) -> jax.Array:
     rho = state[0]
@@ -68,37 +66,37 @@ def _inputs() -> list[jax.ShapeDtypeStruct]:
 
 
 def export_model(path: Optional[Path] = None) -> onnx.ModelProto:
-    model = cast(
-        onnx.ModelProto,
-        to_onnx(
-            _model,
-            inputs=_inputs(),
-            enable_double_precision=True,
-            opset=21,
-            model_name=_MODEL_NAME,
-        ),
-    )
-    try:
-        model.ir_version = min(model.ir_version, _IR_VERSION_CAP)
-    except Exception:
-        pass
-    if path is not None:
-        onnx.save(model, path)
-    return model
+    with jax.enable_x64():
+        model = cast(
+            onnx.ModelProto,
+            to_onnx(
+                _model,
+                inputs=_inputs(),
+                opset=21,
+                model_name=_MODEL_NAME,
+            ),
+        )
+        try:
+            model.ir_version = min(model.ir_version, _IR_VERSION_CAP)
+        except Exception:
+            pass
+        if path is not None:
+            onnx.save(model, path)
+        return model
 
 
 def export_ir_model() -> ir.Model:
-    return cast(
-        ir.Model,
-        to_onnx(
-            _model,
-            inputs=_inputs(),
-            enable_double_precision=True,
-            opset=21,
-            model_name=_MODEL_NAME,
-            return_mode="ir",
-        ),
-    )
+    with jax.enable_x64():
+        return cast(
+            ir.Model,
+            to_onnx(
+                _model,
+                inputs=_inputs(),
+                opset=21,
+                model_name=_MODEL_NAME,
+                return_mode="ir",
+            ),
+        )
 
 
 def _walk_graphs(graph: onnx.GraphProto) -> Iterable[onnx.GraphProto]:

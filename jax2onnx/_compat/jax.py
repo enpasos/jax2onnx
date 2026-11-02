@@ -4,9 +4,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from functools import partial
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, ContextManager, cast
 
 import jax
 from jax import core as jax_core
@@ -18,6 +19,11 @@ except ImportError:  # pragma: no cover - compatibility with older JAX versions
 from jax.extend import core as jax_core_ext
 from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Primitive
 from jax.interpreters import ad, batching
+
+try:
+    from jax.dtypes import TypePromotionError
+except ImportError:  # JAX 0.8 exposes the same exception only internally.
+    from jax._src.dtypes import TypePromotionError
 
 AbstractValue = jax_core.AbstractValue
 ShapedArray = jax_core.ShapedArray
@@ -201,6 +207,40 @@ def ensure_batching_not_mapped_attr() -> Any:
 NOT_MAPPED: Any = ensure_batching_not_mapped_attr()
 
 
+def explicit_x64_dtypes(mode: str) -> ContextManager[None]:
+    """Scope JAX's explicit-64-bit policy, not currently re-exported publicly."""
+    from jax._src import config as jax_config
+
+    return cast(ContextManager[None], jax_config.explicit_x64_dtypes(mode))
+
+
+def canonicalize_precision(precision: Any) -> Any:
+    """Resolve explicit precision and the effective JAX matmul default."""
+    from jax._src.lax import lax as lax_internal
+
+    return lax_internal.canonicalize_precision(precision)
+
+
+@contextmanager
+def preserve_precision_globals() -> Iterator[None]:
+    """Restore source mutations without overriding active JAX precision scopes."""
+    from jax._src import config as jax_config
+
+    states = (
+        ("jax_enable_x64", jax_config.enable_x64),
+        ("jax_default_matmul_precision", jax_config.default_matmul_precision),
+        ("jax_explicit_x64_dtypes", jax_config.explicit_x64_dtypes),
+        ("jax_numpy_dtype_promotion", jax_config.numpy_dtype_promotion),
+    )
+    originals = [(name, state, state.get_global()) for name, state in states]
+    try:
+        yield
+    finally:
+        for name, state, original in originals:
+            if state.get_global() != original:
+                jax.config.update(name, original)
+
+
 def _resolve_definitely_equal_shape() -> Callable[[Any, Any], bool]:
     try:  # Prefer the internal helper when available (moved in newer JAX versions).
         from jax._src import core as jax_core_src
@@ -246,19 +286,23 @@ __all__ = [
     "Primitive",
     "ShapedArray",
     "Tracer",
+    "TypePromotionError",
     "Var",
     "ad",
     "batching",
     "call_hi_primitive_jaxpr",
+    "canonicalize_precision",
     "concrete_or_error",
     "definitely_equal_shape",
     "dim_constant",
     "ensure_batching_not_mapped_attr",
+    "explicit_x64_dtypes",
     "fresh_var_like",
     "jax_core",
     "jax_core_ext",
     "new_jaxpr_eqn",
     "polynomial_decomposition",
+    "preserve_precision_globals",
     "scan_arity",
     "trace_decomposition",
 ]

@@ -7,7 +7,6 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 import pytest
 
 from jax2onnx.converter.conversion_api import (
@@ -59,7 +58,6 @@ def _prepare_add_context():
         fn=_add_one,
         inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
         input_params=None,
-        enable_double_precision=False,
         inputs_as_nchw=None,
         outputs_as_nchw=None,
         input_names=["x"],
@@ -67,7 +65,6 @@ def _prepare_add_context():
     )
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=trace.sds_list,
         frozen_params=trace.frozen_params,
         record_primitive_calls_file=None,
@@ -76,8 +73,6 @@ def _prepare_add_context():
         ctx,
         trace.jaxpr,
         trace.closed_jaxpr.consts,
-        default_float=np.dtype(np.float32),
-        enable_double_precision=False,
     )
     _bind_jaxpr_inputs(ctx, trace.jaxpr, inputs_as_nchw=())
     return trace, ctx

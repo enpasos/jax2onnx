@@ -66,9 +66,7 @@ class ShiftLeftPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("shl_input"))
-        rhs_val = ctx.get_value_for_var(
-            rhs_var, name_hint=ctx.fresh_name("shl_shift"), prefer_np_dtype=None
-        )
+        rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("shl_shift"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("shl_out"))
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("shl_out")

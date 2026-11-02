@@ -29,7 +29,6 @@ STACK_WIDTH = 5
 OUTPUT_PATH = Path("issue52_broadcast_bug.onnx")
 
 os.environ.setdefault("JAX2ONNX_ENABLE_STACKTRACE_METADATA", "1")
-jax.config.update("jax_enable_x64", True)
 
 
 def _stack_block(state: jax.Array) -> jax.Array:
@@ -75,13 +74,13 @@ def _inputs() -> list[jax.ShapeDtypeStruct]:
 
 
 def export_model(path: Path | None = None) -> onnx.ModelProto:
-    model = to_onnx(
-        _model,
-        inputs=_inputs(),
-        enable_double_precision=True,
-        opset=21,
-        model_name="issue52_broadcast",
-    )
+    with jax.enable_x64():
+        model = to_onnx(
+            _model,
+            inputs=_inputs(),
+            opset=21,
+            model_name="issue52_broadcast",
+        )
     model.ir_version = min(model.ir_version, 11)
     if path is not None:
         onnx.save(model, path)
@@ -89,14 +88,14 @@ def export_model(path: Path | None = None) -> onnx.ModelProto:
 
 
 def export_ir_model() -> ir.Model:
-    return to_onnx(
-        _model,
-        inputs=_inputs(),
-        enable_double_precision=True,
-        opset=21,
-        model_name="issue52_broadcast",
-        return_mode="ir",
-    )
+    with jax.enable_x64():
+        return to_onnx(
+            _model,
+            inputs=_inputs(),
+            opset=21,
+            model_name="issue52_broadcast",
+            return_mode="ir",
+        )
 
 
 def _walk_graphs(graph: onnx.GraphProto) -> Iterable[onnx.GraphProto]:

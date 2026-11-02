@@ -160,19 +160,7 @@ class ElementwiseEmitter:
 
     def scalar(self, value: float) -> ir.Value:
         array = np.asarray(value, dtype=self._dtype.numpy())
-        scalar = self._ctx.bind_const_for_var(object(), array)
-        if scalar.dtype == self._dtype:
-            return scalar
-        # With enable_double_precision, bind_const_for_var promotes the scalar
-        # to DOUBLE while float16 and bfloat16 inputs keep their compute dtype.
-        # Retyping the constant in place does not survive the later promotion
-        # of FLOAT constants, so cast it explicitly.
-        output = ir.Value(
-            name=self._ctx.fresh_name(f"{self._name_hint}_scalar"),
-            type=ir.TensorType(self._dtype),
-            shape=scalar.shape,
-        )
-        return self._cast(scalar, output, self._dtype)
+        return self._ctx.bind_const_for_var(object(), array)
 
     def op(
         self, op_type: str, *inputs: ir.Value, boolean: bool = False, name: str = ""

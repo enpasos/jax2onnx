@@ -14,6 +14,7 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -39,7 +40,7 @@ from jax2onnx.plugins.plugin_system import (
             "input_shapes": [(2, 3)],
             "input_dtypes": [np.float32],
             "expected_output_shapes": [(2, 3)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 ["Identity:2x3"],

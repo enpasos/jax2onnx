@@ -18,9 +18,9 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import NativeLoweringContext
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
-from jax2onnx.plugins._precision_utils import promote_float32_operand
-from jax2onnx.plugins.jax.numpy._common import get_orig_impl
+from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.plugins._utils import cast_value_to_dtype
+from jax2onnx.plugins.jax.numpy._common import abstract_eval_via_jax, get_orig_impl
 
 
 def abstract_eval_via_orig_unary(
@@ -29,14 +29,8 @@ def abstract_eval_via_orig_unary(
     x: AbstractValue,
 ) -> ShapedArray:
     """Mirror JAX dtype/shape semantics by delegating to the original jnp impl."""
-    shape = tuple(getattr(x, "shape", ()))
-    dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
-    shape_dtype = jax.ShapeDtypeStruct(shape, dtype)
     orig = get_orig_impl(prim, func_name)
-    out = jax.eval_shape(lambda v: orig(v), shape_dtype)
-    out_shape = tuple(getattr(out, "shape", ()))
-    out_dtype = np.dtype(getattr(out, "dtype", dtype))
-    return ShapedArray(out_shape, out_dtype)
+    return abstract_eval_via_jax(orig, x)
 
 
 def lower_unary_elementwise_with_optional_cast(
@@ -56,51 +50,23 @@ def lower_unary_elementwise_with_optional_cast(
     ctx.fresh_name(input_hint)
     x_val = ctx.require_value_for_var(x_var)
     out_spec = ctx.allocate_value_for_var(y_var, name_hint=ctx.fresh_name(output_hint))
-    in_dtype: np.dtype[Any] = _var_dtype(x_var, np.dtype(np.float32))
-    out_dtype: np.dtype[Any] = _var_dtype(y_var, in_dtype)
+    in_dtype: np.dtype[Any] = np.dtype(x_var.aval.dtype)
 
     op_input = x_val
     if identity_for_integral_input and (
         np.issubdtype(in_dtype, np.integer) or in_dtype == np.bool_
     ):
         op_name = "Identity"
-    elif cast_input_to_output_dtype and in_dtype != out_dtype:
-        op_input = _cast_value(ctx, x_val, out_spec.dtype, output_hint=output_hint)
+    elif cast_input_to_output_dtype:
+        op_input = cast_value_to_dtype(
+            ctx,
+            x_val,
+            numpy_dtype_to_ir(y_var.aval.dtype),
+            name_hint=f"{output_hint}_cast",
+        )
 
-    op_input = promote_float32_operand(
-        ctx,
-        op_input,
-        target_dtype=out_spec.dtype,
-        name_hint=f"{output_hint}_operand_double",
-    )
     result = ctx.builder.op(op_name, [op_input], output=out_spec)
     ctx.bind_value_for_var(y_var, result)
-
-
-def _var_dtype(var: Var | Literal, default: np.dtype[Any]) -> np.dtype[Any]:
-    aval = var.aval
-    return np.dtype(aval.dtype) if isinstance(aval, ShapedArray) else default
-
-
-def _cast_value(
-    ctx: NativeLoweringContext,
-    value: ir.Value,
-    dtype: ir.DataType | None,
-    *,
-    output_hint: str,
-) -> ir.Value:
-    if dtype is None:
-        raise TypeError("Unary output is missing its dtype")
-    output = ir.Value(
-        name=ctx.fresh_name(f"{output_hint}_cast"),
-        type=ir.TensorType(dtype),
-        shape=value.shape,
-    )
-    cast_value = ctx.builder.op(
-        "Cast", [value], {"to": int(dtype.value)}, output=output
-    )
-    _ensure_value_metadata(ctx, cast_value)
-    return cast_value
 
 
 def cast_input_to_output_dtype(
@@ -112,17 +78,11 @@ def cast_input_to_output_dtype(
     output_hint: str,
 ) -> ir.Value:
     """Cast unary input to output dtype when JAX promotion changed the dtype."""
-    in_dtype: np.dtype[Any] = _var_dtype(x_var, np.dtype(np.float32))
-    out_dtype: np.dtype[Any] = _var_dtype(y_var, in_dtype)
-    target_dtype = ctx.require_value_for_var(y_var).dtype
-    if in_dtype != out_dtype:
-        x_val = _cast_value(ctx, x_val, target_dtype, output_hint=output_hint)
-
-    return promote_float32_operand(
+    return cast_value_to_dtype(
         ctx,
         x_val,
-        target_dtype=target_dtype,
-        name_hint=f"{output_hint}_operand_double",
+        numpy_dtype_to_ir(y_var.aval.dtype),
+        name_hint=f"{output_hint}_cast",
     )
 
 

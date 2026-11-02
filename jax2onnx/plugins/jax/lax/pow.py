@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -26,8 +26,8 @@ def lower_pow(ctx: LoweringContextProtocol, eqn: Any) -> None:
     exp_val = ctx.get_value_for_var(exponent_var, name_hint=ctx.fresh_name("pow_exp"))
     out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pow_out"))
 
-    target_dtype: np.dtype[Any] = np.dtype(getattr(base_var.aval, "dtype", np.float32))
-    exp_dtype = np.dtype(getattr(exponent_var.aval, "dtype", target_dtype))
+    target_dtype: np.dtype[Any] = np.dtype(base_var.aval.dtype)
+    exp_dtype = np.dtype(exponent_var.aval.dtype)
 
     if exp_dtype != target_dtype:
         cast_name = ctx.fresh_name("pow_exp_cast")
@@ -36,17 +36,11 @@ def lower_pow(ctx: LoweringContextProtocol, eqn: Any) -> None:
             ctx.builder.Cast(
                 exp_val,
                 _outputs=[cast_name],
-                to=int(
-                    _dtype_to_ir(
-                        target_dtype, ctx.builder.enable_double_precision
-                    ).value
-                ),
+                to=int(numpy_dtype_to_ir(target_dtype).value),
             ),
         )
         cast_val.shape = exp_val.shape
-        cast_val.type = ir.TensorType(
-            _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-        )
+        cast_val.type = ir.TensorType(numpy_dtype_to_ir(target_dtype))
         _stamp_type_and_shape(cast_val, tuple(getattr(exponent_var.aval, "shape", ())))
         _ensure_value_metadata(ctx, cast_val)
         exp_input = cast_val
@@ -64,7 +58,7 @@ def lower_pow(ctx: LoweringContextProtocol, eqn: Any) -> None:
     if getattr(out_spec, "type", None) is not None:
         result.type = out_spec.type
     else:
-        out_dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        out_dtype_enum = numpy_dtype_to_ir(target_dtype)
         result.type = ir.TensorType(out_dtype_enum)
     if getattr(out_spec, "shape", None) is not None:
         result.shape = out_spec.shape

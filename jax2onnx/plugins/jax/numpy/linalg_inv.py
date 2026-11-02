@@ -15,7 +15,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -55,7 +55,7 @@ def _const_scalar(
     value: float,
     name_hint: str,
 ) -> ir.Value:
-    dtype_enum = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
+    dtype_enum = numpy_dtype_to_ir(dtype)
     result: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint),
         array=np.asarray(value, dtype=dtype),
@@ -204,14 +204,14 @@ def _concat(
 
 def _abstract_eval_via_orig(x: AbstractValue) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
-    x_dtype = np.dtype(getattr(x, "dtype", np.float32))
+    x_dtype = np.dtype(x.dtype)
     if np.issubdtype(x_dtype, np.complexfloating):
         raise TypeError("jnp.linalg.inv lowering does not support complex inputs")
     orig = get_orig_impl(_LINALG_INV_PRIM, "inv")
     out = jax.eval_shape(
         lambda value: orig(value), jax.ShapeDtypeStruct(x_shape, x_dtype)
     )
-    out_dtype = np.dtype(getattr(out, "dtype", np.float32))
+    out_dtype = np.dtype(out.dtype)
     if np.issubdtype(out_dtype, np.complexfloating):
         raise TypeError("jnp.linalg.inv lowering does not support complex outputs")
     return ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
@@ -324,14 +324,14 @@ class JnpLinalgInvPlugin(PrimitiveLeafPlugin):
                 "jnp.linalg.inv lowering currently supports 1x1 and 2x2 matrices"
             )
 
-        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.float32))
-        out_dtype = np.dtype(getattr(out_var.aval, "dtype", x_dtype))
+        x_dtype = np.dtype(x_var.aval.dtype)
+        out_dtype = np.dtype(out_var.aval.dtype)
         if np.issubdtype(x_dtype, np.complexfloating) or np.issubdtype(
             out_dtype, np.complexfloating
         ):
             raise TypeError("jnp.linalg.inv lowering does not support complex dtypes")
 
-        dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        dtype_enum = numpy_dtype_to_ir(out_dtype)
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("linalg_inv_in"))
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("linalg_inv_out")

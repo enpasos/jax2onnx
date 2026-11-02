@@ -4,11 +4,47 @@ from __future__ import annotations
 
 from typing import Any, Callable, cast
 
+import jax
+import jax.numpy as jnp
+import numpy as np
+
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx._compat.jax import Primitive
+from jax2onnx._compat.jax import AbstractValue, Primitive, ShapedArray
 
 
 BoundCallable = Callable[..., Any]
+
+
+def abstract_eval_via_jax(
+    original: BoundCallable, *avals: AbstractValue
+) -> ShapedArray:
+    """Ask JAX about actual typed operands, including their weak scalar types."""
+    specs = [
+        jax.ShapeDtypeStruct(aval.shape, aval.dtype, weak_type=aval.weak_type)
+        for aval in avals
+    ]
+    source_x64 = bool(jax.config.jax_enable_x64)
+
+    def call(*args: Any) -> Any:
+        with jax.enable_x64(source_x64):
+            return original(*args)
+
+    # Provision existing FP64 formals without changing the source calculation.
+    with jax.enable_x64(True):
+        out = jax.eval_shape(call, *specs)
+    return ShapedArray(out.shape, out.dtype, weak_type=out.weak_type)
+
+
+def promoted_dtype_via_jax(*avals: AbstractValue) -> np.dtype[Any]:
+    """Resolve operand promotion with JAX's weak types and active configuration."""
+
+    def promoted_scalar(*values: Any) -> jax.Array:
+        return jnp.asarray(0, dtype=jax.dtypes.result_type(*values))
+
+    dtype: np.dtype[Any] = np.dtype(
+        abstract_eval_via_jax(promoted_scalar, *avals).dtype
+    )
+    return dtype
 
 
 def make_jnp_primitive(name: str) -> Primitive:

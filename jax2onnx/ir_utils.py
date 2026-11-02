@@ -68,47 +68,14 @@ def ir_dtype_to_numpy(
     return default
 
 
-def numpy_dtype_to_ir(
-    dtype: object,
-    *,
-    default: ir.DataType = ir.DataType.FLOAT,
-) -> ir.DataType:
+def numpy_dtype_to_ir(dtype: object | None) -> ir.DataType:
+    """Represent a known source dtype without substituting another precision."""
+    if dtype is None:
+        raise TypeError("Missing traced dtype; provide a typed source value")
     try:
         return ir.DataType.from_numpy(np.dtype(dtype))
-    except Exception:
-        return default
-
-
-def numpy_dtype_to_ir_with_float_policy(
-    dtype: object | None,
-    enable_double_precision: bool,
-) -> ir.DataType:
-    """
-    Map a numpy dtype to an IR dtype using the converter's float precision policy.
-
-    Float32 and unknown floating dtypes follow ``enable_double_precision``;
-    float16, bfloat16, and float64 keep their exact ONNX IR dtype.
-    """
-    if dtype is None:
-        return ir.DataType.DOUBLE if enable_double_precision else ir.DataType.FLOAT
-    try:
-        key = np.dtype(dtype)
     except Exception as exc:
-        raise TypeError(f"Unsupported dtype: {dtype}") from exc
-    if key.name == "bfloat16":
-        return ir.DataType.BFLOAT16
-    if np.issubdtype(key, np.floating):
-        if key == np.float16:
-            return ir.DataType.FLOAT16
-        if key == np.float32:
-            return ir.DataType.DOUBLE if enable_double_precision else ir.DataType.FLOAT
-        if key == np.float64:
-            return ir.DataType.DOUBLE
-        return ir.DataType.DOUBLE if enable_double_precision else ir.DataType.FLOAT
-    try:
-        return ir.DataType.from_numpy(key)
-    except Exception as exc:
-        raise TypeError(f"Unsupported dtype: {dtype}") from exc
+        raise TypeError(f"Unsupported source dtype: {dtype}") from exc
 
 
 def maybe_numpy_dtype(dtype: object | None) -> np.dtype[Any] | None:

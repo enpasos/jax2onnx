@@ -29,28 +29,28 @@ class FunctionDropout(nnx.Module):
 
 
 def test_onnx_function_consumes_call_time_param():
-    fn = construct_and_call(
-        FunctionDropout,
-        rate=0.25,
-        rngs=with_rng_seed(0),
-    ).instantiate()
+    with jax.enable_x64(False):
+        fn = construct_and_call(
+            FunctionDropout,
+            rate=0.25,
+            rngs=with_rng_seed(0),
+        ).instantiate()
 
-    model = to_onnx(
-        fn=fn,
-        inputs=[jax.ShapeDtypeStruct((2, 3), jnp.float32)],
-        input_params={"deterministic": True},
-        model_name="function_dropout",
-        opset=21,
-        enable_double_precision=False,
-    )
+        model = to_onnx(
+            fn=fn,
+            inputs=[jax.ShapeDtypeStruct((2, 3), jnp.float32)],
+            input_params={"deterministic": True},
+            model_name="function_dropout",
+            opset=21,
+        )
 
-    check = EG(
-        ["Dropout"],
-        search_functions=True,
-        no_unused_inputs=True,
-        no_unused_function_inputs=True,
-    )
-    assert check(model)
+        check = EG(
+            ["Dropout"],
+            search_functions=True,
+            no_unused_inputs=True,
+            no_unused_function_inputs=True,
+        )
+        assert check(model)
 
 
 @onnx_function

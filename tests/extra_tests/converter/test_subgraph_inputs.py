@@ -40,7 +40,7 @@ def _graph_nodes(graph) -> list[ir.Node]:
 
 
 def test_intermediate_tensor_is_not_subgraph_input():
-    builder = IRBuilder(opset=15, enable_double_precision=False)
+    builder = IRBuilder(opset=15)
 
     graph_input_name = "graph_input_A"
     intermediate_name = "intermediate_B_int32"

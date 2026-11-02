@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import os
 
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
@@ -73,46 +74,46 @@ def _loop_body_broadcast_mul_with_scatter_repro():
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_loop_body_loosen_env_allows_ort_load_and_run(tmp_path):
-    model = to_onnx(
-        _loop_body_broadcast_mul_with_scatter_repro,
-        inputs=[],
-        enable_double_precision=True,
-        opset=21,
-        model_name="loop_body_loosen_shapes_repro_ir",
-    )
+    with jax.enable_x64(True):
+        model = to_onnx(
+            _loop_body_broadcast_mul_with_scatter_repro,
+            inputs=[],
+            opset=21,
+            model_name="loop_body_loosen_shapes_repro_ir",
+        )
 
-    out_path = tmp_path / "loop_body_loosen_shapes_repro_ir.onnx"
-    out_path.write_bytes(model.SerializeToString())
+        out_path = tmp_path / "loop_body_loosen_shapes_repro_ir.onnx"
+        out_path.write_bytes(model.SerializeToString())
 
-    loaded = onnx.load(str(out_path))
-    onnx.checker.check_model(loaded)
-    assert _first_loop_body(loaded.graph) is not None
+        loaded = onnx.load(str(out_path))
+        onnx.checker.check_model(loaded)
+        assert _first_loop_body(loaded.graph) is not None
 
-    sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-    outputs = sess.run(None, {})
-    assert len(outputs) == 1
-    assert tuple(outputs[0].shape) == (5, 210, 1, 1)
+        sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+        outputs = sess.run(None, {})
+        assert len(outputs) == 1
+        assert tuple(outputs[0].shape) == (5, 210, 1, 1)
 
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_loop_body_internal_value_infos_are_rank_only_when_loosen_enabled(tmp_path):
-    model = to_onnx(
-        _loop_body_broadcast_mul_with_scatter_repro,
-        inputs=[],
-        enable_double_precision=True,
-        opset=21,
-        model_name="loop_body_loosen_shapes_vi_check_ir",
-    )
+    with jax.enable_x64(True):
+        model = to_onnx(
+            _loop_body_broadcast_mul_with_scatter_repro,
+            inputs=[],
+            opset=21,
+            model_name="loop_body_loosen_shapes_vi_check_ir",
+        )
 
-    out_path = tmp_path / "loop_body_loosen_shapes_vi_check_ir.onnx"
-    out_path.write_bytes(model.SerializeToString())
+        out_path = tmp_path / "loop_body_loosen_shapes_vi_check_ir.onnx"
+        out_path.write_bytes(model.SerializeToString())
 
-    loaded = onnx.load(str(out_path))
-    body = _first_loop_body(loaded.graph)
-    assert body is not None
+        loaded = onnx.load(str(out_path))
+        body = _first_loop_body(loaded.graph)
+        assert body is not None
 
-    assert body.value_info, "Expected value_info entries in Loop body"
-    for value_info in body.value_info:
-        assert _all_dims_dynamic(
-            value_info
-        ), f"Loop body VI '{value_info.name}' must be rank-only"
+        assert body.value_info, "Expected value_info entries in Loop body"
+        for value_info in body.value_info:
+            assert _all_dims_dynamic(
+                value_info
+            ), f"Loop body VI '{value_info.name}' must be rank-only"

@@ -24,7 +24,7 @@ import onnx_ir as ir
 from jax2onnx.ir_utils import (
     ir_shape_from_dims,
     maybe_numpy_dtype,
-    numpy_dtype_to_ir_with_float_policy as _dtype_to_ir,
+    numpy_dtype_to_ir,
     tensor_attr,
 )
 from .ir_builder import IRBuilder
@@ -175,7 +175,6 @@ class IRContext:
         self,
         *,
         opset: int,
-        enable_double_precision: bool,
         normalization_mode: str = "auto",
         input_specs: Sequence[Any] | None = None,
         stacktrace_metadata: Optional[bool] = None,
@@ -193,7 +192,6 @@ class IRContext:
                 }
         self.builder: IRBuilder = IRBuilder(
             opset=opset,
-            enable_double_precision=enable_double_precision,
             enable_stacktrace_metadata=bool(stacktrace_metadata),
         )
         self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
@@ -205,9 +203,6 @@ class IRContext:
             self.builder.set_stacktrace_mode(detail_mode)
         self.builder._function_mode = False
         self.dim_expr_lowerer = LowerDimExpr(self)
-        self._default_float_dtype = (
-            np.float64 if enable_double_precision else np.float32
-        )
         # Back-compat views some plugins touch directly
         self._var2val = self.builder._var2val
         self._initializers = _InitializerProxy(self)
@@ -228,7 +223,6 @@ class IRContext:
         self._attr_overrides: Dict[str, Dict[str, Any]] = {}
         # Set by FunctionScope while emitting FunctionProto
         self._inside_function_scope: bool = False
-        self._keep_function_float32: bool = False
         # Function plugin bookkeeping mirrors (always initialised for typed access)
         self._func_name_counters: dict[tuple[str, str, str], int] = {}
         self._call_input_param_names: set[str] = set()
@@ -274,10 +268,6 @@ class IRContext:
         return self.builder.opset
 
     @property
-    def enable_double_precision(self) -> bool:
-        return self.builder.enable_double_precision
-
-    @property
     def normalization_mode(self) -> str:
         return self._normalization_mode
 
@@ -308,7 +298,6 @@ class IRContext:
         """
         child = IRContext(
             opset=self.opset,
-            enable_double_precision=self.enable_double_precision,
             normalization_mode=self.normalization_mode,
             input_specs=[],
             stacktrace_metadata=self.builder.stacktrace_metadata_enabled,
@@ -332,7 +321,6 @@ class IRContext:
         if scope == "control_flow":
             # Local function definitions still belong to the enclosing model.
             child._ir_functions = self._ir_functions
-            child._keep_function_float32 = self._keep_function_float32
             child._sym_origin = dict(self._sym_origin)
             child._sym_origin_str = dict(self._sym_origin_str)
             if implicit_captures:
@@ -355,15 +343,6 @@ class IRContext:
     @property
     def attr_overrides(self) -> Dict[str, Dict[str, Any]]:
         return self._attr_overrides
-
-    def _promote_float_array(self, arr: np.ndarray) -> np.ndarray:
-        if (
-            self.builder.enable_double_precision
-            and np.issubdtype(arr.dtype, np.floating)
-            and arr.dtype != np.float64
-        ):
-            return arr.astype(np.float64, copy=False)
-        return arr
 
     def fresh_name(self, base: str) -> str:
         if self._name_prefix:
@@ -549,32 +528,37 @@ class IRContext:
         array = (
             np.asarray(np_array) if not isinstance(np_array, np.ndarray) else np_array
         )
+        aval = _maybe_aval(var)
+        # Plugin-created local constants use their explicitly typed payload.
+        aval_dtype = array.dtype
+        if aval is not None:
+            traced_dtype = _maybe_dtype(aval)
+            if traced_dtype is None:
+                raise TypeError("Constant has no traced dtype")
+            aval_dtype = traced_dtype
+        if array.dtype != aval_dtype:
+            array = array.astype(aval_dtype)
         self._const_folder.register_const(var, array)
-        promote_flag = self.builder.enable_double_precision
-        keep_float32 = self._keep_function_float32
-        if self._function_mode:
-            aval = _maybe_aval(var)
-            aval_np_dtype = _maybe_dtype(aval)
-            if (
-                keep_float32
-                and aval_np_dtype is not None
-                and np.issubdtype(aval_np_dtype, np.floating)
-                and aval_np_dtype != np.float64
-            ):
-                if array.dtype != aval_np_dtype:
-                    array = np.asarray(array, dtype=aval_np_dtype)
-                promote_flag = False
-            else:
-                array = self._promote_float_array(array)
-        else:
-            array = self._promote_float_array(array)
 
-        tensor = ir.tensor(array)
+        payload = array
+        payload_dtype = numpy_dtype_to_ir(array.dtype)
+        if payload_dtype in (ir.DataType.COMPLEX64, ir.DataType.COMPLEX128):
+            # Keep source-level evaluation complex, but store the packed IR
+            # representation from creation. A copy/view preserves component bits
+            # for scalars and noncontiguous arrays without aliasing the folder.
+            payload = (
+                np.array(array, copy=True, order="C")
+                .reshape(-1)
+                .view(array.real.dtype)
+                .reshape(array.shape + (2,))
+            )
+            payload_dtype = numpy_dtype_to_ir(payload.dtype)
+        tensor = ir.tensor(payload)
         value_name = "const_val" if self._function_mode else "const"
         value = ir.Value(
             name=self.fresh_name(value_name),
-            type=ir.TensorType(_dtype_to_ir(array.dtype, promote_flag)),
-            shape=_to_ir_shape(array.shape),
+            type=ir.TensorType(payload_dtype),
+            shape=_to_ir_shape(payload.shape),
             const_value=tensor,
         )
 
@@ -677,17 +661,9 @@ class IRContext:
         aval_dtype = _maybe_dtype(aval)
         if aval_dtype is None:
             raise TypeError("Aval missing dtype")
-        promote_flag = self.builder.enable_double_precision
-        if (
-            self._function_mode
-            and self._keep_function_float32
-            and np.issubdtype(aval_dtype, np.floating)
-            and aval_dtype != np.float64
-        ):
-            promote_flag = False
         val = ir.Value(
             name=f"in_{index}",
-            type=ir.TensorType(_dtype_to_ir(aval_dtype, promote_flag)),
+            type=ir.TensorType(numpy_dtype_to_ir(aval_dtype)),
             shape=_to_ir_shape(shp),
         )
         self.builder._var2val[var] = val
@@ -703,32 +679,15 @@ class IRContext:
     def _bind_literal_value_for_var(
         self,
         var: Any,
-        *,
-        prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
         literal_val = _maybe_literal_value(var)
         if literal_val is None:
             raise TypeError("Literal missing value")
-        arr = np.asarray(literal_val)
         aval = _maybe_aval(var)
         literal_dtype = _maybe_dtype(aval)
         if literal_dtype is None:
-            try:
-                literal_dtype = np.dtype(arr.dtype)
-            except TypeError:
-                literal_dtype = None
-        if prefer_np_dtype is not None:
-            try:
-                prefer_dtype = np.dtype(prefer_np_dtype)
-                literal_dtype = prefer_dtype
-            except TypeError:
-                pass
-
-        if np.issubdtype(arr.dtype, np.floating):
-            tgt = literal_dtype or np.dtype(self._default_float_dtype)
-            arr = arr.astype(tgt, copy=False)
-        elif np.issubdtype(arr.dtype, np.integer) and literal_dtype is not None:
-            arr = arr.astype(literal_dtype, copy=False)
+            raise TypeError("Literal has no traced dtype")
+        arr = np.asarray(literal_val, dtype=literal_dtype)
         return self.bind_const_for_var(var, arr)
 
     def lookup_value_for_var(self, var: object) -> ir.Value | None:
@@ -740,8 +699,6 @@ class IRContext:
     def require_value_for_var(
         self,
         var: Any,
-        *,
-        prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
         """Require a variable binding, resolving lexical captures in If branches.
 
@@ -750,17 +707,12 @@ class IRContext:
         JAX literals are materialized as constants in the current scope.
         """
         if isinstance(var, _LITERAL_TYPES):
-            return self._bind_literal_value_for_var(
-                var,
-                prefer_np_dtype=prefer_np_dtype,
-            )
+            return self._bind_literal_value_for_var(var)
         value = self.lookup_value_for_var(var)
         if value is not None:
             return value
         if self._implicit_capture_parent is not None:
-            parent_value = self._implicit_capture_parent.require_value_for_var(
-                var, prefer_np_dtype=prefer_np_dtype
-            )
+            parent_value = self._implicit_capture_parent.require_value_for_var(var)
             captured = self._capture_parent_value(parent_value, name_hint="capture")
             self.bind_value_for_var(var, captured)
             return captured
@@ -771,7 +723,6 @@ class IRContext:
         var: Any,
         *,
         name_hint: Optional[str] = None,
-        prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
         """Allocate a writable output, reusing only an unproduced placeholder.
 
@@ -779,9 +730,7 @@ class IRContext:
         graph value intact. Inputs and constants are never reused as outputs.
         """
         if isinstance(var, _LITERAL_TYPES):
-            return self._bind_literal_value_for_var(
-                var, prefer_np_dtype=prefer_np_dtype
-            )
+            return self._bind_literal_value_for_var(var)
         value = self.lookup_value_for_var(var)
         if value is not None:
             if (
@@ -804,29 +753,12 @@ class IRContext:
         aval_dtype = _maybe_dtype(aval)
         if aval_dtype is None:
             raise TypeError("Aval missing dtype")
-        if (
-            not self.builder.enable_double_precision
-            and np.issubdtype(aval_dtype, np.floating)
-            and aval_dtype != np.dtype(np.float16)
-            and aval_dtype.name != "bfloat16"
-            and aval_dtype != np.dtype(self._default_float_dtype)
-        ):
-            aval_dtype = np.dtype(self._default_float_dtype)
-        promote_flag = self.builder.enable_double_precision
-        if (
-            self._function_mode
-            and self._keep_function_float32
-            and promote_flag
-            and np.issubdtype(aval_dtype, np.floating)
-            and aval_dtype != np.float64
-        ):
-            promote_flag = False
         shape_tuple = _maybe_shape(aval)
         if shape_tuple is None:
             raise TypeError("Aval missing shape")
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(_dtype_to_ir(aval_dtype, promote_flag)),
+            type=ir.TensorType(numpy_dtype_to_ir(aval_dtype)),
             shape=_to_ir_shape(shape_tuple),
         )
         self.builder._var2val[var] = v
@@ -837,7 +769,6 @@ class IRContext:
         var: Any,
         *,
         name_hint: Optional[str] = None,
-        prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
         """Compatibility convenience that reuses or allocates a value.
 
@@ -849,79 +780,34 @@ class IRContext:
         return self.allocate_value_for_var(
             var,
             name_hint=name_hint,
-            prefer_np_dtype=prefer_np_dtype,
         )
 
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for var in outvars:
             v = self.require_value_for_var(var)
-            target_enum: Optional[ir.DataType] = None
             aval = _maybe_aval(var)
             np_dtype = _maybe_dtype(aval)
-            if np_dtype is not None and np.issubdtype(np_dtype, np.complexfloating):
+            if np_dtype is None:
+                raise TypeError("Output has no traced dtype")
+            source_enum = numpy_dtype_to_ir(np_dtype)
+            if np.issubdtype(np_dtype, np.complexfloating):
                 base_np_dtype = np.float64 if np_dtype == np.complex128 else np.float32
-                target_enum = _dtype_to_ir(
-                    np.dtype(base_np_dtype), self.builder.enable_double_precision
-                )
+                target_enum = numpy_dtype_to_ir(base_np_dtype)
                 dims = list(_maybe_shape(aval) or ())
                 dims.append(2)
                 v.type = ir.TensorType(target_enum)
                 v.shape = _to_ir_shape(tuple(dims))
                 self.builder.outputs.append(v)
                 continue
-            if np_dtype is not None:
-                target_enum = _dtype_to_ir(
-                    np_dtype, self.builder.enable_double_precision
-                )
+            target_enum = source_enum
             current_type = v.type
             current_enum = (
                 current_type.dtype if isinstance(current_type, ir.TensorType) else None
             )
-            if target_enum is not None and current_enum is not None:
-                if target_enum != current_enum:
-                    promote_float = (
-                        self.builder.enable_double_precision
-                        and target_enum.is_floating_point()
-                        and current_enum.is_floating_point()
-                    )
-                    downcast_float = (
-                        not self.builder.enable_double_precision
-                        and target_enum.is_floating_point()
-                        and current_enum.is_floating_point()
-                    )
-                    keep_int64 = (
-                        target_enum.is_integer() and current_enum == ir.DataType.INT64
-                    )
-                    if promote_float:
-                        target_enum = current_enum
-                    elif downcast_float:
-                        target_enum = current_enum
-                    elif keep_int64:
-                        target_enum = current_enum
-                    else:
-                        cast_val = ir.Value(
-                            name=self.fresh_name("output_cast"),
-                            type=ir.TensorType(target_enum),
-                            shape=v.shape,
-                        )
-                        self.add_node(
-                            ir.Node(
-                                op_type="Cast",
-                                domain="",
-                                inputs=[v],
-                                outputs=[cast_val],
-                                name=self.fresh_name("Cast"),
-                                attributes=[
-                                    ir.convenience.convert_attribute(
-                                        "to",
-                                        int(target_enum.value),
-                                    )
-                                ],
-                            )
-                        )
-                        v = cast_val
-            elif target_enum is not None and current_enum is None:
-                v.type = ir.TensorType(target_enum)
+            if target_enum != current_enum:
+                raise TypeError(
+                    f"Lowered output dtype {current_enum} disagrees with source {target_enum}"
+                )
             self.builder.outputs.append(v)
 
     # Convenience: make sure the model declares an opset import for a domain

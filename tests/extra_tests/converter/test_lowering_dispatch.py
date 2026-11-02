@@ -97,7 +97,6 @@ def _jaxpr_and_context(
     jaxpr = jax.make_jaxpr(fn)(jax.ShapeDtypeStruct((2,), jnp.float32)).jaxpr
     ctx = IRContext(
         opset=21,
-        enable_double_precision=False,
         input_specs=[],
         stacktrace_metadata=stacktrace_metadata,
     )
@@ -264,7 +263,7 @@ def test_lower_equation_with_plugin_dispatches_and_finalizes_outputs() -> None:
 
 def test_lower_equation_with_plugin_rejects_unbound_input() -> None:
     jaxpr, _ = _jaxpr_and_context()
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
 
     with pytest.raises(RuntimeError, match="Primitive 'add'.*has unbound input 0"):
         lower_equation_with_plugin(
@@ -312,7 +311,7 @@ def test_lower_jaxpr_with_plugins_lowers_all_equations() -> None:
     jaxpr = jax.make_jaxpr(lambda x: (x + x) + x)(
         jax.ShapeDtypeStruct((2,), jnp.float32)
     ).jaxpr
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     ctx.add_input_for_invar(jaxpr.invars[0], 0)
 
     lower_jaxpr_with_plugins(

@@ -17,6 +17,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
+from jax2onnx.plugins.jax.lax.exp import ExpPlugin
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     jnp_binding_specs,
@@ -93,6 +94,9 @@ class JnpExpPlugin(PrimitiveLeafPlugin):
         )
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if np.issubdtype(np.dtype(eqn.invars[0].aval.dtype), np.complexfloating):
+            ExpPlugin().lower(ctx, eqn)
+            return
         lower_unary_elementwise_with_optional_cast(
             ctx,
             eqn,

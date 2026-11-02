@@ -122,7 +122,6 @@ class ShiftRightArithmeticPlugin(PrimitiveLeafPlugin):
         rhs_val = ctx.get_value_for_var(
             rhs_var,
             name_hint=ctx.fresh_name("sra_shift"),
-            prefer_np_dtype=prefer_dtype,
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sra_out"))
 

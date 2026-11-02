@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -44,14 +44,14 @@ def _abstract_eval_via_orig_binary(
 ) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     y_shape = tuple(getattr(y, "shape", ()))
-    x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
-    y_dtype: np.dtype[Any] = np.dtype(getattr(y, "dtype", np.float32))
+    x_dtype: np.dtype[Any] = np.dtype(x.dtype)
+    y_dtype: np.dtype[Any] = np.dtype(y.dtype)
     x_spec = jax.ShapeDtypeStruct(x_shape, x_dtype)
     y_spec = jax.ShapeDtypeStruct(y_shape, y_dtype)
     orig = get_orig_impl(prim, func_name)
     out = jax.eval_shape(lambda a, b: orig(a, b), x_spec, y_spec)
     out_shape = tuple(getattr(out, "shape", ()))
-    out_dtype = np.dtype(getattr(out, "dtype", x_dtype))
+    out_dtype = np.dtype(out.dtype)
     return ShapedArray(out_shape, out_dtype)
 
 
@@ -62,7 +62,7 @@ def _cast_to_dtype(
     np_dtype: np.dtype[Any],
     name_hint: str,
 ) -> ir.Value:
-    dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
+    dtype_enum = numpy_dtype_to_ir(np_dtype)
     if getattr(getattr(val, "type", None), "dtype", None) == dtype_enum:
         return val
     cast_val = cast(
@@ -172,17 +172,11 @@ class JnpCopysignPlugin(PrimitiveLeafPlugin):
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
-        out_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(out_var, "aval", None), "dtype", np.float32)
-        )
+        out_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("jnp_copysign_x"))
-        prefer_dt: np.dtype[Any] = np.dtype(
-            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
-        )
         y_val = ctx.get_value_for_var(
             y_var,
             name_hint=ctx.fresh_name("jnp_copysign_y"),
-            prefer_np_dtype=prefer_dt,
         )
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("jnp_copysign_out")

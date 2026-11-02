@@ -132,7 +132,7 @@ def _as_int64(
                 np.array([0, 2], dtype=np.int32),
             ],
             "expected_output_shapes": [(3, 2)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Gather:3x2"],
                 no_unused_inputs=True,
@@ -189,13 +189,10 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         arr_var, indices_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        arr_val = ctx.get_value_for_var(
-            arr_var, name_hint=ctx.fresh_name("take_data"), prefer_np_dtype=None
-        )
+        arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("take_data"))
         indices_val = ctx.get_value_for_var(
             indices_var,
             name_hint=ctx.fresh_name("take_indices"),
-            prefer_np_dtype=np.dtype(np.int64),
         )
         indices_dtype: np.dtype[Any] = np.dtype(
             getattr(indices_var.aval, "dtype", np.int64)

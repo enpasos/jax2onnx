@@ -19,7 +19,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
     SymbolicDimOrigin,
@@ -267,9 +267,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("tile_out"))
 
         input_shape: tuple[DimInput, ...] = tuple(getattr(input_var.aval, "shape", ()))
-        input_dtype: np.dtype[Any] = np.dtype(
-            getattr(input_var.aval, "dtype", np.float32)
-        )
+        input_dtype: np.dtype[Any] = np.dtype(input_var.aval.dtype)
 
         repeats_val: ir.Value
         repeats_rank: int
@@ -277,9 +275,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             repeats_val = ctx.get_value_for_var(
                 repeats_var, name_hint=ctx.fresh_name("tile_repeats_dyn")
             )
-            repeats_dtype: np.dtype[Any] = np.dtype(
-                getattr(repeats_var.aval, "dtype", np.int64)
-            )
+            repeats_dtype: np.dtype[Any] = np.dtype(repeats_var.aval.dtype)
             if repeats_dtype != np.int64:
                 cast_val = ctx.builder.Cast(
                     repeats_val,
@@ -322,10 +318,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         )
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        out_dtype = _dtype_to_ir(
-            np.dtype(getattr(out_var.aval, "dtype", input_dtype)),
-            ctx.builder.enable_double_precision,
-        )
+        out_dtype = numpy_dtype_to_ir(out_var.aval.dtype)
         result.type = ir.TensorType(out_dtype)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
@@ -494,9 +487,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(target_shape, (repeats_rank,))
             _ensure_value_metadata(ctx, target_shape)
 
-            dtype_enum = _dtype_to_ir(
-                input_np_dtype, ctx.builder.enable_double_precision
-            )
+            dtype_enum = numpy_dtype_to_ir(input_np_dtype)
             new_shape: tuple[DimInput, ...] = tuple([1] * num_new + list(current_shape))
             reshaped = ctx.builder.Reshape(
                 input_val,

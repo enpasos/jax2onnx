@@ -7,8 +7,34 @@ from typing import Sequence, cast
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
+    NativeLoweringContext,
+)
 from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy
+from jax2onnx.plugins._loop_extent_meta import propagate_axis0_override
+
+
+def cast_value_to_dtype(
+    ctx: NativeLoweringContext,
+    value: ir.Value,
+    dtype: ir.DataType,
+    *,
+    name_hint: str,
+) -> ir.Value:
+    """Cast this consumer's operand without changing its source binding."""
+    if value.dtype == dtype:
+        return value
+    output = ir.Value(
+        name=ctx.fresh_name(name_hint),
+        type=ir.TensorType(dtype),
+        shape=value.shape,
+    )
+    result: ir.Value = ctx.builder.op(
+        "Cast", [value], {"to": int(dtype.value)}, output=output
+    )
+    propagate_axis0_override(value, result)
+    return result
 
 
 def cast_param_like(
@@ -19,7 +45,8 @@ def cast_param_like(
 ) -> ir.Value:
     """
     If `param`'s dtype differs from `like`'s dtype, insert a CastLike node to cast
-    `param` to `like`'s dtype. Never casts `like`. Returns the value to use downstream.
+    `param` to `like`'s dtype. Returns a consumer-local value without changing
+    either original binding or a shared constant's payload.
 
     Safe to call when dtypes are unknown (no-op). Preserves shape.
     """
@@ -27,18 +54,6 @@ def cast_param_like(
     l_dt = like.dtype
     if p_dt is None or l_dt is None or p_dt == l_dt:
         return param
-
-    if param.const_value is not None:
-        np_arr = const_value_to_numpy(param)
-        target_np = ir_dtype_to_numpy(l_dt, default=None)
-        if np_arr is not None and target_np is not None:
-            if np_arr.dtype != target_np:
-                np_arr = np_arr.astype(target_np, copy=False)
-                param.const_value = ir.tensor(np_arr)
-            param.type = ir.TensorType(l_dt)
-            if param.shape is None and hasattr(np_arr, "shape"):
-                param.shape = ir.Shape(tuple(int(d) for d in np_arr.shape))
-            return param
 
     cast_name = ctx.fresh_name(name_hint)
     out = cast(

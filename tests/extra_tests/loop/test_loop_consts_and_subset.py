@@ -1,5 +1,6 @@
 # tests/extra_tests/loop/test_loop_consts_and_subset.py
 
+import jax
 import onnx
 import onnxruntime as ort
 import jax.numpy as jnp
@@ -27,14 +28,14 @@ def _fn_subset_outputs():
 
 
 def test_loop_consts_and_subset_loads(tmp_path):
-    model = to_onnx(
-        _fn_subset_outputs(),
-        inputs=[],
-        enable_double_precision=True,
-        model_name="loop_subset_ir",
-    )
-    out_path = tmp_path / "loop_subset_ir.onnx"
-    onnx.save_model(model, out_path)
-    sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-    (out,) = sess.run(None, {})
-    assert out.shape == (3,)
+    with jax.enable_x64(True):
+        model = to_onnx(
+            _fn_subset_outputs(),
+            inputs=[],
+            model_name="loop_subset_ir",
+        )
+        out_path = tmp_path / "loop_subset_ir.onnx"
+        onnx.save_model(model, out_path)
+        sess = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+        (out,) = sess.run(None, {})
+        assert out.shape == (3,)

@@ -107,7 +107,7 @@ def _all_axes(x: Any) -> tuple[int, ...]:
             "expected_output_dtypes": [np.uint32],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["Cast:1x8 -> ReduceSum:1 -> Cast:1"],
+                ["Cast:1x8 -> Pad:1x9 -> CumSum:1x9 -> Gather:1 -> Cast:1"],
                 no_unused_inputs=True,
             ),
         },
@@ -137,7 +137,9 @@ def _all_axes(x: Any) -> tuple[int, ...]:
         {
             "testcase": "reduce_sum_of_abs_axis1",
             "callable": lambda x: jax.lax.reduce_sum(jax.lax.abs(x), axes=(1,)),
-            "input_values": [np.array([[1.0, -2.0, 3.0], [-4.0, 5.0, -6.0]])],
+            "input_values": [
+                np.array([[1.0, -2.0, 3.0], [-4.0, 5.0, -6.0]], dtype=np.float32)
+            ],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -151,7 +153,9 @@ def _all_axes(x: Any) -> tuple[int, ...]:
         {
             "testcase": "reduce_sum_of_square_axis1",
             "callable": lambda x: jax.lax.reduce_sum(jax.lax.mul(x, x), axes=(1,)),
-            "input_values": [np.array([[1.0, -2.0, 3.0], [-4.0, 5.0, -6.0]])],
+            "input_values": [
+                np.array([[1.0, -2.0, 3.0], [-4.0, 5.0, -6.0]], dtype=np.float32)
+            ],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -182,8 +186,9 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
             lower_reduction(ctx, eqn, op_type="ReduceSum", allow_dtype_param=True)
             return
 
-        # Keep the legacy lowering path when dtype conversion is requested.
-        if dtype is not None:
+        # Integer sums need source-width modular arithmetic; ReduceL1 and
+        # ReduceSumSquare cannot replace the explicit integer producer.
+        if dtype is not None or np.issubdtype(operand_var.aval.dtype, np.integer):
             lower_reduction(ctx, eqn, op_type="ReduceSum", allow_dtype_param=True)
             return
 

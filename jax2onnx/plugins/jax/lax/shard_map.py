@@ -14,6 +14,7 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -55,7 +56,7 @@ def _shard_map_inline_add(x: np.ndarray) -> np.ndarray:
             "callable": _shard_map_inline_add,
             "input_values": [np.array([2.0], dtype=np.float32)],
             "expected_output_shapes": [(1,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(["Add:1"], no_unused_inputs=True),
         }
     ],

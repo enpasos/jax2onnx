@@ -27,7 +27,9 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -42,6 +44,13 @@ def _normalize_shape(shape: Any) -> tuple[int, ...]:
     if any(d < 0 for d in dims):
         raise ValueError(f"negative dimensions are not allowed: {dims}")
     return dims
+
+
+def _full_const_scalar(dtype: Any) -> Callable[[], jax.Array]:
+    def call() -> jax.Array:
+        return jnp.full((2, 3), 1.5, dtype=dtype)
+
+    return call
 
 
 @register_native_primitive(
@@ -59,8 +68,11 @@ def _normalize_shape(shape: Any) -> tuple[int, ...]:
     testcases=[
         {
             "testcase": "jnp_full_const_scalar",
-            "callable": lambda: jnp.full((2, 3), 1.5, dtype=jnp.float32),
+            "callable": construct_and_call(
+                _full_const_scalar, dtype=with_requested_dtype()
+            ),
             "input_values": [],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["ConstantOfShape:2x3"],
                 no_unused_inputs=True,

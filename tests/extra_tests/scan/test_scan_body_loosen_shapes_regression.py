@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import pathlib
 
 import jax.numpy as jnp
@@ -127,53 +128,53 @@ def _nested_loop_repro():
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_scan_body_loosen_env_allows_ort_load_and_run(tmp_path: pathlib.Path):
-    ort = pytest.importorskip("onnxruntime")
+    with jax.enable_x64(True):
+        ort = pytest.importorskip("onnxruntime")
 
-    model = to_onnx(
-        _scan_body_broadcast_mul_with_scatter_repro,
-        inputs=[],
-        enable_double_precision=True,
-        opset=21,
-        model_name="scan_body_loosen_shapes_repro",
-    )
+        model = to_onnx(
+            _scan_body_broadcast_mul_with_scatter_repro,
+            inputs=[],
+            opset=21,
+            model_name="scan_body_loosen_shapes_repro",
+        )
 
-    path = tmp_path / "scan_body_loosen_shapes_repro.onnx"
-    path.write_bytes(model.SerializeToString())
+        path = tmp_path / "scan_body_loosen_shapes_repro.onnx"
+        path.write_bytes(model.SerializeToString())
 
-    onnx.checker.check_model(model)
+        onnx.checker.check_model(model)
 
-    body = _first_loop_or_scan_body(model.graph)
-    assert body is not None, "Expected a Scan/Loop body."
+        body = _first_loop_or_scan_body(model.graph)
+        assert body is not None, "Expected a Scan/Loop body."
 
-    sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-    outs = sess.run(None, {})
-    assert len(outs) == 1
-    assert tuple(outs[0].shape) == (5, 210, 1, 1)
+        sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        outs = sess.run(None, {})
+        assert len(outs) == 1
+        assert tuple(outs[0].shape) == (5, 210, 1, 1)
 
 
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_scan_body_internal_value_infos_are_rank_only_when_loosen_enabled(
     tmp_path: pathlib.Path,
 ):
-    model = to_onnx(
-        _scan_body_broadcast_mul_with_scatter_repro,
-        inputs=[],
-        enable_double_precision=True,
-        opset=21,
-        model_name="scan_body_loosen_shapes_vi_check",
-    )
+    with jax.enable_x64(True):
+        model = to_onnx(
+            _scan_body_broadcast_mul_with_scatter_repro,
+            inputs=[],
+            opset=21,
+            model_name="scan_body_loosen_shapes_vi_check",
+        )
 
-    path = tmp_path / "scan_body_loosen_shapes_vi_check.onnx"
-    path.write_bytes(model.SerializeToString())
+        path = tmp_path / "scan_body_loosen_shapes_vi_check.onnx"
+        path.write_bytes(model.SerializeToString())
 
-    m = onnx.load(str(path))
-    body = _first_loop_or_scan_body(m.graph)
-    assert body is not None, "Expected a Scan/Loop body."
+        m = onnx.load(str(path))
+        body = _first_loop_or_scan_body(m.graph)
+        assert body is not None, "Expected a Scan/Loop body."
 
-    for vi in body.value_info:
-        assert _all_dims_dynamic(
-            vi
-        ), f"Scan/Loop body VI '{vi.name}' must be rank-only after converter loosening"
+        for vi in body.value_info:
+            assert _all_dims_dynamic(
+                vi
+            ), f"Scan/Loop body VI '{vi.name}' must be rank-only after converter loosening"
 
 
 SENSITIVE = {

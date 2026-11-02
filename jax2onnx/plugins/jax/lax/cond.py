@@ -11,7 +11,7 @@ import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
     make_subgraph_context,
@@ -19,6 +19,7 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -95,7 +96,7 @@ def _extract_branches(
             "input_shapes": [(11, 3, 4), (3, 4)],
             "input_dtypes": [np.float32, np.float32],
             "expected_output_shapes": [(11, 3, 4), (11,)],
-            "expected_output_dtypes": [np.float32, np.float32],
+            "expected_output_dtypes": [with_requested_dtype(), with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     "Greater:11x3x4 -> Cast:11x3x4 -> ReduceMin -> Cast -> If",
@@ -144,7 +145,6 @@ def _extract_branches(
             "input_shapes": [],
             "expected_output_shapes": [(2, 4)],
             "expected_output_dtypes": [np.float64],
-            "enable_double_precision": True,
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 ["Cast -> If:2x4"],
@@ -274,19 +274,9 @@ class CondPlugin(PrimitiveLeafPlugin):
         if not isinstance(if_outputs, tuple):
             if_outputs = (if_outputs,)
 
-        enable_dp = getattr(builder, "enable_double_precision", False)
         for var, out_val in zip(eqn.outvars, if_outputs):
-            aval = getattr(var, "aval", None)
-            dtype_enum = None
-            if aval is not None:
-                aval_dtype = getattr(aval, "dtype", None)
-                if aval_dtype is not None:
-                    try:
-                        dtype_enum = _dtype_to_ir(np.dtype(aval_dtype), enable_dp)
-                    except TypeError:
-                        dtype_enum = None
-            if dtype_enum is not None:
-                out_val.type = ir.TensorType(dtype_enum)
+            aval = var.aval
+            out_val.type = ir.TensorType(numpy_dtype_to_ir(aval.dtype))
             _stamp_type_and_shape(out_val, tuple(getattr(aval, "shape", ()) or ()))
             _ensure_value_metadata(ctx, out_val)
             ctx.bind_value_for_var(var, out_val)

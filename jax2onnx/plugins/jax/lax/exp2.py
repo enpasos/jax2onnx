@@ -7,6 +7,7 @@ from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.plugins._precision_utils import require_default_accuracy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -37,6 +38,7 @@ class Exp2Plugin(PrimitiveLeafPlugin):
     """Lower ``lax.exp2`` to ONNX ``Pow`` as ``2^x``."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        require_default_accuracy(eqn)
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

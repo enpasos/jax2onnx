@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -106,10 +106,7 @@ class CumSumPlugin(PrimitiveLeafPlugin):
         )
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        out_dtype_enum = _dtype_to_ir(
-            np.dtype(getattr(out_var.aval, "dtype", operand_var.aval.dtype)),
-            ctx.builder.enable_double_precision,
-        )
+        out_dtype_enum = numpy_dtype_to_ir(out_var.aval.dtype)
         result.type = ir.TensorType(out_dtype_enum)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)

@@ -33,6 +33,21 @@ behavior, make the intended inference behavior explicit before export. Pass
 runtime flags as explicit inputs only when those flags should remain part of the
 ONNX model interface.
 
+## Dtypes and Model Preparation
+
+Export follows the prepared JAX computation. Shape-only input specs default to
+FP32 even when x64 is enabled. For FP64, supply typed inputs and configure the
+model in an effective JAX x64 context; use that same context for validation.
+Explicit FP32 casts, constants, and framework dtype settings keep their meaning.
+Widening stored FP32 weights does not recover precision lost when they were
+created. See [Dtypes and Precision](api.md#dtypes-and-precision) for the API and
+the migration from the removed `enable_double_precision` argument.
+
+For unary `lax` math lowerings that accept an `accuracy` argument, `None` and
+`AccuracyMode.DEFAULT` are supported. `AccuracyMode.HIGHEST` and explicit
+`Tolerance` requests currently raise `NotImplementedError`; export does not yet
+preserve their requested accuracy.
+
 ## Runtime Compatibility
 
 ONNX Runtime compatibility depends on:
@@ -45,6 +60,11 @@ ONNX Runtime compatibility depends on:
 
 For browser/WASM deployment, use `export_mode="web"` and the Web validation
 workflow.
+
+Bit reinterpretation with `lax.bitcast_convert_type` requires opset 26, a
+validator that contains the `BitCast` schema, and a runtime kernel. The minimum
+ONNX package, 1.20.1, contains schemas only through opset 25; these opset-26
+workflows therefore require a newer ONNX environment.
 
 ## Numerical Differences
 
@@ -61,6 +81,94 @@ while implementing the same normalization formula, and later layers may amplify
 that roundoff. Use strict parity checks on representative, nonconstant inputs;
 for degenerate normalization inputs, also check finiteness and apply a tolerance
 specific to the model, dtype, and runtime.
+
+### FP16 arithmetic boundaries
+
+On the checked ONNX Runtime CPU versions, implicit half-kernel adaptations can
+remove intermediate FP16 rounding. FP16 `Add`, `Sub`, and `Mul` therefore use
+local FLOAT arithmetic and an explicit FP16 result cast. FP16 `rsqrt` computes
+`1 / Sqrt(x)` in FLOAT and casts once at the primitive's result boundary; its
+intermediate square root is not rounded to half. Inputs and shared constants
+retain their source types. This does not establish universal accuracy for all
+half operations or execution providers. See the measured runtime scope in
+[Dependencies](../about/dependencies.md#onnx-runtime-kernel-gaps).
+
+Checks on 2 November 2026 found that CPU JAX 0.8.1 rounds FP16 `rsqrt(65504)`
+differently from JAX 0.10.2/0.12.0.1. The lowering matches the locked references
+but differs from JAX 0.8.1 by one FP16 step with ONNX Runtime 1.24.1 and 1.31.0.
+Numerical parity at that boundary remains **failed**.
+
+On CPU JAX/jaxlib 0.8.1 with ONNX Runtime 1.24.1, native result bits are `7169`
+and runtime bits are `7168`. The main baseline and this exporter produce
+bit-identical results across the full eight-input regression with runtime
+optimizations disabled and enabled. The known failed input remains recorded
+separately; other inputs retain exact comparisons. This does not qualify parity
+at `65504` or change the supported dependency floors.
+
+### FP16 attention on JAX CPU
+
+For the masked `jax.nn.dot_product_attention` regression with input shape
+`(1, 4, 2, 8)`, eager JAX works on both official JAX/jaxlib 0.10.2 and 0.12.0.1.
+Fresh CPU JIT compilation raises `ValueError` with
+`The precision 'F16_F16_F32' is not supported by dot_general on CPU`.
+No warmed executable is available after that compilation failure.
+
+The original eager-JAX/ONNX Runtime comparison remains at `rtol=atol=2e-3`,
+with runtime graph optimizations disabled and enabled. Qualification against
+all three native references—eager, freshly compiled, and warmed—remains
+**unverified** for this case. The compiler error is recorded separately and is
+not a successful numerical comparison.
+
+### Explicit matrix multiplication algorithms
+
+CPU exports support ordinary precision tuples, `None`, and
+`DotAlgorithmPreset.DEFAULT`. Explicit `F32_F32_F32` and `F64_F64_F64` are
+supported for FP32/FP64 operands and results through local work casts and a
+final cast to the source result dtype. Other explicit algorithms or dtype
+combinations currently raise `NotImplementedError`.
+
+The checked `(2, 2)` matrix result with contraction length 2 agrees with eager,
+freshly compiled, and warmed JAX and both ONNX Runtime optimization settings
+on official JAX 0.10.2/0.12.0.1 CPU. A `(1, 1)` result with the same products
+and `F64_F64_F64` fails in both official CPU emitters with
+`ALG_DOT_F64_F64_F64`. Native execution **failed** and no warmed executable is
+available. The exporter can represent the arithmetic; JAX/ONNX numerical parity
+for that shape remains **unverified**.
+
+### FP64 atan2 subnormal inputs
+
+The checked JAX 0.10.2/0.12.0.1 CPU references agree across eager, fresh and
+warmed execution, but differ from ONNX at six pairs in the full 4,265-input
+FP64 `atan2(y, x)` witness. With `s` the smallest positive FP64 subnormal and
+`M` the largest finite FP64 value, these are `(s, -M)`, `(s, -1)`,
+`(s, s)`, `(s, -s)`, `(-s, s)` and `(-s, -s)`.
+
+These pairs remain numerically **failed** and are outside qualified JAX parity.
+The regression retains all inputs, native consensus, FP64 graph checks, NaN/Inf
+and signed-zero checks. Every other pair in the witness must pass
+`rtol=0, atol=4e-15` with ONNX Runtime optimizations disabled and enabled.
+Exact zeros with the sign of `y` are required on the corresponding input axes
+and for finite `y` with positive-infinite `x`; zeros shared by native and runtime
+results must also retain their signs. The absolute tolerance can permit a
+finite residual where native returns zero, so it does not promise identical
+zero locations for every finite angle.
+The diagnostic records the actual failing subset, including zero after a fix;
+it does not emulate the native behavior or qualify numerical parity for a
+failing pair. The minimum-JAX FP16 `rsqrt` failure remains a separate boundary.
+
+### Complex calculations
+
+Complex values use packed real and imaginary components: `complex64` retains
+FP32 components and `complex128` retains FP64 components. Complex Gather
+supports ordinary in-bounds and clipped indexing. Its fill mode currently
+requires identical real/imaginary component bits; unequal components, including
+the default `NaN + 0j` fill, raise `NotImplementedError`. This is a lowering
+limitation, not an ONNX restriction.
+
+`lax.exp` and `jnp.exp` share the complex exponential lowering. Numerical checks
+cover the finite RoPE witnesses on the checked CPU stacks, including signed
+zero and small FP64 increments; other complex numerical domains and execution
+providers remain unqualified.
 
 ### Float64 cosine
 
@@ -88,13 +196,13 @@ bfloat16 `Sinh` kernel. The compensated forms compute in the input dtype with
 standard operators and rely on the runtime's `Log` being accurate near one.
 bfloat16 is the exception: it is computed in float32 and rounded back, because
 ONNX Runtime has no bfloat16 `Log` kernel; the model keeps its bfloat16 inputs
-and outputs. With `enable_double_precision=True`, float16 and bfloat16 models
-also keep their dtype. Their regression checks compare against a float64
+and outputs. Float16 and bfloat16 models keep their declared dtype with caller
+x64 disabled or enabled. Their regression checks compare against a float64
 reference: at most 8 ulp for float16, float32, and float64 sweeps with and
 without graph optimizations and for every float16 input, and at most 1 ulp for
-every bfloat16 input, with `enable_double_precision` off and on. They also
-cover subnormal inputs, NaN, infinities, the `log1p` domain boundary at `-1`,
-and `sinh` up to its overflow threshold. ONNX Runtime's CPU `Where` returns
+every bfloat16 input. They also cover subnormal inputs, NaN, infinities, the
+`log1p` domain boundary at `-1`, and `sinh` up to its overflow threshold.
+ONNX Runtime's CPU `Where` returns
 `+0.0` when it selects `-0.0`, so exported `expm1(-0.0)` is `+0.0`;
 `log1p(-0.0)` and `sinh(-0.0)` keep their sign. These checks cover ONNX Runtime
 CPU; validate the actual deployment provider separately.
@@ -164,10 +272,10 @@ safeguard. It is outside the fixed comparative limits below. The specialized
 explicit LayerNorm computes float16 and bfloat16 statistics in float32. For
 float32 inputs, only the slow-variance reduction accumulates its squared centered
 values in float64 and rounds the variance back to float32; the mean, squares,
-epsilon, normalization, and affine math stay float32. The widening is
-unconditional (independent of `enable_double_precision`), LayerNorm-specific, and
-improves accuracy portability across runtime reduction orders without
-guaranteeing identical results. The fixed comparisons below cover float32 inputs;
+epsilon, normalization, and affine math stay float32. This local work-dtype
+choice is LayerNorm-specific and improves accuracy portability across runtime
+reduction orders without guaranteeing identical results. The fixed comparisons
+below cover float32 inputs;
 validate other configurations for the model's inputs.
 
 ### Scope of the fixed LayerNorm limits

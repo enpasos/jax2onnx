@@ -9,7 +9,7 @@ from typing import Iterable, TypeAlias, Union, cast
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType
-from jax2onnx.ir_utils import iter_ir_functions, tensor_attr, tensor_to_numpy
+from jax2onnx.ir_utils import iter_ir_functions
 
 DimValue: TypeAlias = Union[int, ir.SymbolicDim, None]
 
@@ -141,53 +141,16 @@ def _loosen_graph_value_shapes(
             _reset_tensor_type(initializer)
 
 
-def _maybe_promote_value_to_double(value: ir.Value) -> None:
-    tensor = value.const_value
-    array = tensor_to_numpy(tensor)
-    if array is None or array.dtype != np.float32:
-        return
-    promoted = ir.tensor(array.astype(np.float64))
-    value.const_value = promoted
-    value.type = ir.TensorType(ir.DataType.DOUBLE)
-
-
-def _promote_constant_attributes(node: ir.Node) -> None:
-    value_attr = node.attributes.get("value")
-    if value_attr is None or value_attr.type is not AttributeType.TENSOR:
-        return
-    tensor = value_attr.as_tensor()
-    array = tensor_to_numpy(tensor)
-    if array is None:
-        return
-    if array.dtype != np.float32:
-        return
-    promoted = ir.tensor(array.astype(np.float64))
-    node.attributes["value"] = tensor_attr("value", promoted)
-
-
 def _process_graph(
     graph: ir.Graph,
     *,
     loosen: bool,
-    promote: bool,
     force_rank_only: bool = False,
 ) -> None:
     if loosen:
         _loosen_graph_value_shapes(graph, force_rank_only=force_rank_only)
 
-    if promote:
-        for initializer in _iter_initializers(graph):
-            _maybe_promote_value_to_double(initializer)
-
     for node in graph:
-        if promote and node.op_type == "Constant":
-            _promote_constant_attributes(node)
-
-        if promote:
-            for output in node.outputs:
-                if output is not None:
-                    _maybe_promote_value_to_double(output)
-
         child_force_rank_only = force_rank_only or node.op_type in {"Loop", "Scan"}
         for attr in list(node.attributes.values()):
             if attr.type is AttributeType.GRAPH:
@@ -196,7 +159,6 @@ def _process_graph(
                     _process_graph(
                         sub_graph,
                         loosen=loosen,
-                        promote=promote,
                         force_rank_only=child_force_rank_only,
                     )
             elif attr.type is AttributeType.GRAPHS:
@@ -204,24 +166,22 @@ def _process_graph(
                     _process_graph(
                         sub_graph,
                         loosen=loosen,
-                        promote=promote,
                         force_rank_only=child_force_rank_only,
                     )
 
 
-def _process_functions(model: ir.Model, *, loosen: bool, promote: bool) -> None:
+def _process_functions(model: ir.Model, *, loosen: bool) -> None:
     for fn_obj in iter_ir_functions(model.functions):
         graph_obj = cast(ir.Graph, getattr(fn_obj, "graph", fn_obj))
         if loosen:
             _loosen_graph_value_shapes(graph_obj, force_rank_only=False)
-        _process_graph(graph_obj, loosen=loosen, promote=promote, force_rank_only=False)
+        _process_graph(graph_obj, loosen=loosen, force_rank_only=False)
 
 
-def postprocess_ir_model(model: ir.Model, *, promote_to_double: bool) -> None:
+def postprocess_ir_model(model: ir.Model) -> None:
     _process_graph(
         model.graph,
         loosen=True,
-        promote=promote_to_double,
         force_rank_only=False,
     )
-    _process_functions(model, loosen=True, promote=promote_to_double)
+    _process_functions(model, loosen=True)

@@ -11,14 +11,16 @@ from jax2onnx._compat.jax import (
     batching,
 )
 import jax.numpy as jnp
-import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
     get_orig_impl,
     jnp_binding_specs,
     make_jnp_primitive,
@@ -63,9 +65,8 @@ class JnpMaximumPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(x: AbstractValue, y: AbstractValue) -> ShapedArray:
-        out_shape = tuple(jnp.broadcast_shapes(x.shape, y.shape))
-        out_dtype = np.promote_types(x.dtype, y.dtype)
-        return ShapedArray(out_shape, out_dtype)
+        original = get_orig_impl(JnpMaximumPlugin._PRIM, JnpMaximumPlugin._FUNC_NAME)
+        return abstract_eval_via_jax(original, x, y)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
@@ -74,28 +75,18 @@ class JnpMaximumPlugin(PrimitiveLeafPlugin):
         lhs_val = ctx.get_value_for_var(
             lhs_var, name_hint=ctx.fresh_name("maximum_lhs")
         )
-        prefer_dtype: np.dtype[Any] = np.dtype(
-            getattr(lhs_var.aval, "dtype", np.float32)
-        )
         rhs_val = ctx.get_value_for_var(
             rhs_var,
             name_hint=ctx.fresh_name("maximum_rhs"),
-            prefer_np_dtype=prefer_dtype,
         )
-        out_spec = ctx.get_value_for_var(
+        out_spec = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("maximum_out")
         )
 
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("maximum_out")
-        producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("maximum_out")
-
-        result = ctx.builder.Max(lhs_val, rhs_val, _outputs=[desired_name])
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
+        dtype = numpy_dtype_to_ir(out_var.aval.dtype)
+        lhs_val = cast_value_to_dtype(ctx, lhs_val, dtype, name_hint="maximum_lhs_cast")
+        rhs_val = cast_value_to_dtype(ctx, rhs_val, dtype, name_hint="maximum_rhs_cast")
+        result = ctx.builder.op("Max", [lhs_val, rhs_val], output=out_spec)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

@@ -16,6 +16,7 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -72,7 +73,7 @@ def _pjit_inline_tuple(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.nda
                 np.array([3.0], dtype=np.float32),
             ],
             "expected_output_shapes": [(1,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Mul:1"],
                 no_unused_inputs=True,
@@ -86,7 +87,7 @@ def _pjit_inline_tuple(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.nda
                 np.array([1.0], dtype=np.float32),
             ],
             "expected_output_shapes": [(1,), (1,)],
-            "expected_output_dtypes": [np.float32, np.float32],
+            "expected_output_dtypes": [with_requested_dtype(), with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Add:1", "Mul:1"],
                 no_unused_inputs=True,

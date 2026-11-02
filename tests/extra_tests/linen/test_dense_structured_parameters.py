@@ -9,8 +9,10 @@ from typing import Any
 from unittest.mock import Mock
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax.linen.dtypes import promote_dtype
 
 from jax2onnx.plugins.flax.linen.dense import DensePlugin
 
@@ -48,6 +50,8 @@ def _module(params: dict[str, Any], *, use_bias: bool = True) -> SimpleNamespace
         scope=SimpleNamespace(variables=lambda: {"params": params}),
         use_bias=use_bias,
         features=3,
+        dtype=None,
+        promote_dtype=promote_dtype,
     )
 
 
@@ -104,14 +108,14 @@ def test_array_kernel_retains_shortcut(
     patch: tuple[Callable[..., Any], Mock, Mock], bias_kind: str
 ) -> None:
     patched, original, bind = patch
-    kernel = np.ones((4, 3), dtype=np.float32)
+    kernel = jnp.ones((4, 3), dtype=jnp.float32)
     params: dict[str, Any] = {"kernel": kernel}
     if bias_kind == "array":
-        params["bias"] = np.arange(3, dtype=np.float32)
+        params["bias"] = jnp.arange(3, dtype=jnp.float32)
     elif bias_kind == "unused_structured":
         params["bias"] = {"payload": np.ones(3, dtype=np.float32)}
     module = _module(params, use_bias=bias_kind != "unused_structured")
-    inputs = np.ones((2, 4), dtype=np.float32)
+    inputs = jnp.ones((2, 4), dtype=jnp.float32)
 
     assert patched(module, inputs) is bind.return_value
 

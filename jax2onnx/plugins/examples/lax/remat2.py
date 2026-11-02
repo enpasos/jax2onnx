@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax2onnx.plugins.jax.lax import remat2 as _remat2_plugin  # noqa: F401
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example, with_requested_dtype
 
 
 @jax.checkpoint
@@ -33,7 +33,7 @@ register_example(
             "input_shapes": [()],
             "input_dtypes": [jnp.float32],
             "expected_output_shapes": [()],
-            "expected_output_dtypes": [jnp.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Sin -> Sin"],
                 no_unused_inputs=True,

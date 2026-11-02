@@ -6,6 +6,7 @@ import jax
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
+from jax2onnx.plugins._precision_utils import require_default_accuracy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -39,6 +40,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 class LogisticPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        require_default_accuracy(eqn)
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

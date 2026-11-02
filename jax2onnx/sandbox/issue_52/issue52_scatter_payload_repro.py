@@ -35,9 +35,6 @@ from onnxruntime.capi.onnxruntime_pybind11_state import (  # type: ignore[import
 from jax2onnx import to_onnx
 from jax2onnx.converter.typing_support import AxisOverrideInfo, AxisOverrideMap
 
-jax.config.update("jax_enable_x64", True)
-
-
 DATA_DIR = pathlib.Path(__file__).resolve().parent
 PAYLOAD_PATH = DATA_DIR / "issue52_feedforward_payload.npz"
 ONNX_PATH = pathlib.Path("sod_issue52_payload.onnx")
@@ -314,9 +311,12 @@ def _load_payload() -> Tuple[
     loader = ArrayLoader(arrays)
 
     closed = _deserialize_closed_jaxpr(meta["closed_jaxpr"], loader)
-    prim0 = jnp.asarray(_deserialize_value(meta["prim0"], loader), dtype=jnp.float64)
-    initial_time = jnp.array([meta["initial_time"]], dtype=jnp.float64)
-    time_step = jnp.array([meta["time_step"]], dtype=jnp.float64)
+    with jax.enable_x64():
+        prim0 = jnp.asarray(
+            _deserialize_value(meta["prim0"], loader), dtype=jnp.float64
+        )
+        initial_time = jnp.array([meta["initial_time"]], dtype=jnp.float64)
+        time_step = jnp.array([meta["time_step"]], dtype=jnp.float64)
 
     return closed, prim0, initial_time, time_step
 
@@ -547,18 +547,13 @@ def _export_to_onnx(
     *,
     trace_axis0: bool = True,
 ) -> tuple[onnx.ModelProto, ir.Model]:
-    inputs: List[Any] = [prim0, t_arr, dt_arr]
-    to_kwargs: Dict[str, Any] = {
-        "inputs": inputs,
-        "model_name": "feed_forward_step",
-        "enable_double_precision": True,
-        "return_mode": "ir",
-    }
-    try:
-        ir_model = to_onnx(ff, **to_kwargs)
-    except TypeError:
-        to_kwargs.pop("enable_double_precision", None)
-        ir_model = to_onnx(ff, **to_kwargs)
+    with jax.enable_x64():
+        ir_model = to_onnx(
+            ff,
+            inputs=[prim0, t_arr, dt_arr],
+            model_name="feed_forward_step",
+            return_mode="ir",
+        )
 
     if trace_axis0:
         _trace_axis0(ir_model)

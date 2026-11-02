@@ -14,6 +14,49 @@ from flax import nnx
 from flax.nnx import bridge
 
 
+def expect_mlp_precision(
+    float32_check: Callable[[Any], bool],
+    float64_check: Callable[[Any], bool],
+) -> Callable[[Any], bool]:
+    """Select an MLP structural check and verify its floating work dtype.
+
+    Generated graph hooks receive the serialized, TensorProto-like model. Keep
+    this inspection at the test boundary without importing protobuf types.
+    """
+
+    def _check(model: Any) -> bool:
+        graph = model.graph
+        if len(graph.input) != 1 or len(graph.output) != 1:
+            return False
+        elem_type = graph.input[0].type.tensor_type.elem_type
+        check = {1: float32_check, 11: float64_check}.get(elem_type)
+        if check is None or graph.output[0].type.tensor_type.elem_type != elem_type:
+            return False
+        value_types = {
+            value.name: value.type.tensor_type.elem_type
+            for value in (*graph.value_info, *graph.output)
+        }
+        compute_ops = {
+            "Gemm",
+            "BatchNormalization",
+            "Sub",
+            "Add",
+            "Sqrt",
+            "Div",
+            "Mul",
+            "Dropout",
+            "Gelu",
+        }
+        for node in graph.node:
+            if node.op_type in compute_ops and (
+                not node.output or value_types.get(node.output[0]) != elem_type
+            ):
+                return False
+        return check(model)
+
+    return _check
+
+
 class _LinenToNNXCallable:
     def __init__(self, model: Callable[..., Any], rngs: Any) -> None:
         self._model = model

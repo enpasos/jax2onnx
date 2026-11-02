@@ -34,6 +34,9 @@ primitive-specific lowering policy such as how `lax.conv_general_dilated`,
 5. **Conservative graph cleanup.** Optimizer passes are IR-only and structural.
    They may remove redundant graph artifacts, but they must preserve graph
    outputs and function signatures.
+6. **Source-owned precision.** JAX model configuration, typed inputs, constants,
+   and explicit conversions determine computation types. Export does not impose
+   a global arithmetic dtype.
 
 ## Related Documentation
 
@@ -65,7 +68,7 @@ primitive-specific lowering policy such as how `lax.conv_general_dilated`,
 | `jax2onnx/converter/ir_builder.py` | Thin wrapper around `onnx_ir` tape builder with project-specific naming, initializer, and metadata behavior. |
 | `jax2onnx/converter/function_scope.py` | Child context used to stage ONNX Function bodies. |
 | `jax2onnx/converter/ir_optimizations.py` | IR-only optimizer pass registry. |
-| `jax2onnx/converter/ir_postprocess.py` | Export preparation: loosen intermediate shapes and promote constants when double precision is requested. |
+| `jax2onnx/converter/ir_postprocess.py` | Export preparation: loosen intermediate shapes while preserving input/output types and shapes. |
 | `jax2onnx/plugins/plugin_system.py` | Plugin registry, tracing-time patch activation, `PrimitiveLeafPlugin`, and `@onnx_function`. |
 | `jax2onnx/plugins/` | Primitive and framework-specific lowering implementations plus generated-test metadata. |
 
@@ -119,6 +122,13 @@ input specs. `conversion_api` normalizes them to `ShapeDtypeStruct` instances.
 String dimensions such as `"B"` are converted to JAX symbolic dimensions inside
 a shared `jax.export.SymbolicScope`.
 
+Shape-only specs default to FP32, including under `jax.enable_x64()`. Typed
+specs retain their declared dtype; if JAX would narrow one in the effective
+configuration, export raises an actionable error before tracing the model.
+FP64 preparation therefore includes both typed inputs and a JAX configuration
+that supports them. The public `to_onnx` and `allclose` APIs share this contract;
+the removed `enable_double_precision` keyword is diagnosed whenever supplied.
+
 Plugin bindings are active only around tracing. This is where high-level calls
 such as NNX modules, decorated `@onnx_function` targets, or plugin-specific JAX
 wrappers can emit custom primitive names into the `ClosedJaxpr`. After tracing,
@@ -139,6 +149,10 @@ the converter:
 - emits `Constant` nodes instead when inside ONNX Function bodies;
 - creates graph inputs for JAXPR input variables;
 - inserts NCHW/NHWC bridge transposes only for explicitly requested external IO.
+
+Constants retain their traced dtype and payload, including when shared by
+consumers or captured in child scopes. Named functions preserve the effective
+JAX precision context for delayed tracing and function reuse.
 
 ### 3. Equation Lowering
 
@@ -179,7 +193,7 @@ Optimizer failures are non-fatal by default and logged. Set
 The public facade calls `postprocess_ir_model(...)` before returning or
 serializing. This pass loosens intermediate value shapes while preserving graph
 input/output shapes, recursively handles control-flow subgraphs and ONNX
-Function bodies, and promotes constants when double precision export is enabled.
+Function bodies, and preserves their dtypes and constant payloads.
 
 Only after post-processing does the public facade apply custom IO names,
 materialize referenced `input_params`, convert to `onnx.ModelProto`, or write a
@@ -211,6 +225,12 @@ Lowerings should follow these rules:
 - Bind outputs with `ctx.bind_value_for_var(...)`. Returned-value conventions
   remain at the legacy registration boundary.
 - Never import ONNX protobuf classes from converter or plugin lowering code.
+
+When an ONNX operator needs a different work dtype, the plugin emits explicit
+consumer-local conversions and restores the source result type at the required
+boundary. It must preserve canonical input bindings and shared initializers.
+These adaptations belong to the operation, rather than an exporter-wide
+precision setting. See the [builder guide](advanced_topics/onnx_ir_builder.md#dtypes-and-local-work-values).
 
 Native registration stores `lower(ctx, eqn) -> None` directly; only legacy
 extensions need call-convention discovery or result adaptation. New native

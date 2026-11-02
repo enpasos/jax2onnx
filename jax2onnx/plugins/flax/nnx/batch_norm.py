@@ -6,6 +6,7 @@ import logging
 import numpy as np
 import jax.numpy as jnp
 from flax import nnx
+from flax.nnx.nn import dtypes as nnx_dtypes
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import (
@@ -455,8 +456,6 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
     # ---------------- monkey-patch & bindings ----------------
     @staticmethod
     def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
-        del orig_fn  # not used; kept for symmetry with other plugins
-
         def patched(
             self: nnx.BatchNorm,
             x: Any,
@@ -464,6 +463,28 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             *,
             mask: Any | None = None,
         ) -> Any:
+            if self.promote_dtype is not nnx_dtypes.promote_dtype:
+                # Promotion hooks can also change values. Let the framework
+                # execute a custom hook once, with its original operands.
+                return orig_fn(
+                    self, x, use_running_average=use_running_average, mask=mask
+                )
+            mean = self.mean[...]
+            var = self.var[...]
+            scale = self.scale[...] if self.scale is not None else None
+            bias = self.bias[...] if self.bias is not None else None
+            compute_dtype = nnx_dtypes.canonicalize_dtype(
+                x, mean, var, scale, bias, dtype=self.dtype
+            )
+            if np.dtype(compute_dtype) != np.dtype(np.float32):
+                # Flax's original calculation retains FP64 and half rounding
+                # stages that this fused inference primitive does not model.
+                return orig_fn(
+                    self, x, use_running_average=use_running_average, mask=mask
+                )
+            x, mean, var, scale, bias = self.promote_dtype(
+                (x, mean, var, scale, bias), dtype=self.dtype
+            )
             del use_running_average, mask
             # Force inference behavior; warn if training mode was requested
             if not self.use_running_average:
@@ -471,19 +492,18 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
                     "BatchNorm exported with use_running_average=False; converting to inference mode."
                 )
 
-            param_dtype = self.param_dtype if self.param_dtype is not None else x.dtype
             # IMPORTANT: build defaults with NumPy so they become initializers
             # (no traced ops like Concat/Expand).
-            np_dtype = np.dtype(param_dtype)
+            np_dtype = np.dtype(compute_dtype)
 
-            if self.use_scale:
-                scale_value = self.scale.value
+            if scale is not None:
+                scale_value = scale
                 scale_is_default = False
             else:
                 scale_value = np.ones((self.num_features,), dtype=np_dtype)
                 scale_is_default = True
-            if self.use_bias:
-                bias_value = self.bias.value
+            if bias is not None:
+                bias_value = bias
                 bias_is_default = False
             else:
                 bias_value = np.zeros((self.num_features,), dtype=np_dtype)
@@ -493,8 +513,8 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
                 x,
                 scale_value,
                 bias_value,
-                self.mean.value,
-                self.var.value,
+                mean,
+                var,
                 epsilon=self.epsilon,
                 momentum=self.momentum,
                 scale_is_default=scale_is_default,

@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -148,9 +148,7 @@ class JnpUniquePlugin(PrimitiveLeafPlugin):
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        x_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
-        )
+        x_dtype: np.dtype[Any] = np.dtype(x_var.aval.dtype)
         if x_dtype == np.uint64:
             raise NotImplementedError("jnp.unique uint64 is not supported in ONNX path")
 
@@ -159,8 +157,7 @@ class JnpUniquePlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("unique_out")
         )
 
-        enable_double = bool(getattr(ctx.builder, "enable_double_precision", False))
-        out_enum = _dtype_to_ir(x_dtype, enable_double)
+        out_enum = numpy_dtype_to_ir(x_dtype)
 
         needs_unique_cast = (x_dtype == np.bool_) or (
             np.issubdtype(x_dtype, np.integer) and x_dtype != np.int64

@@ -31,42 +31,60 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
 _LINSPACE_PRIM: Final = make_jnp_primitive("jax.numpy.linspace")
 
 
-def _normalize_dtype(result_dtype: np.dtype[Any], enable_double: bool) -> np.dtype[Any]:
-    if np.issubdtype(result_dtype, np.floating):
-        return result_dtype
-    return np.dtype(np.float64 if enable_double else np.float32)
+def _integer_linspace_graph_check() -> Callable[[Any], bool]:
+    common = EG(
+        [
+            "Range:4 -> Cast:4 -> Div:4 -> Sub:4 -> Mul:4 -> Add:4 -> Floor:4 -> Cast:4",
+        ],
+        no_unused_inputs=True,
+    )
+    counts = {"Range": 1, "Cast": 4, "Sub": 1, "Mul": 2, "Add": 1, "Floor": 1}
+    # JAX uses either stop * (i / div) or (stop / div) * i. Keep each
+    # source decomposition strict, including its division shape and count.
+    right_term = EG(
+        [
+            (
+                "Div:4 -> Mul:4 -> Add:4 -> Floor:4 -> Cast:4",
+                {"counts": {**counts, "Div": 1}},
+            ),
+            (
+                "Div:1 -> Mul:4 -> Add:4 -> Floor:4 -> Cast:4",
+                {"counts": {**counts, "Div": 2}},
+            ),
+        ],
+        mode="any",
+        no_unused_inputs=True,
+    )
 
+    def check(model: Any) -> bool:
+        graph = model.graph
+        if len(graph.output) != 1 or graph.output[0].type.tensor_type.elem_type != 6:
+            return False
+        value_types = {
+            value.name: value.type.tensor_type.elem_type
+            for value in (*graph.value_info, *graph.output)
+        }
+        for node in graph.node:
+            if node.op_type in {"Div", "Sub", "Mul", "Add", "Floor"}:
+                if not node.output or value_types.get(node.output[0]) != 1:
+                    return False
+        cast_types = [
+            value_types.get(node.output[0])
+            for node in graph.node
+            if node.op_type == "Cast"
+        ]
+        if len(cast_types) != 4 or cast_types.count(1) != 3 or cast_types.count(6) != 1:
+            return False
+        return common(model) and right_term(model)
 
-def _infer_result_dtype(
-    start_aval: AbstractValue,
-    stop_aval: AbstractValue,
-    dtype_param: np.dtype[Any] | type | None,
-    enable_double: bool,
-) -> np.dtype[Any]:
-    if dtype_param is not None:
-        return cast(np.dtype[Any], np.dtype(dtype_param))
-
-    cand: list[np.dtype[Any]] = []
-    for aval in (start_aval, stop_aval):
-        aval_dtype = getattr(aval, "dtype", None)
-        if aval_dtype is not None:
-            cand.append(np.dtype(aval_dtype))
-    if cand:
-        result = cand[0]
-        for dt in cand[1:]:
-            result = np.promote_types(result, dt)
-    else:
-        result = np.dtype(np.float64 if enable_double else np.float32)
-
-    if not np.issubdtype(result, np.floating):
-        result = np.dtype(np.float64 if enable_double else np.float32)
-    return result
+    return check
 
 
 def _bind_exact_const(
@@ -103,18 +121,14 @@ def _maybe_cast(
         if np_arr is not None:
             target_dtype = ir_dtype_to_numpy(target_enum, default=None)
             if target_dtype is not None and np_arr.dtype != target_dtype:
-                postprocess_promotes_float32 = bool(
-                    getattr(ctx.builder, "enable_double_precision", False)
-                ) and np.dtype(target_dtype) == np.dtype(np.float32)
-                if not postprocess_promotes_float32:
-                    new_val = _bind_exact_const(
-                        ctx,
-                        np_arr.astype(target_dtype, copy=False),
-                        name_hint,
-                    )
-                    _stamp_type_and_shape(new_val, tuple(int(d) for d in np_arr.shape))
-                    _ensure_value_metadata(ctx, new_val)
-                    return new_val
+                new_val = _bind_exact_const(
+                    ctx,
+                    np_arr.astype(target_dtype, copy=False),
+                    name_hint,
+                )
+                _stamp_type_and_shape(new_val, tuple(int(d) for d in np_arr.shape))
+                _ensure_value_metadata(ctx, new_val)
+                return new_val
     cur_type = getattr(value, "type", None)
     cur_dtype = getattr(cur_type, "dtype", None)
     if cur_dtype == target_enum:
@@ -192,7 +206,7 @@ def _maybe_cast(
             "callable": lambda: jnp.linspace(0, 4, num=5),
             "input_values": [],
             "expected_output_shapes": [(5,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -225,10 +239,7 @@ def _maybe_cast(
             ),
             "input_values": [],
             "expected_output_shapes": [(4,)],
-            "post_check_onnx_graph": EG(
-                ["Range:4 -> Cast:4 -> Mul:4 -> Add:4 -> Cast:4"],
-                no_unused_inputs=True,
-            ),
+            "post_check_onnx_graph": _integer_linspace_graph_check(),
         },
         {
             "testcase": "linspace_num_zero",
@@ -280,7 +291,7 @@ def _maybe_cast(
             "callable": lambda: jnp.linspace(7.0, 9.0, num=1),
             "input_values": [],
             "expected_output_shapes": [(1,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -321,9 +332,27 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         num_int = int(num)
         if num_int < 0:
             raise ValueError("num must be non-negative")
-        enable_x64 = bool(jax.config.jax_enable_x64)
-        result_dtype = _infer_result_dtype(start, stop, dtype, enable_x64)
-        return ShapedArray((num_int,), result_dtype)
+        orig = get_orig_impl(JnpLinspacePlugin._PRIM, JnpLinspacePlugin._FUNC_NAME)
+        start_spec = jax.ShapeDtypeStruct(
+            start.shape, start.dtype, weak_type=bool(getattr(start, "weak_type", False))
+        )
+        stop_spec = jax.ShapeDtypeStruct(
+            stop.shape, stop.dtype, weak_type=bool(getattr(stop, "weak_type", False))
+        )
+        result = jax.eval_shape(
+            lambda s, t: orig(
+                s,
+                t,
+                num=num_int,
+                endpoint=endpoint,
+                retstep=False,
+                dtype=dtype,
+                axis=axis,
+            ),
+            start_spec,
+            stop_spec,
+        )
+        return ShapedArray(result.shape, result.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
@@ -347,21 +376,16 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             )
 
         out_var = eqn.outvars[0]
-        out_dtype: np.dtype[Any] = np.dtype(getattr(out_var.aval, "dtype", np.float32))
+        out_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
         target_enum = numpy_dtype_to_ir(out_dtype)
-
-        work_dtype = _normalize_dtype(out_dtype, ctx.builder.enable_double_precision)
-        work_enum = numpy_dtype_to_ir(work_dtype)
 
         start_val = ctx.get_value_for_var(
             start_var,
             name_hint=ctx.fresh_name("linspace_start"),
-            prefer_np_dtype=work_dtype,
         )
         stop_val = ctx.get_value_for_var(
             stop_var,
             name_hint=ctx.fresh_name("linspace_stop"),
-            prefer_np_dtype=work_dtype,
         )
         builder = getattr(ctx, "builder", None)
         if builder is None:
@@ -369,8 +393,8 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
                 "IR build context missing builder for linspace lowering"
             )
 
-        start_val = _maybe_cast(ctx, start_val, work_enum, "linspace_start_cast")
-        stop_val = _maybe_cast(ctx, stop_val, work_enum, "linspace_stop_cast")
+        start_val = _maybe_cast(ctx, start_val, target_enum, "linspace_start_cast")
+        stop_val = _maybe_cast(ctx, stop_val, target_enum, "linspace_stop_cast")
         _stamp_type_and_shape(start_val, ())
         _stamp_type_and_shape(stop_val, ())
         _ensure_value_metadata(ctx, start_val)
@@ -395,9 +419,9 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         indices_cast = builder.Cast(
             indices,
             _outputs=[ctx.fresh_name("linspace_indices_cast")],
-            to=int(work_enum.value),
+            to=int(target_enum.value),
         )
-        indices_cast.type = ir.TensorType(work_enum)
+        indices_cast.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(indices_cast, (num,))
         _ensure_value_metadata(ctx, indices_cast)
 
@@ -406,7 +430,7 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             start_val,
             _outputs=[ctx.fresh_name("linspace_diff")],
         )
-        diff.type = ir.TensorType(work_enum)
+        diff.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(diff, ())
         _ensure_value_metadata(ctx, diff)
 
@@ -430,7 +454,7 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             denom_val,
             _outputs=[ctx.fresh_name("linspace_step")],
         )
-        step.type = ir.TensorType(work_enum)
+        step.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(step, ())
         _ensure_value_metadata(ctx, step)
 
@@ -439,7 +463,7 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             step,
             _outputs=[ctx.fresh_name("linspace_scaled")],
         )
-        scaled.type = ir.TensorType(work_enum)
+        scaled.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(scaled, (num,))
         _ensure_value_metadata(ctx, scaled)
 
@@ -448,29 +472,18 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             start_val,
             _outputs=[ctx.fresh_name("linspace_vals")],
         )
-        linspace_vals.type = ir.TensorType(work_enum)
+        linspace_vals.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(linspace_vals, (num,))
         _ensure_value_metadata(ctx, linspace_vals)
 
         out_spec = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("linspace_out"), prefer_np_dtype=out_dtype
+            out_var, name_hint=ctx.fresh_name("linspace_out")
         )
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("linspace_out")
-        if target_enum != work_enum:
-            final_val = builder.Cast(
-                linspace_vals,
-                _outputs=[ctx.fresh_name("linspace_out_cast")],
-                to=int(target_enum.value),
-            )
-            final_val.type = ir.TensorType(target_enum)
-            _stamp_type_and_shape(final_val, (num,))
-            _ensure_value_metadata(ctx, final_val)
-        else:
-            final_val = linspace_vals
-        ir.convenience.rename_values(final_val, out_name)
-        _stamp_type_and_shape(final_val, (num,))
-        _ensure_value_metadata(ctx, final_val)
-        ctx.bind_value_for_var(out_var, final_val)
+        ir.convenience.rename_values(linspace_vals, out_name)
+        _stamp_type_and_shape(linspace_vals, (num,))
+        _ensure_value_metadata(ctx, linspace_vals)
+        ctx.bind_value_for_var(out_var, linspace_vals)
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
@@ -491,7 +504,14 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
                 dtype: np.dtype[Any] | type | None = None,
                 axis: int = 0,
             ) -> Any:
-                if retstep:
+                # JAX owns integer work precision, weighted interpolation and
+                # flooring. Trace that source calculation instead of the real
+                # floating shortcut, including when x64 changes locally.
+                integer_output = dtype is not None and (
+                    np.issubdtype(np.dtype(dtype), np.integer)
+                    or np.dtype(dtype) == np.dtype(np.bool_)
+                )
+                if retstep or integer_output:
                     return orig(
                         start,
                         stop,

@@ -30,7 +30,6 @@ def _identity(x):
 def test_create_ir_context_records_call_params_and_file() -> None:
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=[],
         frozen_params={"training": True},
         record_primitive_calls_file="calls.log",
@@ -42,20 +41,25 @@ def test_create_ir_context_records_call_params_and_file() -> None:
     assert ctx.get_function_registry() is not None
 
 
-def test_bind_closed_jaxpr_constants_adds_initializers() -> None:
-    trace = _trace_to_jaxpr(
-        fn=_add_const,
-        inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
-        input_params=None,
-        enable_double_precision=False,
-        inputs_as_nchw=None,
-        outputs_as_nchw=None,
-        input_names=["x"],
-        output_names=["y"],
-    )
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_bind_closed_jaxpr_constants_preserves_typed_payloads(dtype: type) -> None:
+    constant = _CONST_ARRAY.astype(dtype)
+
+    def source(x):
+        return x + constant
+
+    with jax.enable_x64(dtype is np.float64):
+        trace = _trace_to_jaxpr(
+            fn=source,
+            inputs=[jax.ShapeDtypeStruct((2,), dtype)],
+            input_params=None,
+            inputs_as_nchw=None,
+            outputs_as_nchw=None,
+            input_names=["x"],
+            output_names=["y"],
+        )
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=trace.sds_list,
         frozen_params=trace.frozen_params,
         record_primitive_calls_file=None,
@@ -65,13 +69,17 @@ def test_bind_closed_jaxpr_constants_adds_initializers() -> None:
         ctx,
         trace.jaxpr,
         trace.closed_jaxpr.consts,
-        default_float=np.dtype(np.float32),
-        enable_double_precision=False,
     )
 
     assert trace.jaxpr.constvars
     assert len(ctx.builder.initializers) == len(trace.jaxpr.constvars)
     assert all(var in ctx.builder._var2val for var in trace.jaxpr.constvars)
+    for var, payload in zip(trace.jaxpr.constvars, trace.closed_jaxpr.consts):
+        value = ctx.require_value_for_var(var)
+        actual = value.const_value.numpy()
+        assert value.dtype == ir.DataType.from_numpy(np.dtype(dtype))
+        assert actual.dtype == np.dtype(dtype)
+        assert actual.tobytes() == np.asarray(payload).tobytes()
 
 
 def test_bind_jaxpr_inputs_creates_nchw_bridge_and_symbol_origin() -> None:
@@ -79,7 +87,6 @@ def test_bind_jaxpr_inputs_creates_nchw_bridge_and_symbol_origin() -> None:
         fn=_identity,
         inputs=[jax.ShapeDtypeStruct(("B", 2, 3, 4), jnp.float32)],
         input_params=None,
-        enable_double_precision=False,
         inputs_as_nchw=[0],
         outputs_as_nchw=None,
         input_names=["x"],
@@ -87,7 +94,6 @@ def test_bind_jaxpr_inputs_creates_nchw_bridge_and_symbol_origin() -> None:
     )
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=trace.sds_list,
         frozen_params=trace.frozen_params,
         record_primitive_calls_file=None,
@@ -116,7 +122,6 @@ def test_require_value_for_var_does_not_allocate_unbound_outputs() -> None:
         fn=_add_const,
         inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
         input_params=None,
-        enable_double_precision=False,
         inputs_as_nchw=None,
         outputs_as_nchw=None,
         input_names=["x"],
@@ -124,7 +129,6 @@ def test_require_value_for_var_does_not_allocate_unbound_outputs() -> None:
     )
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=trace.sds_list,
         frozen_params=trace.frozen_params,
         record_primitive_calls_file=None,
@@ -133,8 +137,6 @@ def test_require_value_for_var_does_not_allocate_unbound_outputs() -> None:
         ctx,
         trace.jaxpr,
         trace.closed_jaxpr.consts,
-        default_float=np.dtype(np.float32),
-        enable_double_precision=False,
     )
     _bind_jaxpr_inputs(ctx, trace.jaxpr, inputs_as_nchw=())
     outvar = trace.jaxpr.outvars[0]
@@ -168,7 +170,6 @@ def test_literal_lookup_is_pure_and_materialization_preserves_scope(
     literal = closed.jaxpr.eqns[-1].invars[1]
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=[],
         frozen_params={},
         record_primitive_calls_file=None,
@@ -191,20 +192,19 @@ def test_literal_lookup_is_pure_and_materialization_preserves_scope(
         assert value.producer() is None
 
 
-@pytest.mark.parametrize("enable_double_precision", [False, True])
+@pytest.mark.parametrize("enable_x64", [False, True])
 def test_unbound_float16_outputs_keep_their_traced_dtype(
-    enable_double_precision: bool,
+    enable_x64: bool,
 ) -> None:
-    closed = jax.make_jaxpr(jnp.negative)(jax.ShapeDtypeStruct((2, 3), jnp.float16))
-    ctx = _create_ir_context(
-        opset=23,
-        enable_double_precision=enable_double_precision,
-        input_specs=[],
-        frozen_params={},
-        record_primitive_calls_file=None,
-    )
-
-    output = ctx.allocate_value_for_var(closed.jaxpr.outvars[0])
+    with jax.enable_x64(enable_x64):
+        closed = jax.make_jaxpr(jnp.negative)(jax.ShapeDtypeStruct((2, 3), jnp.float16))
+        ctx = _create_ir_context(
+            opset=23,
+            input_specs=[],
+            frozen_params={},
+            record_primitive_calls_file=None,
+        )
+        output = ctx.allocate_value_for_var(closed.jaxpr.outvars[0])
 
     assert output.dtype == ir.DataType.FLOAT16
     assert output.shape == ir.Shape((2, 3))
@@ -215,7 +215,6 @@ def test_layout_adapter_uses_context_symbol_origin_methods() -> None:
         fn=_identity,
         inputs=[jax.ShapeDtypeStruct(("B", 2, 3, 4), jnp.float32)],
         input_params=None,
-        enable_double_precision=False,
         inputs_as_nchw=[0],
         outputs_as_nchw=None,
         input_names=["x"],
@@ -223,15 +222,12 @@ def test_layout_adapter_uses_context_symbol_origin_methods() -> None:
     )
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=trace.sds_list,
         frozen_params=trace.frozen_params,
         record_primitive_calls_file=None,
     )
 
-    _LayoutAdapter(ctx, enable_double_precision=False).bind_inputs(
-        trace.jaxpr, inputs_as_nchw=trace.inputs_as_nchw
-    )
+    _LayoutAdapter(ctx).bind_inputs(trace.jaxpr, inputs_as_nchw=trace.inputs_as_nchw)
 
     origin = ctx.get_symbolic_dim_origin("B")
     assert origin is not None

@@ -772,16 +772,31 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             # ``out_sharding`` (flax >=0.12.8) is a device-placement hint with no
             # ONNX equivalent, so it is accepted and ignored during export.
             del out_sharding
+            if (
+                self.dot_general_cls is not None
+                or (
+                    self.dot_general is not None
+                    and self.dot_general is not jax.lax.dot_general
+                )
+                or self.precision is not None
+                or self.preferred_element_type is not None
+                or self.batch_axis
+            ):
+                return orig_fn(self, x)
             # normalize possibly-negative axes to positive indices
             rank = max(getattr(x, "ndim", len(x.shape)), 1)
             if isinstance(self.axis, int):
                 lhs = (self.axis % rank,)
             else:
-                lhs = tuple((a % rank) for a in self.axis)
+                lhs = tuple(sorted(a % rank for a in self.axis))
+            if lhs != tuple(range(rank - len(lhs), rank)):
+                # Flattening the input is valid only for trailing contractions.
+                return orig_fn(self, x)
             rhs = tuple(range(len(self.in_features)))  # kernel contracting dims
             dn = ((lhs, rhs), ((), ()))
-            kernel = self.kernel.value
-            bias = self.bias.value if self.bias is not None else None
+            kernel = self.kernel[...]
+            bias = self.bias[...] if self.bias is not None else None
+            x, kernel, bias = self.promote_dtype((x, kernel, bias), dtype=self.dtype)
             return prim.bind(x, kernel, bias, dimension_numbers=dn)
 
         return patched

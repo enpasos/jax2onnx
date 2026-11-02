@@ -74,6 +74,7 @@ Keep these handy—most deep-dives live there instead of here.
 ## Core Rules (Do Not Break)
 
 - **IR-only** inside `converter/` and `plugins/`. Importing ONNX protobuf types here fails CI (`tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py`).
+- **Precision follows JAX:** model configuration and typed inputs determine computation dtypes. Shape-only specs default to FP32 even under JAX x64. Prepare FP64 in an effective `jax.enable_x64()` context and use the same context for `allclose`. The removed `enable_double_precision` keyword is rejected whenever present.
 - **Deterministic module construction:** never seed at import. Use `construct_and_call(...).with_requested_dtype()` and `with_rng_seed(...)` helpers so tests can rebuild deterministically for both f32/f64 variants.
 - **Single-use PRNG keys:** split before handing keys to separate consumers. Turn on `jax.config.update("jax_debug_key_reuse", True)` while developing if you suspect violations.
 - **Metadata parity:** tests expect `expect_graph` specs to mirror real lowering. Keep structural expectations beside metadata entries and regenerate via `scripts/emit_expect_graph.py` when behaviour changes.
@@ -138,13 +139,12 @@ Keep these handy—most deep-dives live there instead of here.
   arrays: feed raw `uint16` bits through
   `OrtValue.ortvalue_from_numpy_with_onnx_type` and IO binding, as in
   `tests/extra_tests/test_log1p_expm1_precision.py`.
-- With `enable_double_precision=True`, `ctx.bind_const_for_var` promotes every
-  float constant to DOUBLE, also in float16/bfloat16 graphs that keep their own
-  dtype. Cast such constants explicitly to the compute dtype (see
-  `ElementwiseEmitter.scalar` in `plugins/jax/_log1p_expm1.py`): retyping them
-  in place, as `cast_param_like` does, is undone for FLOAT constants by the
-  later double-precision promotion. Export half-precision tests with the flag on
-  and off.
+- Constants retain their traced dtype and payload. If an operator needs a work
+  dtype, emit consumer-local casts without changing canonical bindings or shared
+  initializers, then restore the source result boundary. FP16 Add/Sub/Mul use
+  FLOAT work followed by a half result cast; FP16 Rsqrt keeps Sqrt and Div in
+  FLOAT with a single final half cast. Check half models in caller-owned JAX
+  x64-disabled and x64-enabled contexts; enabling x64 must not widen them.
 - `examples.maxtext` testcases skip numeric validation, so an export ONNX
   Runtime cannot load still passes; check the written model with
   `onnx.checker.check_model(..., full_check=True)` when a lowering change may

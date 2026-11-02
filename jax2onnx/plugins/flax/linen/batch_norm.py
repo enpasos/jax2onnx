@@ -215,6 +215,7 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
             *,
             mask: Any | None = None,
         ) -> Any:
+            requested_use_running_average = use_running_average
             try:
                 use_running_average = nn.merge_param(
                     "use_running_average",
@@ -225,7 +226,7 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
                 return call_orig(
                     self,
                     x,
-                    use_running_average=use_running_average,
+                    use_running_average=requested_use_running_average,
                     mask=mask,
                 )
 
@@ -237,19 +238,28 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
             axis = getattr(self, "axis", -1)
             if not isinstance(axis, int):
                 return call_orig(
-                    self, x, use_running_average=use_running_average, mask=mask
+                    self,
+                    x,
+                    use_running_average=requested_use_running_average,
+                    mask=mask,
                 )
             if axis < 0:
                 axis += x.ndim
             if axis != x.ndim - 1:
                 return call_orig(
-                    self, x, use_running_average=use_running_average, mask=mask
+                    self,
+                    x,
+                    use_running_average=requested_use_running_average,
+                    mask=mask,
                 )
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
                 return call_orig(
-                    self, x, use_running_average=use_running_average, mask=mask
+                    self,
+                    x,
+                    use_running_average=requested_use_running_average,
+                    mask=mask,
                 )
 
             variables = scope.variables()
@@ -260,11 +270,44 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
             var = batch_stats.get("var")
             if mean is None or var is None:
                 return call_orig(
-                    self, x, use_running_average=use_running_average, mask=mask
+                    self,
+                    x,
+                    use_running_average=requested_use_running_average,
+                    mask=mask,
                 )
 
             scale = params.get("scale") if getattr(self, "use_scale", True) else None
             bias = params.get("bias") if getattr(self, "use_bias", True) else None
+
+            # Linen applies its requested dtype at the final result, without
+            # NNX's common input/statistics/affine promotion. Only fuse the
+            # homogeneous FP32 case; retain other staging in the original call.
+            result_dtype = getattr(self, "dtype", None)
+            param_dtype = self.param_dtype if self.param_dtype is not None else x.dtype
+            operands = (x, mean, var, scale, bias)
+            if (
+                result_dtype is not None
+                and np.dtype(result_dtype) != np.dtype(np.float32)
+            ) or any(
+                np.dtype(operand.dtype) != np.dtype(np.float32)
+                for operand in operands
+                if operand is not None
+            ):
+                return call_orig(
+                    self,
+                    x,
+                    use_running_average=requested_use_running_average,
+                    mask=mask,
+                )
+            if not self.force_float32_reductions and np.dtype(param_dtype) != np.dtype(
+                np.float32
+            ):
+                return call_orig(
+                    self,
+                    x,
+                    use_running_average=requested_use_running_average,
+                    mask=mask,
+                )
 
             num_features = None
             for arr in (mean, var, scale, bias):
@@ -281,13 +324,15 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
             if num_features is None:
                 num_features = 1
 
-            param_dtype = self.param_dtype if self.param_dtype is not None else x.dtype
             np_dtype = np.dtype(param_dtype)
 
             if getattr(self, "use_scale", True):
                 if scale is None:
                     return call_orig(
-                        self, x, use_running_average=use_running_average, mask=mask
+                        self,
+                        x,
+                        use_running_average=requested_use_running_average,
+                        mask=mask,
                     )
                 scale_is_default = False
             else:
@@ -297,7 +342,10 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
             if getattr(self, "use_bias", True):
                 if bias is None:
                     return call_orig(
-                        self, x, use_running_average=use_running_average, mask=mask
+                        self,
+                        x,
+                        use_running_average=requested_use_running_average,
+                        mask=mask,
                     )
                 bias_is_default = False
             else:

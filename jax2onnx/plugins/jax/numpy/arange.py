@@ -219,29 +219,6 @@ def _determine_length(values: Sequence[float | int]) -> int | None:
     return int(arr.size)
 
 
-def _resolve_result_dtype(
-    avals: Sequence[AbstractValue | Literal | None],
-    dtype_param: np.dtype[Any] | type | None,
-    enable_x64: bool,
-) -> np.dtype[Any]:
-    if dtype_param is not None:
-        return np.dtype(dtype_param)
-
-    float_detected = False
-    for aval in avals:
-        aval_dtype = getattr(aval, "dtype", None)
-        if aval_dtype is not None and np.issubdtype(np.dtype(aval_dtype), np.floating):
-            float_detected = True
-            break
-        scalar = _as_scalar(aval)
-        if isinstance(scalar, (float, np.floating)):
-            float_detected = True
-            break
-    if float_detected:
-        return np.dtype(np.float64 if enable_x64 else np.float32)
-    return np.dtype(np.int64 if enable_x64 else np.int32)
-
-
 def _maybe_cast_value(
     ctx: LoweringContextProtocol,
     value: ir.Value,
@@ -638,11 +615,10 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(
         *in_avals: AbstractValue,
-        dtype: np.dtype[Any] | type | None = None,
+        dtype: np.dtype[Any] | type,
         static_args: tuple[float | int | None, ...] | None = None,
     ) -> ShapedArray:
-        enable_x64 = bool(jax.config.jax_enable_x64)
-        result_dtype = _resolve_result_dtype(in_avals, dtype, enable_x64)
+        result_dtype = np.dtype(dtype)
         scalars = None
         if static_args is not None and len(static_args) == len(in_avals):
             if all(val is not None for val in static_args):
@@ -661,17 +637,8 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
-        dtype_param = params.get("dtype")
-        avals: list[AbstractValue | Literal | None] = []
-        for var in eqn.invars:
-            if isinstance(var, Literal):
-                avals.append(var.aval)
-            else:
-                avals.append(getattr(var, "aval", None))
-        enable_x64 = bool(ctx.builder.enable_double_precision)
-        result_dtype: np.dtype[Any] = _resolve_result_dtype(
-            avals, dtype_param, enable_x64
-        )
+        out_var = eqn.outvars[0]
+        result_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
         target_enum: ir.DataType = numpy_dtype_to_ir(result_dtype)
         builder = getattr(ctx, "builder", None)
         if builder is None:
@@ -694,7 +661,6 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             val = ctx.get_value_for_var(
                 var,
                 name_hint=ctx.fresh_name("arange_arg"),
-                prefer_np_dtype=range_dtype,
             )
             input_vals.append(
                 _maybe_cast_value(ctx, val, range_enum, f"arange_cast_{idx}")
@@ -728,11 +694,9 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
         limit_val = _maybe_cast_value(ctx, limit_val, range_enum, "arange_limit")
         delta_val = _maybe_cast_value(ctx, delta_val, range_enum, "arange_delta")
 
-        out_var = eqn.outvars[0]
         out_spec = ctx.get_value_for_var(
             out_var,
             name_hint=ctx.fresh_name("arange_out"),
-            prefer_np_dtype=result_dtype,
         )
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("arange_out")
         range_output_name = (
@@ -871,8 +835,14 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 if step_kw is not None or num_args == 3 or step != 1:
                     values.append(step)
                 static_args = tuple(_static_scalar(v) for v in values)
+                if dtype_param is None:
+                    prepared_dtype = jnp.result_type(*values)
+                else:
+                    prepared_dtype = jax.eval_shape(
+                        lambda: jnp.asarray(0, dtype=dtype_param)
+                    ).dtype
                 return cls._PRIM.bind(
-                    *values, dtype=dtype_param, static_args=static_args
+                    *values, dtype=np.dtype(prepared_dtype), static_args=static_args
                 )
 
             return _patched

@@ -27,11 +27,29 @@ from jax2onnx.plugins.jax.numpy._common import (
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
 _MEAN_PRIM: Final = make_jnp_primitive("jax.numpy.mean")
+
+
+def _mean_fixture(
+    *,
+    size: int,
+    shape: tuple[int, ...],
+    dtype: Any,
+    axis: int | None = None,
+    keepdims: bool = False,
+) -> Callable[[], jax.Array]:
+    values = np.arange(size, dtype=dtype).reshape(shape)
+
+    def call() -> jax.Array:
+        return jnp.mean(values, axis=axis, keepdims=keepdims)
+
+    return call
 
 
 @register_native_primitive(
@@ -49,10 +67,12 @@ _MEAN_PRIM: Final = make_jnp_primitive("jax.numpy.mean")
     testcases=[
         {
             "testcase": "basic_mean",
-            "callable": lambda: jnp.mean(np.arange(12, dtype=np.float32).reshape(3, 4)),
+            "callable": construct_and_call(
+                _mean_fixture, size=12, shape=(3, 4), dtype=with_requested_dtype()
+            ),
             "input_values": [],
             "expected_output_shapes": [()],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["ReduceMean"],
                 no_unused_inputs=True,
@@ -60,12 +80,16 @@ _MEAN_PRIM: Final = make_jnp_primitive("jax.numpy.mean")
         },
         {
             "testcase": "mean_with_axis",
-            "callable": lambda: jnp.mean(
-                np.arange(60, dtype=np.float32).reshape(3, 4, 5), axis=1
+            "callable": construct_and_call(
+                _mean_fixture,
+                size=60,
+                shape=(3, 4, 5),
+                axis=1,
+                dtype=with_requested_dtype(),
             ),
             "input_values": [],
             "expected_output_shapes": [(3, 5)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -78,12 +102,17 @@ _MEAN_PRIM: Final = make_jnp_primitive("jax.numpy.mean")
         },
         {
             "testcase": "mean_with_keepdims",
-            "callable": lambda: jnp.mean(
-                np.arange(12, dtype=np.float32).reshape(3, 4), axis=0, keepdims=True
+            "callable": construct_and_call(
+                _mean_fixture,
+                size=12,
+                shape=(3, 4),
+                axis=0,
+                keepdims=True,
+                dtype=with_requested_dtype(),
             ),
             "input_values": [],
             "expected_output_shapes": [(1, 4)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {

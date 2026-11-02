@@ -1,6 +1,10 @@
 # jax2onnx/plugins/examples/nnx/mlp.py
 
 from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
 import jax
 from flax import nnx
 
@@ -11,6 +15,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.flax.nnx.dropout import post_check_onnx_graph
+from jax2onnx.plugins.flax.test_utils import expect_mlp_precision
 
 
 class MLP(nnx.Module):
@@ -25,6 +30,50 @@ class MLP(nnx.Module):
             self.dropout(self.bn(self.linear1(x)), deterministic=deterministic)
         )
         return self.linear2(x)
+
+
+def _mlp_graph_check(batch: str) -> Callable[[Any], bool]:
+    common = {"Gemm": 2, "Dropout": 1, "Gelu": 1}
+    return expect_mlp_precision(
+        expect_graph(
+            [
+                (
+                    f"Gemm:{batch}x20 -> BatchNormalization:{batch}x20 -> "
+                    f"Dropout:{batch}x20 -> Gelu:{batch}x20 -> Gemm:{batch}x10",
+                    {"counts": {**common, "BatchNormalization": 1}},
+                )
+            ],
+            symbols={"B": None},
+            must_absent=["Not"],
+            no_unused_inputs=True,
+        ),
+        expect_graph(
+            [
+                (
+                    f"Gemm:{batch}x20 -> Sub:{batch}x20 -> Mul:{batch}x20 -> "
+                    f"Add:{batch}x20 -> Dropout:{batch}x20 -> Gelu:{batch}x20 -> "
+                    f"Gemm:{batch}x10",
+                    {
+                        "counts": {
+                            **common,
+                            "BatchNormalization": 0,
+                            "Sub": 1,
+                            "Add": 2,
+                            "Sqrt": 1,
+                            "Div": 1,
+                            "Mul": 2,
+                        }
+                    },
+                ),
+                # NNX promotes input, statistics and affine parameters together,
+                # then forms this coefficient before scaling the centered input.
+                f"Add:1x20 -> Sqrt:1x20 -> Div:1x20 -> Mul:1x20 -> Mul:{batch}x20",
+            ],
+            symbols={"B": None},
+            must_absent=["Not"],
+            no_unused_inputs=True,
+        ),
+    )
 
 
 register_example(
@@ -45,15 +94,7 @@ register_example(
                 rngs=with_rng_seed(17),
             ),
             "input_shapes": [(7, 30)],
-            "post_check_onnx_graph": expect_graph(
-                [
-                    # edge-shape after each node (leaving that node)
-                    "Gemm:7x20 -> BatchNormalization:7x20 -> Dropout:7x20 -> Gelu:7x20 -> Gemm:7x10",
-                ],
-                must_absent=["Not"],  # ensure no Not left anywhere
-                no_unused_inputs=True,  # fail if 'deterministic' or other inputs dangle
-                mode="all",
-            ),
+            "post_check_onnx_graph": _mlp_graph_check("7"),
         },
         {
             "testcase": "simple_mlp",
@@ -66,16 +107,7 @@ register_example(
             ),
             "input_shapes": [("B", 30)],
             "run_only_dynamic": True,
-            "post_check_onnx_graph": expect_graph(
-                [
-                    # edge-shape after each node (leaving that node)
-                    "Gemm:Bx20 -> BatchNormalization:Bx20 -> Dropout:Bx20 -> Gelu:Bx20 -> Gemm:Bx10",
-                ],
-                symbols={"B": None},  # allow dynamic batch sizes
-                must_absent=["Not"],  # ensure no Not left anywhere
-                no_unused_inputs=True,  # fail if 'deterministic' or other inputs dangle
-                mode="all",
-            ),
+            "post_check_onnx_graph": _mlp_graph_check("B"),
         },
         {
             "testcase": "simple_mlp_with_call_params",

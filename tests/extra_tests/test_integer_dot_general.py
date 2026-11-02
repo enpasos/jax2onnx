@@ -61,7 +61,6 @@ def _run(
     function: Callable[..., jax.Array],
     inputs: list[np.ndarray],
     *,
-    enable_double_precision: bool = False,
     optimized: bool = True,
     input_specs: list[jax.ShapeDtypeStruct] | None = None,
     expect_integer_matmul: bool = True,
@@ -71,7 +70,6 @@ def _run(
     model = to_onnx(
         function,
         inputs if input_specs is None else input_specs,
-        enable_double_precision=enable_double_precision,
         opset=opset,
     )
     assert (
@@ -97,27 +95,29 @@ def _matrix_dot(lhs: jax.Array, rhs: jax.Array) -> jax.Array:
 
 
 @pytest.mark.parametrize("optimized", [False, True])
-@pytest.mark.parametrize("enable_double_precision", [False, True])
+@pytest.mark.parametrize("enable_x64", [False, True])
 def test_int8_dot_preserves_odd_integer_above_float32_exact_range(
-    optimized: bool, enable_double_precision: bool
+    optimized: bool, enable_x64: bool
 ) -> None:
-    lhs = np.full((1, 1041), 127, dtype=np.int8)
-    rhs = np.full((1041, 1), 127, dtype=np.int8)
-    expected = _native_reference(_matrix_dot, [lhs, rhs])
-    assert expected.dtype == np.int32
-    assert expected.item() == 16_790_289
-    assert int(np.float32(expected.item())) != expected.item()
+    with jax.enable_x64(enable_x64):
+        lhs = np.full((1, 1041), 127, dtype=np.int8)
+        rhs = np.full((1041, 1), 127, dtype=np.int8)
+        expected = _native_reference(_matrix_dot, [lhs, rhs])
+        assert expected.dtype == np.int32
+        assert expected.item() == 16_790_289
+        assert int(np.float32(expected.item())) != expected.item()
 
-    model, actual = _run(
-        _matrix_dot,
-        [lhs, rhs],
-        enable_double_precision=enable_double_precision,
-        optimized=optimized,
-    )
+        model, actual = _run(
+            _matrix_dot,
+            [lhs, rhs],
+            optimized=optimized,
+        )
 
-    assert model.graph.output[0].type.tensor_type.elem_type == onnx.TensorProto.INT32
-    assert actual.dtype == np.int32
-    np.testing.assert_array_equal(actual, expected)
+        assert (
+            model.graph.output[0].type.tensor_type.elem_type == onnx.TensorProto.INT32
+        )
+        assert actual.dtype == np.int32
+        np.testing.assert_array_equal(actual, expected)
 
 
 @pytest.mark.parametrize("lhs_dtype", [np.int8, np.uint8])

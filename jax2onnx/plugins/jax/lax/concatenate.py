@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence, cast
+from typing import Any, cast
 
 import jax
 import numpy as np
@@ -11,7 +11,6 @@ import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins._loop_extent_meta import (
     get_axis0_override,
     propagate_axis0_override,
@@ -28,13 +27,6 @@ def _normalize_axis(axis: int, rank: int) -> int:
         return 0
     ax = int(axis)
     return ax % rank if ax < 0 else ax
-
-
-def _promote_dtype(dtypes: Sequence[np.dtype]) -> np.dtype:
-    result = dtypes[0]
-    for dt in dtypes[1:]:
-        result = np.promote_types(result, dt)
-    return result
 
 
 def _cast_value(
@@ -159,12 +151,6 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         inputs: list[ir.Value] = []
         for var, shape, dtype in zip(in_vars, shapes, dtypes):
             val = ctx.get_value_for_var(var, name_hint=ctx.fresh_name("concat_in"))
-            val = promote_float32_operand(
-                ctx,
-                val,
-                target_dtype=target_enum,
-                name_hint="concat_operand_double",
-            )
             if np.dtype(dtype) != target_dtype:
                 val = _cast_value(ctx, val, target_enum, shape)
             inputs.append(val)

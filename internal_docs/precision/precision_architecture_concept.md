@@ -50,6 +50,13 @@ execution target. A known violation cannot be hidden by a wider final tolerance.
 
 ## Architecture and hard boundaries
 
+Python 3.11 and 3.12 are mandatory primary user platforms: the user reports that
+they account for 95% of users. The implementation and dependency requirements
+must retain both. A newer JAX or Flax release that requires Python 3.12 cannot
+become the unconditional minimum while Python 3.11 remains supported. Existing
+Python 3.13 and 3.14 coverage remains required as well. This platform requirement
+does not by itself decide how far back to support JAX and Flax releases.
+
 Keep the existing [IR converter and plugin architecture](../../docs/developer_guide/architecture.md).
 Replace competing precision policies inside it rather than add a second
 converter or a separate precision subsystem.
@@ -586,16 +593,88 @@ reviewed compatibility commit `0723b2fe`, cherry-picked as `639f1429`; their
 committed trees are identical. Continue on `precision-contract-step2`; preserve
 PR #277 and its branch as frozen historical material.
 
-Initial implementation validation has moved the 39 feasibility scenarios into
-ordinary regression tests. They pass on both locked JAX cohorts, together with
-ten input-fixture regressions. Fourteen generated cases also pass on each
-cohort, including complete static and dynamic FP64 Linen and NNX MLP workflows
-and their strict structural checks. This repairs the earlier sample failure;
-all seven pinned hooks also pass. Independent Astra review accepts this early
-gate for proceeding to the remaining policy cleanup. It is not full-suite,
-minimum-dependency or hosted CI acceptance. Remaining policy consumers, other
-framework bindings and intentionally typed fixtures still require migration
-and review before the transition is qualified.
+Early validation passed source-precision regressions on both locked JAX
+cohorts, including complete static and dynamic FP64 Linen and NNX MLP workflows
+with strict structural checks. Independent Astra review accepted that bounded
+gate for proceeding with policy cleanup. It did not qualify the full suites,
+minimum dependencies or hosted CI for the precision transition.
+
+[Draft PR #288](https://github.com/enpasos/jax2onnx/pull/288) is open. Its first
+published head `d3fc3aa2` contained the compatibility repair and this contract.
+All nine jobs in
+[CI 618](https://github.com/enpasos/jax2onnx/actions/runs/41465407265) passed on
+that exact head. The longest STANDARD job was Python 3.12 at 17:18, measured
+from GitHub's job start through completion. These results qualify that
+foundation head; precision-transition qualification follows the requirements below.
+
+The core precision migration, production-policy cleanup and fixture migrations
+are implemented. Local regression checks finished without assertion failures
+and with the existing skips unchanged; only the resource-incomplete Qwen case
+below lacks a completed result. Focused checks passed on both official locked
+JAX cohorts and the supported minimum, including canonical pointwise Einsum.
+Qualification requires the unchanged complete hosted Python 3.11–3.14 STANDARD
+matrix, support/minimum/integration checks, and every Linux STANDARD job within
+20 minutes excluding queue time. [PR #288](https://github.com/enpasos/jax2onnx/pull/288)
+provides the live check results.
+
+In local qualification attempts on the same locked Python 3.12 stack,
+`qwen3_omni_30b_a3b` hit the 4 GiB guard on both the implementation snapshot and
+exact clean main `8d502aac`, without an assertion result. This establishes a
+pre-existing local execution limit, with no evidence of equal peak memory or
+performance. Astra approved completing local checks before a reviewed draft
+checkpoint push with hosted coverage unchanged. The existing full hosted
+Python 3.12 MaxText job can qualify only this case's existing export test:
+main marks it `skip_numeric_validation`, so a passing job does not qualify
+runtime execution or numerics, which remain unverified.
+
+Bounded repairs isolate patched export tracing through JAX's public cache
+namespace without changing precision settings or clearing the native cache.
+The `lax.conj(real)` lowering now preserves its actual complex result by packing
+the real input with a positive-zero imaginary component; source types also
+distinguish real tensors ending in dimension 2 from packed complex tensors.
+Shape-specific matrix algorithm compilation limits remain
+[documented separately](../../docs/user_guide/known_limitations.md#explicit-matrix-multiplication-algorithms).
+
+On 2 November 2026, the user amended acceptance for exactly six FP64
+`atan2(y, x)` input pairs: `(s, -M)`, `(s, -1)`, `(s, s)`, `(s, -s)`,
+`(-s, s)` and `(-s, -s)`, where `s` is the smallest positive subnormal and `M`
+the largest finite FP64 value. The full 4,265 inputs, eager/fresh/warmed native
+consensus, DOUBLE graph checks, shape and exceptional-value checks remain
+mandatory. Both ONNX Runtime optimization settings use the original
+`rtol=0, atol=4e-15`; every mismatch must lie within those six bit-exact input
+pairs. Zero-location and sign checks enforce input-defined analytic zeros and
+the signs of zeros shared by both results; finite residuals within the original
+tolerance need not have the same zero location as native. This clarifies the
+existing criterion without adding a runtime boundary or another exception.
+A passing boundary diagnostic records any remaining differences as
+`FAILED_IN_APPROVED_BOUNDARY`, not numerical qualification, and never emulates
+the native behavior.
+
+The user delegated assessment of similar bounded cases with Astra review and
+main-equivalent nonregression. This amendment covers only the six named pairs;
+all other cases and the existing Python 3.11–3.14 and dependency requirements
+remain mandatory. The separately accepted minimum-JAX `rsqrt` diagnostic below
+remains numerically unqualified.
+
+Minimum-stack checks on 2 November 2026 originally failed at a real numerical
+boundary: all three official JAX 0.8.1 references return FP16
+`0.003910064697265625` for `rsqrt(65504)`, whereas the current lowering returns
+`0.00390625`. Cross-checks
+with ONNX Runtime 1.24.1 and 1.31.0 show that the split follows JAX, rather than
+the runtime version. JAX 0.10.2 and 0.12.0.1 agree with the lowering. An isolated
+comparison with main `8d502aac`, using its valid `enable_double_precision=False`
+export, found bit-identical main/current results on all eight inputs under both
+ONNX Runtime optimization settings.
+
+Under the user's delegation, Astra accepted only this diagnostic boundary for
+the finite eight-input case on CPU JAX/jaxlib 0.8.1 with CPU ONNX Runtime
+1.24.1: input FP16 bits `0x7bff` (`65504`), native result bits `7169`, runtime
+result bits `7168`. The full native consensus and all other comparisons remain
+exact; any other mismatch fails. Exceptional cases and all other dependency
+combinations keep the existing strict check. A diagnostic pass records the
+actual mismatch as `FAILED_IN_APPROVED_BOUNDARY`, not numerical qualification;
+exact agreement is also allowed. Production arithmetic and the JAX 0.8.1 /
+Flax 0.12.1 floors remain unchanged, with all four Python cohorts required.
 
 ### Activated goal text
 

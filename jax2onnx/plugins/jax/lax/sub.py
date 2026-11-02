@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, cast
+from typing import cast
 
 import onnx_ir as ir
 import jax
@@ -27,7 +27,9 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._precision_utils import promote_float32_operand
+from jax2onnx.plugins._precision_utils import (
+    emit_float16_arithmetic_with_rounding,
+)
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -133,11 +135,8 @@ class SubPlugin(PrimitiveLeafPlugin):
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        prefer_dt: Optional[np.dtype] = np.dtype(
-            getattr(x_var.aval, "dtype", np.float32)
-        )
         a_val = ctx.require_value_for_var(x_var)
-        b_val = ctx.require_value_for_var(y_var, prefer_np_dtype=prefer_dt)
+        b_val = ctx.require_value_for_var(y_var)
         out_spec = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("sub_out")
         )
@@ -201,16 +200,18 @@ class SubPlugin(PrimitiveLeafPlugin):
                     break
             return
 
-        a_val = promote_float32_operand(
-            ctx, a_val, target_dtype=out_spec.dtype, name_hint="sub_lhs_double"
-        )
-        b_val = promote_float32_operand(
-            ctx, b_val, target_dtype=out_spec.dtype, name_hint="sub_rhs_double"
-        )
-        result = cast(
-            ir.Value,
-            ctx.builder.Sub(a_val, b_val, _outputs=[output_name]),
-        )
+        if all(
+            np.dtype(var.aval.dtype) == np.dtype(np.float16)
+            for var in (x_var, y_var, out_var)
+        ):
+            result = emit_float16_arithmetic_with_rounding(
+                ctx, "Sub", a_val, b_val, output=out_spec
+            )
+        else:
+            result = cast(
+                ir.Value,
+                ctx.builder.Sub(a_val, b_val, _outputs=[output_name]),
+            )
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         stamp_axis0_binary_result(result, out_var, out_spec, override)

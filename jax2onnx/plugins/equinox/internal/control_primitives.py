@@ -11,7 +11,7 @@ from equinox._unvmap import unvmap_all_p, unvmap_any_p, unvmap_max_p
 from equinox.internal import select_if_vmap_p
 from equinox.internal._nontraceable import nonbatchable_p
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -69,9 +69,7 @@ def _lower_unvmap_reduction(
             name_hint="unvmap_i64_to_bool",
         )
 
-    out_dtype = _dtype_to_ir(
-        np.dtype(out_var.aval.dtype), ctx.builder.enable_double_precision
-    )
+    out_dtype = numpy_dtype_to_ir(out_var.aval.dtype)
     result.type = ir.TensorType(out_dtype)
     _stamp_type_and_shape(result, ())
     _ensure_value_metadata(ctx, result)

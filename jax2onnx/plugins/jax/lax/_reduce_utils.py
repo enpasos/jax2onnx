@@ -4,26 +4,21 @@
 
 from __future__ import annotations
 
-from typing import Any, Final, Iterable, Optional, Sequence, cast
+from typing import Any, Iterable, Optional, Sequence, cast
 
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
-from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
-
-_REDUCESUM_INT64_WORK_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
-    {
-        np.dtype(np.uint8),
-        np.dtype(np.uint16),
-        np.dtype(np.uint32),
-    }
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _builder_op,
+    _const_i64,
+    _scalar_i64,
 )
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 
 
 def _normalize_axes(
@@ -53,9 +48,7 @@ def _maybe_cast_input(
     if dtype is None:
         return tensor
 
-    dtype_enum = target_dtype or _dtype_to_ir(
-        dtype, ctx.builder.enable_double_precision
-    )
+    dtype_enum = target_dtype or numpy_dtype_to_ir(dtype)
     cast_val = cast(
         ir.Value,
         ctx.builder.Cast(
@@ -69,6 +62,89 @@ def _maybe_cast_input(
     _stamp_type_and_shape(cast_val, tuple(aval_shape))
     _ensure_value_metadata(ctx, cast_val)
     return cast_val
+
+
+def _integer_reduce_sum(
+    ctx: LoweringContextProtocol,
+    operand: ir.Value,
+    shape: tuple[Any, ...],
+    axes: tuple[int, ...] | None,
+    keepdims: bool,
+    output_dtype: ir.DataType,
+) -> ir.Value:
+    # CPU ReduceSum saturates signed overflow. CumSum wraps, so its final
+    # prefix preserves addition modulo the source width. UINT64 uses the
+    # same-width signed representation; smaller unsupported types use INT64.
+    work_dtype = np.dtype(np.int32 if output_dtype == ir.DataType.INT32 else np.int64)
+    work_enum = numpy_dtype_to_ir(work_dtype)
+    value = operand
+    if value.dtype != work_enum:
+        value = _builder_op(
+            ctx,
+            "Cast",
+            [value],
+            name_hint="reduce_sum_work",
+            dtype=work_enum,
+            shape=shape,
+            attributes={"to": int(work_enum.value)},
+        )
+
+    reduced_axes = tuple(range(len(shape))) if axes is None else axes
+    if reduced_axes:
+        zero = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("reduce_sum_zero"),
+            array=np.asarray(0, dtype=work_dtype),
+        )
+        last = _const_i64(ctx, [-1] if keepdims else -1, "reduce_sum_last")
+        # Reducing the highest axes first keeps the remaining indices valid.
+        for axis in sorted(reduced_axes, reverse=True):
+            pads = [0] * (2 * len(shape))
+            pads[axis] = 1
+            extent = shape[axis]
+            padded_extent = (
+                int(extent) + 1 if isinstance(extent, (int, np.integer)) else None
+            )
+            padded_shape = shape[:axis] + (padded_extent,) + shape[axis + 1 :]
+            # A leading zero makes the final prefix valid for empty axes,
+            # including symbolic dimensions that become zero at runtime.
+            value = _builder_op(
+                ctx,
+                "Pad",
+                [value, _const_i64(ctx, pads, "reduce_sum_pads"), zero],
+                name_hint="reduce_sum_pad",
+                dtype=work_enum,
+                shape=padded_shape,
+                attributes={"mode": "constant"},
+            )
+            value = _builder_op(
+                ctx,
+                "CumSum",
+                [value, _const_i64(ctx, axis, "reduce_sum_axis")],
+                name_hint="reduce_sum_prefix",
+                dtype=work_enum,
+                shape=padded_shape,
+            )
+            shape = shape[:axis] + ((1,) if keepdims else ()) + shape[axis + 1 :]
+            value = _builder_op(
+                ctx,
+                "Gather",
+                [value, last],
+                name_hint="reduce_sum_integer",
+                dtype=work_enum,
+                shape=shape,
+                attributes={"axis": axis},
+            )
+    if work_enum != output_dtype:
+        value = _builder_op(
+            ctx,
+            "Cast",
+            [value],
+            name_hint="reduce_sum_result",
+            dtype=output_dtype,
+            shape=shape,
+            attributes={"to": int(output_dtype.value)},
+        )
+    return value
 
 
 def lower_reduction(
@@ -88,17 +164,6 @@ def lower_reduction(
     requested_dtype = params.get("dtype") if allow_dtype_param else None
     if requested_dtype is not None:
         requested_dtype = np.dtype(requested_dtype)
-    operand_dtype_param = getattr(getattr(operand_var, "aval", None), "dtype", None)
-    operand_dtype = (
-        np.dtype(operand_dtype_param) if operand_dtype_param is not None else None
-    )
-
-    work_dtype = requested_dtype
-    needs_result_cast = False
-    effective_dtype = requested_dtype or operand_dtype
-    if op_type == "ReduceSum" and effective_dtype in _REDUCESUM_INT64_WORK_DTYPES:
-        work_dtype = np.dtype(np.int64)
-        needs_result_cast = True
 
     operand_val = ctx.get_value_for_var(
         operand_var, name_hint=ctx.fresh_name(f"{op_type.lower()}_in")
@@ -106,30 +171,17 @@ def lower_reduction(
     out_val = ctx.get_value_for_var(
         out_var, name_hint=ctx.fresh_name(f"{op_type.lower()}_out")
     )
-    out_dtype_enum = out_val.dtype
+    out_dtype_enum = numpy_dtype_to_ir(out_var.aval.dtype)
 
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     axes_attr = _normalize_axes(axes, len(operand_shape))
-
-    if axes_attr == () and needs_result_cast:
-        # The INT64 work dtype only protects a real unsigned reduction. With
-        # no axes, preserve the input dtype (or apply the requested result
-        # dtype directly) instead of leaking the internal work dtype.
-        work_dtype = requested_dtype
-        needs_result_cast = False
 
     reduced_input = _maybe_cast_input(
         ctx,
         operand_val,
         operand_shape,
-        work_dtype,
-        target_dtype=None if needs_result_cast else out_dtype_enum,
-    )
-    reduced_input = promote_float32_operand(
-        ctx,
-        reduced_input,
+        requested_dtype,
         target_dtype=out_dtype_enum,
-        name_hint=f"{op_type.lower()}_input_double",
     )
     if axes_attr == ():
         desired_name = getattr(out_val, "name", None) or ctx.fresh_name(op_type)
@@ -144,8 +196,7 @@ def lower_reduction(
             ),
         )
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        if out_dtype_enum is not None:
-            result.type = ir.TensorType(out_dtype_enum)
+        result.type = ir.TensorType(out_dtype_enum)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
@@ -157,8 +208,16 @@ def lower_reduction(
         desired_name = ctx.fresh_name(op_type)
 
     keepdims_attr = 1 if keepdims else 0
-    reduce_outputs = [ctx.fresh_name(op_type)] if needs_result_cast else [desired_name]
-    if op_type in {
+    if op_type == "ReduceSum" and np.issubdtype(out_var.aval.dtype, np.integer):
+        result = _integer_reduce_sum(
+            ctx,
+            reduced_input,
+            operand_shape,
+            axes_attr,
+            keepdims,
+            out_dtype_enum,
+        )
+    elif op_type in {
         "ReduceL1",
         "ReduceL2",
         "ReduceLogSum",
@@ -176,36 +235,13 @@ def lower_reduction(
             axes=axes_attr,
             keepdims=keepdims_attr,
             name_hint=op_type.lower(),
-            output_name=reduce_outputs[0],
+            output_name=desired_name,
         )
     else:
         raise ValueError(f"Unsupported reduction op: {op_type}")
 
     out_shape = tuple(getattr(out_var.aval, "shape", ()))
-    if needs_result_cast:
-        result.type = ir.TensorType(ir.DataType.INT64)
-        _stamp_type_and_shape(result, out_shape)
-        _ensure_value_metadata(ctx, result)
-
-        target_dtype = out_dtype_enum or _dtype_to_ir(
-            np.dtype(effective_dtype), ctx.builder.enable_double_precision
-        )
-        cast_result = cast(
-            ir.Value,
-            ctx.builder.Cast(
-                result,
-                _outputs=[desired_name],
-                to=int(target_dtype.value),
-            ),
-        )
-        cast_result.type = ir.TensorType(target_dtype)
-        _stamp_type_and_shape(cast_result, out_shape)
-        _ensure_value_metadata(ctx, cast_result)
-        ctx.bind_value_for_var(out_var, cast_result)
-        return
-
-    if out_dtype_enum is not None:
-        result.type = ir.TensorType(out_dtype_enum)
+    result.type = ir.TensorType(out_dtype_enum)
     _stamp_type_and_shape(result, out_shape)
 
     _ensure_value_metadata(ctx, result)
@@ -218,10 +254,7 @@ def lower_boolean_reduction(
     operand_var = eqn.invars[0]
     out_var = eqn.outvars[0]
 
-    out_dtype_param = getattr(getattr(out_var, "aval", None), "dtype", None)
-    if out_dtype_param is not None and not np.issubdtype(
-        np.dtype(out_dtype_param), np.bool_
-    ):
+    if not np.issubdtype(np.dtype(out_var.aval.dtype), np.bool_):
         raise NotImplementedError(
             "integer bitwise reduce_and/reduce_or/reduce_xor are not supported; "
             "the boolean reduction lowering only supports boolean outputs"
@@ -238,12 +271,9 @@ def lower_boolean_reduction(
 
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     axes_attr = _normalize_axes(axes, len(operand_shape))
-    operand_dtype_param = getattr(getattr(operand_var, "aval", None), "dtype", None)
-    operand_dtype = (
-        np.dtype(operand_dtype_param) if operand_dtype_param is not None else None
-    )
+    operand_dtype = np.dtype(operand_var.aval.dtype)
     boolean_operand = operand_val
-    if operand_dtype is None or not np.issubdtype(operand_dtype, np.bool_):
+    if not np.issubdtype(operand_dtype, np.bool_):
         # jnp.any/all accept numeric inputs, whose truth value must be computed
         # elementwise before reducing. Reducing the raw numbers can cancel for
         # OR (for example [1, -1]) or hide a zero for AND ([0, -1]).

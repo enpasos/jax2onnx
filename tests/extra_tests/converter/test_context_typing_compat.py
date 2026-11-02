@@ -21,7 +21,7 @@ def test_legacy_irbuildcontext_aliases_use_shared_protocol() -> None:
 
 
 def test_ir_context_satisfies_lowering_context_protocol() -> None:
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
 
     assert isinstance(ctx, NativeLoweringContext)
     assert isinstance(ctx, ConverterContext)
@@ -29,7 +29,7 @@ def test_ir_context_satisfies_lowering_context_protocol() -> None:
 
 
 def test_native_and_legacy_contexts_emit_into_the_same_graph() -> None:
-    ctx = IRContext(opset=21, enable_double_precision=False)
+    ctx = IRContext(opset=21)
     native: NativeLoweringContext = ctx
     legacy: LoweringContextProtocol = ctx
     value = ir.val("input", dtype=ir.DataType.FLOAT, shape=[2])

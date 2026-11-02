@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
-from typing import ClassVar, Final, TypeAlias
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any, ClassVar, Final, TypeAlias
 
 import jax
 from jax import tree_util
@@ -29,13 +29,26 @@ from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive, get_orig_impl
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
 _STACK_PRIM: Final = make_jnp_primitive("jax.numpy.stack")
 
 BatchDim: TypeAlias = int | None
+
+
+def _stack_arrays(
+    arrays: Sequence[ArrayLike], *, axis: int = 0, dtype: Any
+) -> Callable[[], jax.Array]:
+    values = [np.asarray(array, dtype=dtype) for array in arrays]
+
+    def call() -> jax.Array:
+        return jnp.stack(values, axis=axis)
+
+    return call
 
 
 @register_native_primitive(
@@ -57,9 +70,13 @@ BatchDim: TypeAlias = int | None
     testcases=[
         {
             "testcase": "stack_axis_0",
-            "callable": lambda: jnp.stack(
-                [np.arange(3, dtype=np.float32), np.arange(3, dtype=np.float32)], axis=0
+            "callable": construct_and_call(
+                _stack_arrays,
+                ((0, 1, 2), (0, 1, 2)),
+                axis=0,
+                dtype=with_requested_dtype(),
             ),
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Unsqueeze:1x3 -> Concat:2x3"],
                 no_unused_inputs=True,
@@ -67,10 +84,13 @@ BatchDim: TypeAlias = int | None
         },
         {
             "testcase": "stack_axis_1",
-            "callable": lambda: jnp.stack(
-                [np.ones((2, 2), dtype=np.float32), np.zeros((2, 2), dtype=np.float32)],
+            "callable": construct_and_call(
+                _stack_arrays,
+                (((1, 1), (1, 1)), ((0, 0), (0, 0))),
                 axis=1,
+                dtype=with_requested_dtype(),
             ),
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Unsqueeze:2x1x2 -> Concat:2x2x2"],
                 no_unused_inputs=True,
@@ -78,13 +98,13 @@ BatchDim: TypeAlias = int | None
         },
         {
             "testcase": "stack_negative_axis",
-            "callable": lambda: jnp.stack(
-                [
-                    np.array([1, 2, 3], dtype=np.float32),
-                    np.array([4, 5, 6], dtype=np.float32),
-                ],
+            "callable": construct_and_call(
+                _stack_arrays,
+                ((1, 2, 3), (4, 5, 6)),
                 axis=-1,
+                dtype=with_requested_dtype(),
             ),
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Unsqueeze:3x1 -> Concat:3x2"],
                 no_unused_inputs=True,
@@ -92,9 +112,10 @@ BatchDim: TypeAlias = int | None
         },
         {
             "testcase": "stack_scalars",
-            "callable": lambda: jnp.stack(
-                [np.array(1.0, dtype=np.float32), np.array(2.0, dtype=np.float32)]
+            "callable": construct_and_call(
+                _stack_arrays, (1.0, 2.0), dtype=with_requested_dtype()
             ),
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {

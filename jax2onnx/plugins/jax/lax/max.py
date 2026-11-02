@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import jax
-import numpy as np
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat.jax import JaxprEqn
@@ -45,13 +44,9 @@ class MaxPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("max_lhs"))
-        prefer_dtype: np.dtype[Any] = np.dtype(
-            getattr(lhs_var.aval, "dtype", np.float32)
-        )
         rhs_val = ctx.get_value_for_var(
             rhs_var,
             name_hint=ctx.fresh_name("max_rhs"),
-            prefer_np_dtype=prefer_dtype,
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("max_out"))
 

@@ -50,6 +50,7 @@ from jax2onnx._compat.jax import (
     Var,
     batching,
     ensure_batching_not_mapped_attr,
+    explicit_x64_dtypes,
 )
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.optimizer_graph_utils import consumers_in_graph
@@ -67,6 +68,9 @@ from jax2onnx.converter.typing_support import (
 )
 
 logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
+
+# Reuse one namespace across nested bindings and repeated exports.
+_PLUGIN_JIT_CONTEXT: Final = jax.make_user_context(default_value=False)
 
 ensure_batching_not_mapped_attr()
 
@@ -277,6 +281,43 @@ class _StaticParam:
     signature: tuple[object, ...]
 
 
+@dataclass(frozen=True)
+class _FunctionTraceContext:
+    """Effective precision settings needed when a function body is traced later."""
+
+    x64: bool
+    matmul_precision: str | None
+    explicit_x64: str
+    dtype_promotion: str
+
+
+def _capture_function_trace_context() -> _FunctionTraceContext:
+    return _FunctionTraceContext(
+        bool(jax.config.jax_enable_x64),
+        jax.config.jax_default_matmul_precision,
+        jax.config.jax_explicit_x64_dtypes.name.lower(),
+        str(jax.config.jax_numpy_dtype_promotion),
+    )
+
+
+def _function_trace_context(params: Mapping[str, object]) -> _FunctionTraceContext:
+    for value in params.values():
+        if isinstance(value, _FunctionTraceContext):
+            return value
+    raise RuntimeError("[onnx_function] Missing call-site precision context")
+
+
+@contextmanager
+def _restore_function_trace_context(context: _FunctionTraceContext) -> Iterator[None]:
+    with (
+        jax.enable_x64(context.x64),
+        jax.default_matmul_precision(context.matmul_precision),
+        explicit_x64_dtypes(context.explicit_x64),
+        jax.numpy_dtype_promotion(context.dtype_promotion),
+    ):
+        yield
+
+
 _Operand = TypeVar("_Operand")
 
 
@@ -293,6 +334,10 @@ def _pack_function_arguments(
         else:
             frozen_value = snapshot_static_value(value)
             params[name] = _StaticParam(frozen_value, static_value_key(frozen_value))
+    context_name = "_jax2onnx_trace_context"
+    while context_name in params:
+        context_name += "_"
+    params[context_name] = _capture_function_trace_context()
     return tuple(operands), params
 
 
@@ -306,7 +351,9 @@ def _unpack_function_arguments(
     positional_count = len(operands) - keyword_count
     kwargs: dict[str, object] = {}
     for name, value in params.items():
-        if isinstance(value, _DynamicParamRef):
+        if isinstance(value, _FunctionTraceContext):
+            continue
+        elif isinstance(value, _DynamicParamRef):
             kwargs[name] = operands[value.index]
         elif isinstance(value, _StaticParam):
             kwargs[name] = value.value
@@ -423,9 +470,10 @@ class PrimitiveLeafPlugin(PrimitivePlugin, PrimitiveLowering):
     @classmethod
     @contextmanager
     def plugin_binding(cls) -> Iterator[None]:
-        cls.ensure_abstract_eval_bound()
-        with apply_patches(cls.binding_specs()):
-            yield
+        with _PLUGIN_JIT_CONTEXT(True):
+            cls.ensure_abstract_eval_bound()
+            with apply_patches(cls.binding_specs()):
+                yield
 
     def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
         if not self.patch_info:
@@ -630,6 +678,7 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _abstract_eval_with_kwargs(self, *args: Any, **kwargs: Any) -> Any:
+        trace_context = _function_trace_context(kwargs)
         instance_key = kwargs.get("instance_key")
         orig_fn = self._resolve_orig_fn(instance_key)
         if orig_fn is None:
@@ -649,9 +698,14 @@ class FunctionPlugin(PrimitivePlugin):
                 operand_args, kwargs
             )
             call_kwargs.pop("instance_key", None)
-            return orig_fn(*positional_args, **call_kwargs)
+            with _restore_function_trace_context(trace_context):
+                return orig_fn(*positional_args, **call_kwargs)
 
-        out_aval = jax.eval_shape(_call_with_static_kwargs, *specs)
+        # Formal values already have source types. Abstract input preparation
+        # must not narrow an existing FP64 formal when its body locally disables
+        # x64. Replay the call-site context inside the actual calculation.
+        with jax.enable_x64(True):
+            out_aval = jax.eval_shape(_call_with_static_kwargs, *specs)
         if isinstance(out_aval, jax.ShapeDtypeStruct):
             out_aval = self._aval_to_shaped_array(out_aval)
         elif isinstance(out_aval, tuple):
@@ -661,16 +715,19 @@ class FunctionPlugin(PrimitivePlugin):
         return out_aval
 
     def _primitive_impl(self, *args: Any, **kwargs: Any) -> Any:
+        trace_context = _function_trace_context(kwargs)
         instance_key = kwargs.pop("instance_key", None)
         orig_fn = self._resolve_orig_fn(instance_key)
         if orig_fn is None:
             raise ValueError("Original function not set for primitive!")
         positional_args, call_kwargs = _unpack_function_arguments(args, kwargs)
-        return orig_fn(*positional_args, **call_kwargs)
+        with _restore_function_trace_context(trace_context):
+            return orig_fn(*positional_args, **call_kwargs)
 
     def _batching_rule(
         self, args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
     ) -> tuple[Any, Any]:
+        trace_context = _function_trace_context(params)
         instance_key = params.pop("instance_key", None)
         original_fn = self._resolve_orig_fn(instance_key)
 
@@ -683,7 +740,8 @@ class FunctionPlugin(PrimitivePlugin):
             positional_args, call_kwargs = _unpack_function_arguments(
                 single_args, params
             )
-            return original_fn(*positional_args, **call_kwargs)
+            with _restore_function_trace_context(trace_context):
+                return original_fn(*positional_args, **call_kwargs)
 
         axis_size: Any | None = None
         for arg, bdim in zip(args, dims):
@@ -885,6 +943,7 @@ class FunctionPlugin(PrimitivePlugin):
         eqn: JaxprEqn,
         params: dict[str, object],
     ) -> None:
+        trace_context = _function_trace_context(params)
         invars, params = _unpack_function_arguments(eqn.invars, params)
         eqn = eqn.replace(invars=list(invars), params=params)
         callee = self._resolve_lowering_callee(params)
@@ -892,10 +951,11 @@ class FunctionPlugin(PrimitivePlugin):
         registry = ctx.get_function_registry()
         if registry is None:
             raise RuntimeError("[onnx_function] Function registry missing")
-        key = self._function_key(callee, eqn, captures)
+        key = self._function_key(callee, eqn, captures, trace_context)
         definition = registry.get(key)
         if definition is None:
-            definition = self._build_function(ctx, callee, eqn, captures)
+            with _restore_function_trace_context(trace_context):
+                definition = self._build_function(ctx, callee, eqn, captures)
             registry.put(key, definition)
         self._emit_function_call(ctx, eqn, definition, captures)
 
@@ -1029,6 +1089,7 @@ class FunctionPlugin(PrimitivePlugin):
         callee: Callable[..., object],
         eqn: JaxprEqn,
         captures: FunctionCaptures,
+        trace_context: _FunctionTraceContext,
     ) -> FunctionKey:
         input_signature = tuple(
             (tuple(aval.shape), str(aval.dtype), aval.weak_type)
@@ -1039,7 +1100,17 @@ class FunctionPlugin(PrimitivePlugin):
             if self.unique
             else (id(callee), captures.signature)
         )
-        return FunctionKey(self.name, input_signature, capture_signature)
+        return FunctionKey(
+            self.name,
+            input_signature,
+            capture_signature,
+            (
+                trace_context.x64,
+                trace_context.matmul_precision,
+                trace_context.explicit_x64,
+                trace_context.dtype_promotion,
+            ),
+        )
 
     def _input_avals(self, eqn: JaxprEqn) -> tuple[ShapedArray, ...]:
         return tuple(self._aval_to_shaped_array(var.aval) for var in eqn.invars)
@@ -1050,6 +1121,7 @@ class FunctionPlugin(PrimitivePlugin):
         eqn: JaxprEqn,
         captures: FunctionCaptures,
     ) -> ClosedJaxpr:
+        trace_context = _capture_function_trace_context()
         base_specs = tuple(
             jax.ShapeDtypeStruct(aval.shape, aval.dtype, weak_type=aval.weak_type)
             for aval in self._input_avals(eqn)
@@ -1062,12 +1134,13 @@ class FunctionPlugin(PrimitivePlugin):
                 (capture.name, argument)
                 for capture, argument in zip(captures.dynamic, arguments[base_count:])
             )
-            return callee(*arguments[:base_count], **kwargs)
+            with _restore_function_trace_context(trace_context):
+                return callee(*arguments[:base_count], **kwargs)
 
         active = _IN_FUNCTION_BUILD.get()
         token = _IN_FUNCTION_BUILD.set(active | {self.name})
         try:
-            with _activate_full_plugin_worlds_for_body():
+            with _activate_full_plugin_worlds_for_body(), jax.enable_x64(True):
                 return jax.make_jaxpr(wrapped)(
                     *base_specs, *(capture.spec for capture in captures.dynamic)
                 )
@@ -1374,33 +1447,34 @@ def apply_monkey_patches() -> Iterator[None]:
     count nested uses, then restore the original attribute on exit so user code
     stays pristine once conversion finishes.
     """
-    touched: list[tuple[Any, str]] = []
-    for patch_fn, targets, attr in _iter_patch_specs():
-        for tgt in targets:
-            key = (tgt, attr)
-            st = _PATCH_STATE.get(key)
-            if st is None:
-                orig = getattr(tgt, attr)
-                new = patch_fn(orig)
-                setattr(tgt, attr, new)
-                _PATCH_STATE[key] = {"orig": orig, "count": 1}
-            else:
-                st["count"] += 1
-            touched.append(key)
-    try:
-        yield
-    finally:
-        for key in reversed(touched):
-            st = _PATCH_STATE.get(key)
-            if not st:
-                continue
-            st["count"] -= 1
-            if st["count"] == 0:
-                tgt, attr = key
-                try:
-                    setattr(tgt, attr, st["orig"])
-                finally:
-                    _PATCH_STATE.pop(key, None)
+    with _PLUGIN_JIT_CONTEXT(True):
+        touched: list[tuple[Any, str]] = []
+        try:
+            for patch_fn, targets, attr in _iter_patch_specs():
+                for tgt in targets:
+                    key = (tgt, attr)
+                    st = _PATCH_STATE.get(key)
+                    if st is None:
+                        orig = getattr(tgt, attr)
+                        new = patch_fn(orig)
+                        setattr(tgt, attr, new)
+                        _PATCH_STATE[key] = {"orig": orig, "count": 1}
+                    else:
+                        st["count"] += 1
+                    touched.append(key)
+            yield
+        finally:
+            for key in reversed(touched):
+                st = _PATCH_STATE.get(key)
+                if not st:
+                    continue
+                st["count"] -= 1
+                if st["count"] == 0:
+                    tgt, attr = key
+                    try:
+                        setattr(tgt, attr, st["orig"])
+                    finally:
+                        _PATCH_STATE.pop(key, None)
 
 
 # ------------------------------------------------------------------------------

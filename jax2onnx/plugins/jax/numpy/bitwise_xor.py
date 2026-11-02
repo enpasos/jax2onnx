@@ -175,13 +175,9 @@ class JnpBitwiseXorPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(
             x_var, name_hint=ctx.fresh_name("jnp_bitwise_xor_x")
         )
-        prefer_dt: np.dtype[Any] = np.dtype(
-            getattr(getattr(x_var, "aval", None), "dtype", np.int32)
-        )
         y_val = ctx.get_value_for_var(
             y_var,
             name_hint=ctx.fresh_name("jnp_bitwise_xor_y"),
-            prefer_np_dtype=prefer_dt,
         )
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("jnp_bitwise_xor_out")

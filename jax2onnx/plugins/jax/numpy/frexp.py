@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -41,14 +41,14 @@ def _abstract_eval_via_orig(
     x: AbstractValue,
 ) -> tuple[ShapedArray, ShapedArray]:
     x_shape = tuple(getattr(x, "shape", ()))
-    x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
+    x_dtype: np.dtype[Any] = np.dtype(x.dtype)
     x_spec = jax.ShapeDtypeStruct(x_shape, x_dtype)
     orig = get_orig_impl(prim, func_name)
     mantissa, exponent = jax.eval_shape(lambda value: orig(value), x_spec)
     mantissa_shape = tuple(getattr(mantissa, "shape", ()))
     exponent_shape = tuple(getattr(exponent, "shape", ()))
-    mantissa_dtype = np.dtype(getattr(mantissa, "dtype", np.float32))
-    exponent_dtype = np.dtype(getattr(exponent, "dtype", np.int32))
+    mantissa_dtype = np.dtype(mantissa.dtype)
+    exponent_dtype = np.dtype(exponent.dtype)
     return (
         ShapedArray(mantissa_shape, mantissa_dtype),
         ShapedArray(exponent_shape, exponent_dtype),
@@ -80,7 +80,7 @@ def _cast_to_dtype(
     np_dtype: np.dtype[Any],
     name_hint: str,
 ) -> ir.Value:
-    dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
+    dtype_enum = numpy_dtype_to_ir(np_dtype)
     if getattr(getattr(val, "type", None), "dtype", None) == dtype_enum:
         return val
     cast_val = cast(
@@ -183,15 +183,9 @@ class JnpFrexpPlugin(PrimitiveLeafPlugin):
         (x_var,) = eqn.invars
         mantissa_var, exponent_var = eqn.outvars
 
-        mantissa_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(mantissa_var, "aval", None), "dtype", np.float32)
-        )
-        exponent_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(exponent_var, "aval", None), "dtype", np.int32)
-        )
-        mantissa_enum = _dtype_to_ir(
-            mantissa_dtype, ctx.builder.enable_double_precision
-        )
+        mantissa_dtype: np.dtype[Any] = np.dtype(mantissa_var.aval.dtype)
+        exponent_dtype: np.dtype[Any] = np.dtype(exponent_var.aval.dtype)
+        mantissa_enum = numpy_dtype_to_ir(mantissa_dtype)
         exponent_enum = numpy_dtype_to_ir(exponent_dtype)
         np_dtype = ir_dtype_to_numpy(mantissa_enum, default=mantissa_dtype)
         if np_dtype is None:

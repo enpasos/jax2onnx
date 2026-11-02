@@ -59,6 +59,7 @@ from typing import (
     List,
     Literal,
     Mapping,
+    Never,
     Optional,
     Protocol,
     Sequence,
@@ -76,15 +77,15 @@ import onnx
 import onnx_ir as ir
 from jax import core
 
+from jax2onnx._compat.jax import preserve_precision_globals
 from jax2onnx.converter.conversion_api import (
     InputSpec,
     ShapeDimSpec,
     ShapeTupleSpec,
-    _force_jax_x64,
-    _to_ir_dtype_from_np,
     to_onnx as to_onnx_impl,
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,8 +101,6 @@ _VALID_NORMALIZATION_MODES = {"auto", "prefer_native", "force_decomposed"}
 PathLikeStr = Union[str, os.PathLike[str]]
 OnnxFunctionTarget = Union[Callable[..., Any], type[Any]]
 OnnxFunctionDecorator = Callable[[OnnxFunctionTarget], OnnxFunctionTarget]
-
-_temporary_x64 = _force_jax_x64
 
 
 def _normalize_return_mode(value: str) -> ReturnMode:
@@ -253,7 +252,7 @@ def _materialize_input_params_on_ir(
 
         arr = np.asarray(python_value)
         try:
-            ir_dtype = _to_ir_dtype_from_np(arr.dtype)
+            ir_dtype = numpy_dtype_to_ir(arr.dtype)
         except Exception:
             ir_dtype = None
         if ir_dtype is None:
@@ -422,7 +421,6 @@ if TYPE_CHECKING:
         model_name: str = ...,
         opset: int = ...,
         *,
-        enable_double_precision: bool = ...,
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["proto"] = ...,
         output_path: None = ...,
@@ -442,7 +440,6 @@ if TYPE_CHECKING:
         model_name: str = ...,
         opset: int = ...,
         *,
-        enable_double_precision: bool = ...,
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["ir"],
         output_path: Optional[PathLikeStr] = ...,
@@ -462,7 +459,6 @@ if TYPE_CHECKING:
         model_name: str = ...,
         opset: int = ...,
         *,
-        enable_double_precision: bool = ...,
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["file"],
         output_path: PathLikeStr,
@@ -482,7 +478,6 @@ def to_onnx(
     model_name: str = "jax_model",
     opset: int = 23,
     *,  # All arguments after this must be keyword-only
-    enable_double_precision: bool = False,
     record_primitive_calls_file: Optional[str] = None,
     return_mode: ReturnMode = "proto",
     output_path: Optional[PathLikeStr] = None,
@@ -492,12 +487,15 @@ def to_onnx(
     output_names: Optional[Sequence[str]] = None,
     export_mode: ExportMode = "standard",
     normalization_mode: NormalizationMode = "auto",
+    **removed_options: Never,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """
     Converts a JAX function or model into an ONNX model.
 
     This function serves as the main entry point for converting JAX/Flax models to ONNX format.
     It supports dynamic shapes and additional runtime parameters.
+    Precision follows the prepared JAX computation and caller configuration.
+    Shape-only inputs default to FP32; use typed inputs to request other dtypes.
 
     Args:
         fn: The JAX function or Flax module to convert.
@@ -512,7 +510,6 @@ def to_onnx(
             the export (e.g. `"deterministic"` flags).
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 23.
-        enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
         record_primitive_calls_file: Optional path to a file. If provided,
             details of each JAX primitive encountered during conversion will be
             recorded to this file. This log can be used by developers to manually
@@ -594,11 +591,18 @@ def to_onnx(
         ```
     """
 
+    if "enable_double_precision" in removed_options:
+        raise TypeError(
+            "enable_double_precision was removed; configure the JAX model and typed inputs instead"
+        )
+    if removed_options:
+        unexpected = next(iter(removed_options))
+        raise TypeError(f"to_onnx() got an unexpected keyword argument {unexpected!r}")
+
     _LOGGER.info(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
         f"input_params={input_params}, "
-        f"enable_double_precision={enable_double_precision}, "
         f"record_primitive_calls_file={record_primitive_calls_file}, "
         f"return_mode={return_mode}, output_path={output_path}, "
         f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}, "
@@ -660,14 +664,13 @@ def to_onnx(
                 f"output_names collide with names reserved by input_params: {names}."
             )
 
-    with _temporary_x64(enable_double_precision):
+    with preserve_precision_globals():
         result = to_onnx_impl(
             fn=fn,
             inputs=normalized_inputs,
             input_params=param_map,
             model_name=model_name,
             opset=opset,
-            enable_double_precision=enable_double_precision,
             record_primitive_calls_file=record_primitive_calls_file,
             protective_clone=(normalized_mode == "ir"),
             inputs_as_nchw=inputs_as_nchw,
@@ -676,11 +679,7 @@ def to_onnx(
             output_names=normalized_output_names,
             normalization_mode=normalized_normalization_mode,
         )
-
-        postprocess_ir_model(
-            result,
-            promote_to_double=enable_double_precision,
-        )
+        postprocess_ir_model(result)
 
     def _save_model_proto(
         model_proto: onnx.ModelProto,
@@ -839,9 +838,9 @@ def allclose(
     rtol: float = 1e-3,
     atol: float = 1e-5,
     *,
-    enable_double_precision: bool = False,
     inputs_as_nchw: Optional[Sequence[int]] = None,
     outputs_as_nchw: Optional[Sequence[int]] = None,
+    **removed_options: Never,
 ) -> Tuple[bool, str]:
     """
     Checks if JAX and ONNX Runtime outputs remain numerically close.
@@ -853,8 +852,6 @@ def allclose(
         input_params: Optional keyword arguments applied to both call sites.
         rtol: Relative tolerance for floating-point comparisons.
         atol: Absolute tolerance for floating-point comparisons.
-        enable_double_precision: Temporarily enable `jax_enable_x64` while running the
-            comparison. Defaults to False.
 
     Returns:
         `(is_match, message)` where `is_match` indicates success and `message`
@@ -890,6 +887,14 @@ def allclose(
         ```
     """
 
+    if "enable_double_precision" in removed_options:
+        raise TypeError(
+            "enable_double_precision was removed; use the same JAX context as export"
+        )
+    if removed_options:
+        unexpected = next(iter(removed_options))
+        raise TypeError(f"allclose() got an unexpected keyword argument {unexpected!r}")
+
     _LOGGER.info(
         "Comparing JAX and ONNX outputs (path=%s, rtol=%s, atol=%s)",
         onnx_model_path,
@@ -900,18 +905,17 @@ def allclose(
     xs = _validation_inputs_to_arrays(inputs)
 
     params = dict(input_params or {})
-    with _temporary_x64(enable_double_precision):
-        with jax.default_matmul_precision("float32"):
-            return _run_allclose(
-                fn,
-                onnx_model_path,
-                xs,
-                params,
-                rtol=rtol,
-                atol=atol,
-                inputs_as_nchw=inputs_as_nchw,
-                outputs_as_nchw=outputs_as_nchw,
-            )
+    with preserve_precision_globals():
+        return _run_allclose(
+            fn,
+            onnx_model_path,
+            xs,
+            params,
+            rtol=rtol,
+            atol=atol,
+            inputs_as_nchw=inputs_as_nchw,
+            outputs_as_nchw=outputs_as_nchw,
+        )
 
 
 def allclose_onnxruntime_web(
@@ -1396,12 +1400,19 @@ def _to_numpy_input(value: Any, input_meta: Any) -> np.ndarray:
 
 
 def _to_jax_array(value: Any) -> jax.Array:
+    if isinstance(value, (np.ndarray, np.generic)):
+        array = jnp.asarray(value, dtype=value.dtype)
+        if np.dtype(array.dtype) != value.dtype:
+            raise ValueError(
+                f"Reference input dtype {value.dtype} would be narrowed to {array.dtype}; configure JAX as for export"
+            )
+        return cast(jax.Array, array)
     return cast(jax.Array, jnp.asarray(value))
 
 
 def _to_jax_kwarg(value: Any) -> Any:
-    if isinstance(value, np.ndarray):
-        return jnp.asarray(value)
+    if isinstance(value, (np.ndarray, np.generic)):
+        return _to_jax_array(value)
     if isinstance(value, (list, tuple)):
         return jnp.asarray(value)
     return value

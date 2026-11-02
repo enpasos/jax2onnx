@@ -26,13 +26,11 @@ def _convert_and_run(
     inputs: Sequence[jax.Array],
     *,
     opset: int = 18,
-    enable_double_precision: bool = False,
 ) -> tuple[onnx.ModelProto, list[np.ndarray]]:
     model = to_onnx(
         fn,
         list(inputs),
         opset=opset,
-        enable_double_precision=enable_double_precision,
     )
     onnx.checker.check_model(model)
     session = ort.InferenceSession(
@@ -50,13 +48,11 @@ def _assert_ort_parity(
     inputs: Sequence[jax.Array],
     *,
     opset: int = 18,
-    enable_double_precision: bool = False,
 ) -> onnx.ModelProto:
     model, actual = _convert_and_run(
         fn,
         inputs,
         opset=opset,
-        enable_double_precision=enable_double_precision,
     )
     expected = jax.tree_util.tree_leaves(fn(*inputs))
     assert len(actual) == len(expected)
@@ -353,9 +349,7 @@ def test_linen_norm_float16_reductions_without_float32_promotion(
 
 @pytest.mark.parametrize("kind", ["group", "instance"])
 def test_linen_norm_rejects_unrepresentable_raw_input_staging(kind: str) -> None:
-    original_x64 = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         module: nn.Module
         if kind == "group":
             module = nn.GroupNorm(
@@ -376,9 +370,7 @@ def test_linen_norm_rejects_unrepresentable_raw_input_staging(kind: str) -> None
         fn = _linen_apply(module, x)
 
         with pytest.raises(NotImplementedError, match="dtype staging"):
-            to_onnx(fn, [x], opset=21, enable_double_precision=True)
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)
+            to_onnx(fn, [x], opset=21)
 
 
 @pytest.mark.parametrize("opset", [17, 18, 21])
@@ -386,9 +378,7 @@ def test_linen_norm_rejects_unrepresentable_raw_input_staging(kind: str) -> None
 def test_linen_norm_slow_variance_preserves_wider_affine_dtype(
     opset: int, kind: str
 ) -> None:
-    original_x64 = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         module: nn.Module
         if kind == "group":
             module = nn.GroupNorm(
@@ -412,22 +402,20 @@ def test_linen_norm_slow_variance_preserves_wider_affine_dtype(
             fn,
             [x],
             opset=opset,
-            enable_double_precision=True,
         )
         onnx.checker.check_model(model, full_check=True)
         session = ort.InferenceSession(
             model.SerializeToString(), providers=["CPUExecutionProvider"]
         )
         input_meta = session.get_inputs()[0]
-        assert input_meta.type == "tensor(double)"
+        assert input_meta.type == "tensor(float)"
         actual = session.run(
             None,
-            {input_meta.name: np.asarray(x, dtype=np.float64)},
+            {input_meta.name: np.asarray(x)},
         )
         expected = np.asarray(fn(x))
+        assert actual[0].dtype == expected.dtype
         np.testing.assert_allclose(actual[0], expected, rtol=1e-5, atol=1e-6)
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)
 
 
 @pytest.mark.parametrize("kind", ["group", "instance"])
@@ -502,9 +490,7 @@ def test_linen_norm_slow_variance_keeps_narrow_affine_path_explicit(
 def test_linen_norm_slow_variance_preserves_integer_input_support(
     opset: int, kind: str
 ) -> None:
-    original_x64 = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         module: nn.Module
         if kind == "group":
             module = nn.GroupNorm(
@@ -528,7 +514,6 @@ def test_linen_norm_slow_variance_preserves_integer_input_support(
             fn,
             [x],
             opset=opset,
-            enable_double_precision=True,
         )
         expected = np.asarray(fn(x))
         assert actual[0].dtype == expected.dtype == np.dtype(np.float64)
@@ -537,8 +522,6 @@ def test_linen_norm_slow_variance_preserves_integer_input_support(
             node.op_type in {"GroupNormalization", "InstanceNormalization"}
             for node in model.graph.node
         )
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)
 
 
 @pytest.mark.parametrize("opset", [17, 18, 21])
@@ -634,9 +617,7 @@ def test_linen_norm_slow_variance_is_valid_at_opset17(kind: str) -> None:
 def test_nnx_group_norm_infers_float64_from_parameters(
     use_fast_variance: bool,
 ) -> None:
-    original_x64 = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         norm = nnx.GroupNorm(
             num_features=4,
             num_groups=2,
@@ -653,27 +634,24 @@ def test_nnx_group_norm_infers_float64_from_parameters(
             norm,
             [x],
             opset=21,
-            enable_double_precision=True,
         )
         onnx.checker.check_model(model, full_check=True)
         session = ort.InferenceSession(
             model.SerializeToString(), providers=["CPUExecutionProvider"]
         )
+        input_meta = session.get_inputs()[0]
+        assert input_meta.type == "tensor(float)"
         actual = session.run(
             None,
-            {session.get_inputs()[0].name: np.asarray(x, dtype=np.float64)},
+            {input_meta.name: np.asarray(x)},
         )
         expected = np.asarray(norm(x))
         assert actual[0].dtype == expected.dtype == np.dtype(np.float64)
         np.testing.assert_allclose(actual[0], expected, rtol=1e-9, atol=1e-9)
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)
 
 
 def test_group_norm_high_offset_float64_statistics() -> None:
-    original_x64 = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         eqx_norm = eqx.nn.GroupNorm(groups=2, channels=4)
         nnx_norm = nnx.GroupNorm(
             num_features=4,
@@ -693,16 +671,12 @@ def test_group_norm_high_offset_float64_statistics() -> None:
             eqx_fn,
             [eqx_x],
             opset=21,
-            enable_double_precision=True,
         )
         _assert_ort_parity(
             nnx_norm,
             [nnx_x],
             opset=21,
-            enable_double_precision=True,
         )
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)
 
 
 @pytest.mark.parametrize("opset", [17, 18])

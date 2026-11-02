@@ -56,40 +56,40 @@ def _ff_like_loop_no_xs_mul():
 
 
 def test_loop_mul_broadcast_in_loop_ort_fails(tmp_path):
-    model = to_onnx(
-        _ff_like_loop_no_xs_mul,
-        inputs=[],
-        enable_double_precision=True,  # match the failing use case
-        opset=21,
-        model_name="loop_mul_inference_repro",
-    )
+    with jax.enable_x64(True):
+        model = to_onnx(
+            _ff_like_loop_no_xs_mul,
+            inputs=[],  # match the failing use case
+            opset=21,
+            model_name="loop_mul_inference_repro",
+        )
 
-    p = tmp_path / "loop_mul_inference_repro.onnx"
-    p.write_bytes(model.SerializeToString())
+        p = tmp_path / "loop_mul_inference_repro.onnx"
+        p.write_bytes(model.SerializeToString())
 
-    # Ensure the ONNX model is structurally sound first
-    m = onnx.load(str(p))
-    onnx.checker.check_model(m)
+        # Ensure the ONNX model is structurally sound first
+        m = onnx.load(str(p))
+        onnx.checker.check_model(m)
 
-    ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
 
-    # If we got here, ORT accepted the model. Assert we really produced no mixed dtypes
-    # for the Mul inside the Loop body.
-    m = onnx.load(str(p))
-    loop = next(n for n in m.graph.node if n.op_type == "Loop")
-    body = next(a.g for a in loop.attribute if a.name == "body")
-    mul = next(n for n in body.node if n.op_type == "Mul")
+        # If we got here, ORT accepted the model. Assert we really produced no mixed dtypes
+        # for the Mul inside the Loop body.
+        m = onnx.load(str(p))
+        loop = next(n for n in m.graph.node if n.op_type == "Loop")
+        body = next(a.g for a in loop.attribute if a.name == "body")
+        mul = next(n for n in body.node if n.op_type == "Mul")
 
-    def _elem_type(g, name):
-        for vi in list(g.input) + list(g.value_info) + list(g.output):
-            if vi.name == name and vi.type and vi.type.tensor_type:
-                return vi.type.tensor_type.elem_type
-        for t in g.initializer:
-            if t.name == name:
-                return t.data_type
-        return None
+        def _elem_type(g, name):
+            for vi in list(g.input) + list(g.value_info) + list(g.output):
+                if vi.name == name and vi.type and vi.type.tensor_type:
+                    return vi.type.tensor_type.elem_type
+            for t in g.initializer:
+                if t.name == name:
+                    return t.data_type
+            return None
 
-    t0 = _elem_type(body, mul.input[0])
-    t1 = _elem_type(body, mul.input[1])
-    assert t0 is not None and t1 is not None
-    assert t0 == t1, f"Mul has mixed dtypes: {t0} vs {t1}"
+        t0 = _elem_type(body, mul.input[0])
+        t1 = _elem_type(body, mul.input[1])
+        assert t0 is not None and t1 is not None
+        assert t0 == t1, f"Mul has mixed dtypes: {t0} vs {t1}"

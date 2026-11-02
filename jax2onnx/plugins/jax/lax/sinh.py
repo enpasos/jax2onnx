@@ -7,7 +7,6 @@ from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.jax._log1p_expm1 import emit_sinh
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -77,9 +76,6 @@ class SinhPlugin(PrimitiveLeafPlugin):
         x_val = ctx.require_value_for_var(x_var)
         out_spec = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("sinh_out")
-        )
-        x_val = promote_float32_operand(
-            ctx, x_val, target_dtype=out_spec.dtype, name_hint="sinh_operand_double"
         )
 
         # ONNX Runtime has no float64 or bfloat16 Sinh kernel.

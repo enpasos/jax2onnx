@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -273,9 +273,7 @@ class SvdPlugin(PrimitiveLeafPlugin):
             )
 
         x = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("svd_in"))
-        x_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
-        )
+        x_dtype: np.dtype[Any] = np.dtype(x_var.aval.dtype)
         if np.issubdtype(x_dtype, np.complexfloating):
             raise NotImplementedError("svd complex input is not supported yet")
         if not np.issubdtype(x_dtype, np.floating):
@@ -294,8 +292,8 @@ class SvdPlugin(PrimitiveLeafPlugin):
         if min(m, n) == 2 and not compute_uv:
             s_var = outvars[0]
             s_spec = ctx.get_value_for_var(s_var, name_hint=ctx.fresh_name("svd_s_out"))
-            s_dtype = np.dtype(getattr(getattr(s_var, "aval", None), "dtype", x_dtype))
-            s_dtype_enum = _dtype_to_ir(s_dtype, ctx.builder.enable_double_precision)
+            s_dtype = np.dtype(s_var.aval.dtype)
+            s_dtype_enum = numpy_dtype_to_ir(s_dtype)
             if s_dtype_enum is None:
                 raise TypeError(f"Unsupported svd singular value dtype '{s_dtype}'")
 

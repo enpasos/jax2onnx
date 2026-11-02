@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Callable, ClassVar, Final, cast
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -14,7 +14,6 @@ from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,
-    Var,
     ad,
     batching,
 )
@@ -22,10 +21,15 @@ from jax2onnx._compat.jax import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._utils import cast_value_to_dtype
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
-from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
+    get_orig_impl,
+    make_jnp_primitive,
+)
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -34,14 +38,6 @@ from jax2onnx.plugins.plugin_system import (
 
 
 _SELECT_PRIM: Final = make_jnp_primitive("jax.numpy.select")
-
-
-def _broadcast_shape(*shapes: Sequence[int | object]) -> tuple[int | object, ...]:
-    return jnp.broadcast_shapes(*shapes)
-
-
-def _promote_dtype(*dtypes: np.dtype[Any] | type) -> np.dtype[Any]:
-    return cast(np.dtype[Any], np.dtype(jnp.result_type(*dtypes)))
 
 
 @register_native_primitive(
@@ -129,16 +125,16 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
     def abstract_eval(
         *operands: AbstractValue, num_conds: int, num_choices: int
     ) -> ShapedArray:
-        conds = operands[:num_conds]
-        choices = operands[num_conds : num_conds + num_choices]
-        default = operands[-1]
-        shape = _broadcast_shape(
-            *[c.shape for c in conds],
-            *[c.shape for c in choices],
-            default.shape,
-        )
-        dtype = _promote_dtype(*(c.dtype for c in choices), default.dtype)
-        return ShapedArray(shape, dtype)
+        original = get_orig_impl(JnpSelectPlugin._PRIM, JnpSelectPlugin._FUNC_NAME)
+
+        def call(*values: Any) -> Any:
+            return original(
+                list(values[:num_conds]),
+                list(values[num_conds : num_conds + num_choices]),
+                default=values[-1],
+            )
+
+        return abstract_eval_via_jax(call, *operands)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
@@ -152,9 +148,8 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         result_shape = tuple(getattr(out_var.aval, "shape", ()))
-        result_dtype: np.dtype[Any] = np.dtype(
-            getattr(out_var.aval, "dtype", np.float32)
-        )
+        result_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
+        result_enum = numpy_dtype_to_ir(result_dtype)
 
         builder = getattr(ctx, "builder", None)
         if builder is None:
@@ -163,18 +158,24 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         else_val = ctx.get_value_for_var(
             default_var, name_hint=ctx.fresh_name("select_default")
         )
-        else_val = self._ensure_dtype(ctx, else_val, default_var, result_dtype)
+        else_val = cast_value_to_dtype(
+            ctx, else_val, result_enum, name_hint="select_cast"
+        )
 
         for cond_var, choice_var in reversed(list(zip(cond_vars, choice_vars))):
             cond_val = ctx.get_value_for_var(
                 cond_var, name_hint=ctx.fresh_name("select_cond")
             )
-            cond_val = self._ensure_bool(ctx, cond_val, cond_var)
+            cond_val = cast_value_to_dtype(
+                ctx, cond_val, ir.DataType.BOOL, name_hint="select_cond_cast"
+            )
 
             choice_val = ctx.get_value_for_var(
                 choice_var, name_hint=ctx.fresh_name("select_then")
             )
-            choice_val = self._ensure_dtype(ctx, choice_val, choice_var, result_dtype)
+            choice_val = cast_value_to_dtype(
+                ctx, choice_val, result_enum, name_hint="select_cast"
+            )
 
             out_val = builder.Where(
                 cond_val,
@@ -201,7 +202,7 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         )
         final_dtype = getattr(
             getattr(else_val, "type", None), "dtype", None
-        ) or _dtype_to_ir(np.dtype(result_dtype), ctx.builder.enable_double_precision)
+        ) or numpy_dtype_to_ir(result_dtype)
         final_val.type = ir.TensorType(final_dtype)
         _stamp_type_and_shape(final_val, result_shape)
         _ensure_value_metadata(ctx, final_val)
@@ -209,56 +210,6 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")
         bind_value(out_var, final_val)
-
-    @staticmethod
-    def _ensure_bool(ctx: LoweringContextProtocol, val: ir.Value, var: Var) -> ir.Value:
-        dtype = getattr(getattr(var, "aval", None), "dtype", np.bool_)
-        if dtype == np.bool_:
-            return val
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError("IR build context missing builder for select lowering")
-        cast_val = cast(
-            ir.Value,
-            builder.Cast(
-                val,
-                _outputs=[ctx.fresh_name("select_cond_cast")],
-                to=int(ir.DataType.BOOL.value),
-            ),
-        )
-        cast_val.type = ir.TensorType(ir.DataType.BOOL)
-        _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
-        _ensure_value_metadata(ctx, cast_val)
-        return cast_val
-
-    @staticmethod
-    def _ensure_dtype(
-        ctx: LoweringContextProtocol,
-        val: ir.Value,
-        var: Var,
-        target_dtype: np.dtype[Any],
-    ) -> ir.Value:
-        dtype = getattr(getattr(var, "aval", None), "dtype", target_dtype)
-        if dtype == target_dtype:
-            return val
-        target_ir_dtype = _dtype_to_ir(
-            np.dtype(target_dtype), ctx.builder.enable_double_precision
-        )
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError("IR build context missing builder for select lowering")
-        cast_val = cast(
-            ir.Value,
-            builder.Cast(
-                val,
-                _outputs=[ctx.fresh_name("select_cast")],
-                to=int(target_ir_dtype.value),
-            ),
-        )
-        cast_val.type = ir.TensorType(target_ir_dtype)
-        _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
-        _ensure_value_metadata(ctx, cast_val)
-        return cast_val
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:

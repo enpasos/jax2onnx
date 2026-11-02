@@ -17,55 +17,56 @@ from ..helpers.issue52_scatter_payload_fixture import (
 
 
 def _export_issue52_model(fn, prim0, initial_time, time_step):
-    kwargs = dict(
-        inputs=[prim0, initial_time, time_step],
-        model_name="issue52_scatter_payload",
-        enable_double_precision=True,
-        opset=21,
-    )
-    try:
-        return to_onnx(fn, **kwargs)
-    except TypeError:
-        kwargs.pop("enable_double_precision", None)
-        return to_onnx(fn, **kwargs)
+    with jax.enable_x64():
+        return to_onnx(
+            fn,
+            inputs=[prim0, initial_time, time_step],
+            model_name="issue52_scatter_payload",
+            opset=21,
+        )
 
 
 @pytest.mark.filterwarnings("ignore:.*Removing initializer.*:UserWarning")
 def test_issue52_scatter_payload_roundtrip(tmp_path):
-    ort = pytest.importorskip(
-        "onnxruntime", reason="onnxruntime is required to reproduce issue #52"
-    )
-
-    closed, prim0, initial_time, time_step = _load_payload()
-    feed_forward = _feed_forward_fn(closed)
-
-    expected_outputs = [
-        np.asarray(arr) for arr in feed_forward(prim0, initial_time, time_step)
-    ]
-
-    model = _export_issue52_model(feed_forward, prim0, initial_time, time_step)
-    model_path = tmp_path / "issue52_scatter_payload.onnx"
-    model_path.write_bytes(model.SerializeToString())
-
-    session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
-    ort_inputs = {
-        name: np.asarray(value)
-        for name, value in zip(
-            [tensor.name for tensor in session.get_inputs()],
-            (prim0, initial_time, time_step),
+    with jax.enable_x64():
+        ort = pytest.importorskip(
+            "onnxruntime", reason="onnxruntime is required to reproduce issue #52"
         )
-    }
-    ort_outputs = session.run(None, ort_inputs)
 
-    assert len(ort_outputs) == len(expected_outputs)
-    for index, (observed, expected) in enumerate(zip(ort_outputs, expected_outputs)):
-        np.testing.assert_allclose(
-            observed,
-            expected,
-            rtol=1e-5,
-            atol=1e-6,
-            err_msg=f"Mismatch detected in output {index}",
+        closed, prim0, initial_time, time_step = _load_payload()
+        feed_forward = _feed_forward_fn(closed)
+
+        expected_outputs = [
+            np.asarray(arr) for arr in feed_forward(prim0, initial_time, time_step)
+        ]
+
+        model = _export_issue52_model(feed_forward, prim0, initial_time, time_step)
+        model_path = tmp_path / "issue52_scatter_payload.onnx"
+        model_path.write_bytes(model.SerializeToString())
+
+        session = ort.InferenceSession(
+            str(model_path), providers=["CPUExecutionProvider"]
         )
+        ort_inputs = {
+            name: np.asarray(value)
+            for name, value in zip(
+                [tensor.name for tensor in session.get_inputs()],
+                (prim0, initial_time, time_step),
+            )
+        }
+        ort_outputs = session.run(None, ort_inputs)
+
+        assert len(ort_outputs) == len(expected_outputs)
+        for index, (observed, expected) in enumerate(
+            zip(ort_outputs, expected_outputs)
+        ):
+            np.testing.assert_allclose(
+                observed,
+                expected,
+                rtol=1e-5,
+                atol=1e-6,
+                err_msg=f"Mismatch detected in output {index}",
+            )
 
 
 def _iter_graphs(model_proto: "onnx.ModelProto"):
@@ -86,38 +87,45 @@ def _iter_initializers(model_proto: "onnx.ModelProto"):
 
 
 def test_issue52_scatter_window_keeps_update_axis(tmp_path):
-    ort = pytest.importorskip(
-        "onnxruntime", reason="onnxruntime is required to reproduce issue #52"
-    )
+    with jax.enable_x64():
+        ort = pytest.importorskip(
+            "onnxruntime", reason="onnxruntime is required to reproduce issue #52"
+        )
 
-    closed, prim0, initial_time, time_step = _load_payload()
-    feed_forward = _feed_forward_fn(closed)
+        closed, prim0, initial_time, time_step = _load_payload()
+        feed_forward = _feed_forward_fn(closed)
 
-    model = _export_issue52_model(feed_forward, prim0, initial_time, time_step)
-    model_path = tmp_path / "issue52_scatter_payload.onnx"
-    model_path.write_bytes(model.SerializeToString())
+        model = _export_issue52_model(feed_forward, prim0, initial_time, time_step)
+        model_path = tmp_path / "issue52_scatter_payload.onnx"
+        model_path.write_bytes(model.SerializeToString())
 
-    session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
-    feeds = {
-        tensor.name: np.asarray(value)
-        for tensor, value in zip(session.get_inputs(), (prim0, initial_time, time_step))
-    }
-    session.run(None, feeds)
+        session = ort.InferenceSession(
+            str(model_path), providers=["CPUExecutionProvider"]
+        )
+        feeds = {
+            tensor.name: np.asarray(value)
+            for tensor, value in zip(
+                session.get_inputs(), (prim0, initial_time, time_step)
+            )
+        }
+        session.run(None, feeds)
 
-    model_proto = onnx.load(str(model_path))
-    bcast_dim_values = []
-    for name, value in _iter_initializers(model_proto):
-        if "bcast_dim_c_" not in name:
-            continue
-        if value.size != 1:
-            continue
-        bcast_dim_values.append(int(value.reshape(-1)[0]))
+        model_proto = onnx.load(str(model_path))
+        bcast_dim_values = []
+        for name, value in _iter_initializers(model_proto):
+            if "bcast_dim_c_" not in name:
+                continue
+            if value.size != 1:
+                continue
+            bcast_dim_values.append(int(value.reshape(-1)[0]))
 
-    assert bcast_dim_values, "Expected broadcast-dimension initializers for issue #52"
-    assert 6 in bcast_dim_values, (
-        "Scatter window dimension should include extent 6; "
-        f"got values {sorted(set(bcast_dim_values))}"
-    )
+        assert (
+            bcast_dim_values
+        ), "Expected broadcast-dimension initializers for issue #52"
+        assert 6 in bcast_dim_values, (
+            "Scatter window dimension should include extent 6; "
+            f"got values {sorted(set(bcast_dim_values))}"
+        )
 
 
 def test_issue52_const_slice_broadcast(tmp_path):

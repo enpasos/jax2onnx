@@ -34,26 +34,26 @@ def ff_like(y0):
 @pytest.mark.skipif(not HAS_ORT, reason="onnxruntime not installed")
 @pytest.mark.parametrize("dtype", [jnp.float64])  # mirrors integration (double)
 def test_loop_same_rank_broadcast_mul_regression(dtype):
-    spec = jax.ShapeDtypeStruct(("B", 4, 5), dtype)
+    with jax.enable_x64(True):
+        spec = jax.ShapeDtypeStruct(("B", 4, 5), dtype)
 
-    model = to_onnx(
-        ff_like,
-        inputs=[spec],
-        enable_double_precision=True,
-        # critical to match integration behavior
-        opset=21,
-        model_name="same_rank_broadcast_mul_regression",
-    )
+        model = to_onnx(
+            ff_like,
+            inputs=[spec],
+            # critical to match integration behavior
+            opset=21,
+            model_name="same_rank_broadcast_mul_regression",
+        )
 
-    # Build ORT session (this used to fail with TypeInferenceError before the fix)
-    sess = ort.InferenceSession(
-        model.SerializeToString(), providers=["CPUExecutionProvider"]
-    )
+        # Build ORT session (this used to fail with TypeInferenceError before the fix)
+        sess = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
 
-    # Numeric check against JAX
-    x = np.random.rand(2, 4, 5).astype(np.float64)
-    y_ref = np.asarray(ff_like(jnp.asarray(x, dtype=dtype)))
+        # Numeric check against JAX
+        x = np.random.rand(2, 4, 5).astype(np.float64)
+        y_ref = np.asarray(ff_like(jnp.asarray(x, dtype=dtype)))
 
-    feeds = {sess.get_inputs()[0].name: x}
-    (y_onnx,) = sess.run(None, feeds)
-    np.testing.assert_allclose(y_onnx, y_ref, rtol=1e-7, atol=1e-12)
+        feeds = {sess.get_inputs()[0].name: x}
+        (y_onnx,) = sess.run(None, feeds)
+        np.testing.assert_allclose(y_onnx, y_ref, rtol=1e-7, atol=1e-12)

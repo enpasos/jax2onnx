@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 from onnx_ir import TensorType
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -134,9 +134,7 @@ class JnpCosPlugin(PrimitiveLeafPlugin):
             output_hint="jnp_cos",
         )
 
-        out_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(out_var, "aval", None), "dtype", np.float32)
-        )
+        out_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("jnp_cos_out")
         producer = getattr(out_spec, "producer", None)
         if callable(producer) and producer() is not None:
@@ -173,7 +171,7 @@ class JnpCosPlugin(PrimitiveLeafPlugin):
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:
-            dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+            dtype_enum = numpy_dtype_to_ir(out_dtype)
             result.type = TensorType(dtype_enum)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape

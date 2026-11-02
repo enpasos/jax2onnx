@@ -1,10 +1,8 @@
 # jax2onnx/plugins/jax/lax/le.py
 
-from typing import Any
 
 from jax2onnx._compat.jax import JaxprEqn
 import jax
-import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -44,13 +42,9 @@ class LePlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("le_lhs"))
-        prefer_dtype: np.dtype[Any] = np.dtype(
-            getattr(lhs_var.aval, "dtype", np.float32)
-        )
         rhs_val = ctx.get_value_for_var(
             rhs_var,
             name_hint=ctx.fresh_name("le_rhs"),
-            prefer_np_dtype=prefer_dtype,
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("le_out"))
 

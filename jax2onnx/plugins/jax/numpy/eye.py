@@ -22,7 +22,9 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -35,6 +37,15 @@ def _normalize_dims(n: Any, m: Any | None) -> tuple[int, int]:
     if n_i < 0 or m_i < 0:
         raise ValueError("jnp.eye dimensions must be non-negative")
     return n_i, m_i
+
+
+def _eye_array(
+    n: int, m: int | None = None, *, k: int = 0, dtype: Any
+) -> Callable[[], jax.Array]:
+    def call() -> jax.Array:
+        return jnp.eye(n, m, k=k, dtype=dtype)
+
+    return call
 
 
 @register_native_primitive(
@@ -52,8 +63,9 @@ def _normalize_dims(n: Any, m: Any | None) -> tuple[int, int]:
     testcases=[
         {
             "testcase": "jnp_eye_square",
-            "callable": lambda: jnp.eye(4, dtype=jnp.float32),
+            "callable": construct_and_call(_eye_array, 4, dtype=with_requested_dtype()),
             "input_values": [],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["ConstantOfShape:4x4 -> EyeLike:4x4"],
                 no_unused_inputs=True,
@@ -61,8 +73,11 @@ def _normalize_dims(n: Any, m: Any | None) -> tuple[int, int]:
         },
         {
             "testcase": "jnp_eye_rect_k1",
-            "callable": lambda: jnp.eye(3, 5, k=1, dtype=jnp.float32),
+            "callable": construct_and_call(
+                _eye_array, 3, 5, k=1, dtype=with_requested_dtype()
+            ),
             "input_values": [],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["ConstantOfShape:3x5 -> EyeLike:3x5"],
                 no_unused_inputs=True,

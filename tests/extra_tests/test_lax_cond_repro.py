@@ -38,14 +38,11 @@ def _model_with_cond_and_scatter():
 
 
 def test_cond_scatter_reproducer_ir():
-    original_x64 = jax.config.read("jax_enable_x64")
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         model = to_onnx(
             _model_with_cond_and_scatter,
             inputs=[],
             model_name="cond_scatter_repro_ir",
-            enable_double_precision=True,
         )
         try:
             import onnxruntime as ort
@@ -55,5 +52,3 @@ def test_cond_scatter_reproducer_ir():
             assert len(outputs) == 2
         except Exception as exc:  # pragma: no cover - parity gap tracker
             pytest.xfail(f"converter cond+scatter regression not resolved: {exc}")
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)

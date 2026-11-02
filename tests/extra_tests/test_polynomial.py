@@ -16,21 +16,15 @@ from jax2onnx import to_onnx
 
 @pytest.fixture(autouse=True)
 def _enable_jax_x64() -> Iterator[None]:
-    previous = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         yield
-    finally:
-        jax.config.update("jax_enable_x64", previous)
 
 
 def _session(
     fn: Callable[..., jax.Array],
     inputs: Sequence[np.ndarray],
-    *,
-    enable_double_precision: bool = False,
 ) -> ort.InferenceSession:
-    model = to_onnx(fn, list(inputs), enable_double_precision=enable_double_precision)
+    model = to_onnx(fn, list(inputs))
     onnx.checker.check_model(model, full_check=True)
     options = ort.SessionOptions()
     options.intra_op_num_threads = 1
@@ -67,7 +61,7 @@ def _assert_parity(
 
 
 @pytest.mark.parametrize(
-    ("dtype", "enable_double_precision"),
+    ("dtype", "enable_x64"),
     [
         (np.float16, False),
         (np.float16, True),
@@ -78,30 +72,34 @@ def _assert_parity(
 )
 @pytest.mark.parametrize("shape", [(), (2, 3)])
 def test_polyval_dynamic_coefficients_preserve_shape_and_dtype(
-    dtype: type, enable_double_precision: bool, shape: tuple[int, ...]
+    dtype: type, enable_x64: bool, shape: tuple[int, ...]
 ) -> None:
-    def fn(coeffs: jax.Array, x: jax.Array) -> jax.Array:
-        return jnp.polyval(coeffs, x)
+    with jax.enable_x64(enable_x64):
 
-    coeffs = np.array([2, -3, 1], dtype=dtype)
-    x = np.full(shape, 2, dtype=dtype)
-    session = _session(fn, [coeffs, x], enable_double_precision=enable_double_precision)
-    _assert_parity(session, fn, [coeffs, x])
-    # Reuse the exported graph with different coefficients and evaluation points.
-    _assert_parity(session, fn, [coeffs + 1, x - 1])
+        def fn(coeffs: jax.Array, x: jax.Array) -> jax.Array:
+            return jnp.polyval(coeffs, x)
+
+        coeffs = np.array([2, -3, 1], dtype=dtype)
+        x = np.full(shape, 2, dtype=dtype)
+        session = _session(fn, [coeffs, x])
+        _assert_parity(session, fn, [coeffs, x])
+        # Reuse the exported graph with different coefficients and evaluation points.
+        _assert_parity(session, fn, [coeffs + 1, x - 1])
 
 
-@pytest.mark.parametrize("enable_double_precision", [False, True])
-def test_polyval_long_float16_coefficients(enable_double_precision: bool) -> None:
-    def fn(coeffs: jax.Array, x: jax.Array) -> jax.Array:
-        return jnp.polyval(coeffs, x)
+@pytest.mark.parametrize("enable_x64", [False, True])
+def test_polyval_long_float16_coefficients(enable_x64: bool) -> None:
+    with jax.enable_x64(enable_x64):
 
-    coeffs = np.zeros(9, dtype=np.float16)
-    coeffs[-3:] = [2, -3, 1]
-    x = np.full((2, 3), 2, dtype=np.float16)
-    session = _session(fn, [coeffs, x], enable_double_precision=enable_double_precision)
-    _assert_parity(session, fn, [coeffs, x])
-    _assert_parity(session, fn, [coeffs + 1, x - 1])
+        def fn(coeffs: jax.Array, x: jax.Array) -> jax.Array:
+            return jnp.polyval(coeffs, x)
+
+        coeffs = np.zeros(9, dtype=np.float16)
+        coeffs[-3:] = [2, -3, 1]
+        x = np.full((2, 3), 2, dtype=np.float16)
+        session = _session(fn, [coeffs, x])
+        _assert_parity(session, fn, [coeffs, x])
+        _assert_parity(session, fn, [coeffs + 1, x - 1])
 
 
 def test_polyval_broadcasts_coefficient_arrays() -> None:

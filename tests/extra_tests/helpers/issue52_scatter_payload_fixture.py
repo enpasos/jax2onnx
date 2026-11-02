@@ -35,8 +35,6 @@ import onnx_ir as ir
 from jax2onnx import to_onnx
 from jax2onnx.converter.typing_support import AxisOverrideInfo, AxisOverrideMap
 
-jax.config.update("jax_enable_x64", True)
-
 DATA_DIR = Path(__file__).resolve().parents[1] / "payloads"
 PAYLOAD_PATH = DATA_DIR / "issue52_feedforward_payload.npz"
 
@@ -342,18 +340,21 @@ def _build_fallback_primitive(name: str, fn: Callable[..., Any]) -> _PrimitiveTy
 
 
 def _load_payload() -> Tuple[core.ClosedJaxpr, jax.Array, jax.Array, jax.Array]:
-    data = np.load(PAYLOAD_PATH, allow_pickle=False)
-    meta_json = data["meta"].tobytes().decode("utf-8")
-    meta = json.loads(meta_json)
-    arrays = {k: data[k] for k in data.files if k != "meta"}
-    loader = ArrayLoader(arrays)
+    with jax.enable_x64():
+        data = np.load(PAYLOAD_PATH, allow_pickle=False)
+        meta_json = data["meta"].tobytes().decode("utf-8")
+        meta = json.loads(meta_json)
+        arrays = {k: data[k] for k in data.files if k != "meta"}
+        loader = ArrayLoader(arrays)
 
-    closed = _deserialize_closed_jaxpr(meta["closed_jaxpr"], loader)
-    prim0 = jnp.asarray(_deserialize_value(meta["prim0"], loader), dtype=jnp.float64)
-    initial_time = jnp.array([meta["initial_time"]], dtype=jnp.float64)
-    time_step = jnp.array([meta["time_step"]], dtype=jnp.float64)
+        closed = _deserialize_closed_jaxpr(meta["closed_jaxpr"], loader)
+        prim0 = jnp.asarray(
+            _deserialize_value(meta["prim0"], loader), dtype=jnp.float64
+        )
+        initial_time = jnp.array([meta["initial_time"]], dtype=jnp.float64)
+        time_step = jnp.array([meta["time_step"]], dtype=jnp.float64)
 
-    return closed, prim0, initial_time, time_step
+        return closed, prim0, initial_time, time_step
 
 
 def _feed_forward_fn(
@@ -442,32 +443,28 @@ def _restamp_onnx_axis0(
 def export_models(
     trace_axis0: bool = False,
 ) -> Tuple[Any, Any, Any, Any, Any]:
-    closed, prim0, t_arr, dt_arr = _load_payload()
-    ff = _feed_forward_fn(closed)
-    inputs: List[Any] = [prim0, t_arr, dt_arr]
-    kwargs: Dict[str, Any] = {
-        "inputs": inputs,
-        "model_name": "feed_forward_step",
-        "enable_double_precision": True,
-        "return_mode": "ir",
-    }
-    try:
-        ir_model = to_onnx(ff, **kwargs)
-    except TypeError:
-        kwargs.pop("enable_double_precision", None)
-        ir_model = to_onnx(ff, **kwargs)
+    with jax.enable_x64():
+        closed, prim0, t_arr, dt_arr = _load_payload()
+        ff = _feed_forward_fn(closed)
+        inputs: List[Any] = [prim0, t_arr, dt_arr]
+        ir_model = to_onnx(
+            ff,
+            inputs=inputs,
+            model_name="feed_forward_step",
+            return_mode="ir",
+        )
 
-    if trace_axis0:
-        # The original sandbox prints a detailed trace; tests only care about the side
-        # effects of restamping, so we skip verbose logging here.
-        pass
+        if trace_axis0:
+            # The original sandbox prints a detailed trace; tests only care about the side
+            # effects of restamping, so we skip verbose logging here.
+            pass
 
-    overrides: AxisOverrideMap = {}
-    _collect_axis0_overrides(ir_model.graph, overrides)
+        overrides: AxisOverrideMap = {}
+        _collect_axis0_overrides(ir_model.graph, overrides)
 
-    model_proto = ir.to_proto(ir_model)
-    _restamp_onnx_axis0(model_proto.graph, overrides)
-    return model_proto, ir_model, prim0, t_arr, dt_arr
+        model_proto = ir.to_proto(ir_model)
+        _restamp_onnx_axis0(model_proto.graph, overrides)
+        return model_proto, ir_model, prim0, t_arr, dt_arr
 
 
 __all__ = [

@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
@@ -26,11 +26,17 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
+    get_orig_impl,
+    make_jnp_primitive,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -41,35 +47,6 @@ BatchDim: TypeAlias = int | None
 
 def _all_static_ints(shape: tuple[object, ...]) -> bool:
     return all(isinstance(dim, (int, np.integer)) for dim in shape)
-
-
-def _cast_to_dtype(
-    ctx: LoweringContextProtocol,
-    val: ir.Value,
-    *,
-    from_dtype: np.dtype[Any],
-    to_dtype: np.dtype[Any],
-    name_hint: str,
-    shape: tuple[DimInput, ...],
-) -> ir.Value:
-    target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
-    if (
-        from_dtype == to_dtype
-        and getattr(getattr(val, "type", None), "dtype", None) == target_enum
-    ):
-        return val
-    result = cast(
-        ir.Value,
-        ctx.builder.Cast(
-            val,
-            to=int(target_enum.value),
-            _outputs=[ctx.fresh_name(name_hint)],
-        ),
-    )
-    result.type = ir.TensorType(target_enum)
-    _stamp_type_and_shape(result, shape)
-    _ensure_value_metadata(ctx, result)
-    return result
 
 
 def _unsqueeze(
@@ -177,7 +154,6 @@ def _abstract_eval_via_orig(
     xp: AbstractValue,
     fp: AbstractValue,
 ) -> ShapedArray:
-    x_shape = tuple(getattr(x, "shape", ()))
     xp_shape = tuple(getattr(xp, "shape", ()))
     fp_shape = tuple(getattr(fp, "shape", ()))
     if len(xp_shape) != 1 or len(fp_shape) != 1:
@@ -190,16 +166,11 @@ def _abstract_eval_via_orig(
         raise ValueError("jnp.interp lowering requires at least two samples")
 
     orig = get_orig_impl(prim, func_name)
-    out = jax.eval_shape(
-        lambda x_val, xp_val, fp_val: orig(x_val, xp_val, fp_val),
-        jax.ShapeDtypeStruct(x_shape, np.dtype(getattr(x, "dtype", np.float32))),
-        jax.ShapeDtypeStruct(xp_shape, np.dtype(getattr(xp, "dtype", np.float32))),
-        jax.ShapeDtypeStruct(fp_shape, np.dtype(getattr(fp, "dtype", np.float32))),
-    )
-    out_dtype = np.dtype(getattr(out, "dtype", np.float32))
+    out = abstract_eval_via_jax(orig, x, xp, fp)
+    out_dtype = np.dtype(out.dtype)
     if np.issubdtype(out_dtype, np.complexfloating):
         raise TypeError("jnp.interp lowering does not support complex fp values")
-    return ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
+    return out
 
 
 @register_native_primitive(
@@ -247,7 +218,7 @@ def _abstract_eval_via_orig(
                 np.asarray([0.0, 1.0, 3.0], dtype=np.float32),
                 np.asarray([0.0, 10.0, 30.0], dtype=np.float32),
             ],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     "LessOrEqual:6x3 -> Cast:6x3 -> ReduceSum:6",
@@ -267,7 +238,7 @@ def _abstract_eval_via_orig(
                 np.asarray([0.0, 10.0, 30.0], dtype=np.float32),
             ],
             "expected_output_shapes": [(2, 3)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
         },
         {
             "testcase": "jnp_interp_integer_inputs",
@@ -324,14 +295,21 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         if xp_len < 2:
             raise ValueError("jnp.interp lowering requires at least two samples")
 
-        out_dtype: np.dtype[Any] = np.dtype(getattr(out_var.aval, "dtype", np.float32))
+        out_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
         if np.issubdtype(out_dtype, np.complexfloating):
             raise TypeError("jnp.interp lowering does not support complex fp values")
-        out_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
-        x_dtype: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
-        xp_dtype: np.dtype[Any] = np.dtype(getattr(xp_var.aval, "dtype", np.float32))
-        fp_dtype: np.dtype[Any] = np.dtype(getattr(fp_var.aval, "dtype", out_dtype))
-        compare_dtype: np.dtype[Any] = np.promote_types(x_dtype, xp_dtype)
+        out_enum = numpy_dtype_to_ir(out_dtype)
+        # JAX prepares x/xp jointly in an inexact type, and fp separately.
+        # true_divide uses that same native inexact preparation. Taking xp[0]
+        # avoids broadcasting unrelated x/xp shapes in this dtype-only query.
+        coord_enum = numpy_dtype_to_ir(
+            abstract_eval_via_jax(
+                lambda x, xp: jnp.true_divide(x, xp[0]), x_var.aval, xp_var.aval
+            ).dtype
+        )
+        fp_enum = numpy_dtype_to_ir(
+            abstract_eval_via_jax(lambda fp: jnp.true_divide(fp, fp), fp_var.aval).dtype
+        )
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("interp_x"))
         xp_val = ctx.get_value_for_var(xp_var, name_hint=ctx.fresh_name("interp_xp"))
@@ -340,48 +318,15 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("interp_out")
         )
 
-        x_compare = _cast_to_dtype(
-            ctx,
-            x_val,
-            from_dtype=x_dtype,
-            to_dtype=compare_dtype,
-            name_hint="interp_x_compare_cast",
-            shape=x_shape,
+        x_coord = cast_value_to_dtype(
+            ctx, x_val, coord_enum, name_hint="interp_x_coord_cast"
         )
-        xp_compare = _cast_to_dtype(
-            ctx,
-            xp_val,
-            from_dtype=xp_dtype,
-            to_dtype=compare_dtype,
-            name_hint="interp_xp_compare_cast",
-            shape=xp_shape,
+        xp_coord = cast_value_to_dtype(
+            ctx, xp_val, coord_enum, name_hint="interp_xp_coord_cast"
         )
-        x_arith = _cast_to_dtype(
-            ctx,
-            x_val,
-            from_dtype=x_dtype,
-            to_dtype=out_dtype,
-            name_hint="interp_x_arith_cast",
-            shape=x_shape,
-        )
-        xp_arith = _cast_to_dtype(
-            ctx,
-            xp_val,
-            from_dtype=xp_dtype,
-            to_dtype=out_dtype,
-            name_hint="interp_xp_arith_cast",
-            shape=xp_shape,
-        )
-        fp_arith = _cast_to_dtype(
-            ctx,
-            fp_val,
-            from_dtype=fp_dtype,
-            to_dtype=out_dtype,
-            name_hint="interp_fp_arith_cast",
-            shape=fp_shape,
-        )
+        fp_ready = cast_value_to_dtype(ctx, fp_val, fp_enum, name_hint="interp_fp_cast")
 
-        xp_broadcast = xp_compare
+        xp_broadcast = xp_coord
         xp_broadcast_shape: tuple[DimInput, ...] = (xp_len,)
         for _ in range(len(x_shape)):
             xp_broadcast_shape = (1, *xp_broadcast_shape)
@@ -394,7 +339,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
             )
         x_broadcast = _unsqueeze(
             ctx,
-            x_compare,
+            x_coord,
             axis=len(x_shape),
             shape=(*x_shape, 1),
             name_hint="interp_x_unsqueeze",
@@ -409,7 +354,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(segment_lte, compare_shape)
         _ensure_value_metadata(ctx, segment_lte)
 
-        i64_enum = numpy_dtype_to_ir(np.dtype(np.int64))
+        i64_enum = numpy_dtype_to_ir(np.int64)
         segment_hits = ctx.builder.Cast(
             segment_lte,
             to=int(i64_enum.value),
@@ -457,17 +402,17 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(lo, x_shape)
         _ensure_value_metadata(ctx, lo)
 
-        xp_lo = _gather(ctx, xp_arith, lo, shape=x_shape, name_hint="interp_xp_lo")
-        xp_hi = _gather(ctx, xp_arith, hi, shape=x_shape, name_hint="interp_xp_hi")
-        fp_lo = _gather(ctx, fp_arith, lo, shape=x_shape, name_hint="interp_fp_lo")
-        fp_hi = _gather(ctx, fp_arith, hi, shape=x_shape, name_hint="interp_fp_hi")
+        xp_lo = _gather(ctx, xp_coord, lo, shape=x_shape, name_hint="interp_xp_lo")
+        xp_hi = _gather(ctx, xp_coord, hi, shape=x_shape, name_hint="interp_xp_hi")
+        fp_lo = _gather(ctx, fp_ready, lo, shape=x_shape, name_hint="interp_fp_lo")
+        fp_hi = _gather(ctx, fp_ready, hi, shape=x_shape, name_hint="interp_fp_hi")
 
         x_delta = _binary_float_op(
             ctx,
             "Sub",
-            x_arith,
+            x_coord,
             xp_lo,
-            dtype_enum=out_enum,
+            dtype_enum=coord_enum,
             shape=x_shape,
             name_hint="interp_x_delta",
         )
@@ -476,7 +421,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
             "Sub",
             xp_hi,
             xp_lo,
-            dtype_enum=out_enum,
+            dtype_enum=coord_enum,
             shape=x_shape,
             name_hint="interp_xp_delta",
         )
@@ -485,7 +430,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
             "Sub",
             fp_hi,
             fp_lo,
-            dtype_enum=out_enum,
+            dtype_enum=fp_enum,
             shape=x_shape,
             name_hint="interp_fp_delta",
         )
@@ -494,10 +439,17 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
             "Div",
             x_delta,
             xp_delta,
-            dtype_enum=out_enum,
+            dtype_enum=coord_enum,
             shape=x_shape,
             name_hint="interp_ratio",
         )
+        # Preserve the coordinate division and fp subtraction result boundaries
+        # before their consumers promote to the final computation type.
+        ratio = cast_value_to_dtype(ctx, ratio, out_enum, name_hint="interp_ratio_cast")
+        fp_delta = cast_value_to_dtype(
+            ctx, fp_delta, out_enum, name_hint="interp_fp_delta_cast"
+        )
+        fp_lo = cast_value_to_dtype(ctx, fp_lo, out_enum, name_hint="interp_fp_lo_cast")
         scaled = _binary_float_op(
             ctx,
             "Mul",
@@ -519,18 +471,22 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
 
         first_idx = _const_i64_scalar(ctx, 0, name_hint="interp_first_idx")
         first_xp = _gather(
-            ctx, xp_compare, first_idx, shape=(), name_hint="interp_first_xp"
+            ctx, xp_coord, first_idx, shape=(), name_hint="interp_first_xp"
         )
-        last_xp = _gather(
-            ctx, xp_compare, last_idx, shape=(), name_hint="interp_last_xp"
-        )
+        last_xp = _gather(ctx, xp_coord, last_idx, shape=(), name_hint="interp_last_xp")
         first_fp = _gather(
-            ctx, fp_arith, first_idx, shape=(), name_hint="interp_first_fp"
+            ctx, fp_ready, first_idx, shape=(), name_hint="interp_first_fp"
         )
-        last_fp = _gather(ctx, fp_arith, last_idx, shape=(), name_hint="interp_last_fp")
+        last_fp = _gather(ctx, fp_ready, last_idx, shape=(), name_hint="interp_last_fp")
+        first_fp = cast_value_to_dtype(
+            ctx, first_fp, out_enum, name_hint="interp_first_fp_cast"
+        )
+        last_fp = cast_value_to_dtype(
+            ctx, last_fp, out_enum, name_hint="interp_last_fp_cast"
+        )
 
         below = ctx.builder.Less(
-            x_compare,
+            x_coord,
             first_xp,
             _outputs=[ctx.fresh_name("interp_below")],
         )
@@ -538,7 +494,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(below, x_shape)
         _ensure_value_metadata(ctx, below)
         above = ctx.builder.Greater(
-            x_compare,
+            x_coord,
             last_xp,
             _outputs=[ctx.fresh_name("interp_above")],
         )

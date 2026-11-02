@@ -19,7 +19,7 @@ def _context_and_equation() -> tuple[IRContext, JaxprEqn]:
     jaxpr = jax.make_jaxpr(lambda x: x + x)(
         jax.ShapeDtypeStruct((2,), jnp.float32)
     ).jaxpr
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     ctx.add_input_for_invar(jaxpr.invars[0], 0)
     return ctx, jaxpr.eqns[0]
 

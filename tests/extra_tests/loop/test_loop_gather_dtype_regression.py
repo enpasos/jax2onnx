@@ -30,35 +30,35 @@ def _fn_loop_gather_const_f32():
 
 
 def test_loop_gather_const_f32_loads_and_runs(tmp_path):
-    fn = _fn_loop_gather_const_f32()
+    with jax.enable_x64(True):
+        fn = _fn_loop_gather_const_f32()
 
-    # Export with double mode enabled (this used to provoke a float/double clash in Loop body)
-    model = to_onnx(
-        fn,
-        inputs=[],
-        enable_double_precision=True,
-        opset=21,
-        model_name="loop_gather_dtype",
-    )
-    p = tmp_path / "loop_gather_dtype.onnx"
-    p.write_bytes(model.SerializeToString())
+        # Export with double mode enabled (this used to provoke a float/double clash in Loop body)
+        model = to_onnx(
+            fn,
+            inputs=[],
+            opset=21,
+            model_name="loop_gather_dtype",
+        )
+        p = tmp_path / "loop_gather_dtype.onnx"
+        p.write_bytes(model.SerializeToString())
 
-    # Historically failed here with:
-    # [TypeInferenceError] ... gathernd_0 ... Type (tensor(float)) ... expected (tensor(double))
-    sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        # Historically failed here with:
+        # [TypeInferenceError] ... gathernd_0 ... Type (tensor(float)) ... expected (tensor(double))
+        sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
 
-    # JAX reference
-    y0_ref, y1_ref = fn()
-    y0_ref = np.asarray(jax.device_get(y0_ref))  # f32[3]
-    y1_ref = np.asarray(jax.device_get(y1_ref))  # f64[3]
+        # JAX reference
+        y0_ref, y1_ref = fn()
+        y0_ref = np.asarray(jax.device_get(y0_ref))  # f32[3]
+        y1_ref = np.asarray(jax.device_get(y1_ref))  # f64[3]
 
-    # ORT run (no inputs; model is pure function)
-    y0_onnx, y1_onnx = sess.run(None, {})
+        # ORT run (no inputs; model is pure function)
+        y0_onnx, y1_onnx = sess.run(None, {})
 
-    assert y0_onnx.dtype == np.float32
-    assert y1_onnx.dtype == np.float64
-    np.testing.assert_allclose(y0_onnx, y0_ref, rtol=1e-6, atol=1e-6)
-    np.testing.assert_allclose(y1_onnx, y1_ref, rtol=1e-12, atol=1e-12)
+        assert y0_onnx.dtype == np.float32
+        assert y1_onnx.dtype == np.float64
+        np.testing.assert_allclose(y0_onnx, y0_ref, rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(y1_onnx, y1_ref, rtol=1e-12, atol=1e-12)
 
 
 def _fn_nested_loop_shared_table_f32():
@@ -91,20 +91,20 @@ def _fn_nested_loop_shared_table_f32():
 
 
 def test_loop_gather_const_f32_nested_shared_table(tmp_path):
-    fn = _fn_nested_loop_shared_table_f32()
-    model = to_onnx(
-        fn,
-        inputs=[],
-        enable_double_precision=True,
-        opset=21,
-        model_name="loop_gather_dtype_nested_shared",
-    )
-    p = tmp_path / "loop_gather_dtype_nested_shared.onnx"
-    p.write_bytes(model.SerializeToString())
+    with jax.enable_x64(True):
+        fn = _fn_nested_loop_shared_table_f32()
+        model = to_onnx(
+            fn,
+            inputs=[],
+            opset=21,
+            model_name="loop_gather_dtype_nested_shared",
+        )
+        p = tmp_path / "loop_gather_dtype_nested_shared.onnx"
+        p.write_bytes(model.SerializeToString())
 
-    sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
-    ref_y64, ref_y32 = map(np.asarray, fn())
-    got_y64, got_y32 = [np.asarray(x) for x in sess.run(None, {})]
-    assert got_y64.dtype == np.float64 and got_y32.dtype == np.float32
-    np.testing.assert_allclose(got_y64, ref_y64, rtol=1e-12, atol=1e-15)
-    np.testing.assert_allclose(got_y32, ref_y32, rtol=1e-6, atol=1e-6)
+        sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        ref_y64, ref_y32 = map(np.asarray, fn())
+        got_y64, got_y32 = [np.asarray(x) for x in sess.run(None, {})]
+        assert got_y64.dtype == np.float64 and got_y32.dtype == np.float32
+        np.testing.assert_allclose(got_y64, ref_y64, rtol=1e-12, atol=1e-15)
+        np.testing.assert_allclose(got_y32, ref_y32, rtol=1e-6, atol=1e-6)

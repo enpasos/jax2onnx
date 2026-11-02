@@ -14,7 +14,6 @@ from jax2onnx.converter.ir_context import IRContext
 def test_ir_context_add_node_routes_through_builder_metadata() -> None:
     ctx = IRContext(
         opset=21,
-        enable_double_precision=False,
         input_specs=[],
         stacktrace_metadata=True,
     )

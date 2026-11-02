@@ -30,7 +30,7 @@ def _ops(ctx: IRContext) -> list[str]:
 
 
 def test_pack_native_complex_reinterprets_to_float_pairs() -> None:
-    ctx = IRContext(opset=18, enable_double_precision=True)
+    ctx = IRContext(opset=18)
     complex_vals = np.asarray([1 + 2j, 3 + 4j], dtype=np.complex128)
     complex_init = ctx.builder.add_initializer_from_array(
         name="complex_source",
@@ -45,7 +45,7 @@ def test_pack_native_complex_reinterprets_to_float_pairs() -> None:
 
 
 def test_unpack_to_native_complex_restores_shape_and_dtype() -> None:
-    ctx = IRContext(opset=18, enable_double_precision=True)
+    ctx = IRContext(opset=18)
     complex_vals = np.asarray([[1 + 2j, 3 + 4j]], dtype=np.complex128)
     complex_init = ctx.builder.add_initializer_from_array(
         name="complex_input",
@@ -61,7 +61,7 @@ def test_unpack_to_native_complex_restores_shape_and_dtype() -> None:
 
 
 def test_pack_native_complex_complex64_uses_float_channels() -> None:
-    ctx = IRContext(opset=18, enable_double_precision=False)
+    ctx = IRContext(opset=18)
     complex_vals = np.asarray([[1 + 2j]], dtype=np.complex64)
     complex_init = ctx.builder.add_initializer_from_array(
         name="complex64_input",
@@ -75,7 +75,7 @@ def test_pack_native_complex_complex64_uses_float_channels() -> None:
 
 
 def test_ensure_complex_dtype_inserts_cast_when_needed() -> None:
-    ctx = IRContext(opset=18, enable_double_precision=True)
+    ctx = IRContext(opset=18)
     complex_vals = np.asarray([1 + 2j], dtype=np.complex64)
     complex_init = ctx.builder.add_initializer_from_array(
         name="complex_cast_src",
@@ -89,7 +89,7 @@ def test_ensure_complex_dtype_inserts_cast_when_needed() -> None:
 
 
 def test_pack_native_complex_rejects_non_complex_inputs() -> None:
-    ctx = IRContext(opset=18, enable_double_precision=True)
+    ctx = IRContext(opset=18)
     real_vals = np.asarray([1.0, 2.0], dtype=np.float32)
     real_init = ctx.builder.add_initializer_from_array(
         name="real",
@@ -101,7 +101,7 @@ def test_pack_native_complex_rejects_non_complex_inputs() -> None:
 
 
 def test_conjugate_packed_tensor_flips_imag_sign() -> None:
-    ctx = IRContext(opset=18, enable_double_precision=False)
+    ctx = IRContext(opset=18)
     complex_vals = np.asarray([[[1.0 + 2.0j, 3.0 - 4.0j]]], dtype=np.complex64)
     complex_init = ctx.builder.add_initializer_from_array(
         name="conv_input",

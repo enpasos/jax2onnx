@@ -76,7 +76,9 @@ _ABS_PRIM: Final = make_jnp_primitive("jax.numpy.abs")
         {
             "testcase": "abs_grad_issue_batch_diff_rules",
             "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.abs(y)))(x),
-            "input_values": [np.array([[1.0, -2.0, 3.0], [4.0, -5.0, 6.0]])],
+            "input_values": [
+                np.array([[1.0, -2.0, 3.0], [4.0, -5.0, 6.0]], dtype=np.float32)
+            ],
             "run_only_f32_variant": True,
         },
     ],

@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -85,7 +85,7 @@ class _WindowBasePlugin(PrimitiveLeafPlugin):
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", (n_i,)))
 
         out_spec_type = getattr(out_spec, "type", None)
-        target_enum = _dtype_to_ir(dtype_param, ctx.builder.enable_double_precision)
+        target_enum = numpy_dtype_to_ir(dtype_param)
         if out_spec_type is not None:
             target_enum = out_spec_type.dtype
 

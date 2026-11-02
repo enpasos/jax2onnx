@@ -8,6 +8,9 @@
   BF16, dynamic dimensions, and non-square inputs.
 * Add focused end-to-end deployment examples for small vision and numerical
   models.
+* Demonstrate prepared model precision on a trained classifier, measuring
+  held-out accuracy, artifact size, and deployment behavior separately from the
+  precision-contract implementation.
 * Add a realistic end-to-end RL deployment example based on a widely used RL
   library, loading a trained actor and exporting the inference-only
   `obs -> action` policy contract.
@@ -24,8 +27,13 @@
   representations used by `argwhere`, `nonzero`, `polyval`, and `sinc`, while
   retaining compatibility with JAX 0.10.2.
 * **Preserve FP16 sequence types in `scan`:** Keep each step's input in the
-  sequence dtype, preventing invalid mixed FP16/FP64 graphs with either setting
-  of `enable_double_precision`.
+  sequence dtype, including when the caller enables JAX x64.
+* **Follow the prepared JAX computation:** Use one precision contract through
+  `to_onnx` and `allclose`. Shape-only specs remain FP32; explicitly typed FP64
+  inputs require an effective JAX configuration that preserves them. Preserve
+  explicit casts, shared constants, and captured precision contexts. Remove
+  `enable_double_precision` and diagnose any supplied value with migration
+  guidance. See [Dtypes and Precision](../user_guide/api.md#dtypes-and-precision).
 * **Introduce a typed lowering core:** Add a closed native plugin context,
   explicit input/output binding, and graph ownership checks. Prepare
   legacy extension calls at registration and share child-context construction
@@ -60,10 +68,13 @@
   Dense computation for structured weights, and demonstrate ordinary export
   with a separately tested, optional Qwix W8A8 example. See
   [PR #287](https://github.com/enpasos/jax2onnx/pull/287).
-* **Repair explicit FP32 consumers in double-precision export:** Adapt arithmetic
-  operands explicitly while preserving the preceding FP32 rounding, direct FP32
-  outputs, and bitcast representations. Align concatenation inputs and outputs
-  with the effective precision policy, including inside child scopes.
+* **Preserve operation-specific precision boundaries:** Keep explicit FP32
+  consumers and bitcast representations in their source types. Retain FP16
+  Add/Sub/Mul rounding with local FLOAT work and half result casts; FP16 Rsqrt
+  has one half boundary after FLOAT Sqrt and Div. Keep integer window sums in
+  exact integer arithmetic. Locked CPU runtime measurements and remaining
+  qualification limits are recorded in [Dependencies](dependencies.md) and
+  [Known Limitations](../user_guide/known_limitations.md).
 * **Keep `log1p`, `expm1`, and functions built on them accurate:** Replace
   `Log(1 + x)` and `Exp(x) - 1`, which return zero or lose most digits for small
   inputs, with compensated forms shared by the `lax` and `jnp` lowerings and
@@ -73,8 +84,8 @@
   `(Exp(x) - Exp(-x)) / 2`; `jnp.sinh` keeps running on CUDA, which has no
   `Sinh` kernel. Results stay within a few ulp in the input dtype without
   promoting the model; BF16 computes in FP32 internally so ONNX Runtime can run
-  it. FP16 and BF16 exports of these functions stay valid and keep their dtype
-  with `enable_double_precision=True`, and `jax.nn.log1mexp` now exports FP16
+  it. FP16 and BF16 exports of these functions keep their source dtype when the
+  caller enables JAX x64, and `jax.nn.log1mexp` now exports FP16
   inputs. See
   [Known Limitations](../user_guide/known_limitations.md#log1p-expm1-and-related-functions).
 * **Compute `jax.nn.dot_product_attention` like JAX:** Combine the boolean,
@@ -87,8 +98,8 @@
   logits and softmax in FP32 and cast the weights back before the value
   product.
 * **Keep FP16 scalars and weakly typed `jnp.where` literals in the input
-  dtype:** Scalar initializers narrow only FP64 when double precision is off, so
-  FP16 graphs with scalar constants, such as the attention scale, stay valid.
+  dtype:** Scalar initializers retain the traced dtype, so FP16 graphs with
+  scalar constants, such as the attention scale, stay valid.
   `jnp.where(c, x, 0)` follows JAX's weak-type promotion: BF16 `x` exports
   instead of failing, and FP16 `x` keeps FP16 instead of becoming FP32.
 * **Reject `lax.bitcast_convert_type` below opset 26:** ONNX `BitCast` exists

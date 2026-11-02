@@ -61,17 +61,17 @@ def _loop_two_adds_two_reshapes(y):
 
 @pytest.mark.parametrize("dtype", [jnp.float64])
 def test_loop_body_has_no_duplicate_shape_helpers(dtype):
-    spec = jax.ShapeDtypeStruct(("B", 3, 4), dtype)
-    model = to_onnx(
-        _loop_two_adds_two_reshapes,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name="shape_helper_uniqueness",
-    )
-    body = _find_first_loop_body(model.graph)
-    assert body is not None, "Expected a Loop body."
-    outs = _collect_node_outputs_recursive(body)
-    helpers = [n for n in outs if n.endswith("__shape")]
-    dupes = [n for n, c in collections.Counter(helpers).items() if c > 1]
-    assert not dupes, f"Duplicate shape helpers in Loop body: {dupes}"
+    with jax.enable_x64(True):
+        spec = jax.ShapeDtypeStruct(("B", 3, 4), dtype)
+        model = to_onnx(
+            _loop_two_adds_two_reshapes,
+            inputs=[spec],
+            opset=21,
+            model_name="shape_helper_uniqueness",
+        )
+        body = _find_first_loop_body(model.graph)
+        assert body is not None, "Expected a Loop body."
+        outs = _collect_node_outputs_recursive(body)
+        helpers = [n for n in outs if n.endswith("__shape")]
+        dupes = [n for n, c in collections.Counter(helpers).items() if c > 1]
+        assert not dupes, f"Duplicate shape helpers in Loop body: {dupes}"

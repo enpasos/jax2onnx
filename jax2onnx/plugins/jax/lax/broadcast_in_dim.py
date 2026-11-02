@@ -8,6 +8,8 @@ from jax import lax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import fresh_var_like, new_jaxpr_eqn
+
 # from onnx_ir import Attribute as IRAttr
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
@@ -26,8 +28,17 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._loop_extent_meta import get_axis0_override, set_axis0_override
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _static_dim_as_int
+from jax2onnx.plugins._complex_utils import (
+    _base_dtype_for_complex,
+    ensure_packed_real_pair,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy, tensor_to_numpy
+from jax2onnx.ir_utils import (
+    const_value_to_numpy,
+    ir_dtype_to_numpy,
+    numpy_dtype_to_ir,
+    tensor_to_numpy,
+)
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
 
@@ -322,6 +333,44 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
     """
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        source_var = eqn.invars[0]
+        if np.issubdtype(np.dtype(source_var.aval.dtype), np.complexfloating):
+            source_out = eqn.outvars[0]
+            component_dtype = _base_dtype_for_complex(
+                numpy_dtype_to_ir(source_var.aval.dtype)
+            )
+            physical_in = fresh_var_like(source_var)
+            physical_in.aval = source_var.aval.update(
+                shape=tuple(source_var.aval.shape) + (2,),
+                dtype=np.dtype(component_dtype.numpy()),
+            )
+            physical_out = fresh_var_like(source_out)
+            physical_out.aval = source_out.aval.update(
+                shape=tuple(source_out.aval.shape) + (2,),
+                dtype=np.dtype(component_dtype.numpy()),
+            )
+            packed, _ = ensure_packed_real_pair(
+                ctx, ctx.require_value_for_var(source_var), name_hint="bcast_complex"
+            )
+            ctx.bind_value_for_var(physical_in, packed)
+            physical_params = dict(eqn.params)
+            physical_params["shape"] = tuple(eqn.params["shape"]) + (2,)
+            physical_params["broadcast_dimensions"] = tuple(
+                eqn.params["broadcast_dimensions"]
+            ) + (len(source_out.aval.shape),)
+            physical_eqn = new_jaxpr_eqn(
+                [physical_in],
+                [physical_out],
+                eqn.primitive,
+                physical_params,
+                eqn.effects,
+                source_info=eqn.source_info,
+                ctx=eqn.ctx,
+            )
+            self.lower(ctx, physical_eqn)
+            ctx.bind_value_for_var(source_out, ctx.require_value_for_var(physical_out))
+            return
+
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(

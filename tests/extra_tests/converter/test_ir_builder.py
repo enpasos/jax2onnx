@@ -19,13 +19,13 @@ from jax2onnx.converter.ir_builder import (
 
 
 def test_ir_builder_uses_public_tape_api() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
 
     assert isinstance(builder._tape_builder, Tape)
 
 
 def test_ir_builder_forwards_tape_ops() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
     y = ir.val("y", dtype=ir.DataType.FLOAT, shape=[1])
 
@@ -38,7 +38,7 @@ def test_ir_builder_forwards_tape_ops() -> None:
 
 
 def test_ir_builder_forwards_multi_output_tape_ops() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[4])
     k = ir.val("k", dtype=ir.DataType.INT64, shape=[1])
 
@@ -59,7 +59,7 @@ def test_ir_builder_forwards_multi_output_tape_ops() -> None:
 
 
 def test_ir_builder_accepts_integer_output_count() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[2])
 
     outputs = builder.Split(x, _outputs=2, _version=18)
@@ -77,7 +77,7 @@ def test_ir_builder_accepts_integer_output_count() -> None:
 def test_ir_builder_rejects_invalid_outputs_before_graph_mutation(
     invalid_outputs: object,
 ) -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
 
     with pytest.raises(TypeError, match="int or a non-text sequence of strings"):
@@ -88,7 +88,7 @@ def test_ir_builder_rejects_invalid_outputs_before_graph_mutation(
 
 
 def test_ir_builder_stacktrace_metadata_disabled_by_default() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
     y = ir.val("y", dtype=ir.DataType.FLOAT, shape=[1])
 
@@ -101,9 +101,7 @@ def test_ir_builder_stacktrace_metadata_disabled_by_default() -> None:
 
 
 def test_ir_builder_stacktrace_metadata_enabled() -> None:
-    builder = IRBuilder(
-        opset=18, enable_double_precision=False, enable_stacktrace_metadata=True
-    )
+    builder = IRBuilder(opset=18, enable_stacktrace_metadata=True)
     builder.set_stacktrace_mode("minimal")
     builder.set_current_jax_traceback(
         "user_code.py:123 (my_fun)\n/home/env/site-packages/jax/_src/foo.py:1 (bar)"
@@ -122,9 +120,7 @@ def test_ir_builder_stacktrace_metadata_enabled() -> None:
 
 
 def test_ir_builder_stacktrace_full_mode_includes_detailed_fields() -> None:
-    builder = IRBuilder(
-        opset=18, enable_double_precision=False, enable_stacktrace_metadata=True
-    )
+    builder = IRBuilder(opset=18, enable_stacktrace_metadata=True)
     builder.set_stacktrace_mode("full")
     builder.set_current_jax_traceback(
         "frame_a.py:10 (call)\n/home/env/site-packages/jax/_src/run.py:1 (run)"
@@ -146,7 +142,7 @@ def test_ir_builder_stacktrace_full_mode_includes_detailed_fields() -> None:
 
 
 def test_ir_builder_initializer_registration() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
 
     weight = builder.add_initializer_from_scalar(
         name="weight", value=np.array([1.0], dtype=np.float32)
@@ -158,7 +154,7 @@ def test_ir_builder_initializer_registration() -> None:
 
 
 def test_ir_builder_initializer_view_assignment_roundtrip() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
     weight = builder.add_initializer_from_scalar(name="weight", value=1.0)
 
     assert weight in builder.initializers
@@ -181,7 +177,7 @@ def _tensor_value(name: str, array: np.ndarray) -> ir.Value:
 
 
 def test_ir_builder_initializer_append_duplicate_same_reuses_existing() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
 
     v1 = _tensor_value("w", np.array([1.0], dtype=np.float32))
     v2 = _tensor_value("w", np.array([1.0], dtype=np.float32))
@@ -196,7 +192,7 @@ def test_ir_builder_initializer_append_duplicate_same_reuses_existing() -> None:
 
 
 def test_ir_builder_initializer_append_duplicate_different_raises() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
 
     v1 = _tensor_value("w", np.array([1.0], dtype=np.float32))
     v2 = _tensor_value("w", np.array([2.0], dtype=np.float32))
@@ -208,7 +204,7 @@ def test_ir_builder_initializer_append_duplicate_different_raises() -> None:
 
 
 def test_ir_builder_add_initializer_from_scalar_duplicate_same_reuses() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
 
     v1 = builder.add_initializer_from_scalar(
         name="alpha", value=np.array([3.14], dtype=np.float32)
@@ -222,7 +218,7 @@ def test_ir_builder_add_initializer_from_scalar_duplicate_same_reuses() -> None:
 
 
 def test_ir_builder_add_initializer_from_scalar_duplicate_different_raises() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
 
     _ = builder.add_initializer_from_scalar(
         name="beta", value=np.array([1.0], dtype=np.float32)
@@ -234,7 +230,7 @@ def test_ir_builder_add_initializer_from_scalar_duplicate_different_raises() -> 
 
 
 def test_ir_builder_model_roundtrip_preserves_initializer_connections() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
 
     # Create an input and an initializer, then add a node that consumes both.
     x = ir.Value(name="x", shape=ir.Shape((1,)), type=ir.TensorType(ir.DataType.FLOAT))
@@ -303,7 +299,7 @@ def test_ir_builder_serializes_producer_version(
     # metadata_props/doc_string/producer_version being empty on every
     # jax2onnx-produced model in a public ONNX-on-the-Hub census.
     monkeypatch.setattr(ir_builder_module, "_PRODUCER_VERSION", "9.8.7")
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
     x = ir.Value(name="x", shape=ir.Shape((1,)), type=ir.TensorType(ir.DataType.FLOAT))
     builder.inputs.append(x)
     builder.outputs.append(x)
@@ -319,7 +315,7 @@ def test_ir_builder_serializes_producer_version(
 
 
 def test_ir_builder_add_node_converts_mapping_attributes() -> None:
-    builder = IRBuilder(opset=18, enable_double_precision=False)
+    builder = IRBuilder(opset=18)
     x = ir.Value(name="x", shape=ir.Shape((2,)), type=ir.TensorType(ir.DataType.FLOAT))
     y = ir.Value(name="y", shape=ir.Shape((2,)), type=ir.TensorType(ir.DataType.FLOAT))
 

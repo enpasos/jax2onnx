@@ -103,21 +103,21 @@ def _shape_dupes_in_loop_body(model):
 @pytest.mark.parametrize("dtype", [jnp.float64])  # mirror feed-forward (double)
 def test_loop_body_shape_helpers_are_ssa_unique(dtype):
     # Symbolic leading dim to exercise Shape-of paths
-    spec = jax.ShapeDtypeStruct(("B", 3, 4), dtype)
-    model = to_onnx(
-        _loop_body_with_two_add_shapeof_sites,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name="loop_shapeof_guard_unique",
-    )
+    with jax.enable_x64(True):
+        spec = jax.ShapeDtypeStruct(("B", 3, 4), dtype)
+        model = to_onnx(
+            _loop_body_with_two_add_shapeof_sites,
+            inputs=[spec],
+            opset=21,
+            model_name="loop_shapeof_guard_unique",
+        )
 
-    dupes, shape_helpers = _shape_dupes_in_loop_body(model)
+        dupes, shape_helpers = _shape_dupes_in_loop_body(model)
 
-    # If this ever fails, we reintroduced the bug. The message shows the helpers we saw.
-    assert (
-        not dupes
-    ), f"Duplicate '__shape' helpers in Loop body: {dupes}\nAll shape helpers: {shape_helpers}"
+        # If this ever fails, we reintroduced the bug. The message shows the helpers we saw.
+        assert (
+            not dupes
+        ), f"Duplicate '__shape' helpers in Loop body: {dupes}\nAll shape helpers: {shape_helpers}"
 
 
 @pytest.mark.parametrize("dtype", [jnp.float64])
@@ -127,33 +127,33 @@ def test_onnxruntime_behaviour_matches_ssa_status(dtype):
     If not, ORT should load and a trivial run should succeed.
     """
     # Use a fully concrete shape here so we can run ORT when the model is valid.
-    spec = jax.ShapeDtypeStruct((2, 3, 4), dtype)
-    model = to_onnx(
-        _loop_body_with_two_add_shapeof_sites,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name="loop_shapeof_guard_ort",
-    )
+    with jax.enable_x64(True):
+        spec = jax.ShapeDtypeStruct((2, 3, 4), dtype)
+        model = to_onnx(
+            _loop_body_with_two_add_shapeof_sites,
+            inputs=[spec],
+            opset=21,
+            model_name="loop_shapeof_guard_ort",
+        )
 
-    dupes, _ = _shape_dupes_in_loop_body(model)
+        dupes, _ = _shape_dupes_in_loop_body(model)
 
-    if not HAS_ORT:
-        pytest.skip("onnxruntime not available")
+        if not HAS_ORT:
+            pytest.skip("onnxruntime not available")
 
-    if dupes:
-        # Buggy converters should trip INVALID_GRAPH here.
-        with pytest.raises(Exception):
-            ort.InferenceSession(
+        if dupes:
+            # Buggy converters should trip INVALID_GRAPH here.
+            with pytest.raises(Exception):
+                ort.InferenceSession(
+                    model.SerializeToString(), providers=["CPUExecutionProvider"]
+                )
+        else:
+            # Fixed converters: ORT loads and runs
+            sess = ort.InferenceSession(
                 model.SerializeToString(), providers=["CPUExecutionProvider"]
             )
-    else:
-        # Fixed converters: ORT loads and runs
-        sess = ort.InferenceSession(
-            model.SerializeToString(), providers=["CPUExecutionProvider"]
-        )
-        # one dummy input
-        x = np.zeros((2, 3, 4), np.float64)
-        feeds = {sess.get_inputs()[0].name: x}
-        (y,) = sess.run(None, feeds)
-        assert y.shape == (2, 2, 3, 4)
+            # one dummy input
+            x = np.zeros((2, 3, 4), np.float64)
+            feeds = {sess.get_inputs()[0].name: x}
+            (y,) = sess.run(None, feeds)
+            assert y.shape == (2, 2, 3, 4)
