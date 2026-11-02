@@ -1023,12 +1023,21 @@ def test_reviewed_global_EXTRA_profile_preserves_STANDARD_and_critical_ownership
         "tests/extra_tests/framework/test_ci_download_cache.py::"
         "test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest"
     ) in focused
-    assert focused and len(focused) == len(set(focused))
+    assert len(focused) == len(set(focused)) == 1803
     assert all(type(nodeid) is str and nodeid for nodeid in focused)
     baseline = standard["baseline"]
     if "path" in baseline:
         baseline = json.loads((directory / baseline["path"]).read_text())
     assert not set(focused).intersection(baseline["nodeids"])
+    main_comparator = (
+        "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::"
+        "test_float16_comparison_handles_numeric_and_bit_typed_arrays"
+    )
+    assert baseline["nodeids"].count(main_comparator) == 1
+    assert main_comparator not in focused
+    assert standard["provenance"]["main_standard_amendment"]["main_commit"] == (
+        "ff012402c665823aaaef04cf1d51dbc1dd932a8c"
+    )
     owner = "tests/extra_tests/framework/test_ci_lane_selection.py::"
     required = {
         owner + "test_opt_in_xdist_projects_before_worker_ids_are_published",
@@ -1080,6 +1089,8 @@ def test_reviewed_global_EXTRA_profile_preserves_STANDARD_and_critical_ownership
             "test_mutable_pytree_auxiliary_rejects_before_body",
             "tests/extra_tests/converter/test_source_callback_payload.py::"
             "test_bound_methods_and_partial_callables_reject_before_execution",
+            "tests/extra_tests/converter/test_source_jit_admission.py::"
+            "test_inline_native_options_retain_the_exact_member",
             "tests/extra_tests/converter/test_source_reduce_extrema_semantics.py::"
             "test_scientific_maximum_original_reciprocal_composition_executes_profiles",
         }

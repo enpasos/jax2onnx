@@ -915,6 +915,7 @@
     "tests/extra_tests/framework/test_onnx_ir_surface.py::test_convenience_signatures_include_used_options",
     "tests/extra_tests/framework/test_onnx_ir_surface.py::test_top_level_exports_match_expectations",
     "tests/extra_tests/framework/test_onnx_ir_surface.py::test_tape_surface_supports_jax2onnx",
+    "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::test_float16_comparison_handles_numeric_and_bit_typed_arrays",
     "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_l1-17]",
     "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_l1-18]",
     "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_sum_square-17]",

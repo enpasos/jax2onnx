@@ -1646,7 +1646,7 @@ def test_lane_batch_plan_isolates_all_original_optional_models(
         ).read_text()
     )
     standard = cohort["baseline"]["nodeids"]
-    assert len(standard) == 4621
+    assert len(standard) == 4622
     items = [
         {
             "nodeid": nodeid,
@@ -1710,10 +1710,10 @@ def test_batch_plan_fills_remainder_with_a_whole_class_from_a_small_module() -> 
 @pytest.mark.parametrize(
     ("minor", "count", "tail"),
     [
-        ("311", 4571, [492, 453]),
-        ("312", 4621, [492, 453]),
-        ("313", 4573, [496, 453]),
-        ("314", 4573, [496, 453]),
+        ("311", 4572, [492, 453]),
+        ("312", 4622, [492, 453]),
+        ("313", 4574, [496, 453]),
+        ("314", 4574, [496, 453]),
     ],
 )
 def test_lane_batch_plan_fills_original_tail_without_splitting_classes(

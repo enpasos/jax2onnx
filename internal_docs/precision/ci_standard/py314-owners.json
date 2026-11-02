@@ -4,7 +4,7 @@
   "baseline_commit": "81ad6ca2592635c8d2ced6dbd77292c487f0351b",
   "baseline": {
     "path": "modern-baseline.json",
-    "sha256": "dfdf5d29ceea3161797b52af6d0bf6a92dffbe06186a3c3828b30978151a8425"
+    "sha256": "a787ba009f31efb0df96a2bd41df5f2bb7b7f6af5345827b2109f1b4555d047c"
   },
   "bindings": {
     "poetry.lock": "c1b7561a241837708208b81cc477f990398979689c30ab378c1bd5d53d71d947",
@@ -491,7 +491,14 @@
     },
     "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
     "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines.",
-    "fixed_standard_parts": "Reviewed static normalization force_decomposed cut only: original fullS4573=1658+2915, original13batch500 order retained(a1-7,b8-13). O4809 retains236ownerextras outsideSTANDARD. Eachordinarypart4096MiB/1100sWORK/1200swhole; strictsamehead/attempt union required. Currenthead hostedqualification remains pending; no old314deadline observation relabelled."
+    "fixed_standard_parts": "Reviewed static normalization force_decomposed cut only: original fullS4573=1658+2915, original13batch500 order retained(a1-7,b8-13). O4809 retains236ownerextras outsideSTANDARD. Eachordinarypart4096MiB/1100sWORK/1200swhole; strictsamehead/attempt union required. Currenthead hostedqualification remains pending; no old314deadline observation relabelled.",
+    "main_standard_amendment": {
+      "main_commit": "ff012402c665823aaaef04cf1d51dbc1dd932a8c",
+      "nodeid": "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::test_float16_comparison_handles_numeric_and_bit_typed_arrays",
+      "previous_S_count": 4573,
+      "S_count": 4574,
+      "scope": "One exact Main comparator regression added in collection order; original STANDARD IDs, generated bindings and historical provenance retained. Fresh canonical admission is required."
+    }
   },
   "collection_args": [
     "tests/examples/test_eqx.py",
@@ -587,6 +594,7 @@
     "tests/extra_tests/framework/test_normalization_benchmark.py",
     "tests/extra_tests/framework/test_one_minus_square_scan.py",
     "tests/extra_tests/framework/test_onnx_ir_surface.py",
+    "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py",
     "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py",
     "tests/extra_tests/framework/test_optimizer_graph_utils.py",
     "tests/extra_tests/framework/test_optional_ormqr_discovery.py",

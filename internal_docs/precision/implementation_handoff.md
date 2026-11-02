@@ -1,5 +1,33 @@
 # Precision migration handoff — 2026-11-02
 
+## Immediate CI repair
+
+The latest inspected published head is `4a4a43fd` in
+[CI612](https://github.com/enpasos/jax2onnx/actions/runs/41388804979).
+It is not qualified: the four focused lanes reject four renamed test IDs before
+their batches run; full Python 3.13/3.14 expose an outdated JIT rejection test;
+full Python 3.12 and Chrome retain the mandatory official-native BF16 failure.
+The Python 3.12 capture contains the original input and a failing first-JIT
+host return. It does not complete eager, warmed or all-batch reference evidence.
+Keep these failures separate from converter/runtime verdicts and from the
+earlier all-green CI610 campaign.
+
+The local branch has merged `origin/main` at `ff012402` through `c925fe6a`.
+The only conflict adopted main's raw-word Float16 decoder. Two Node tests and
+one actual-Chrome test pass. The first Chrome attempt remains interrupted;
+its successful successor used the same limits and recorded child signals
+without treating a signal alone as a test failure. The merge was not pushed.
+
+The reviewed next repair restores the four original parameter IDs, corrects
+the JIT test without relaxing the validator, and includes that regression in
+each focused selection. The new main test belongs to STANDARD on all four
+Python cohorts. Update only its explicit baseline/owner consequences and the
+changed Node helper's exact hash. Preserve all original selections, order,
+criteria and generated bindings; do not regenerate the baseline from current
+collection. Qualify the changed owners and genuine final C/S/A/F admission
+before publication. Reuse unchanged completed checks rather than repeating
+unrelated numerical work.
+
 ## Current predicate and Boolean-reduction checkpoint
 
 The local predicate and Boolean-reduction checkpoint qualifies **44 original

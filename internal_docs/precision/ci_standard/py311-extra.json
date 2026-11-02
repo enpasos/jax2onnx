@@ -919,6 +919,7 @@
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_convenience_signatures_include_used_options",
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_top_level_exports_match_expectations",
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_tape_surface_supports_jax2onnx",
+      "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::test_float16_comparison_handles_numeric_and_bit_typed_arrays",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_l1-17]",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_l1-18]",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_sum_square-17]",
@@ -5883,7 +5884,22 @@
       "scope": "Prospective data only. Original574 genuine global C keeps its source epoch; accepted47 C and this33-case addition are source bridges. Genuine139 owner collection exists only311/313; unconditional declaration bridge on312/314 is not a new observation. No canonical/fullF/fullA/hosted/resource/numerical/B-F acceptance or activation is asserted."
     },
     "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
-    "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines."
+    "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines.",
+    "main_standard_amendment": {
+      "main_commit": "ff012402c665823aaaef04cf1d51dbc1dd932a8c",
+      "nodeid": "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::test_float16_comparison_handles_numeric_and_bit_typed_arrays",
+      "previous_S_count": 4571,
+      "S_count": 4572,
+      "scope": "One exact Main comparator regression added in collection order; original STANDARD IDs, generated bindings and historical provenance retained. Fresh canonical admission is required."
+    },
+    "focused_jit_native_hint_ownership": {
+      "nodeid": "tests/extra_tests/converter/test_source_jit_admission.py::test_inline_native_options_retain_the_exact_member",
+      "previous_F_count": 1802,
+      "F_count": 1803,
+      "previous_F_ordered_sha256": "06d8d598b7553aef3baac27ffeb3976f47477a0a6723c71531b59770b7c1d96f",
+      "F_ordered_sha256": "2bff6aab9093ee47b9a295df909aa260611125b96b6b51df22a43de8f91b1cc4",
+      "scope": "Add the existing native plain-JIT exact-member regression to focused EXTRA, retaining all original IDs and order. Fresh genuine full-C canonical A/F admission is required; no projected table is acceptance."
+    }
   },
   "focused_extra_ids": [
     "tests/extra_tests/converter/test_issue52_registry_ownership.py::test_repeated_registry_discovery_preserves_all_preexisting_bindings",
@@ -6912,6 +6928,7 @@
     "tests/extra_tests/converter/test_source_function_ownership.py::test_failed_source_export_releases_staged_owner_and_weights[nnx]",
     "tests/extra_tests/converter/test_source_function_ownership.py::test_only_live_equation_retains_exact_owner_for_delayed_impl_and_native_vmap",
     "tests/extra_tests/converter/test_source_function_ownership.py::test_source_staging_preserves_native_parameter_hashability_requirement",
+    "tests/extra_tests/converter/test_source_jit_admission.py::test_inline_native_options_retain_the_exact_member",
     "tests/extra_tests/converter/test_source_mlp_state_preparation.py::test_selected_key_representation_retains_native_type_and_two_words",
     "tests/extra_tests/converter/test_source_mlp_state_preparation.py::test_key_representation_rejects_unselected_native_shape_or_implementation[array-key]",
     "tests/extra_tests/converter/test_source_mlp_state_preparation.py::test_key_representation_rejects_unselected_native_shape_or_implementation[other-implementation]",

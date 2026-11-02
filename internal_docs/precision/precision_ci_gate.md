@@ -27,20 +27,36 @@ release requirements.
 
 ## Current qualification
 
-At the recorded 2026-11-02 checkpoint, published `e09f3447` completed all
-**33 [CI610 checks](https://github.com/enpasos/jax2onnx/actions/runs/41364282456) successfully**. The [PR checks](https://github.com/enpasos/jax2onnx/pull/277/checks)
-retain the actual candidate outcomes. API timestamps and successful-upload ZIP
-sizes record a longest whole STANDARD job of **1,062 seconds**, aggregate
-STANDARD time of **6,136 seconds** and **69,376,550 bytes**. Separate EXTRA
-accounting records **2,781 seconds** and **42,310,515 bytes**. These are API
-accounting observations only, not raw phase, owned-memory or scientific closure.
+The latest inspected published head, `4a4a43fd`, does **not** pass
+[CI612](https://github.com/enpasos/jax2onnx/actions/runs/41388804979).
+The observed failures have separate causes:
 
-Console results report all 54 CPU cases and both companion controls passing in
-each of the four full Python cohorts; the Web controls also pass. Raw Python
-JUnit and phase acceptance remain unverified because the giant full-result ZIP
-has not been processed. Full CPU jobs exceeded the provisional 45-minute target.
-Full Web owned-RSS qualification remains open: the reported single-process
-high-water already exceeds 4 GiB; aggregate owned RSS and headroom were not
+- All four focused jobs stop before executing their assigned batches because
+  four test parameter IDs changed while their literal selections did not.
+- Full Python 3.13 and 3.14 stop at a stale JIT test that rejects a native inline
+  option already deliberately supported by the implementation.
+- Full Python 3.12 and Chrome stop at the mandatory official-native BF16 TopK
+  counterexample, before ONNX validation. The retained Python 3.12 bytes identify
+  a failing first JIT return; the other required native roles were not completed.
+
+The first two causes need CI/test repairs. The BF16 result remains a scientific
+failure under the unchanged reference contract and publication exception. No
+result is transferred between these environments. The complete campaign and
+independent acceptance remain open; the [PR checks](https://github.com/enpasos/jax2onnx/pull/277/checks)
+retain each predecessor's actual outcome.
+
+CI612's 18 successful STANDARD jobs have an API-observed longest whole job of
+**1,047 seconds**, aggregate time of **6,162 seconds** and **72,408,112 uploaded
+ZIP bytes**. These observations fit the time and successful-evidence budgets;
+they do not establish aggregate owned memory or complete scientific acceptance.
+
+The earlier `e09f3447` completed all
+**33 [CI610 checks](https://github.com/enpasos/jax2onnx/actions/runs/41364282456) successfully**.
+Its consoles report the 54 CPU cases and both controls passing in every full
+Python cohort, but independent raw phase/JUnit acceptance remains unverified.
+That success does not qualify a successor. Full CPU jobs exceeded the provisional
+45-minute target. Full Web memory qualification also remains open: reported
+single-process high-water values exceed 4 GiB, while aggregate owned RSS was not
 measured. Complete global scientific acceptance and B–F remain open.
 
 Earlier [CI608 runner-shutdown failures](https://github.com/enpasos/jax2onnx/actions/runs/41350883818)

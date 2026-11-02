@@ -1882,8 +1882,19 @@ def test_complete_support_extra_rejects_foreign_dispatch_before_runner(key, valu
     assert result.returncode != 0 and "unexpected-runner" not in result.stdout
 
 
-@pytest.mark.parametrize("source_scope", ["false", "true"])
-@pytest.mark.parametrize("failure", ["none", "minimum-install", "pip-check", "pytest"])
+@pytest.mark.parametrize(
+    ("failure", "source_scope"),
+    [
+        pytest.param("none", "false", id="none"),
+        pytest.param("minimum-install", "false", id="minimum-install"),
+        pytest.param("pip-check", "false", id="pip-check"),
+        pytest.param("pytest", "false", id="pytest"),
+        pytest.param("none", "true", id="source-none"),
+        pytest.param("minimum-install", "true", id="source-minimum-install"),
+        pytest.param("pip-check", "true", id="source-pip-check"),
+        pytest.param("pytest", "true", id="source-pytest"),
+    ],
+)
 def test_minimum311_monitors_original_seventeen_selectors_and_stops_on_failure(
     tmp_path, failure, source_scope
 ):

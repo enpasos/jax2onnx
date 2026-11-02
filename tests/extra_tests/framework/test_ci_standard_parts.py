@@ -28,8 +28,8 @@ def test_fixed_profile_preserves_original_full_s_and_cut():
     )
     full = profile["baseline"]["nodeids"]
     parts = module._ci_standard_parts(full, profile["standard_parts"])
-    assert len(full) == 4621
-    assert len(parts["a"]) == 216 and len(parts["b"]) == 4405
+    assert len(full) == 4622
+    assert len(parts["a"]) == 216 and len(parts["b"]) == 4406
     assert (
         parts["a"][-1]
         == "tests/examples/test_nnx_dino.py::Test_NnxDinoPatchEmbed::test_nnx_patch_embed"
@@ -571,11 +571,11 @@ def test_fixed_ordinary_profiles_preserve_full_s_and_exact_reviewed_cut(minor, s
         baseline = json.loads((directory / baseline["path"]).read_bytes())
     full = baseline["nodeids"]
     parts = module._ci_standard_parts(full, profile["standard_parts"])
-    assert len(parts["a"]) == 1658 and len(parts["b"]) == second
+    assert len(parts["a"]) == 1659 and len(parts["b"]) == second
     assert parts["a"] + parts["b"] == full
     assert set(parts["a"]).isdisjoint(parts["b"])
     if minor == "314":
-        assert len(full) == 4573
+        assert len(full) == 4574
         items = [
             {
                 "nodeid": node,
@@ -591,7 +591,7 @@ def test_fixed_ordinary_profiles_preserve_full_s_and_exact_reviewed_cut(minor, s
             126,
             15,
             499,
-            496,
+            497,
             497,
             491,
             489,

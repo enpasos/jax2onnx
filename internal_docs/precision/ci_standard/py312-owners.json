@@ -969,6 +969,7 @@
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_convenience_signatures_include_used_options",
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_top_level_exports_match_expectations",
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_tape_surface_supports_jax2onnx",
+      "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::test_float16_comparison_handles_numeric_and_bit_typed_arrays",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_l1-17]",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_l1-18]",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_sum_square-17]",
@@ -5184,7 +5185,14 @@
       ],
       "review": "Literalmoduleorderindependentlyreviewed; no firstimport/transitive/lazyorderclaim. Historicalpaths referenceonly; runtimeMUSTNOTdereferencethese developer-localrefs."
     },
-    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1."
+    "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
+    "main_standard_amendment": {
+      "main_commit": "ff012402c665823aaaef04cf1d51dbc1dd932a8c",
+      "nodeid": "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::test_float16_comparison_handles_numeric_and_bit_typed_arrays",
+      "previous_S_count": 4621,
+      "S_count": 4622,
+      "scope": "One exact Main comparator regression added in collection order; original STANDARD IDs, generated bindings and historical provenance retained. Fresh canonical admission is required."
+    }
   },
   "collection_args": [
     "tests/examples/test_eqx.py",
@@ -5282,6 +5290,7 @@
     "tests/extra_tests/framework/test_normalization_benchmark.py",
     "tests/extra_tests/framework/test_one_minus_square_scan.py",
     "tests/extra_tests/framework/test_onnx_ir_surface.py",
+    "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py",
     "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py",
     "tests/extra_tests/framework/test_optimizer_graph_utils.py",
     "tests/extra_tests/framework/test_optional_ormqr_discovery.py",

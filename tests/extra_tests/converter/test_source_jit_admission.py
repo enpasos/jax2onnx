@@ -485,9 +485,10 @@ def test_inline_rejects_non_native_representations(value: Any) -> None:
     class Inline(Enum):
         AUTO = "auto"
         JAX_LATE = "jax_late"
+        JAX_EARLY = "jax_early"
 
     native = _trace().eqns[0]
-    for candidate in (value, Inline.AUTO, Inline.JAX_LATE):
+    for candidate in (value, Inline.AUTO, Inline.JAX_LATE, Inline.JAX_EARLY):
         equation = native.replace(params={**native.params, "inline": candidate})
         with pytest.raises(SourcePrecisionError) as error:
             validate_source_jaxpr(_carrier(equation), 23)
@@ -495,19 +496,20 @@ def test_inline_rejects_non_native_representations(value: Any) -> None:
 
 
 def test_inline_native_options_retain_the_exact_member() -> None:
-    from jax2onnx._compat.jax import native_jit_boolean_inline_hints
+    from jax2onnx._compat.jax import native_plain_jit_inline_hints
 
     equation = _trace().eqns[0]
-    for value in native_jit_boolean_inline_hints():
+    for value in native_plain_jit_inline_hints():
         updated = equation.replace(params={**equation.params, "inline": value})
         validate_source_jaxpr(_carrier(updated), 23)
         assert updated.params["inline"] is value
-    # XLA-specific/early enum variants are not inferred from AUTO/JAX_LATE.
+    # XLA-specific variants remain outside the native plain-JIT contract.
     from jax._src import api
 
     enum = getattr(api, "Inline", None)
     if enum is not None:
-        for value in (enum.JAX_EARLY, enum.XLA_EARLY, enum.XLA_LATE):
+        assert any(value is enum.JAX_EARLY for value in native_plain_jit_inline_hints())
+        for value in (enum.XLA_EARLY, enum.XLA_LATE):
             with pytest.raises(SourcePrecisionError):
                 validate_source_jaxpr(
                     _carrier(

@@ -919,6 +919,7 @@
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_convenience_signatures_include_used_options",
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_top_level_exports_match_expectations",
       "tests/extra_tests/framework/test_onnx_ir_surface.py::test_tape_surface_supports_jax2onnx",
+      "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::test_float16_comparison_handles_numeric_and_bit_typed_arrays",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_l1-17]",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_l1-18]",
       "tests/extra_tests/framework/test_opset_sensitive_reduction_axes.py::test_reduction_axes_follow_opset_schema_and_preserve_subset_axis[jnp_reduce_sum_square-17]",
@@ -5073,6 +5074,13 @@
       "sha256": "d297367e9f0b3d291c8458415723750e0de4436895788805748b0f56ec75a24a"
     },
     "dependency_refresh": "Reviewed targeted ONNX Runtime 1.31.1, mypy 2.4.1 and mkdocstrings 1.0.8 lock transition; Black is pinned to 26.10.1. Framework versions/markers, baseline selections and historical receipts are unchanged. Fresh runtime/tool qualification is required; minimum312 retains ONNX Runtime 1.24.1.",
-    "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines."
+    "formatter_skip_line_refresh": "Black 26.10.1 removes one preceding blank line: the identical optional Keras skip statement is at line 174 (previous epoch 175). Node identity, reason and setup/call/teardown phases are unchanged; historical baseline and receipts retain their original lines.",
+    "main_standard_amendment": {
+      "main_commit": "ff012402c665823aaaef04cf1d51dbc1dd932a8c",
+      "nodeid": "tests/extra_tests/framework/test_onnxruntime_web_validation_utils.py::test_float16_comparison_handles_numeric_and_bit_typed_arrays",
+      "previous_S_count": 4571,
+      "S_count": 4572,
+      "scope": "One exact Main comparator regression added in collection order; original STANDARD IDs, generated bindings and historical provenance retained. Fresh canonical admission is required."
+    }
   }
 }
