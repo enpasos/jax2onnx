@@ -1,5 +1,6 @@
 # tests/extra_tests/loop/test_loop_ff_like_broadcast_mul_regression.py
 
+import jax
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -43,30 +44,30 @@ def _first_loop_body(g: onnx.GraphProto):
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_loop_ff_like_broadcast_mul_loads_and_runs(tmp_path: Path):
     # Build ONNX with double precision to match real use-case
-    model = to_onnx(
-        _ff_like_loop_broadcast_mul_repro,
-        inputs=[],  # xs=None pattern
-        enable_double_precision=True,
-        opset=21,
-        model_name="loop_ff_like_broadcast_mul",
-    )
-    p = tmp_path / "loop_ff_like_broadcast_mul.onnx"
-    p.write_bytes(model.SerializeToString())
+    with jax.enable_x64(True):
+        model = to_onnx(
+            _ff_like_loop_broadcast_mul_repro,
+            inputs=[],
+            opset=21,
+            model_name="loop_ff_like_broadcast_mul",
+        )
+        p = tmp_path / "loop_ff_like_broadcast_mul.onnx"
+        p.write_bytes(model.SerializeToString())
 
-    # Structural sanity
-    m = onnx.load(str(p))
-    onnx.checker.check_model(m)
+        # Structural sanity
+        m = onnx.load(str(p))
+        onnx.checker.check_model(m)
 
-    # Loop body should contain at least one Mul
-    body = _first_loop_body(m.graph)
-    assert body is not None, "Expected a Loop body subgraph."
-    assert any(
-        n.op_type == "Mul" for n in body.node
-    ), "Expected a Mul inside Loop body."
+        # Loop body should contain at least one Mul
+        body = _first_loop_body(m.graph)
+        assert body is not None, "Expected a Loop body subgraph."
+        assert any(
+            n.op_type == "Mul" for n in body.node
+        ), "Expected a Mul inside Loop body."
 
-    # ORT must be able to load and execute
-    sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
-    outs = sess.run(None, {})
-    assert isinstance(outs, list) and len(outs) >= 1
-    # result is a scan output stacked over Loop length (3). We don't pin exact values.
-    assert outs[0] is not None
+        # ORT must be able to load and execute
+        sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        outs = sess.run(None, {})
+        assert isinstance(outs, list) and len(outs) >= 1
+        # result is a scan output stacked over Loop length (3). We don't pin exact values.
+        assert outs[0] is not None

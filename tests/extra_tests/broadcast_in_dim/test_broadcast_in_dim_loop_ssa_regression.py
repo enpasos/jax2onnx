@@ -126,65 +126,67 @@ def _body_nested_loop_same_symbol_two_reshapes(y):
 )
 @pytest.mark.parametrize("dtype", [jnp.float64])
 def test_loop_body_shapeof_helpers_are_ssa_unique(tmp_path, fn, dtype):
-    spec = jax.ShapeDtypeStruct(("B", 4), dtype)
-    model = to_onnx(
-        fn,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name=fn.__name__,
-    )
+    with jax.enable_x64(True):
+        spec = jax.ShapeDtypeStruct(("B", 4), dtype)
+        model = to_onnx(
+            fn,
+            inputs=[spec],
+            opset=21,
+            model_name=fn.__name__,
+        )
 
-    all_outs = _collect_node_outputs_recursive(model.graph)
-    dupes = [name for name, cnt in collections.Counter(all_outs).items() if cnt > 1]
-    assert not dupes, f"Duplicate node outputs detected: {dupes}"
+        all_outs = _collect_node_outputs_recursive(model.graph)
+        dupes = [name for name, cnt in collections.Counter(all_outs).items() if cnt > 1]
+        assert not dupes, f"Duplicate node outputs detected: {dupes}"
 
-    body = _find_first_loop_body(model.graph)
-    assert body is not None, "Expected Loop body subgraph"
-    body_outs = _collect_node_outputs_recursive(body)
-    body_dupes = [
-        name for name, cnt in collections.Counter(body_outs).items() if cnt > 1
-    ]
-    assert not body_dupes, f"Duplicate outputs in Loop body: {body_dupes}"
+        body = _find_first_loop_body(model.graph)
+        assert body is not None, "Expected Loop body subgraph"
+        body_outs = _collect_node_outputs_recursive(body)
+        body_dupes = [
+            name for name, cnt in collections.Counter(body_outs).items() if cnt > 1
+        ]
+        assert not body_dupes, f"Duplicate outputs in Loop body: {body_dupes}"
 
-    shape_helpers = [name for name in body_outs if name.endswith("__shape")]
-    shape_dupes = [
-        name for name, cnt in collections.Counter(shape_helpers).items() if cnt > 1
-    ]
-    assert not shape_dupes, f"Duplicate '__shape' helpers in Loop body: {shape_dupes}"
+        shape_helpers = [name for name in body_outs if name.endswith("__shape")]
+        shape_dupes = [
+            name for name, cnt in collections.Counter(shape_helpers).items() if cnt > 1
+        ]
+        assert (
+            not shape_dupes
+        ), f"Duplicate '__shape' helpers in Loop body: {shape_dupes}"
 
-    if HAS_ORT:
-        out_path = tmp_path / f"{fn.__name__}.onnx"
-        out_path.write_bytes(model.SerializeToString())
-        try:
-            ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-        except Exception as exc:  # pragma: no cover - regression guard
-            if fn is _body_nested_loop_same_symbol_two_reshapes:
-                pytest.xfail(
-                    "converter Loop nested shape helpers still emit mismatched dtypes"
-                    f" (ORT load failed: {exc})"
-                )
-            pytest.fail(f"onnxruntime failed to load IR model: {exc}")
+        if HAS_ORT:
+            out_path = tmp_path / f"{fn.__name__}.onnx"
+            out_path.write_bytes(model.SerializeToString())
+            try:
+                ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+            except Exception as exc:  # pragma: no cover - regression guard
+                if fn is _body_nested_loop_same_symbol_two_reshapes:
+                    pytest.xfail(
+                        "converter Loop nested shape helpers still emit mismatched dtypes"
+                        f" (ORT load failed: {exc})"
+                    )
+                pytest.fail(f"onnxruntime failed to load IR model: {exc}")
 
 
 @pytest.mark.parametrize("dtype", [jnp.float64])
 def test_numeric_sanity_executes(dtype):
-    if not HAS_ORT:
-        pytest.skip("onnxruntime not available")
-    spec = jax.ShapeDtypeStruct((7, 4), dtype)
-    model = to_onnx(
-        _body_same_symbol_two_reshapes,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name="loop_shapeof_numeric",
-    )
-    sess = ort.InferenceSession(
-        model.SerializeToString(), providers=["CPUExecutionProvider"]
-    )
-    x = np.zeros((7, 4), np.float64)
-    feeds = {sess.get_inputs()[0].name: x}
-    (y,) = sess.run(None, feeds)
-    assert y.shape == (2, 7, 4)
-    (y,) = sess.run(None, feeds)
-    assert y.shape == (2, 7, 4)
+    with jax.enable_x64(True):
+        if not HAS_ORT:
+            pytest.skip("onnxruntime not available")
+        spec = jax.ShapeDtypeStruct((7, 4), dtype)
+        model = to_onnx(
+            _body_same_symbol_two_reshapes,
+            inputs=[spec],
+            opset=21,
+            model_name="loop_shapeof_numeric",
+        )
+        sess = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        x = np.zeros((7, 4), np.float64)
+        feeds = {sess.get_inputs()[0].name: x}
+        (y,) = sess.run(None, feeds)
+        assert y.shape == (2, 7, 4)
+        (y,) = sess.run(None, feeds)
+        assert y.shape == (2, 7, 4)

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence, cast
+from typing import Any, Callable, Iterable, Sequence, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -28,7 +28,9 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -154,6 +156,19 @@ def while_loop_mixed_rank_4d_and_scalar(tensor: Any, counter: Any) -> Any:
     return jax.lax.while_loop(cond_fn, body_fn, (tensor, counter))
 
 
+def _while_loop_4d_and_scalar_state(dtype: Any) -> Callable[[], Any]:
+    def call() -> Any:
+        tensor = (
+            np.random.default_rng(0)
+            .standard_normal((1, 16, 28, 28))
+            .astype(np.float32)
+            .astype(dtype)
+        )
+        return while_loop_mixed_rank_4d_and_scalar(tensor, np.int32(0))
+
+    return call
+
+
 def _repro_cnn_bug_fn(image: Any, counter: Any) -> Any:
     """CNN-style reproducer that previously broke scalar typing."""
 
@@ -197,10 +212,6 @@ def _no_loop_output_reuse(model: Any) -> bool:
     return True
 
 
-def _is_literal(var: Any) -> bool:
-    return hasattr(var, "val")
-
-
 def _evaluate_closed_jaxpr(
     ctx: LoweringContextProtocol,
     closed_jaxpr: Any,
@@ -219,10 +230,7 @@ def _evaluate_closed_jaxpr(
         aval = getattr(out_var, "aval", None)
         if aval is not None:
             shape = tuple(getattr(aval, "shape", ()))
-            dtype_enum = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
+            dtype_enum = numpy_dtype_to_ir(aval.dtype)
             out_val.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(out_val, shape)
             _ensure_value_metadata(ctx, out_val)
@@ -356,10 +364,7 @@ def _build_loop_body_graph(
         aval = getattr(out_var, "aval", None)
         if aval is not None:
             shape = tuple(getattr(aval, "shape", ()))
-            dtype_enum = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
+            dtype_enum = numpy_dtype_to_ir(aval.dtype)
             out_val.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(out_val, shape)
             _ensure_value_metadata(body_ctx, out_val)
@@ -554,7 +559,24 @@ def _build_loop_body_graph(
             "testcase": "while_loop_counter",
             "callable": lambda: jax.lax.while_loop(lambda v: v < 5, lambda v: v + 1, 0),
             "expected_output_shapes": [()],
+            "expected_output_dtypes": [np.int32],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Less -> Loop",
+                        "inputs": {0: {"const": 9.223372036854776e18}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "while_loop_counter_f64",
+            "callable": lambda: jax.lax.while_loop(lambda v: v < 5, lambda v: v + 1, 0),
+            "expected_output_shapes": [()],
             "expected_output_dtypes": [np.int64],
+            "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -841,14 +863,11 @@ def _build_loop_body_graph(
         },
         {
             "testcase": "while_loop_4d_and_scalar_state",
-            "callable": lambda: while_loop_mixed_rank_4d_and_scalar(
-                np.random.default_rng(0)
-                .standard_normal((1, 16, 28, 28))
-                .astype(np.float32),
-                np.int32(0),
+            "callable": construct_and_call(
+                _while_loop_4d_and_scalar_state, dtype=with_requested_dtype()
             ),
             "expected_output_shapes": [(1, 16, 28, 28), ()],
-            "expected_output_dtypes": [np.float32, np.int32],
+            "expected_output_dtypes": [with_requested_dtype(), np.int32],
             "rtol_f64": 1e-6,
             "post_check_onnx_graph": EG(
                 [
@@ -878,7 +897,7 @@ def _build_loop_body_graph(
                 np.int32(0),
             ],
             "expected_output_shapes": [(1, 3, 28, 28), ()],
-            "expected_output_dtypes": [np.float32, np.int32],
+            "expected_output_dtypes": [with_requested_dtype(), np.int32],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -1052,37 +1071,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             if aval is None:
                 continue
             shape = tuple(getattr(aval, "shape", ()))
-            dtype = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
+            dtype = numpy_dtype_to_ir(aval.dtype)
             val.type = ir.TensorType(dtype)
             _stamp_type_and_shape(val, shape)
             _ensure_value_metadata(ctx, val)
             ctx.bind_value_for_var(var, val)
-
-        if eqn.invars and all(_is_literal(v) for v in eqn.invars):
-            for var in eqn.outvars:
-                aval = getattr(var, "aval", None)
-                if aval is None:
-                    continue
-                aval_dtype = getattr(aval, "dtype", None)
-                if aval_dtype is None or not np.issubdtype(aval_dtype, np.integer):
-                    continue
-                if np.dtype(aval_dtype) != np.int32:
-                    continue
-                current_val = ctx.get_value_for_var(var)
-                if (
-                    getattr(getattr(current_val, "type", None), "dtype", None)
-                    == ir.DataType.INT64
-                ):
-                    continue
-                promoted = builder_cast(
-                    ctx,
-                    current_val,
-                    ir.DataType.INT64,
-                    name_hint="while_int64",
-                )
-                _stamp_type_and_shape(promoted, tuple(getattr(aval, "shape", ())))
-                _ensure_value_metadata(ctx, promoted)
-                ctx.bind_value_for_var(var, promoted)

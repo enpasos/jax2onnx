@@ -6,7 +6,9 @@ from typing import Any, ClassVar, cast
 
 import numpy as np
 import onnx_ir as ir
+import jax
 
+from jax2onnx._compat.jax import fresh_var_like, new_jaxpr_eqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -116,15 +118,9 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
                 "ragged_dot_general only supports a single group size"
             )
 
-        lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("ragged_lhs"))
         rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("ragged_rhs"))
-        out_spec = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("ragged_out")
-        )
 
-        lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape_list = list(getattr(rhs_var.aval, "shape", ()))
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
 
         if rhs_group:
             removed = tuple(sorted(rhs_group))
@@ -144,57 +140,25 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
                 removed_count += 1
         rhs_shape = tuple(rhs_shape_list)
 
-        dot_plugin = DotGeneralPlugin()
-        dot_ctx = cast(Any, ctx)
-        if dot_plugin._maybe_lower_complex(
-            dot_ctx,
-            lhs_var,
-            rhs_var,
-            out_var,
-            lhs_val,
-            rhs_val,
-            out_spec,
-            lhs_shape,
-            rhs_shape,
-            out_shape,
-            lhs_contract,
-            rhs_contract,
-            lhs_batch,
-            rhs_batch,
-        ):
-            return
-
-        if dot_plugin._try_lower_matmul(
-            dot_ctx,
-            lhs_var,
-            rhs_var,
-            out_var,
-            lhs_val,
-            rhs_val,
-            out_spec,
-            lhs_shape,
-            rhs_shape,
-            out_shape,
-            lhs_contract,
-            rhs_contract,
-            lhs_batch,
-            rhs_batch,
-        ):
-            return
-
-        dot_plugin._lower_via_einsum(
-            dot_ctx,
-            lhs_var,
-            rhs_var,
-            out_var,
-            lhs_val,
-            rhs_val,
-            out_spec,
-            lhs_shape,
-            rhs_shape,
-            out_shape,
-            lhs_contract,
-            rhs_contract,
-            lhs_batch,
-            rhs_batch,
+        dot_rhs_var = fresh_var_like(rhs_var)
+        dot_rhs_var.aval = rhs_var.aval.update(shape=rhs_shape)
+        ctx.bind_value_for_var(dot_rhs_var, rhs_val)
+        dot_params = {
+            key: params[key]
+            for key in ("precision", "preferred_element_type", "out_sharding")
+            if key in params
+        }
+        dot_params["dimension_numbers"] = (
+            (lhs_contract, rhs_contract),
+            (lhs_batch, rhs_batch),
         )
+        dot_eqn = new_jaxpr_eqn(
+            [lhs_var, dot_rhs_var],
+            [out_var],
+            jax.lax.dot_general_p,
+            dot_params,
+            eqn.effects,
+            source_info=eqn.source_info,
+            ctx=eqn.ctx,
+        )
+        DotGeneralPlugin().lower(ctx, dot_eqn)

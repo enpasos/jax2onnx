@@ -121,7 +121,9 @@ class JnpTanPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("jnp_tan_out")
 
-        if np.issubdtype(out_dtype, np.floating):
+        # The native FP32 kernel avoids rounding the phase shift used by the
+        # wider fallback, which loses accuracy even for small integer inputs.
+        if np.issubdtype(out_dtype, np.floating) and out_dtype != np.dtype(np.float32):
             sin_x = ctx.builder.Sin(
                 op_input,
                 _outputs=[ctx.fresh_name("jnp_tan_sin")],

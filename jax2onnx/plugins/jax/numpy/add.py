@@ -13,7 +13,6 @@ from jax2onnx._compat.jax import (
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jax2onnx.plugins.jax.lax.add import lower_add
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -23,6 +22,7 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
     get_orig_impl,
     jnp_binding_specs,
     make_jnp_primitive,
@@ -99,9 +99,8 @@ class JnpAddPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(x: AbstractValue, y: AbstractValue) -> ShapedArray:
-        out_shape = tuple(jnp.broadcast_shapes(x.shape, y.shape))
-        out_dtype = np.promote_types(x.dtype, y.dtype)
-        return ShapedArray(out_shape, out_dtype)
+        original = get_orig_impl(JnpAddPlugin._PRIM, JnpAddPlugin._FUNC_NAME)
+        return abstract_eval_via_jax(original, x, y)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_add(ctx, eqn)

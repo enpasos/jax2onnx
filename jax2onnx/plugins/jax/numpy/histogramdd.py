@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -94,15 +94,15 @@ def _abstract_eval_via_orig(
 
     sample_spec = jax.ShapeDtypeStruct(
         sample_shape,
-        np.dtype(getattr(sample, "dtype", np.float32)),
+        np.dtype(sample.dtype),
     )
     x_edges_spec = jax.ShapeDtypeStruct(
         x_edges_shape,
-        np.dtype(getattr(x_edges, "dtype", np.float32)),
+        np.dtype(x_edges.dtype),
     )
     y_edges_spec = jax.ShapeDtypeStruct(
         y_edges_shape,
-        np.dtype(getattr(y_edges, "dtype", np.float32)),
+        np.dtype(y_edges.dtype),
     )
     orig = get_orig_impl(prim, func_name)
     hist, edges = jax.eval_shape(
@@ -117,15 +117,15 @@ def _abstract_eval_via_orig(
     return (
         ShapedArray(
             tuple(getattr(hist, "shape", ())),
-            np.dtype(getattr(hist, "dtype", np.int32)),
+            np.dtype(hist.dtype),
         ),
         ShapedArray(
             tuple(getattr(edges[0], "shape", ())),
-            np.dtype(getattr(edges[0], "dtype", np.float32)),
+            np.dtype(edges[0].dtype),
         ),
         ShapedArray(
             tuple(getattr(edges[1], "shape", ())),
-            np.dtype(getattr(edges[1], "dtype", np.float32)),
+            np.dtype(edges[1].dtype),
         ),
     )
 
@@ -299,26 +299,14 @@ class JnpHistogramddPlugin(PrimitiveLeafPlugin):
         hist_shape = tuple(getattr(hist_var.aval, "shape", ()))
         x_edges_out_shape = tuple(getattr(x_edges_out_var.aval, "shape", ()))
         y_edges_out_shape = tuple(getattr(y_edges_out_var.aval, "shape", ()))
-        hist_dtype: np.dtype[Any] = np.dtype(getattr(hist_var.aval, "dtype", np.int32))
-        x_edges_out_dtype: np.dtype[Any] = np.dtype(
-            getattr(x_edges_out_var.aval, "dtype", np.float32)
-        )
-        y_edges_out_dtype: np.dtype[Any] = np.dtype(
-            getattr(y_edges_out_var.aval, "dtype", np.float32)
-        )
-        sample_dtype: np.dtype[Any] = np.dtype(
-            getattr(sample_var.aval, "dtype", np.float32)
-        )
-        x_edges_dtype: np.dtype[Any] = np.dtype(
-            getattr(x_edges_var.aval, "dtype", x_edges_out_dtype)
-        )
-        y_edges_dtype: np.dtype[Any] = np.dtype(
-            getattr(y_edges_var.aval, "dtype", y_edges_out_dtype)
-        )
-        compare_dtype: np.dtype[Any] = np.promote_types(
-            sample_dtype,
-            np.promote_types(x_edges_out_dtype, y_edges_out_dtype),
-        )
+        hist_dtype: np.dtype[Any] = np.dtype(hist_var.aval.dtype)
+        x_edges_out_dtype: np.dtype[Any] = np.dtype(x_edges_out_var.aval.dtype)
+        y_edges_out_dtype: np.dtype[Any] = np.dtype(y_edges_out_var.aval.dtype)
+        sample_dtype: np.dtype[Any] = np.dtype(sample_var.aval.dtype)
+        x_edges_dtype: np.dtype[Any] = np.dtype(x_edges_var.aval.dtype)
+        y_edges_dtype: np.dtype[Any] = np.dtype(y_edges_var.aval.dtype)
+        # Both edge arrays inherit the prepared inexact sample dtype in JAX.
+        compare_dtype = x_edges_out_dtype
 
         sample_val = ctx.get_value_for_var(
             sample_var,
@@ -457,7 +445,7 @@ class JnpHistogramddPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(joint, joint_shape)
         _ensure_value_metadata(ctx, joint)
 
-        hist_enum = _dtype_to_ir(hist_dtype, ctx.builder.enable_double_precision)
+        hist_enum = numpy_dtype_to_ir(hist_dtype)
         hits = ctx.builder.Cast(
             joint,
             to=int(hist_enum.value),
@@ -531,9 +519,7 @@ class JnpHistogramddPlugin(PrimitiveLeafPlugin):
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:
-            result.type = ir.TensorType(
-                _dtype_to_ir(output_dtype, ctx.builder.enable_double_precision)
-            )
+            result.type = ir.TensorType(numpy_dtype_to_ir(output_dtype))
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
         else:

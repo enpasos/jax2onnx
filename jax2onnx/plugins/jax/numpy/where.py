@@ -17,18 +17,23 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
-from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
+    get_orig_impl,
+    make_jnp_primitive,
+)
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -60,6 +65,59 @@ def _create_problematic_where_sequence(
     return data_input * where_output
 
 
+def _where_simple_fixture(*, dtype: Any) -> Callable[[], jax.Array]:
+    def call() -> jax.Array:
+        return jnp.where(
+            jnp.array([True, False, True]),
+            jnp.array([1, 2, 3], dtype=dtype),
+            jnp.array([-1, -2, -3], dtype=dtype),
+        )
+
+    return call
+
+
+def _where_broadcast_fixture(*, dtype: Any) -> Callable[[], jax.Array]:
+    def call() -> jax.Array:
+        values = jnp.array(np.arange(20, dtype=dtype).reshape(4, 5))
+        return jnp.where(
+            jnp.array([True, False, True, False])[:, None], values, -values
+        )
+
+    return call
+
+
+def _where_a_fixture(*, dtype: Any) -> Callable[[], jax.Array]:
+    def call() -> jax.Array:
+        return _create_problematic_where_sequence(
+            jnp.array(_WHERE_A_COND, dtype=jnp.bool_),
+            jnp.array(_WHERE_A_DATA, dtype=dtype),
+        )
+
+    return call
+
+
+def _where_int_condition_fixture(*, dtype: Any) -> Callable[[], jax.Array]:
+    def call() -> jax.Array:
+        return jnp.where(
+            jnp.array([1, 0, 2], dtype=np.int32),
+            jnp.array([1.0, 2.0, 3.0], dtype=dtype),
+            jnp.array([0.0, 0.0, 0.0], dtype=dtype),
+        )
+
+    return call
+
+
+def _where_literal_fixture(*, dtype: Any) -> Callable[[], jax.Array]:
+    def call() -> jax.Array:
+        return jnp.where(
+            jnp.array([[True, False], [False, True]]),
+            jnp.array([[1.0, 2.0], [3.0, 4.0]], dtype=dtype),
+            -1e9,
+        )
+
+    return call
+
+
 @register_native_primitive(
     jaxpr_primitive=_WHERE_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.where.html",
@@ -72,11 +130,10 @@ def _create_problematic_where_sequence(
     testcases=[
         {
             "testcase": "where_simple",
-            "callable": lambda: jnp.where(
-                jnp.array([True, False, True]),
-                jnp.array([1, 2, 3], dtype=jnp.float32),
-                jnp.array([-1, -2, -3], dtype=jnp.float32),
+            "callable": construct_and_call(
+                _where_simple_fixture, dtype=with_requested_dtype()
             ),
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Where:3"],
                 no_unused_inputs=True,
@@ -84,11 +141,10 @@ def _create_problematic_where_sequence(
         },
         {
             "testcase": "where_broadcast",
-            "callable": lambda: jnp.where(
-                jnp.array([True, False, True, False])[:, None],
-                jnp.array(np.arange(20, dtype=np.float32).reshape(4, 5)),
-                -jnp.array(np.arange(20, dtype=np.float32).reshape(4, 5)),
+            "callable": construct_and_call(
+                _where_broadcast_fixture, dtype=with_requested_dtype()
             ),
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Neg:4x5 -> Where:4x5"],
                 no_unused_inputs=True,
@@ -129,10 +185,10 @@ def _create_problematic_where_sequence(
         },
         {
             "testcase": "where_A",
-            "callable": lambda: _create_problematic_where_sequence(
-                jnp.array(_WHERE_A_COND, dtype=jnp.bool_),
-                jnp.array(_WHERE_A_DATA, dtype=jnp.float32),
+            "callable": construct_and_call(
+                _where_a_fixture, dtype=with_requested_dtype()
             ),
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Where:4x1x1 -> Mul:4x1x4"],
                 no_unused_inputs=True,
@@ -167,11 +223,10 @@ def _create_problematic_where_sequence(
         },
         {
             "testcase": "where_int_condition_cast",
-            "callable": lambda: jnp.where(
-                jnp.array([1, 0, 2], dtype=np.int32),
-                jnp.array([1.0, 2.0, 3.0], dtype=np.float32),
-                jnp.array([0.0, 0.0, 0.0], dtype=np.float32),
+            "callable": construct_and_call(
+                _where_int_condition_fixture, dtype=with_requested_dtype()
             ),
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Cast:3 -> Where:3"],
                 no_unused_inputs=True,
@@ -184,6 +239,24 @@ def _create_problematic_where_sequence(
                 jnp.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
                 -1e9,
             ),
+            "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {2: {"const": -1_000_000_000.0}},
+                        "path": "Where:2x2",
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "where_literal_else_pyfloat_configured_f64",
+            "callable": construct_and_call(
+                _where_literal_fixture, dtype=with_requested_dtype()
+            ),
+            "run_only_f64_variant": True,
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -201,7 +274,7 @@ def _create_problematic_where_sequence(
                 jnp.array(1, dtype=np.int64),
                 jnp.array(0, dtype=np.int64),
             ),
-            "enable_double_precision": True,
+            "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -219,7 +292,7 @@ def _create_problematic_where_sequence(
                 jnp.array([1.0, -2.0, 3.0], dtype=np.float64),
                 jnp.array([1, 2, 3], dtype=np.int32),
             ),
-            "enable_double_precision": True,
+            "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 ["Greater:3 -> Where:3"],
                 no_unused_inputs=True,
@@ -303,10 +376,10 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             raise TypeError("jnp.where expects ShapedArray inputs")
         if not isinstance(y, ShapedArray):
             raise TypeError("jnp.where expects ShapedArray inputs")
-        # JAX promotion honours weak types: where(c, bfloat16_x, 0) stays bfloat16.
-        promoted = jax.dtypes.result_type(x, y)
-        out_shape = jnp.broadcast_shapes(cond.shape, x.shape, y.shape)
-        return ShapedArray(out_shape, promoted)
+        # Bare ShapedArrays are not weak operands to jax.dtypes.result_type.
+        # Trace the original operation with real typed/weak abstract inputs.
+        original = get_orig_impl(JnpWherePlugin._PRIM, JnpWherePlugin._FUNC_NAME)
+        return abstract_eval_via_jax(original, cond, x, y)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         cond_var, x_var, y_var = eqn.invars
@@ -334,19 +407,7 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, cond_val)
 
         target_dtype = np.dtype(getattr(out_var.aval, "dtype", np.float32))
-        if (
-            not ctx.builder.enable_double_precision
-            and np.issubdtype(target_dtype, np.floating)
-            and target_dtype == np.float64
-        ):
-
-            def _is_value_double(val: ir.Value) -> bool:
-                enum = getattr(getattr(val, "type", None), "dtype", None)
-                return bool(enum == ir.DataType.DOUBLE)
-
-            if not _is_value_double(x_val) and not _is_value_double(y_val):
-                target_dtype = np.dtype(np.float32)
-        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        dtype_enum = numpy_dtype_to_ir(target_dtype)
 
         x_cast = self._maybe_cast(ctx, x_val, x_var, target_dtype, "x")
         y_cast = self._maybe_cast(ctx, y_val, y_var, target_dtype, "y")
@@ -374,23 +435,13 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         target_dtype: np.dtype[Any],
         tag: str,
     ) -> ir.Value:
-        current_dtype = np.dtype(getattr(var.aval, "dtype", target_dtype))
-        if current_dtype == target_dtype:
-            dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-            value_enum = getattr(getattr(value, "type", None), "dtype", None)
-            if value_enum == dtype_enum:
-                return value
+        dtype_enum = numpy_dtype_to_ir(target_dtype)
+        value_enum = getattr(getattr(value, "type", None), "dtype", None)
+        if value_enum == dtype_enum:
+            return value
 
-        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-        if value.const_value is not None:
-            arr = const_value_to_numpy(value)
-            if arr is not None and arr.dtype != target_dtype:
-                arr = arr.astype(target_dtype, copy=False)
-                value.const_value = ir.tensor(arr)
-                value.type = ir.TensorType(dtype_enum)
-                return value
-
-        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        # A cast belongs to this Where operand. The canonical binding can also
+        # feed another consumer that still needs its original dtype and payload.
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder for where lowering")

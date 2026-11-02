@@ -9,7 +9,7 @@ from jax2onnx.converter.ir_context import IRContext
 
 
 def test_function_scope_constants_emit_constant_nodes() -> None:
-    parent = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    parent = IRContext(opset=21, input_specs=[])
     parent_input = ir.Value(
         name="x0",
         type=ir.TensorType(ir.DataType.FLOAT),

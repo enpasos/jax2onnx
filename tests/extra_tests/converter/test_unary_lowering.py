@@ -32,7 +32,7 @@ def test_shared_unary_lowering_preserves_output_and_promotion(
             jax.ShapeDtypeStruct((3,), dtype)
         ).jaxpr
     (eqn,) = jaxpr.eqns
-    ctx = IRContext(opset=21, enable_double_precision=False, stacktrace_metadata=True)
+    ctx = IRContext(opset=21, stacktrace_metadata=True)
     ctx.builder.set_current_plugin_identifier("test.Unary.lower", "17")
     x = ctx.add_input_for_invar(eqn.invars[0], 0)
     output = ctx.allocate_value_for_var(eqn.outvars[0], name_hint="provided_output")
@@ -66,7 +66,7 @@ def test_shared_unary_lowering_can_replace_an_existing_produced_binding() -> Non
             jax.ShapeDtypeStruct((3,), np.float32)
         ).jaxpr
     (eqn,) = jaxpr.eqns
-    ctx = IRContext(opset=21, enable_double_precision=False)
+    ctx = IRContext(opset=21)
     ctx.add_input_for_invar(eqn.invars[0], 0)
     plugin = JnpTanhPlugin()
     plugin.lower(ctx, eqn)

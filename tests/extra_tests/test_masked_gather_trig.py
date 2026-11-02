@@ -32,9 +32,7 @@ class TestMaskedGatherTrig:
         )
         indices = np.array([0, 2], dtype=np.int64)
 
-        original_x64 = jax.config.read("jax_enable_x64")
-        jax.config.update("jax_enable_x64", True)
-        try:
+        with jax.enable_x64():
             jax_result = np.asarray(_masked_gather_trig(data, indices))
 
             onnx_model = to_onnx(
@@ -44,7 +42,6 @@ class TestMaskedGatherTrig:
                     jax.ShapeDtypeStruct(indices.shape, indices.dtype),
                 ],
                 model_name="masked_gather_trig_f64_ir",
-                enable_double_precision=True,
             )
 
             assert len(onnx_model.graph.output) == 1
@@ -61,5 +58,3 @@ class TestMaskedGatherTrig:
                 np.testing.assert_allclose(jax_result, onnx_out, rtol=5e-8, atol=1e-12)
             except ImportError:
                 pytest.skip("onnxruntime not available")
-        finally:
-            jax.config.update("jax_enable_x64", original_x64)

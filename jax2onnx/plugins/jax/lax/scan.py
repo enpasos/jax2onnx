@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import lax
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -92,7 +92,7 @@ def _static_scatter_extent(jpr_like: Any) -> int | None:
     return None
 
 
-def _dtype_enum_for_var(var: Any, enable_double: bool) -> ir.DataType | None:
+def _dtype_enum_for_var(var: Any) -> ir.DataType | None:
     aval = getattr(var, "aval", None)
     if aval is None:
         return None
@@ -103,11 +103,7 @@ def _dtype_enum_for_var(var: Any, enable_double: bool) -> ir.DataType | None:
         np_dtype = np.dtype(aval_dtype)
     except TypeError:
         return None
-    if np.issubdtype(np_dtype, np.floating):
-        dtype: ir.DataType | None = _dtype_to_ir(np_dtype, enable_double)
-        return dtype
-    dtype = _dtype_to_ir(np_dtype, enable_double)
-    return dtype
+    return numpy_dtype_to_ir(np_dtype)
 
 
 def _set_value_dtype_from_var(
@@ -121,10 +117,7 @@ def _set_value_dtype_from_var(
         np_dtype = np.dtype(aval_dtype)
     except TypeError:
         return
-    promote_flag = getattr(ctx.builder, "enable_double_precision", False)
-    if np.issubdtype(np_dtype, np.floating):
-        promote_flag = False
-    dtype_enum = _dtype_to_ir(np_dtype, promote_flag)
+    dtype_enum = numpy_dtype_to_ir(np_dtype)
     value.type = ir.TensorType(dtype_enum)
     _ensure_value_metadata(ctx, value)
 
@@ -762,27 +755,10 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     desired_shape = (first_dim_resolved,) + aval_shape[1:]
                 else:
                     desired_shape = aval_shape
-                desired_np_dtype: np.dtype[Any] = np.dtype(
-                    getattr(aval, "dtype", np.float32)
-                )
-                if np.issubdtype(desired_np_dtype, np.integer):
-                    target_enum = (
-                        ir.DataType.INT64
-                        if ctx.builder.enable_double_precision
-                        else ir.DataType.INT32
-                    )
-                    cast_val = builder_cast(
-                        ctx,
-                        val,
-                        target_enum,
-                        name_hint="scan_out_cast",
-                    )
-                    _ensure_value_metadata(ctx, cast_val)
+                cast_val = _maybe_cast_value(ctx, val, _dtype_enum_for_var(var))
+                if cast_val is not val:
                     node_outputs[out_idx] = cast_val
-                    try:
-                        ctx.builder._var2val[var] = cast_val
-                    except TypeError:
-                        pass
+                    ctx.bind_value_for_var(var, cast_val)
                     val = cast_val
                 _stamp_type_and_shape(val, desired_shape)
 
@@ -805,27 +781,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
         call_parameters = LoopCallParameters(ctx, loop_ctx)
 
         has_scatter = _jaxpr_contains_scatter(jaxpr)
-        jaxpr = closed_jaxpr.jaxpr
-        dtypes = [
-            np.dtype(getattr(var.aval, "dtype"))
-            for var in list(jaxpr.invars) + list(jaxpr.outvars)
-            if hasattr(var, "aval") and getattr(var.aval, "dtype", None) is not None
-        ]
-        if (
-            dtypes
-            and any(dt == np.float32 for dt in dtypes)
-            and not any(dt == np.float64 for dt in dtypes)
-        ):
-            setattr(loop_ctx, "_keep_function_float32", True)
-        const_float32 = any(
-            hasattr(var, "aval")
-            and getattr(var.aval, "dtype", None) is not None
-            and np.dtype(var.aval.dtype) == np.float32
-            for var in jaxpr.invars[:num_consts]
-        )
-        if const_float32:
-            setattr(loop_ctx, "_keep_function_float32", True)
-        # Only retain float32 when there are no scanned inputs (handled in the no-xs code path).
 
         for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
             np_c = np.asarray(cval)
@@ -839,16 +794,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
             prefix="scan_loop",
         )
 
-        function_keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
-        allow_double_consts = (
-            ctx.builder.enable_double_precision and not function_keep_float32
-        )
-
         state_inputs: list[ir.Value] = []
         for idx, var in enumerate(jaxpr.invars):
             state_input = loop_ctx.add_input_for_invar(var, idx + 2)
             if idx < num_consts:
-                target_enum = _dtype_enum_for_var(var, allow_double_consts)
+                target_enum = _dtype_enum_for_var(var)
                 casted = _maybe_cast_value(loop_ctx, state_input, target_enum)
                 if casted is not state_input:
                     loop_ctx.bind_value_for_var(var, casted)
@@ -905,9 +855,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 flush=True,
             )
 
-        keep_float32 = function_keep_float32
-        allow_double_outputs = ctx.builder.enable_double_precision and not keep_float32
-
         lower_jaxpr_eqns(loop_ctx, jaxpr, source="scan")
 
         body_outputs: list[ir.Value] = []
@@ -938,14 +885,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     getattr(getattr(out_var, "aval", None), "dtype", None),
                     flush=True,
                 )
-            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
             relax_value_to_rank_only(out_val)
             body_outputs.append(out_val)
 
         carry_outputs_start = 1 + num_consts
         for rel_idx, out_var in enumerate(jaxpr.outvars[:num_carry]):
             value = body_outputs[carry_outputs_start + rel_idx]
-            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            target_enum = _dtype_enum_for_var(out_var)
             if target_enum is None:
                 continue
             casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
@@ -961,15 +907,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     getattr(getattr(out_var, "aval", None), "dtype", None),
                     flush=True,
                 )
-            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
             relax_value_to_rank_only(out_val)
             body_outputs.append(out_val)
 
         outputs_start_no_xs = 1 + num_consts + num_carry
         for rel_idx, out_var in enumerate(jaxpr.outvars[num_carry:]):
             value = body_outputs[outputs_start_no_xs + rel_idx]
-            _set_value_dtype_from_var(loop_ctx, value, out_var)
-            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            target_enum = _dtype_enum_for_var(out_var)
             casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
             if casted is not value:
                 body_outputs[outputs_start_no_xs + rel_idx] = casted
@@ -1016,25 +960,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 state_enum = getattr(
                     getattr(state_inputs[idx], "type", None), "dtype", None
                 )
-                expected_enum = _dtype_enum_for_var(v, allow_double_consts)
+                expected_enum = _dtype_enum_for_var(v)
                 if expected_enum is None:
                     expected_enum = state_enum
-                else:
-                    aval_dtype = getattr(getattr(v, "aval", None), "dtype", None)
-                    if aval_dtype is not None:
-                        try:
-                            np_dtype = np.dtype(aval_dtype)
-                        except TypeError:
-                            np_dtype = None
-                        else:
-                            if (
-                                state_enum is not None
-                                and expected_enum != state_enum
-                                and ctx.builder.enable_double_precision
-                                and np_dtype is not None
-                                and np.issubdtype(np_dtype, np.floating)
-                            ):
-                                expected_enum = state_enum
                 top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
                 if (
                     expected_enum is not None
@@ -1068,7 +996,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
             if out_var is not None and not _is_dropvar(out_var):
                 top_val = ctx.get_value_for_var(out_var)
-                expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+                expected_enum = _dtype_enum_for_var(out_var)
                 if expected_enum is None:
                     expected_enum = getattr(
                         getattr(body_out, "type", None), "dtype", None
@@ -1141,7 +1069,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 else:
                     aval_shape_tuple = None
                 _restamp_axis0(top_val, override_int, aval_shape_tuple)
-            expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            expected_enum = _dtype_enum_for_var(out_var)
             if expected_enum is None:
                 expected_enum = getattr(
                     getattr(
@@ -1299,18 +1227,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
         call_parameters = LoopCallParameters(ctx, loop_ctx)
-        jaxpr = closed_jaxpr.jaxpr
-        dtypes = [
-            np.dtype(getattr(var.aval, "dtype"))
-            for var in list(jaxpr.invars) + list(jaxpr.outvars)
-            if hasattr(var, "aval") and getattr(var.aval, "dtype", None) is not None
-        ]
-        if (
-            dtypes
-            and any(dt == np.float32 for dt in dtypes)
-            and not any(dt == np.float64 for dt in dtypes)
-        ):
-            setattr(loop_ctx, "_keep_function_float32", True)
 
         for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
             np_c = np.asarray(cval)
@@ -1324,18 +1240,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
             prefix="scan_loop",
         )
 
-        function_keep_float32 = getattr(loop_ctx, "_keep_function_float32", False)
-        allow_double_consts = (
-            ctx.builder.enable_double_precision and not function_keep_float32
-        )
-
         has_scatter = _jaxpr_contains_scatter(jaxpr)
 
         state_inputs: list[ir.Value] = []
         for idx, var in enumerate(jaxpr.invars[: num_consts + num_carry]):
             state_input = loop_ctx.add_input_for_invar(var, idx + 2)
             if idx < num_consts:
-                target_enum = _dtype_enum_for_var(var, allow_double_consts)
+                target_enum = _dtype_enum_for_var(var)
                 casted = _maybe_cast_value(loop_ctx, state_input, target_enum)
                 if casted is not state_input:
                     loop_ctx.bind_value_for_var(var, casted)
@@ -1414,8 +1325,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
         scan_input_vars = jaxpr.invars[
             num_consts + num_carry : num_consts + num_carry + num_scan
         ]
-        keep_float32 = function_keep_float32
-        allow_double_outputs = ctx.builder.enable_double_precision and not keep_float32
         for seq_state, per_step_var in zip(sequence_states, scan_input_vars):
             per_step_val = loop_ctx.get_value_for_var(
                 per_step_var, name_hint=loop_ctx.fresh_name("scan_elem")
@@ -1426,20 +1335,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 axis=0,
                 _outputs=[loop_ctx.fresh_name("GatherScanInput")],
             )
+            # Gather preserves its sequence's actual data dtype. In particular,
+            # half inputs retain their source dtype.
+            per_step_val.type = seq_state.type
+            _ensure_value_metadata(loop_ctx, per_step_val)
             loop_ctx.bind_value_for_var(per_step_var, per_step_val)
-            aval_dtype = getattr(getattr(per_step_var, "aval", None), "dtype", None)
-            if aval_dtype is not None:
-                try:
-                    np_dtype = np.dtype(aval_dtype)
-                except TypeError:
-                    np_dtype = None
-                if np_dtype is not None and np.issubdtype(np_dtype, np.floating):
-                    target_enum = ir.DataType.DOUBLE
-                    if keep_float32:
-                        target_enum = ir.DataType.FLOAT
-                    per_step_val.type = ir.TensorType(target_enum)
-                    _ensure_value_metadata(loop_ctx, per_step_val)
-                    loop_ctx.bind_value_for_var(per_step_var, per_step_val)
             if (
                 scatter_static_extent is not None
                 and isinstance(scatter_static_extent, (int, np.integer))
@@ -1530,14 +1430,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     getattr(getattr(out_var, "aval", None), "dtype", None),
                     flush=True,
                 )
-            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
             relax_value_to_rank_only(out_val)
             body_outputs.append(out_val)
 
         carry_outputs_start = 1 + num_consts
         for rel_idx, out_var in enumerate(jaxpr.outvars[:num_carry]):
             value = body_outputs[carry_outputs_start + rel_idx]
-            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            target_enum = _dtype_enum_for_var(out_var)
             if target_enum is None:
                 continue
             casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
@@ -1561,15 +1460,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     getattr(getattr(out_var, "aval", None), "dtype", None),
                     flush=True,
                 )
-            _set_value_dtype_from_var(loop_ctx, out_val, out_var)
             relax_value_to_rank_only(out_val)
             body_outputs.append(out_val)
 
         outputs_start_with_seq = 1 + num_consts + num_carry + len(sequence_states)
         for rel_idx, out_var in enumerate(jaxpr.outvars[num_carry:]):
             value = body_outputs[outputs_start_with_seq + rel_idx]
-            _set_value_dtype_from_var(loop_ctx, value, out_var)
-            target_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
+            target_enum = _dtype_enum_for_var(out_var)
             casted = _maybe_cast_value(loop_ctx, value, target_enum, force=True)
             if casted is not value:
                 body_outputs[outputs_start_with_seq + rel_idx] = casted
@@ -1612,25 +1509,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 state_enum = getattr(
                     getattr(state_inputs[idx], "type", None), "dtype", None
                 )
-                expected_enum = _dtype_enum_for_var(v, allow_double_consts)
+                expected_enum = _dtype_enum_for_var(v)
                 if expected_enum is None:
                     expected_enum = state_enum
-                else:
-                    aval_dtype = getattr(getattr(v, "aval", None), "dtype", None)
-                    if aval_dtype is not None:
-                        try:
-                            np_dtype = np.dtype(aval_dtype)
-                        except TypeError:
-                            np_dtype = None
-                        else:
-                            if (
-                                state_enum is not None
-                                and expected_enum != state_enum
-                                and allow_double_consts
-                                and np_dtype is not None
-                                and np.issubdtype(np_dtype, np.floating)
-                            ):
-                                expected_enum = state_enum
                 top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)
                 if (
                     expected_enum is not None
@@ -1665,9 +1546,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
             out_var = eqn.outvars[idx] if idx < len(eqn.outvars) else None
             if out_var is not None and not _is_dropvar(out_var):
                 top_val = ctx.get_value_for_var(out_var)
-                expected_enum = _dtype_enum_for_var(
-                    out_var, ctx.builder.enable_double_precision
-                )
+                expected_enum = _dtype_enum_for_var(out_var)
                 if expected_enum is None:
                     expected_enum = getattr(
                         getattr(body_out, "type", None), "dtype", None
@@ -1755,9 +1634,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 aval_shape = getattr(getattr(out_var, "aval", None), "shape", None)
                 aval_shape_tuple = aval_shape if isinstance(aval_shape, tuple) else None
                 _restamp_axis0(top_val, override_int, aval_shape_tuple)
-            expected_enum = _dtype_enum_for_var(
-                out_var, ctx.builder.enable_double_precision
-            )
+            expected_enum = _dtype_enum_for_var(out_var)
             if expected_enum is None:
                 expected_enum = getattr(getattr(body_out, "type", None), "dtype", None)
             top_dtype = getattr(getattr(top_val, "type", None), "dtype", None)

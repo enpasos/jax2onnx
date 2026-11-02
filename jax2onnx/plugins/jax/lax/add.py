@@ -1,11 +1,12 @@
 # jax2onnx/plugins/jax/lax/add.py
 
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import onnx_ir as ir
 import jax
 import numpy as np
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._axis0_utils import (
     maybe_expand_binary_axis0,
     stamp_axis0_binary_result,
@@ -24,8 +25,11 @@ from jax2onnx.plugins._complex_utils import (
     _shape_tuple,
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._precision_utils import promote_float32_operand
+from jax2onnx.plugins._precision_utils import (
+    emit_float16_arithmetic_with_rounding,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -76,13 +80,9 @@ def lower_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
     x_var, y_var = eqn.invars
     out_var = eqn.outvars[0]
 
-    prefer_dt: Optional[np.dtype] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
-
     a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("add_lhs"))
-    b_val = ctx.get_value_for_var(
-        y_var, name_hint=ctx.fresh_name("add_rhs"), prefer_np_dtype=prefer_dt
-    )
-    out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("add_out"))
+    b_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("add_rhs"))
+    out_spec = ctx.allocate_value_for_var(out_var, name_hint=ctx.fresh_name("add_out"))
     a_val, b_val, override = maybe_expand_binary_axis0(
         ctx, a_val, b_val, out_spec, out_var
     )
@@ -139,16 +139,18 @@ def lower_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
                 break
         return
 
-    a_val = promote_float32_operand(
-        ctx, a_val, target_dtype=out_spec.dtype, name_hint="add_lhs_double"
-    )
-    b_val = promote_float32_operand(
-        ctx, b_val, target_dtype=out_spec.dtype, name_hint="add_rhs_double"
-    )
-    result = cast(
-        ir.Value,
-        ctx.builder.Add(a_val, b_val, _outputs=[output_name]),
-    )
+    dtype = numpy_dtype_to_ir(out_var.aval.dtype)
+    a_val = cast_value_to_dtype(ctx, a_val, dtype, name_hint="add_lhs_cast")
+    b_val = cast_value_to_dtype(ctx, b_val, dtype, name_hint="add_rhs_cast")
+    if all(value.dtype == ir.DataType.FLOAT16 for value in (a_val, b_val, out_spec)):
+        result = emit_float16_arithmetic_with_rounding(
+            ctx, "Add", a_val, b_val, output=out_spec
+        )
+    else:
+        result = cast(
+            ir.Value,
+            ctx.builder.Add(a_val, b_val, _outputs=[output_name]),
+        )
     if getattr(out_spec, "type", None) is not None:
         result.type = out_spec.type
     stamp_axis0_binary_result(result, out_var, out_spec, override)

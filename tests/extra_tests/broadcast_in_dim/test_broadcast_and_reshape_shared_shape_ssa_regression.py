@@ -74,46 +74,46 @@ def _body_broadcast_and_reshape_on_same_h(y):
 
 @pytest.mark.parametrize("dtype", [jnp.float64])
 def test_loop_body_shared_shape_helpers_are_ssa_unique(tmp_path, dtype):
-    spec = jax.ShapeDtypeStruct(("B", 4), dtype)
-    model = to_onnx(
-        _body_broadcast_and_reshape_on_same_h,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name="broadcast_and_reshape_shared_shape_ssa",
-    )
+    with jax.enable_x64(True):
+        spec = jax.ShapeDtypeStruct(("B", 4), dtype)
+        model = to_onnx(
+            _body_broadcast_and_reshape_on_same_h,
+            inputs=[spec],
+            opset=21,
+            model_name="broadcast_and_reshape_shared_shape_ssa",
+        )
 
-    body = _find_first_loop_body(model.graph)
-    assert body is not None, "Expected a Loop body subgraph"
-    outs = _collect_node_outputs_recursive(body)
-    dupes = [name for name, count in collections.Counter(outs).items() if count > 1]
-    assert not dupes, f"Duplicate outputs in Loop body (SSA violation): {dupes}"
+        body = _find_first_loop_body(model.graph)
+        assert body is not None, "Expected a Loop body subgraph"
+        outs = _collect_node_outputs_recursive(body)
+        dupes = [name for name, count in collections.Counter(outs).items() if count > 1]
+        assert not dupes, f"Duplicate outputs in Loop body (SSA violation): {dupes}"
 
-    if HAS_ORT:
-        out_path = tmp_path / "broadcast_and_reshape_shared_shape_ssa.onnx"
-        out_path.write_bytes(model.SerializeToString())
-        try:
-            ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-        except Exception as exc:  # pragma: no cover - regression guard
-            pytest.fail(f"onnxruntime failed to load IR model: {exc}")
+        if HAS_ORT:
+            out_path = tmp_path / "broadcast_and_reshape_shared_shape_ssa.onnx"
+            out_path.write_bytes(model.SerializeToString())
+            try:
+                ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+            except Exception as exc:  # pragma: no cover - regression guard
+                pytest.fail(f"onnxruntime failed to load IR model: {exc}")
 
 
 @pytest.mark.parametrize("dtype", [jnp.float64])
 def test_numeric_executes(tmp_path, dtype):
-    if not HAS_ORT:
-        pytest.skip("onnxruntime not available")
-    spec = jax.ShapeDtypeStruct((7, 4), dtype)
-    model = to_onnx(
-        _body_broadcast_and_reshape_on_same_h,
-        inputs=[spec],
-        enable_double_precision=True,
-        opset=21,
-        model_name="broadcast_and_reshape_shared_shape_numeric",
-    )
-    sess = ort.InferenceSession(
-        model.SerializeToString(), providers=["CPUExecutionProvider"]
-    )
-    x = np.zeros((7, 4), np.float64)
-    feeds = {sess.get_inputs()[0].name: x}
-    (y,) = sess.run(None, feeds)
-    assert y.shape == (2, 7, 4)
+    with jax.enable_x64(True):
+        if not HAS_ORT:
+            pytest.skip("onnxruntime not available")
+        spec = jax.ShapeDtypeStruct((7, 4), dtype)
+        model = to_onnx(
+            _body_broadcast_and_reshape_on_same_h,
+            inputs=[spec],
+            opset=21,
+            model_name="broadcast_and_reshape_shared_shape_numeric",
+        )
+        sess = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        x = np.zeros((7, 4), np.float64)
+        feeds = {sess.get_inputs()[0].name: x}
+        (y,) = sess.run(None, feeds)
+        assert y.shape == (2, 7, 4)

@@ -19,6 +19,7 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -410,7 +411,7 @@ def _unit_vector_packed_1x1(
                 compute_right_eigenvectors=False,
             ),
             "input_values": [np.asarray([[2.5]], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(["Gather", "Concat"], no_unused_inputs=True),
         },
         {
@@ -421,7 +422,7 @@ def _unit_vector_packed_1x1(
                 compute_right_eigenvectors=False,
             ),
             "input_values": [np.asarray([[-1.25]], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32, np.float32],
+            "expected_output_dtypes": [with_requested_dtype(), with_requested_dtype()],
             "post_check_onnx_graph": EG(["Gather", "Concat"], no_unused_inputs=True),
         },
         {
@@ -432,7 +433,7 @@ def _unit_vector_packed_1x1(
                 compute_right_eigenvectors=True,
             ),
             "input_values": [np.asarray([[0.75]], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32, np.float32],
+            "expected_output_dtypes": [with_requested_dtype(), with_requested_dtype()],
             "post_check_onnx_graph": EG(["Gather", "Concat"], no_unused_inputs=True),
         },
         {
@@ -443,7 +444,11 @@ def _unit_vector_packed_1x1(
                 compute_right_eigenvectors=True,
             ),
             "input_values": [np.asarray([[3.0]], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32, np.float32, np.float32],
+            "expected_output_dtypes": [
+                with_requested_dtype(),
+                with_requested_dtype(),
+                with_requested_dtype(),
+            ],
             "post_check_onnx_graph": EG(["Gather", "Concat"], no_unused_inputs=True),
         },
         {
@@ -462,7 +467,7 @@ def _unit_vector_packed_1x1(
                     dtype=np.float32,
                 )
             ],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Sqrt", "Sign", "Concat"], no_unused_inputs=True
             ),

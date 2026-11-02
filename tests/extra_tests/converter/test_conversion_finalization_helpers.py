@@ -35,7 +35,7 @@ def _model_with_node(node: ir.Node, inputs: list[ir.Value], outputs: list[ir.Val
 
 
 def test_attach_ir_functions_adds_functions_and_opset_imports() -> None:
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     fn_input = _value("fn_x")
     fn_output = _value("fn_y")
     fn_graph = ir.Graph(
@@ -75,7 +75,7 @@ def test_attach_ir_functions_adds_functions_and_opset_imports() -> None:
 
 
 def test_apply_late_ir_attr_overrides_updates_attrs_and_concat_axis() -> None:
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     lhs = _value("lhs")
     rhs = _value("rhs")
     out = _value("out")
@@ -90,7 +90,7 @@ def test_apply_late_ir_attr_overrides_updates_attrs_and_concat_axis() -> None:
 
 
 def test_apply_late_ir_attr_overrides_fills_missing_concat_axis() -> None:
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     lhs = _value("lhs")
     rhs = _value("rhs")
     out = _value("out")
@@ -103,7 +103,7 @@ def test_apply_late_ir_attr_overrides_fills_missing_concat_axis() -> None:
 
 
 def test_function_attr_overrides_do_not_fall_back_to_global_overrides() -> None:
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     ctx.add_node_attr_override("concat", {"axis": np.int64(2)})
 
     main_input = _value("main_input")
@@ -154,7 +154,7 @@ def test_finalize_model_value_shapes_normalizes_symbolic_dims() -> None:
 
 
 def test_build_and_finalize_ir_model_returns_named_finalized_model() -> None:
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     value = _value("x", (np.int64(2), "B"))
     ctx.builder.inputs.append(value)
     ctx.builder.outputs.append(value)

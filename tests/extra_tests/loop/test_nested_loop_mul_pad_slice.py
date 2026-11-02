@@ -41,18 +41,18 @@ def make_fn():
 
 
 def test_nested_loop_mul_pad_slice_loads(tmp_path: pathlib.Path):
-    x = jnp.ones((1, 3, 8, 8), jnp.float64)
-    fn = make_fn()
-    model = to_onnx(
-        fn,
-        inputs=[x],
-        enable_double_precision=True,
-        model_name="nested_pad_slice_mul",
-    )
-    onnx.checker.check_model(model)
-    onnx.shape_inference.infer_shapes(model, strict_mode=True)
-    p = tmp_path / "m.onnx"
-    p.write_bytes(model.SerializeToString())
-    # Must load in ORT (no TypeInferenceError inside Loop body)
+    with jax.enable_x64(True):
+        x = jnp.ones((1, 3, 8, 8), jnp.float64)
+        fn = make_fn()
+        model = to_onnx(
+            fn,
+            inputs=[x],
+            model_name="nested_pad_slice_mul",
+        )
+        onnx.checker.check_model(model)
+        onnx.shape_inference.infer_shapes(model, strict_mode=True)
+        p = tmp_path / "m.onnx"
+        p.write_bytes(model.SerializeToString())
+        # Must load in ORT (no TypeInferenceError inside Loop body)
 
-    ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])

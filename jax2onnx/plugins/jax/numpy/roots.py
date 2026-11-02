@@ -27,6 +27,7 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -698,7 +699,7 @@ def _abstract_eval_via_orig(
             "testcase": "jnp_roots_linear",
             "callable": lambda x: jnp.roots(x, strip_zeros=False),
             "input_values": [np.asarray([2.0, -4.0], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Gather", "Div:1", "Where:1", "Concat:1x2"],
                 no_unused_inputs=True,
@@ -708,7 +709,7 @@ def _abstract_eval_via_orig(
             "testcase": "jnp_roots_quadratic_real",
             "callable": lambda x: jnp.roots(x, strip_zeros=False),
             "input_values": [np.asarray([1.0, -3.0, 2.0], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Gather", "Sqrt:1", "Where:1", "Concat:2x2"],
                 no_unused_inputs=True,
@@ -718,7 +719,7 @@ def _abstract_eval_via_orig(
             "testcase": "jnp_roots_quadratic_complex_pair",
             "callable": lambda x: jnp.roots(x, strip_zeros=False),
             "input_values": [np.asarray([1.0, 0.0, 1.0], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Gather", "Sqrt:1", "Sign:1", "Concat:2x2"],
                 no_unused_inputs=True,
@@ -728,7 +729,7 @@ def _abstract_eval_via_orig(
             "testcase": "jnp_roots_quadratic_leading_zero",
             "callable": lambda x: jnp.roots(x, strip_zeros=False),
             "input_values": [np.asarray([0.0, 1.0, -2.0], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Equal:1", "Where:1", "Concat:2x2"],
                 no_unused_inputs=True,

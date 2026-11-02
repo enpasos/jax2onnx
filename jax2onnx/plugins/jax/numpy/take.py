@@ -8,6 +8,7 @@ from typing import Any, ClassVar, Final, TypeAlias, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.typing import DTypeLike
 from numpy.typing import ArrayLike
 import onnx_ir as ir
 from flax import nnx
@@ -46,7 +47,7 @@ class _ArangeTakeModule(nnx.Module):
         num_embeddings: int,
         features: int,
         *,
-        dtype: jnp.dtype | type = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.embedding = nnx.Param(
@@ -131,7 +132,7 @@ def _as_int64(
                 np.array([0, 2], dtype=np.int32),
             ],
             "expected_output_shapes": [(3, 2)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Gather:3x2"],
                 no_unused_inputs=True,
@@ -188,13 +189,10 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         arr_var, indices_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        arr_val = ctx.get_value_for_var(
-            arr_var, name_hint=ctx.fresh_name("take_data"), prefer_np_dtype=None
-        )
+        arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("take_data"))
         indices_val = ctx.get_value_for_var(
             indices_var,
             name_hint=ctx.fresh_name("take_indices"),
-            prefer_np_dtype=np.dtype(np.int64),
         )
         indices_dtype: np.dtype[Any] = np.dtype(
             getattr(indices_var.aval, "dtype", np.int64)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, ClassVar, cast
 
 import jax
@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import tree_util
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
@@ -36,7 +36,9 @@ from jax2onnx.plugins.jax.lax.scan import (
 from jax2onnx._compat.jax import Jaxpr, Primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -55,6 +57,18 @@ def model_fn(x: Any) -> Any:
         return x_val, counter
 
     return jax.lax.fori_loop(0, steps, body_func, (x, 0))
+
+
+def _fori_loop_example(dtype: Any) -> Callable[[], jax.Array]:
+    def call() -> jax.Array:
+        return jax.lax.fori_loop(
+            0,
+            5,
+            lambda i, args: (args[0] + 0.1 * args[0] ** 2, args[1] + 1),
+            (jnp.array([1.0], dtype=dtype), 0),
+        )[0]
+
+    return call
 
 
 def _build_body_graph(
@@ -81,8 +95,8 @@ def _build_body_graph(
 
     # Bind the iteration index, casting to the requested dtype when needed.
     iter_var = jaxpr.invars[0]
-    iter_dtype: np.dtype[Any] = np.dtype(getattr(iter_var.aval, "dtype", np.int64))
-    iter_enum = _dtype_to_ir(iter_dtype, builder.enable_double_precision)
+    iter_dtype: np.dtype[Any] = np.dtype(iter_var.aval.dtype)
+    iter_enum = numpy_dtype_to_ir(iter_dtype)
     iter_value = iter_input
     if lower != 0:
         lower_const = _scalar_i64(body_ctx, int(lower), "fori_lower")
@@ -109,11 +123,8 @@ def _build_body_graph(
     # Bind loop-carried state inputs (skip the iteration index).
     state_inputs: list[ir.Value] = []
     for inner_var, prototype in zip(jaxpr.invars[1:], state_prototypes):
-        aval = getattr(inner_var, "aval", None)
-        dtype_enum = _dtype_to_ir(
-            np.dtype(getattr(aval, "dtype", getattr(prototype.type, "dtype", None))),
-            builder.enable_double_precision,
-        )
+        aval = inner_var.aval
+        dtype_enum = numpy_dtype_to_ir(aval.dtype)
         shape_tuple = tuple(getattr(aval, "shape", ()))
         state_input = clone_value_for_subgraph(
             body_ctx,
@@ -179,10 +190,7 @@ def _build_body_graph(
         aval = getattr(out_var, "aval", None)
         if aval is not None:
             out_shape = tuple(getattr(aval, "shape", ()))
-            out_dtype = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                builder.enable_double_precision,
-            )
+            out_dtype = numpy_dtype_to_ir(aval.dtype)
             out_val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(out_val, out_shape)
         _ensure_value_metadata(body_ctx, out_val)
@@ -255,14 +263,12 @@ def _build_body_graph(
         },
         {
             "testcase": "fori_loop_example",
-            "callable": lambda: jax.lax.fori_loop(
-                0,
-                5,
-                lambda i, args: (args[0] + 0.1 * args[0] ** 2, args[1] + 1),
-                (jnp.array([1.0], dtype=jnp.float32), 0),
-            )[0],
+            "callable": construct_and_call(
+                _fori_loop_example, dtype=with_requested_dtype()
+            ),
             "input_shapes": [],
             "expected_output_shapes": [(1,)],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(["Loop"], no_unused_inputs=True),
         },
         {
@@ -360,10 +366,7 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             if aval is None:
                 continue
             out_shape = tuple(getattr(aval, "shape", ()))
-            out_dtype = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
+            out_dtype = numpy_dtype_to_ir(aval.dtype)
             val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(val, out_shape)
             _ensure_value_metadata(ctx, val)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from jax2onnx.converter.conversion_api import _trace_to_jaxpr
@@ -18,7 +19,6 @@ def test_trace_to_jaxpr_captures_params_and_layout_indices() -> None:
         fn=_scale,
         inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
         input_params={"scale": 2.0},
-        enable_double_precision=False,
         inputs_as_nchw=[0],
         outputs_as_nchw=[0],
         input_names=["x"],
@@ -38,7 +38,6 @@ def test_trace_to_jaxpr_validates_input_name_arity() -> None:
             fn=_scale,
             inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
             input_params={"scale": 2.0},
-            enable_double_precision=False,
             inputs_as_nchw=None,
             outputs_as_nchw=None,
             input_names=["x", "extra"],
@@ -52,9 +51,26 @@ def test_trace_to_jaxpr_validates_layout_indices() -> None:
             fn=_scale,
             inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
             input_params={"scale": 2.0},
-            enable_double_precision=False,
             inputs_as_nchw=[1],
             outputs_as_nchw=None,
             input_names=["x"],
             output_names=["y"],
         )
+
+
+def test_trace_shape_default_stays_fp32_beside_explicit_fp64_inside_x64() -> None:
+    with jax.enable_x64():
+        result = _trace_to_jaxpr(
+            fn=lambda fp32, fp64: (fp32, fp64),
+            inputs=[(2,), jax.ShapeDtypeStruct((2,), np.float64)],
+            input_params=None,
+            inputs_as_nchw=None,
+            outputs_as_nchw=None,
+            input_names=["fp32", "fp64"],
+            output_names=["out32", "out64"],
+        )
+
+    assert [spec.dtype for spec in result.sds_list] == [np.float32, np.float64]
+    assert [tuple(spec.shape) for spec in result.sds_list] == [(2,), (2,)]
+    assert [var.aval.dtype for var in result.jaxpr.invars] == [np.float32, np.float64]
+    assert [var.aval.dtype for var in result.jaxpr.outvars] == [np.float32, np.float64]

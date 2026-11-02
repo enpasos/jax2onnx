@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -144,7 +144,7 @@ class ReduceWindowMaxPrimitivePlugin(PrimitiveLeafPlugin):
 
         operand_shape = tuple(getattr(getattr(operand_var, "aval", None), "shape", ()))
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
-        dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
+        dtype_enum = numpy_dtype_to_ir(np_dtype)
         if dtype_enum is None:
             raise TypeError(f"Unsupported dtype for reduce_window_max: {np_dtype}")
 

@@ -10,7 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -161,10 +161,7 @@ class PadPlugin(PrimitiveLeafPlugin):
             )
 
         data_val = ctx.get_value_for_var(data_var, name_hint=ctx.fresh_name("pad_data"))
-        prefer_dt: np.dtype[Any] = np.dtype(getattr(data_var.aval, "dtype", np.float32))
-        pad_raw = ctx.get_value_for_var(
-            const_var, name_hint=ctx.fresh_name("pad_cval"), prefer_np_dtype=prefer_dt
-        )
+        pad_raw = ctx.get_value_for_var(const_var, name_hint=ctx.fresh_name("pad_cval"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pad_out"))
 
         data_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
@@ -221,10 +218,7 @@ class PadPlugin(PrimitiveLeafPlugin):
         if result_dtype is None:
             result_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
             if result_dtype is None:
-                result_dtype = _dtype_to_ir(
-                    np.dtype(getattr(out_var.aval, "dtype", np.float32)),
-                    ctx.builder.enable_double_precision,
-                )
+                result_dtype = numpy_dtype_to_ir(out_var.aval.dtype)
         if result_dtype is None:
             raise TypeError("lax.pad could not infer an ONNX output dtype")
         result.type = ir.TensorType(result_dtype)

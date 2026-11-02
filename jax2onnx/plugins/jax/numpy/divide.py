@@ -13,17 +13,17 @@ from jax2onnx._compat.jax import (
 )
 import jax.numpy as jnp
 import numpy as np
-import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.jax.lax.div import DivPlugin as LaxDivPlugin
 from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
     get_orig_impl,
     jnp_binding_specs,
     make_jnp_primitive,
@@ -35,49 +35,6 @@ from jax2onnx.plugins.plugin_system import (
 
 
 _DIVIDE_PRIM: Final = make_jnp_primitive("jax.numpy.divide")
-
-
-def _abstract_eval_via_orig_binary(
-    prim: Any,
-    func_name: str,
-    x: AbstractValue,
-    y: AbstractValue,
-) -> ShapedArray:
-    x_shape = tuple(getattr(x, "shape", ()))
-    y_shape = tuple(getattr(y, "shape", ()))
-    x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
-    y_dtype: np.dtype[Any] = np.dtype(getattr(y, "dtype", np.float32))
-    x_spec = jax.ShapeDtypeStruct(x_shape, x_dtype)
-    y_spec = jax.ShapeDtypeStruct(y_shape, y_dtype)
-    orig = get_orig_impl(prim, func_name)
-    out = jax.eval_shape(lambda a, b: orig(a, b), x_spec, y_spec)
-    out_shape = tuple(getattr(out, "shape", ()))
-    out_dtype = np.dtype(getattr(out, "dtype", x_dtype))
-    return ShapedArray(out_shape, out_dtype)
-
-
-def _cast_to_dtype(
-    ctx: LoweringContextProtocol,
-    val: ir.Value,
-    *,
-    np_dtype: np.dtype[Any],
-    name_hint: str,
-) -> ir.Value:
-    dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
-    if getattr(getattr(val, "type", None), "dtype", None) == dtype_enum:
-        return val
-    cast_val = cast(
-        ir.Value,
-        ctx.builder.Cast(
-            val,
-            to=int(dtype_enum.value),
-            _outputs=[ctx.fresh_name(name_hint)],
-        ),
-    )
-    cast_val.type = ir.TensorType(dtype_enum)
-    cast_val.shape = getattr(val, "shape", None)
-    _ensure_value_metadata(ctx, cast_val)
-    return cast_val
 
 
 @register_native_primitive(
@@ -141,62 +98,42 @@ class JnpDividePlugin(PrimitiveLeafPlugin):
         x: AbstractValue,
         y: AbstractValue,
     ) -> ShapedArray:
-        return _abstract_eval_via_orig_binary(
-            JnpDividePlugin._PRIM,
-            JnpDividePlugin._FUNC_NAME,
-            x,
-            y,
-        )
+        original = get_orig_impl(JnpDividePlugin._PRIM, JnpDividePlugin._FUNC_NAME)
+        return abstract_eval_via_jax(original, x, y)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         (out_var,) = eqn.outvars
 
-        out_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(out_var, "aval", None), "dtype", np.float32)
-        )
+        out_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
         if np.issubdtype(out_dtype, np.complexfloating):
             LaxDivPlugin().lower(ctx, eqn)
             return
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("jnp_divide_x"))
-        prefer_dt: np.dtype[Any] = np.dtype(
-            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
-        )
         y_val = ctx.get_value_for_var(
             y_var,
             name_hint=ctx.fresh_name("jnp_divide_y"),
-            prefer_np_dtype=prefer_dt,
         )
-        out_spec = ctx.get_value_for_var(
+        out_spec = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("jnp_divide_out")
         )
 
-        x_ready = _cast_to_dtype(
+        dtype = numpy_dtype_to_ir(out_dtype)
+        x_ready = cast_value_to_dtype(
             ctx,
             x_val,
-            np_dtype=out_dtype,
+            dtype,
             name_hint="jnp_divide_x_cast",
         )
-        y_ready = _cast_to_dtype(
+        y_ready = cast_value_to_dtype(
             ctx,
             y_val,
-            np_dtype=out_dtype,
+            dtype,
             name_hint="jnp_divide_y_cast",
         )
 
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
-            "jnp_divide_out"
-        )
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("jnp_divide_out")
-
-        result = ctx.builder.Div(x_ready, y_ready, _outputs=[desired_name])
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
+        result = ctx.builder.op("Div", [x_ready, y_ready], output=out_spec)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

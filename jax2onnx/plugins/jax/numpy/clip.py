@@ -19,7 +19,7 @@ import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
@@ -33,6 +33,7 @@ from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 ScalarBound = bool | int | float | np.generic
@@ -61,13 +62,11 @@ def _cast_value(
     target_dtype: np.dtype[Any],
     tag: str,
 ) -> ir.Value:
-    var_dtype = _np_dtype(
-        getattr(getattr(src_var, "aval", None), "dtype", target_dtype)
-    )
+    var_dtype = _np_dtype(src_var.aval.dtype)
     if var_dtype == target_dtype:
         return src_val
 
-    dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+    dtype_enum = numpy_dtype_to_ir(target_dtype)
     cast_val = cast(
         ir.Value,
         ctx.builder.Cast(
@@ -117,7 +116,7 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "testcase": "clip_f32_scalar_bounds_no_upcast_f64_mode",
             "callable": lambda x: jnp.clip(x, -1.5, 2.5),
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 [
@@ -133,7 +132,7 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "testcase": "clip_only_upper",
             "callable": lambda x: jnp.clip(x, None, 1.0),
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -200,6 +199,7 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "testcase": "clip_keyword_legacy_a_min_a_max_aliases",
             "callable": lambda x: jnp.clip(x, a_min=-0.5, a_max=0.25),
             "input_values": [np.array([-1.0, 0.0, 2.0], dtype=np.float32)],
+            "expected_output_dtypes": [with_requested_dtype()],
             # Native JAX 0.10 no longer accepts these legacy keywords; this case
             # specifically guards converter/plugin compatibility during export.
             "skip_numeric_validation": True,
@@ -231,8 +231,8 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
         hi_val = ctx.get_value_for_var(hi_var, name_hint=ctx.fresh_name("clip_hi"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("clip_out"))
 
-        x_dtype = _np_dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
-        dtype_enum = _dtype_to_ir(x_dtype, ctx.builder.enable_double_precision)
+        x_dtype = _np_dtype(x_var.aval.dtype)
+        dtype_enum = numpy_dtype_to_ir(x_dtype)
 
         lo_input = _cast_value(ctx, lo_val, lo_var, x_dtype, "lo")
         hi_input = _cast_value(ctx, hi_val, hi_var, x_dtype, "hi")

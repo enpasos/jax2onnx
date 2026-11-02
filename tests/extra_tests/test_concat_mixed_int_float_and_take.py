@@ -30,9 +30,7 @@ def _rtol_atol_for(dtype: np.dtype) -> tuple[float, float]:
 
 
 def test_zeroarg_concat_gather_and_arith_matches_onnx_ir():
-    original_x64 = jax.config.read("jax_enable_x64")
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         jax_outputs = list(map(np.asarray, _broken_zero_arg()))
         assert len(jax_outputs) == 3
 
@@ -40,7 +38,6 @@ def test_zeroarg_concat_gather_and_arith_matches_onnx_ir():
             _broken_zero_arg,
             inputs=[],
             model_name="concat_mixed_int_float_and_take_zeroarg",
-            enable_double_precision=True,
         )
 
         assert len(onnx_model.graph.output) == len(jax_outputs)
@@ -51,6 +48,7 @@ def test_zeroarg_concat_gather_and_arith_matches_onnx_ir():
         assert len(onnx_results) == len(jax_outputs)
 
         for idx, (expected, got) in enumerate(zip(jax_outputs, onnx_results)):
+            assert got.dtype == expected.dtype
             assert (
                 expected.shape == got.shape
             ), f"[out {idx}] shape mismatch: JAX={expected.shape} ORT={got.shape}"
@@ -70,5 +68,3 @@ def test_zeroarg_concat_gather_and_arith_matches_onnx_ir():
                 np.testing.assert_array_equal(
                     expected, got, err_msg=f"[out {idx}] exact (int/bool) mismatch"
                 )
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)

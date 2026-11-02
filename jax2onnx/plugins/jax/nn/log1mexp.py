@@ -18,7 +18,6 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax._log1p_expm1 import (
     ElementwiseEmitter,
@@ -109,9 +108,6 @@ class Log1mexpPlugin(PrimitiveLeafPlugin):
         x_val = ctx.require_value_for_var(x_var)
         out_spec = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("log1mexp_out")
-        )
-        x_val = promote_float32_operand(
-            ctx, x_val, target_dtype=out_spec.dtype, name_hint="log1mexp_operand_double"
         )
 
         emit = ElementwiseEmitter(ctx, x_val, out_spec, "log1mexp")

@@ -16,6 +16,7 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -69,7 +70,7 @@ def _remat2_tuple_passthrough(
             "callable": _remat2_scalar_sin_chain,
             "input_values": [np.array(0.5, dtype=np.float32)],
             "expected_output_shapes": [()],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Sin -> Sin"],
                 no_unused_inputs=True,
@@ -83,7 +84,7 @@ def _remat2_tuple_passthrough(
                 np.array(0.25, dtype=np.float32),
             ],
             "expected_output_shapes": [(), ()],
-            "expected_output_dtypes": [np.float32, np.float32],
+            "expected_output_dtypes": [with_requested_dtype(), with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Add"],
                 no_unused_inputs=True,

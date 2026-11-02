@@ -14,14 +14,14 @@ def _assert_graph_has(
     *,
     model_name: str,
 ) -> None:
-    model = to_onnx(
-        fn,
-        inputs=[jax.ShapeDtypeStruct(x.shape, x.dtype)],
-        model_name=model_name,
-        enable_double_precision=False,
-    )
-    check = EG([expected_path], no_unused_inputs=True)
-    assert check(model)
+    with jax.enable_x64(False):
+        model = to_onnx(
+            fn,
+            inputs=[jax.ShapeDtypeStruct(x.shape, x.dtype)],
+            model_name=model_name,
+        )
+        check = EG([expected_path], no_unused_inputs=True)
+        assert check(model)
 
 
 def test_reduce_l1():

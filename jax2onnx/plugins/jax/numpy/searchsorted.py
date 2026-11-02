@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
@@ -26,8 +26,13 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.numpy._common import (
+    get_orig_impl,
+    make_jnp_primitive,
+    promoted_dtype_via_jax,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -48,32 +53,6 @@ def _validate_side(side: str) -> str:
 
 def _result_dtype() -> np.dtype[Any]:
     return np.dtype(np.int32)
-
-
-def _cast_to_dtype(
-    ctx: LoweringContextProtocol,
-    val: ir.Value,
-    *,
-    from_dtype: np.dtype[Any],
-    to_dtype: np.dtype[Any],
-    name_hint: str,
-    shape: tuple[DimInput, ...],
-) -> ir.Value:
-    if from_dtype == to_dtype:
-        return val
-    target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
-    cast_val = cast(
-        ir.Value,
-        ctx.builder.Cast(
-            val,
-            to=int(target_enum.value),
-            _outputs=[ctx.fresh_name(name_hint)],
-        ),
-    )
-    cast_val.type = ir.TensorType(target_enum)
-    _stamp_type_and_shape(cast_val, shape)
-    _ensure_value_metadata(ctx, cast_val)
-    return cast_val
 
 
 def _unsqueeze(
@@ -205,9 +184,7 @@ class JnpSearchSortedPlugin(PrimitiveLeafPlugin):
         if not isinstance(a_len, (int, np.integer)):
             raise TypeError("jnp.searchsorted lowering requires static length for 'a'")
 
-        a_dtype: np.dtype[Any] = np.dtype(getattr(a_var.aval, "dtype", np.float32))
-        v_dtype: np.dtype[Any] = np.dtype(getattr(v_var.aval, "dtype", a_dtype))
-        compare_dtype: np.dtype[Any] = np.promote_types(a_dtype, v_dtype)
+        compare_enum = numpy_dtype_to_ir(promoted_dtype_via_jax(a_var.aval, v_var.aval))
 
         a_val = ctx.get_value_for_var(a_var, name_hint=ctx.fresh_name("searchsorted_a"))
         v_val = ctx.get_value_for_var(v_var, name_hint=ctx.fresh_name("searchsorted_v"))
@@ -215,21 +192,11 @@ class JnpSearchSortedPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("searchsorted_out")
         )
 
-        a_ready = _cast_to_dtype(
-            ctx,
-            a_val,
-            from_dtype=a_dtype,
-            to_dtype=compare_dtype,
-            name_hint="searchsorted_a_cast",
-            shape=a_shape,
+        a_ready = cast_value_to_dtype(
+            ctx, a_val, compare_enum, name_hint="searchsorted_a_cast"
         )
-        v_ready = _cast_to_dtype(
-            ctx,
-            v_val,
-            from_dtype=v_dtype,
-            to_dtype=compare_dtype,
-            name_hint="searchsorted_v_cast",
-            shape=v_shape,
+        v_ready = cast_value_to_dtype(
+            ctx, v_val, compare_enum, name_hint="searchsorted_v_cast"
         )
 
         a_broadcast = a_ready

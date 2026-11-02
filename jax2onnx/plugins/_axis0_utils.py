@@ -574,6 +574,13 @@ def stamp_axis0_binary_result(
     out_shape = _aval_shape_tuple(out_var)
     if override is not None and out_shape:
         out_shape = (override,) + out_shape[1:]
+    out_dtype = getattr(getattr(out_var, "aval", None), "dtype", None)
+    if out_dtype in (np.dtype(np.complex64), np.dtype(np.complex128)) and getattr(
+        result, "dtype", None
+    ) in (ir.DataType.FLOAT, ir.DataType.DOUBLE):
+        # Complex avals describe logical axes; real payloads also carry the
+        # canonical final real/imag channel, outside any axis-0 override.
+        out_shape += (2,)
     if out_shape:
         dims = tuple(_to_ir_dim_for_shape(dim) for dim in out_shape)
         _stamp_type_and_shape(result, dims)

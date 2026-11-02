@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import jax
 import numpy as np
@@ -103,14 +103,8 @@ class RemPlugin(PrimitiveLeafPlugin):
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        prefer_dt: Optional[np.dtype] = np.dtype(
-            getattr(x_var.aval, "dtype", np.float32)
-        )
-
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("rem_x"))
-        y_val = ctx.get_value_for_var(
-            y_var, name_hint=ctx.fresh_name("rem_y"), prefer_np_dtype=prefer_dt
-        )
+        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("rem_y"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("rem_out"))
 
         aval = getattr(x_var, "aval", None)

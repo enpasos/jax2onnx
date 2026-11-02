@@ -12,16 +12,13 @@ import onnxruntime as ort  # type: ignore[import-untyped]
 import pytest
 
 from jax2onnx import to_onnx
+from jax2onnx._compat.jax import explicit_x64_dtypes
 
 
 @pytest.fixture(autouse=True)
 def _enable_jax_x64() -> Iterator[None]:
-    previous = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         yield
-    finally:
-        jax.config.update("jax_enable_x64", previous)
 
 
 def _native_reference(
@@ -67,21 +64,18 @@ def _run(model: onnx.ModelProto, values: np.ndarray, optimized: bool) -> np.ndar
         session.run_with_iobinding(binding)
         (actual,) = binding.copy_outputs_to_cpu()
     else:
-        # The existing legacy flag can promote FP32 inputs or narrow FP64
-        # inputs. This test keeps that policy and supplies its declared dtype.
         input_dtype = onnx.helper.tensor_dtype_to_np_dtype(input_type)
-        (actual,) = session.run(
-            None, {session.get_inputs()[0].name: values.astype(input_dtype)}
-        )
+        assert input_dtype == values.dtype
+        (actual,) = session.run(None, {session.get_inputs()[0].name: values})
     return np.asarray(actual)
 
 
 @pytest.mark.parametrize("source_name", ["float16", "bfloat16", "float32", "float64"])
 @pytest.mark.parametrize("target_dtype", [np.int8, np.uint8])
-@pytest.mark.parametrize("enable_double_precision", [False, True])
+@pytest.mark.parametrize("enable_x64", [False, True])
 @pytest.mark.parametrize("optimized", [False, True])
 def test_float_to_8bit_saturates_boundaries_and_exceptional_values(
-    source_name: str, target_dtype: type, enable_double_precision: bool, optimized: bool
+    source_name: str, target_dtype: type, enable_x64: bool, optimized: bool
 ) -> None:
     source_dtype = getattr(jnp, source_name)
     largest = float(jnp.finfo(source_dtype).max)
@@ -117,27 +111,38 @@ def test_float_to_8bit_saturates_boundaries_and_exceptional_values(
     def convert(x: jax.Array) -> jax.Array:
         return jax.lax.convert_element_type(x, target_dtype)
 
-    expected = _native_reference(convert, values)
-    limits = np.iinfo(target_dtype)
-    sanitized = np.nan_to_num(
-        values.astype(np.float64), nan=0, posinf=limits.max, neginf=limits.min
-    )
-    oracle = np.trunc(np.clip(sanitized, limits.min, limits.max)).astype(target_dtype)
-    np.testing.assert_array_equal(expected, oracle)
+    with jax.enable_x64(enable_x64), explicit_x64_dtypes("warn"):
+        if source_name == "float64" and not enable_x64:
+            # The former export option narrowed this same FP64 boundary vector.
+            # The source contract now rejects that loss before tracing.
+            with pytest.raises(ValueError, match="would be narrowed"):
+                to_onnx(convert, [jax.ShapeDtypeStruct(values.shape, source_dtype)])
+            return
 
-    model = to_onnx(
-        convert,
-        [jax.ShapeDtypeStruct(values.shape, source_dtype)],
-        enable_double_precision=enable_double_precision,
-    )
-    actual = _run(model, values, optimized)
+        expected = _native_reference(convert, values)
+        limits = np.iinfo(target_dtype)
+        sanitized = np.nan_to_num(
+            values.astype(np.float64), nan=0, posinf=limits.max, neginf=limits.min
+        )
+        oracle = np.trunc(np.clip(sanitized, limits.min, limits.max)).astype(
+            target_dtype
+        )
+        np.testing.assert_array_equal(expected, oracle)
 
-    assert actual.shape == expected.shape
-    assert actual.dtype == expected.dtype == target_dtype
-    np.testing.assert_array_equal(actual, expected)
-    np.testing.assert_array_equal(actual[np.isnan(values)], np.zeros(1, target_dtype))
-    assert actual[np.isneginf(values)].item() == limits.min
-    assert actual[np.isposinf(values)].item() == limits.max
+        model = to_onnx(
+            convert,
+            [jax.ShapeDtypeStruct(values.shape, source_dtype)],
+        )
+        actual = _run(model, values, optimized)
+
+        assert actual.shape == expected.shape
+        assert actual.dtype == expected.dtype == target_dtype
+        np.testing.assert_array_equal(actual, expected)
+        np.testing.assert_array_equal(
+            actual[np.isnan(values)], np.zeros(1, target_dtype)
+        )
+        assert actual[np.isneginf(values)].item() == limits.min
+        assert actual[np.isposinf(values)].item() == limits.max
 
 
 @pytest.mark.parametrize("target_dtype", [np.int8, np.uint8])
@@ -160,7 +165,7 @@ def test_float64_conversion_retains_values_next_to_integer_boundaries(
         return jax.lax.convert_element_type(x, target_dtype)
 
     expected = _native_reference(convert, values)
-    model = to_onnx(convert, [values], enable_double_precision=True)
+    model = to_onnx(convert, [values])
     actual = _run(model, values, optimized)
 
     assert actual.dtype == expected.dtype == target_dtype
@@ -185,7 +190,7 @@ def test_explicit_float32_rounding_precedes_saturating_conversion(
         return jax.lax.convert_element_type(rounded, target_dtype)
 
     expected = _native_reference(convert, values)
-    model = to_onnx(convert, [values], enable_double_precision=True)
+    model = to_onnx(convert, [values])
     actual = _run(model, values, optimized)
 
     assert actual.dtype == expected.dtype == target_dtype

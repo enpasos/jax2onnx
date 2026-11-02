@@ -30,10 +30,6 @@ def _one_minus_square(x: jax.Array) -> jax.Array:
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
         {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
-        {
-            "component": "CastLike",
-            "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
-        },
     ],
     since="0.17.0",
     context="primitives.lax",
@@ -75,8 +71,6 @@ class OneMinusSquarePlugin(PrimitiveLeafPlugin):
             output_name = ctx.fresh_name("one_minus_square_out")
 
         one = ctx.bind_const_for_var(object(), np.asarray(1, dtype=np_dtype))
-        # Loop graph processing may promote constants while retaining float32 inputs.
-        one = ctx.cast_like(one, x_val, name_hint="one_minus_square_one")
         plus = ctx.builder.Add(one, x_val, _outputs=[ctx.fresh_name("one_plus_x")])
         minus = ctx.builder.Sub(one, x_val, _outputs=[ctx.fresh_name("one_minus_x")])
         result = ctx.builder.Mul(plus, minus, _outputs=[output_name])

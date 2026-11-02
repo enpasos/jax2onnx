@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import (
@@ -19,6 +19,7 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -86,7 +87,7 @@ def _cast_value(
                 jax.numpy.asarray(2.5, dtype=x.dtype),
             ),
             "input_values": [np.array([-2.0, 0.5, 3.0], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -121,7 +122,7 @@ def _cast_value(
                 jax.numpy.asarray(1, dtype=x.dtype),
             ),
             "input_values": [np.array([-2.0, 0.25, 3.0], dtype=np.float32)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -143,19 +144,14 @@ class ClampPlugin(PrimitiveLeafPlugin):
         min_val = ctx.get_value_for_var(
             min_var,
             name_hint=ctx.fresh_name("clamp_min"),
-            prefer_np_dtype=np.dtype(getattr(x_var.aval, "dtype", np.float32)),
         )
         max_val = ctx.get_value_for_var(
             max_var,
             name_hint=ctx.fresh_name("clamp_max"),
-            prefer_np_dtype=np.dtype(getattr(x_var.aval, "dtype", np.float32)),
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("clamp_out"))
 
-        target_dtype = _dtype_to_ir(
-            np.dtype(getattr(x_var.aval, "dtype", np.float32)),
-            ctx.builder.enable_double_precision,
-        )
+        target_dtype = numpy_dtype_to_ir(x_var.aval.dtype)
 
         x_shape: tuple[DimInput, ...] = tuple(getattr(x_var.aval, "shape", ()))
         min_cast = _cast_value(ctx, min_val, target_dtype, x_shape, "ClampMinCast")

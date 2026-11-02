@@ -39,6 +39,10 @@ and keep tests green now that the converter is IR-first.
 - Respect the single-use RNG rule: split keys per consumer and never cache
   module instances inside traced calls. `construct_and_call(...)` plus
   `with_requested_dtype()` placeholders handles per-dtype rebuilds.
+- Use `with_requested_dtype()` in `expected_output_dtypes` only when the
+  fixture's output genuinely follows its prepared dtype. The test generator
+  resolves authored placeholders per variant; fixed FP32 expectations remain
+  FP32. A dtype variant must configure the callable, not just its input spec.
 
 ## Validation Hooks
 - `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` enforces
@@ -168,6 +172,23 @@ retain their established constant representation.
 The [graph rewrite reference](ir_optimizer.md#graph-rewrite-reference) shows
 the corresponding value/metadata contract when transforming an existing graph.
 
+## Dtypes and Local Work Values
+
+Bind constants and inputs in their source dtype. The builder preserves their
+payload and type; it does not apply a global floating-point promotion policy.
+Stamping metadata is not a conversion. If an operator requires another dtype,
+emit a `Cast` to a fresh work value and keep the canonical binding and shared
+initializer unchanged. Bind the source-typed result after any required final
+conversion.
+
+For FP16 `Add`, `Sub`, and `Mul`, the lowerings use local FLOAT operands and
+arithmetic followed by an explicit FP16 result cast to retain each primitive's
+rounding boundary on the checked ONNX Runtime CPU versions. FP16 `rsqrt` uses
+FLOAT `Sqrt` and `Div`, then one FP16 result cast; rounding the intermediate
+square root to FP16 would add a boundary absent from the source primitive.
+These are operation-specific adaptations, not a rule for all half operations.
+Runtime scope is recorded in [Dependencies](../../about/dependencies.md#onnx-runtime-kernel-gaps).
+
 ## End-to-End Workflow
 ```python
 import numpy as np
@@ -180,7 +201,7 @@ X = ir.val("X", dtype=ir.DataType.FLOAT, shape=[1])
 Y = ir.val("Y", dtype=ir.DataType.FLOAT, shape=[1])
 
 # 2. Create the project builder and register graph inputs.
-builder = IRBuilder(opset=18, enable_double_precision=False)
+builder = IRBuilder(opset=18)
 builder.inputs.extend([X, Y])
 
 # 3. Register any constant tensors through the builder so outputs stay in sync.

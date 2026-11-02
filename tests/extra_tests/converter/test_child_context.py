@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -18,13 +19,19 @@ from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.plugins.jax.lax._control_flow_utils import make_subgraph_context
 
 
+class _SourceVar:
+    def __init__(self, dtype: np.dtype) -> None:
+        self.aval = SimpleNamespace(shape=("B", 3), dtype=dtype)
+
+
 @pytest.mark.parametrize("scope", ["function", "control_flow"])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_child_context_shares_conversion_state_and_owns_its_graph(
     scope: Literal["function", "control_flow"],
+    dtype: type,
 ) -> None:
     parent = IRContext(
         opset=23,
-        enable_double_precision=True,
         normalization_mode="force_decomposed",
         stacktrace_metadata=True,
     )
@@ -33,24 +40,20 @@ def test_child_context_shares_conversion_state_and_owns_its_graph(
     parent.record_primitive_calls_file = "calls.json"
     parent._call_input_param_names = {"deterministic"}
     parent._call_input_param_literals = {"deterministic": True}
-    parent._keep_function_float32 = True
     parent_value = ir.Value(
         name="parent_input",
-        type=ir.TensorType(ir.DataType.FLOAT),
+        type=ir.TensorType(ir.DataType.from_numpy(np.dtype(dtype))),
         shape=ir.Shape(("B", 3)),
     )
     parent.builder.inputs.append(parent_value)
     parent.builder.outputs.append(parent_value)
-    parent.builder.add_initializer_from_array(
-        name="weight", array=np.ones((3,), np.float32)
-    )
+    parent.builder.add_initializer_from_array(name="weight", array=np.ones((3,), dtype))
     parent.record_symbolic_dim_origin("B", parent_value, 0)
     parent._call_param_value_by_name["deterministic"] = parent_value
 
     child = parent.create_child_context(scope=scope)
 
     assert child.opset == 23
-    assert child.enable_double_precision
     assert child.normalization_mode == "force_decomposed"
     assert child.builder.stacktrace_metadata_enabled
     assert child.record_primitive_calls_file == "calls.json"
@@ -73,7 +76,6 @@ def test_child_context_shares_conversion_state_and_owns_its_graph(
     if scope == "control_flow":
         assert child.ir_functions is parent.ir_functions
         assert child._inside_function_scope
-        assert child._keep_function_float32
         origin = child.get_symbolic_dim_origin("B")
         assert origin is not None and origin.value is parent_value
         assert child._sym_origin is not parent._sym_origin
@@ -81,7 +83,6 @@ def test_child_context_shares_conversion_state_and_owns_its_graph(
     else:
         assert child.ir_functions is not parent.ir_functions
         assert child._inside_function_scope
-        assert not child._keep_function_float32
         assert child.get_symbolic_dim_origin("B") is None
 
     child._call_input_param_names.add("child_only")
@@ -89,9 +90,21 @@ def test_child_context_shares_conversion_state_and_owns_its_graph(
     assert parent._call_input_param_names == {"deterministic"}
     assert parent._call_input_param_literals == {"deterministic": True}
 
+    source_var = _SourceVar(np.dtype(dtype))
+    child_input = child.add_input_for_invar(source_var, 0)
+    assert child_input.dtype == ir.DataType.from_numpy(np.dtype(dtype))
+    assert child_input.shape == ir.Shape(("B", 3))
+    assert child_input.graph is child.builder.graph
+    assert child_input is not parent_value
+    child_origin = child.get_symbolic_dim_origin("B")
+    assert child_origin is not None and child_origin.value is child_input
+    assert parent_value.dtype == ir.DataType.from_numpy(np.dtype(dtype))
+    parent_origin = parent.get_symbolic_dim_origin("B")
+    assert parent_origin is not None and parent_origin.value is parent_value
+
 
 def test_subgraph_names_preserve_context_and_builder_suffixes() -> None:
-    parent = IRContext(opset=21, enable_double_precision=False)
+    parent = IRContext(opset=21)
     first = make_subgraph_context(parent, prefix="loop")
     second = make_subgraph_context(parent, prefix="loop")
 
@@ -112,7 +125,7 @@ def test_subgraph_names_preserve_context_and_builder_suffixes() -> None:
 
 
 def test_function_scope_remaps_only_origins_of_formal_inputs() -> None:
-    parent = IRContext(opset=21, enable_double_precision=False)
+    parent = IRContext(opset=21)
     source = ir.Value(
         name="source",
         type=ir.TensorType(ir.DataType.FLOAT),
@@ -144,7 +157,7 @@ def test_function_scope_remaps_only_origins_of_formal_inputs() -> None:
 
 
 def test_if_flag_capture_is_lazy_local_and_reused_across_nested_branches() -> None:
-    parent = IRContext(opset=21, enable_double_precision=False)
+    parent = IRContext(opset=21)
     outer = make_subgraph_context(parent, prefix="outer", implicit_captures=True)
     inner = make_subgraph_context(outer, prefix="inner", implicit_captures=True)
     assert not parent.builder.inputs
@@ -171,7 +184,7 @@ def test_if_flag_capture_is_lazy_local_and_reused_across_nested_branches() -> No
 
 
 def test_function_and_loop_flags_require_explicit_local_inputs() -> None:
-    parent = IRContext(opset=21, enable_double_precision=False)
+    parent = IRContext(opset=21)
     parent.ensure_external_flag("deterministic", None)
     function = FunctionScope(parent, name="ExplicitInputs")
     function.begin([])
@@ -185,7 +198,7 @@ def test_function_and_loop_flags_require_explicit_local_inputs() -> None:
 
 
 def test_if_variable_capture_preserves_identity_metadata_and_local_bindings() -> None:
-    parent = IRContext(opset=21, enable_double_precision=False)
+    parent = IRContext(opset=21)
     var = object()
     source = ir.Value(
         name="source", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape(("B", 2))
@@ -223,7 +236,7 @@ def test_if_variable_capture_preserves_identity_metadata_and_local_bindings() ->
 def test_if_variable_capture_stops_at_explicit_scope_boundaries(
     scope: Literal["function", "control_flow"],
 ) -> None:
-    parent = IRContext(opset=21, enable_double_precision=False)
+    parent = IRContext(opset=21)
     var = object()
     source = parent.add_graph_input_value(ir.Value(name="outer"))
     parent.bind_value_for_var(var, source)

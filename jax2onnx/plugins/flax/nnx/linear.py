@@ -526,10 +526,21 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
         def patched(self: nnx.Linear, x: Any, *, out_sharding: Any = None) -> Any:
             del out_sharding
+            if (
+                self.dot_general is not jax.lax.dot_general
+                or self.precision is not None
+                or self.preferred_element_type is not None
+            ):
+                # The leaf primitive models the default contraction. Preserve
+                # custom contractions and accumulation through their JAX code.
+                return orig_fn(self, x)
             dn = (((x.ndim - 1,), (0,)), ((), ()))
-            kernel = self.kernel.value
+            kernel = self.kernel[...]
             use_bias = self.bias is not None
-            bias = self.bias.value if use_bias else jnp.zeros((), dtype=x.dtype)
+            bias = self.bias[...] if self.bias is not None else None
+            x, kernel, bias = self.promote_dtype((x, kernel, bias), dtype=self.dtype)
+            if bias is None:
+                bias = jnp.zeros((), dtype=x.dtype)
             return prim.bind(x, kernel, bias, use_bias=use_bias, dimension_numbers=dn)
 
         return patched

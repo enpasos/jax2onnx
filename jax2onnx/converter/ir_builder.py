@@ -28,7 +28,7 @@ from onnx_ir.tape import Tape
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
     ir_shape_from_dims,
-    numpy_dtype_to_ir_with_float_policy,
+    numpy_dtype_to_ir,
     tensor_attr,
 )
 
@@ -77,14 +77,6 @@ _STACKTRACE_IGNORE_PATTERNS: Final[tuple[str, ...]] = (
     "onnx_ir/tape.py",
     "traceback.py",
 )
-
-
-def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
-    """
-    Map numpy dtype to onnx_ir.DataType.
-    Floats are normalized by enable_double flag.
-    """
-    return numpy_dtype_to_ir_with_float_policy(dtype, enable_double)
 
 
 class _DynamicTapeBuilder(Tape):
@@ -258,18 +250,10 @@ class _InitializerList(MutableSequence[ir.Value]):
             arr_new = const_value_to_numpy(value)
             arr_old = const_value_to_numpy(existing)
             if arr_new is not None and arr_old is not None:
-                # Normalize dtype for fair comparison: onnx_ir tensors may
-                # materialize as float64 via numpy bridge.
-                try:
-                    arr_new_cast: np.ndarray[Any, np.dtype[Any]] = arr_new.astype(
-                        arr_old.dtype, copy=False
-                    )
-                except Exception:
-                    arr_new_cast = arr_new
                 same = (
-                    arr_new_cast.shape == arr_old.shape
-                    and arr_new_cast.dtype == arr_old.dtype
-                    and np.array_equal(arr_new_cast, arr_old)
+                    arr_new.shape == arr_old.shape
+                    and arr_new.dtype == arr_old.dtype
+                    and arr_new.tobytes() == arr_old.tobytes()
                 )
                 if same:
                     # Keep using the existing initializer to preserve
@@ -303,11 +287,9 @@ class IRBuilder:
         self,
         *,
         opset: int,
-        enable_double_precision: bool,
         enable_stacktrace_metadata: bool = False,
     ):
         self.opset = opset
-        self.enable_double_precision = enable_double_precision
         graph = ir.Graph(
             inputs=[],
             outputs=[],
@@ -434,7 +416,7 @@ class IRBuilder:
     def _make_value(
         self, name: str, shape: Tuple[Any, ...], np_dtype: Optional[np.dtype]
     ) -> ir.Value:
-        dtype_enum = _dtype_to_ir(np_dtype, self.enable_double_precision)
+        dtype_enum = numpy_dtype_to_ir(np_dtype)
         return ir.Value(
             name=name,
             shape=ir_shape_from_dims(shape),
@@ -449,18 +431,11 @@ class IRBuilder:
 
             arr_existing = const_value_to_numpy(existing)
             arr_new = np.asarray(value)
-            # Respect the float64 downcast policy when comparing
-            if not self.enable_double_precision and arr_new.dtype == np.float64:
-                arr_new = arr_new.astype(np.float32)
             if arr_existing is not None:
-                try:
-                    arr_new_cast = arr_new.astype(arr_existing.dtype, copy=False)
-                except Exception:
-                    arr_new_cast = arr_new
                 if (
-                    arr_existing.shape == arr_new_cast.shape
-                    and arr_existing.dtype == arr_new_cast.dtype
-                    and np.array_equal(arr_existing, arr_new_cast)
+                    arr_existing.shape == arr_new.shape
+                    and arr_existing.dtype == arr_new.dtype
+                    and arr_existing.tobytes() == arr_new.tobytes()
                 ):
                     return existing
                 raise ValueError(
@@ -472,17 +447,12 @@ class IRBuilder:
             )
 
         arr = np.asarray(value)
-        # Narrow float64 (including Python floats) only; float16 stays float16.
-        if not self.enable_double_precision and arr.dtype == np.float64:
-            arr = arr.astype(np.float32)
         tensor = ir.tensor(arr)
         if self._function_mode:
             v = ir.Value(
                 name=name,
                 shape=ir.Shape(arr.shape if arr.shape else ()),
-                type=ir.TensorType(
-                    _dtype_to_ir(arr.dtype, self.enable_double_precision)
-                ),
+                type=ir.TensorType(numpy_dtype_to_ir(arr.dtype)),
                 const_value=tensor,
             )
             attributes = [tensor_attr("value", tensor)]

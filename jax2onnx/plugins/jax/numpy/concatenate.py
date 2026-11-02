@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
-from typing import Any, ClassVar, Final, TypeAlias, cast
+from collections.abc import Callable, Iterable
+from typing import ClassVar, Final, TypeAlias, cast
 
 import jax
 from jax2onnx._compat.jax import (
@@ -22,10 +22,13 @@ from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
+    get_orig_impl,
+    make_jnp_primitive,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -47,13 +50,6 @@ def _normalize_axis(axis: int, rank: int) -> int:
         return 0
     ax = int(axis)
     return ax % rank if ax < 0 else ax
-
-
-def _promote_dtype(dtypes: Sequence[np.dtype[Any]]) -> np.dtype[Any]:
-    result = dtypes[0]
-    for dt in dtypes[1:]:
-        result = np.promote_types(result, dt)
-    return result
 
 
 def _concat_dynamic_tile(x: jax.Array) -> jax.Array:
@@ -106,7 +102,7 @@ _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
             "callable": lambda a, b: jnp.concatenate((a, b), axis=0, dtype=jnp.float64),
             "input_shapes": [(3,), (3,)],
             "input_dtypes": [np.float32, np.int32],
-            "enable_double_precision": True,
+            "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 ["Concat:6"],
                 no_unused_inputs=True,
@@ -207,25 +203,10 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         rank = len(arrays[0].shape)
         norm_axis = _normalize_axis(dimension, rank)
 
-        axis_sizes = []
-        other_dims = arrays[0].shape
-        for aval in arrays:
-            if len(aval.shape) != rank:
-                raise ValueError("all arrays must have the same rank")
-            for i, (dim_ref, dim_cur) in enumerate(zip(other_dims, aval.shape)):
-                if i == norm_axis:
-                    continue
-                if dim_ref != dim_cur:
-                    raise ValueError("all non-concatenated dimensions must match")
-            axis_sizes.append(aval.shape[norm_axis])
-
-        out_shape = list(other_dims)
-        if all(isinstance(sz, (int, np.integer)) for sz in axis_sizes):
-            out_shape[norm_axis] = int(sum(int(sz) for sz in axis_sizes))
-        else:
-            out_shape[norm_axis] = axis_sizes[0]
-        out_dtype = _promote_dtype([np.dtype(a.dtype) for a in arrays])
-        return ShapedArray(tuple(out_shape), out_dtype)
+        original = get_orig_impl(_CONCAT_PRIM, "concatenate")
+        return abstract_eval_via_jax(
+            lambda *values: original(values, axis=norm_axis), *arrays
+        )
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         out_var = eqn.outvars[0]
@@ -238,9 +219,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         rank = len(first_shape)
         norm_axis = _normalize_axis(dimension, rank)
 
-        target_dtype = _promote_dtype(
-            [np.dtype(getattr(v.aval, "dtype", np.float32)) for v in in_vars]
-        )
+        target_dtype = np.dtype(out_var.aval.dtype)
         out_spec = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("jnp_concat_out")
         )
@@ -251,13 +230,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         inputs: list[ir.Value] = []
         for var in in_vars:
             val = ctx.get_value_for_var(var, name_hint=ctx.fresh_name("jnp_concat_in"))
-            val = promote_float32_operand(
-                ctx,
-                val,
-                target_dtype=target_enum,
-                name_hint="jnp_concat_operand_double",
-            )
-            var_dtype = np.dtype(getattr(var.aval, "dtype", target_dtype))
+            var_dtype = np.dtype(var.aval.dtype)
             if var_dtype != target_dtype:
                 cast_val = ctx.builder.Cast(
                     val,

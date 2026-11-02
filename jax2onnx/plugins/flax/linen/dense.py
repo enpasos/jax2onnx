@@ -1,6 +1,7 @@
 # jax2onnx/plugins/flax/linen/dense.py
 
 from __future__ import annotations
+from functools import partial
 from typing import Any, Callable, ClassVar, Final
 import numpy as np
 import jax
@@ -144,6 +145,18 @@ def _linear_output_dims(
     return tuple(dims)
 
 
+def _dense_basic_fixture(*, dtype: Any, rngs: Any) -> Any:
+    return linen_to_nnx(
+        module_cls=partial(nn.Dense, dtype=dtype, param_dtype=dtype),
+        input_shape=(1, 32),
+        features=64,
+        dtype=dtype,
+        kernel_init=nn.initializers.ones,
+        bias_init=nn.initializers.zeros,
+        rngs=rngs,
+    )
+
+
 @register_native_primitive(
     jaxpr_primitive="linen.dense",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.Dense",
@@ -157,13 +170,8 @@ def _linear_output_dims(
         {
             "testcase": "dense_basic",
             "callable": construct_and_call(
-                linen_to_nnx,
-                module_cls=nn.Dense,
-                input_shape=(1, 32),
-                features=64,
+                _dense_basic_fixture,
                 dtype=with_requested_dtype(),
-                kernel_init=nn.initializers.ones,
-                bias_init=nn.initializers.zeros,
                 rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 32)],
@@ -466,8 +474,12 @@ class DensePlugin(PrimitiveLeafPlugin):
                         )
                     ):
                         return call_orig(self, x)
-                    # We have pre-initialized params - use them directly
-                    inputs = x
+                    # Use the framework's own compute-dtype preparation.
+                    # These local conversions retain the original parameter bindings.
+                    inputs, kernel, bias = self.promote_dtype(
+                        x, kernel, bias, dtype=self.dtype
+                    )
+                    assert inputs is not None and kernel is not None
                     if bias is None and self.use_bias:
                         bias = jnp.zeros((self.features,), dtype=inputs.dtype)
                     elif not self.use_bias:

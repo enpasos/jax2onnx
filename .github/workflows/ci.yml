@@ -150,7 +150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Python 3.12 resolves the JAX 0.10 stack, 3.13 the JAX 0.11 stack.
+        # Python 3.12 resolves the JAX 0.10 stack, 3.13 the JAX 0.12 stack.
         python-version: ['3.12', '3.13']
 
     steps:
@@ -229,7 +229,7 @@ jobs:
         poetry install --no-interaction
         poetry run pip install pytest-xdist
 
-    - name: Verify locked JAX 0.11 stack
+    - name: Verify locked JAX 0.12 stack
       if: matrix.python-version == '3.13' || matrix.python-version == '3.14'
       run: |
         poetry run python - <<'PY'
@@ -238,7 +238,7 @@ jobs:
 
         from packaging.version import Version
 
-        expected_series = (0, 11)
+        expected_series = (0, 12)
         resolved = {
             package: Version(version(package))
             for package in ("jax", "jaxlib")
@@ -252,7 +252,7 @@ jobs:
         if wrong:
             raise SystemExit(
                 "The locked modern test stack must resolve jax and jaxlib "
-                f"to 0.11.x on Python {sys.version_info.major}."
+                f"to 0.12.x on Python {sys.version_info.major}."
                 f"{sys.version_info.minor}; resolved {wrong}. "
                 "If this is an intentional JAX upgrade, update this guard "
                 "and the compatibility coverage in the same PR."

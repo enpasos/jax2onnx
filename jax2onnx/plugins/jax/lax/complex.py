@@ -17,6 +17,7 @@ from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -44,7 +45,7 @@ from jax2onnx.plugins.plugin_system import (
                 np.array(1.0, dtype=np.float32),
                 np.array(2.0, dtype=np.float32),
             ],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
         },
         {
             "testcase": "complex_array",
@@ -53,7 +54,7 @@ from jax2onnx.plugins.plugin_system import (
                 np.array([1.0, -0.5], dtype=np.float32),
                 np.array([2.0, 0.25], dtype=np.float32),
             ],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
         },
         {
             "testcase": "complex_double_precision",
@@ -62,7 +63,7 @@ from jax2onnx.plugins.plugin_system import (
                 np.array([1.0, -0.5], dtype=np.float64),
                 np.array([2.0, 0.25], dtype=np.float64),
             ],
-            "enable_double_precision": True,
+            "run_only_f64_variant": True,
             "expected_output_dtypes": [np.float64],
         },
     ],

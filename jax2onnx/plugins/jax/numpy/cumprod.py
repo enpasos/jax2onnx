@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -140,10 +140,10 @@ class JnpCumProdPlugin(PrimitiveLeafPlugin):
         target_dtype = (
             np.dtype(req_dtype)
             if req_dtype is not None
-            else np.dtype(getattr(operand_var.aval, "dtype", np.float32))
+            else np.dtype(operand_var.aval.dtype)
         )
-        operand_dtype = np.dtype(getattr(operand_var.aval, "dtype", target_dtype))
-        target_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        operand_dtype = np.dtype(operand_var.aval.dtype)
+        target_enum = numpy_dtype_to_ir(target_dtype)
 
         if operand_dtype != target_dtype:
             cast_val = ctx.builder.Cast(

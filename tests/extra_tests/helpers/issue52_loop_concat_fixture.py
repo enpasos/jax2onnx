@@ -19,8 +19,6 @@ from jax2onnx.converter.typing_support import AxisOverrideInfo
 STACK_WIDTH = 5
 _MODEL_NAME = "issue52_loop_concat"
 
-jax.config.update("jax_enable_x64", True)
-
 
 def _stack_block(state: jax.Array) -> jax.Array:
     rho = state[0]
@@ -75,33 +73,33 @@ def _inputs() -> list[jax.ShapeDtypeStruct]:
 
 
 def export_model(path: Optional[Path] = None) -> onnx.ModelProto:
-    model = cast(
-        onnx.ModelProto,
-        to_onnx(
-            _model_fn,
-            inputs=_inputs(),
-            enable_double_precision=True,
-            model_name=_MODEL_NAME,
-            opset=21,
-        ),
-    )
-    if path is not None:
-        onnx.save(model, path)
-    return model
+    with jax.enable_x64():
+        model = cast(
+            onnx.ModelProto,
+            to_onnx(
+                _model_fn,
+                inputs=_inputs(),
+                model_name=_MODEL_NAME,
+                opset=21,
+            ),
+        )
+        if path is not None:
+            onnx.save(model, path)
+        return model
 
 
 def export_ir_model() -> ir.Model:
-    return cast(
-        ir.Model,
-        to_onnx(
-            _model_fn,
-            inputs=_inputs(),
-            enable_double_precision=True,
-            model_name=_MODEL_NAME,
-            opset=21,
-            return_mode="ir",
-        ),
-    )
+    with jax.enable_x64():
+        return cast(
+            ir.Model,
+            to_onnx(
+                _model_fn,
+                inputs=_inputs(),
+                model_name=_MODEL_NAME,
+                opset=21,
+                return_mode="ir",
+            ),
+        )
 
 
 def _enumerate_graphs(graph: onnx.GraphProto) -> Iterable[onnx.GraphProto]:

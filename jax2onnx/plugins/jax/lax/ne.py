@@ -1,10 +1,8 @@
 # jax2onnx/plugins/jax/lax/ne.py
 
-from typing import Any
 
 from jax2onnx._compat.jax import JaxprEqn
 import jax
-import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
@@ -49,13 +47,9 @@ class NePlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("ne_lhs"))
-        prefer_dtype: np.dtype[Any] = np.dtype(
-            getattr(lhs_var.aval, "dtype", np.float32)
-        )
         rhs_val = ctx.get_value_for_var(
             rhs_var,
             name_hint=ctx.fresh_name("ne_rhs"),
-            prefer_np_dtype=prefer_dtype,
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ne_out"))
 
@@ -65,7 +59,8 @@ class NePlugin(PrimitiveLeafPlugin):
             desired_name = ctx.fresh_name("ne_out")
 
         eq_val = ctx.builder.Equal(lhs_val, rhs_val, _outputs=[ctx.fresh_name("ne_eq")])
-        eq_val.shape = lhs_val.shape
+        eq_val.type = out_spec.type
+        eq_val.shape = out_spec.shape
 
         result = ctx.builder.Not(eq_val, _outputs=[desired_name])
         if getattr(out_spec, "type", None) is not None:

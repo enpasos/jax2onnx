@@ -21,7 +21,6 @@ from dataclasses import dataclass
 import logging
 import os
 import jax
-import jax.numpy as jnp
 from jax import export as jax_export
 import numpy as np
 import onnx_ir as ir
@@ -45,7 +44,6 @@ from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rule
 from jax2onnx.plugins._ir_shapes import _as_ir_dim_label
 
 from .ir_context import IRContext
-from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from . import lowering_dispatch as _lowering_dispatch
@@ -81,36 +79,6 @@ class _TraceResult:
 # ---------------------------
 # Helpers
 # ---------------------------
-
-
-def _np_float_dtype(enable_double_precision: bool) -> np.dtype[Any]:
-    return np.dtype(np.float64 if enable_double_precision else np.float32)
-
-
-def _maybe_promote_float_array(
-    arr: np.ndarray, enable_double_precision: bool
-) -> np.ndarray:
-    """Promote floating arrays to float64 when double precision is enabled."""
-    if not enable_double_precision:
-        return arr
-    if not np.issubdtype(arr.dtype, np.floating):
-        return arr
-    if arr.dtype == np.float64:
-        return arr
-    return arr.astype(np.float64, copy=False)
-
-
-def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
-    np_dtype = np.dtype(np_dtype)
-    if np_dtype.name == "bfloat16":
-        return ir.DataType.BFLOAT16
-    if np.issubdtype(np_dtype, np.floating):
-        return ir.DataType.DOUBLE if np_dtype == np.float64 else ir.DataType.FLOAT
-    if np.issubdtype(np_dtype, np.integer):
-        return numpy_dtype_to_ir(np_dtype, default=ir.DataType.INT64)
-    if np_dtype == np.dtype(np.bool_):
-        return numpy_dtype_to_ir(np_dtype)
-    return numpy_dtype_to_ir(np_dtype, default=ir.DataType.FLOAT)
 
 
 def _to_ir_shape(shape_tuple: Sequence[ShapeDimSpec]) -> "ir.Shape":
@@ -159,9 +127,7 @@ def _convert_ir_attr(name: str, value: object) -> Optional[Attr]:
         return None
 
 
-def _as_sds_list(
-    inputs: Sequence[InputSpec], enable_double_precision: bool
-) -> List["jax.ShapeDtypeStruct"]:
+def _as_sds_list(inputs: Sequence[InputSpec]) -> List["jax.ShapeDtypeStruct"]:
     """Normalize user 'inputs' to ShapeDtypeStructs for abstract tracing."""
     sds_list: List[jax.ShapeDtypeStruct] = []
 
@@ -211,8 +177,7 @@ def _as_sds_list(
         dims_tuple = tuple(
             name2sym[dim] if isinstance(dim, str) else int(dim) for dim in spec
         )
-        dt = jnp.float64 if enable_double_precision else jnp.float32
-        sds_list.append(jax.ShapeDtypeStruct(dims_tuple, dt))
+        sds_list.append(jax.ShapeDtypeStruct(dims_tuple, np.float32))
     return sds_list
 
 
@@ -501,28 +466,9 @@ def _activate_plugin_worlds() -> Iterator[None]:
         yield
 
 
-@contextmanager
-def _force_jax_x64(enable_double_precision: bool) -> Iterator[None]:
-    read_config = jax.config.read if hasattr(jax.config, "read") else None
-    previous: Optional[bool]
-    if callable(read_config):
-        previous = bool(read_config("jax_enable_x64"))
-    elif hasattr(jax.config, "jax_enable_x64"):
-        previous = bool(jax.config.jax_enable_x64)
-    else:
-        previous = None
-    jax.config.update("jax_enable_x64", bool(enable_double_precision))
-    try:
-        yield
-    finally:
-        if previous is not None:
-            jax.config.update("jax_enable_x64", previous)
-
-
 def _create_ir_context(
     *,
     opset: int,
-    enable_double_precision: bool,
     input_specs: Sequence[Any],
     frozen_params: Mapping[str, object],
     record_primitive_calls_file: Optional[str],
@@ -530,7 +476,6 @@ def _create_ir_context(
 ) -> IRContext:
     ctx = IRContext(
         opset=opset,
-        enable_double_precision=enable_double_precision,
         normalization_mode=normalization_mode,
         input_specs=input_specs,
     )
@@ -550,46 +495,16 @@ def _bind_closed_jaxpr_constants(
     ctx: IRContext,
     jpr: Any,
     consts: Sequence[object],
-    *,
-    default_float: np.dtype[Any],
-    enable_double_precision: bool,
 ) -> None:
     for cv, cval in zip(jpr.constvars, consts):
-        np_c = np.asarray(cval)
-        target_dtype = None
-        try:
-            target_dtype = np.dtype(cv.aval.dtype)
-        except AttributeError:
-            target_dtype = None
-        except TypeError:
-            target_dtype = None
-        desired_dtype = None
-        if target_dtype is not None and target_dtype != np_c.dtype:
-            desired_dtype = target_dtype
-        elif target_dtype is None and np.issubdtype(np_c.dtype, np.floating):
-            desired_dtype = default_float
-
-        if (
-            not enable_double_precision
-            and desired_dtype is not None
-            and np.issubdtype(desired_dtype, np.floating)
-            and desired_dtype not in (np.dtype(np.float16), np.dtype(np.float32))
-            and desired_dtype.name != "bfloat16"
-            and np_c.dtype != np.float64
-        ):
-            desired_dtype = np.dtype(np.float32)
-
-        if desired_dtype is not None and np_c.dtype != desired_dtype:
-            np_c = np_c.astype(desired_dtype, copy=False)
-
-        np_c = _maybe_promote_float_array(np_c, enable_double_precision)
-        ctx.bind_const_for_var(cv, np_c)
+        if _maybe_dtype(cv.aval) is None:
+            raise TypeError("Constant has no traced dtype")
+        ctx.bind_const_for_var(cv, np.asarray(cval))
 
 
 class _LayoutAdapter:
-    def __init__(self, ctx: IRContext, *, enable_double_precision: bool) -> None:
+    def __init__(self, ctx: IRContext) -> None:
         self.ctx = ctx
-        self.enable_double_precision = enable_double_precision
 
     @staticmethod
     def _require_4d(shape: Sequence[object], *, kind: str, index: int) -> None:
@@ -610,9 +525,7 @@ class _LayoutAdapter:
         nchw_shape = tuple(aval_shape[p] for p in _NHWC_TO_NCHW_PERM)
         nchw_input_val = ir.Value(
             name=f"in_{index}_nchw",
-            type=ir.TensorType(
-                _dtype_to_ir(np.dtype(var.aval.dtype), self.enable_double_precision)
-            ),
+            type=ir.TensorType(numpy_dtype_to_ir(var.aval.dtype)),
             shape=_to_ir_shape(nchw_shape),
         )
         self.ctx.add_graph_input_value(nchw_input_val)
@@ -642,10 +555,7 @@ class _LayoutAdapter:
 
         output_type = val.type
         if output_type is None:
-            aval_dtype = _maybe_dtype(out_var.aval)
-            if aval_dtype is not None:
-                ir_dtype = _dtype_to_ir(aval_dtype, self.enable_double_precision)
-                output_type = ir.TensorType(ir_dtype)
+            output_type = ir.TensorType(numpy_dtype_to_ir(out_var.aval.dtype))
 
         output_shape = (
             ir.Shape(tuple(val.shape[p] for p in _NHWC_TO_NCHW_PERM))
@@ -679,9 +589,7 @@ class _LayoutAdapter:
 
 
 def _bind_nchw_input_for_invar(ctx: IRContext, var: Any, index: int) -> None:
-    _LayoutAdapter(ctx, enable_double_precision=ctx.enable_double_precision).bind_input(
-        var, index
-    )
+    _LayoutAdapter(ctx).bind_input(var, index)
 
 
 def _bind_jaxpr_inputs(
@@ -690,21 +598,15 @@ def _bind_jaxpr_inputs(
     *,
     inputs_as_nchw: Sequence[int],
 ) -> None:
-    _LayoutAdapter(
-        ctx, enable_double_precision=ctx.enable_double_precision
-    ).bind_inputs(jpr, inputs_as_nchw=inputs_as_nchw)
+    _LayoutAdapter(ctx).bind_inputs(jpr, inputs_as_nchw=inputs_as_nchw)
 
 
 def _bind_nchw_output_for_outvar(
     ctx: IRContext,
     out_var: Any,
     index: int,
-    *,
-    enable_double_precision: bool,
 ) -> None:
-    _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_output(
-        out_var, index
-    )
+    _LayoutAdapter(ctx).bind_output(out_var, index)
 
 
 def _bind_jaxpr_outputs(
@@ -712,11 +614,8 @@ def _bind_jaxpr_outputs(
     jpr: Any,
     *,
     outputs_as_nchw: Sequence[int],
-    enable_double_precision: bool,
 ) -> None:
-    _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_outputs(
-        jpr, outputs_as_nchw=outputs_as_nchw
-    )
+    _LayoutAdapter(ctx).bind_outputs(jpr, outputs_as_nchw=outputs_as_nchw)
 
 
 def _trace_to_jaxpr(
@@ -724,13 +623,20 @@ def _trace_to_jaxpr(
     fn: Callable[..., Any],
     inputs: Sequence[InputSpec],
     input_params: Optional[Mapping[str, object]],
-    enable_double_precision: bool,
     inputs_as_nchw: Optional[Sequence[int]],
     outputs_as_nchw: Optional[Sequence[int]],
     input_names: Optional[Sequence[str]],
     output_names: Optional[Sequence[str]],
 ) -> _TraceResult:
-    sds_list = _as_sds_list(inputs, enable_double_precision)
+    sds_list = _as_sds_list(inputs)
+    native_specs = jax.eval_shape(lambda *values: values, *sds_list)
+    for index, (spec, native_spec) in enumerate(zip(sds_list, native_specs)):
+        canonical = np.dtype(native_spec.dtype)
+        if canonical != np.dtype(spec.dtype):
+            raise ValueError(
+                f"Input {index} dtype {spec.dtype} would be narrowed to {canonical}; "
+                "configure JAX first, for example with jax.enable_x64()."
+            )
     frozen_params: Dict[str, object] = dict(input_params or {})
 
     def _wrapped(*xs: Any) -> Any:
@@ -790,7 +696,6 @@ def to_onnx(
     input_params: Optional[Mapping[str, object]],
     model_name: str,
     opset: int,
-    enable_double_precision: bool,
     record_primitive_calls_file: Optional[str],
     protective_clone: bool = True,
     inputs_as_nchw: Optional[Sequence[int]] = None,
@@ -806,53 +711,31 @@ def to_onnx(
     2) Lower to onnx_ir (plugins; function bodies allowed).
     3) Run a single IR-wide optimization pass (cross-node cleanups).
     """
-    with _force_jax_x64(enable_double_precision):
-        default_float = _np_float_dtype(enable_double_precision)
-        trace = _trace_to_jaxpr(
-            fn=fn,
-            inputs=inputs,
-            input_params=input_params,
-            enable_double_precision=enable_double_precision,
-            inputs_as_nchw=inputs_as_nchw,
-            outputs_as_nchw=outputs_as_nchw,
-            input_names=input_names,
-            output_names=output_names,
-        )
-        closed = trace.closed_jaxpr
-        jpr = trace.jaxpr
-        sds_list = trace.sds_list
-        frozen_params = trace.frozen_params
-        validated_inputs_as_nchw = trace.inputs_as_nchw
-        validated_outputs_as_nchw = trace.outputs_as_nchw
+    trace = _trace_to_jaxpr(
+        fn=fn,
+        inputs=inputs,
+        input_params=input_params,
+        inputs_as_nchw=inputs_as_nchw,
+        outputs_as_nchw=outputs_as_nchw,
+        input_names=input_names,
+        output_names=output_names,
+    )
+    ctx = _create_ir_context(
+        opset=opset,
+        normalization_mode=normalization_mode,
+        input_specs=trace.sds_list,
+        frozen_params=trace.frozen_params,
+        record_primitive_calls_file=record_primitive_calls_file,
+    )
+    _bind_closed_jaxpr_constants(ctx, trace.jaxpr, trace.closed_jaxpr.consts)
+    _bind_jaxpr_inputs(ctx, trace.jaxpr, inputs_as_nchw=trace.inputs_as_nchw)
 
-        ctx = _create_ir_context(
-            opset=opset,
-            enable_double_precision=enable_double_precision,
-            normalization_mode=normalization_mode,
-            input_specs=sds_list,
-            frozen_params=frozen_params,
-            record_primitive_calls_file=record_primitive_calls_file,
-        )
-        _bind_closed_jaxpr_constants(
-            ctx,
-            jpr,
-            closed.consts,
-            default_float=default_float,
-            enable_double_precision=enable_double_precision,
-        )
-        _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=validated_inputs_as_nchw)
+    _lower_jaxpr_equations(ctx, trace.jaxpr)
+    _bind_jaxpr_outputs(ctx, trace.jaxpr, outputs_as_nchw=trace.outputs_as_nchw)
 
-        _lower_jaxpr_equations(ctx, jpr)
-        _bind_jaxpr_outputs(
-            ctx,
-            jpr,
-            outputs_as_nchw=validated_outputs_as_nchw,
-            enable_double_precision=enable_double_precision,
-        )
-
-        return _build_and_finalize_ir_model(
-            ctx,
-            model_name=model_name,
-            protective_clone=protective_clone,
-            strict_optimizer_failures=strict_optimizer_failures,
-        )
+    return _build_and_finalize_ir_model(
+        ctx,
+        model_name=model_name,
+        protective_clone=protective_clone,
+        strict_optimizer_failures=strict_optimizer_failures,
+    )

@@ -9,7 +9,7 @@ from jax import lax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -18,7 +18,12 @@ from jax2onnx.plugins._ir_shapes import (
     _is_static_int,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _builder_op,
+    _const_i64,
+    _gather_int_scalar,
+    _shape_of,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -90,6 +95,14 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             "component": "Conv",
             "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
         },
+        {
+            "component": "Gather",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
+        },
+        {
+            "component": "CumSum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__CumSum.html",
+        },
     ],
     since="0.10.1",
     context="primitives.lax",
@@ -148,7 +161,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             ),
             "input_values": [np.arange(8, dtype=np.int32)],
             "post_check_onnx_graph": EG(
-                ["Cast -> Unsqueeze -> Unsqueeze -> Conv -> Squeeze -> Cast"],
+                ["Gather -> CumSum -> Gather"],
                 no_unused_inputs=True,
             ),
             "run_only_f32_variant": True,
@@ -207,15 +220,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
     ],
 )
 class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.reduce_window_sum`` via a Conv-based sliding sum."""
-
-    _FLOAT_LIKE_DTYPES = {
-        np.dtype(np.float16),
-        np.dtype(np.float32),
-        np.dtype(np.float64),
-    }
-    if hasattr(np, "bfloat16"):
-        _FLOAT_LIKE_DTYPES.add(np.dtype(np.bfloat16))
+    """Lower floating sliding sums via Conv and integer sums via CumSum."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         operand_var = eqn.invars[0]
@@ -260,27 +265,36 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
         if aval_dtype is None:
             raise TypeError("reduce_window_sum operand dtype is unknown")
         np_dtype = np.dtype(aval_dtype)
-        dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
+        dtype_enum = numpy_dtype_to_ir(np_dtype)
         if dtype_enum is None:
             raise TypeError(f"Unsupported dtype for reduce_window_sum: {np_dtype}")
 
-        enable_x64 = bool(getattr(ctx.builder, "enable_double_precision", False))
         conv_np_dtype = np_dtype
         conv_dtype_enum = dtype_enum
-        needs_cast_back = False
-
-        if np_dtype not in self._FLOAT_LIKE_DTYPES:
-            conv_np_dtype = np.dtype(np.float64 if enable_x64 else np.float32)
-            conv_dtype_enum = _dtype_to_ir(conv_np_dtype, enable_x64)
-            if conv_dtype_enum is None:
-                raise TypeError(
-                    f"Unsupported convolution dtype for reduce_window_sum: {conv_np_dtype}"
-                )
-            needs_cast_back = True
 
         operand_shape: tuple[DimInput, ...] = tuple(
             getattr(getattr(operand_var, "aval", None), "shape", ()) or ()
         )
+        out_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(out_var, "aval", None), "shape", ()) or ()
+        )
+        if np.issubdtype(np_dtype, np.integer) or np_dtype == np.bool_:
+            result = self._lower_integer_sum(
+                ctx,
+                operand_val,
+                operand_shape,
+                out_shape,
+                np_dtype,
+                dtype_enum,
+                window_dims,
+                window_strides,
+                padding_pairs,
+                base_dilation,
+                window_dilation,
+            )
+            ctx.bind_value_for_var(out_var, result)
+            return
+
         opset = int(getattr(ctx.builder, "opset", 21))
         operand_producer = None
         operand_producer_getter = getattr(operand_val, "producer", None)
@@ -295,19 +309,6 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
         )
 
         working_val = operand_val
-        if needs_cast_back:
-            cast_in = cast(
-                ir.Value,
-                ctx.builder.Cast(
-                    operand_val,
-                    _outputs=[ctx.fresh_name("reduce_window_sum_cast_in")],
-                    to=int(conv_dtype_enum.value),
-                ),
-            )
-            cast_in.type = ir.TensorType(conv_dtype_enum)
-            _stamp_type_and_shape(cast_in, operand_shape)
-            _ensure_value_metadata(ctx, cast_in)
-            working_val = cast_in
 
         dilated_val, dilated_shape = self._apply_base_dilation(
             ctx,
@@ -398,9 +399,6 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
                 ),
             )
         conv_out.type = ir.TensorType(conv_dtype_enum)
-        out_shape: tuple[DimInput, ...] = tuple(
-            getattr(getattr(out_var, "aval", None), "shape", ()) or ()
-        )
         _stamp_type_and_shape(conv_out, (1, 1) + out_shape)
         _ensure_value_metadata(ctx, conv_out)
 
@@ -422,27 +420,153 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(squeezed, out_shape)
         _ensure_value_metadata(ctx, squeezed)
 
-        final_val = squeezed
-        if needs_cast_back:
-            out_dtype_enum = _dtype_to_ir(np_dtype, enable_x64)
-            if out_dtype_enum is None:
-                raise TypeError(
-                    f"Unsupported output dtype for reduce_window_sum: {np_dtype}"
-                )
-            cast_out = cast(
-                ir.Value,
-                ctx.builder.Cast(
-                    squeezed,
-                    _outputs=[ctx.fresh_name("reduce_window_sum_cast_out")],
-                    to=int(out_dtype_enum.value),
-                ),
-            )
-            cast_out.type = ir.TensorType(out_dtype_enum)
-            _stamp_type_and_shape(cast_out, out_shape)
-            _ensure_value_metadata(ctx, cast_out)
-            final_val = cast_out
+        ctx.bind_value_for_var(out_var, squeezed)
 
-        ctx.bind_value_for_var(out_var, final_val)
+    def _lower_integer_sum(
+        self,
+        ctx: LoweringContextProtocol,
+        operand: ir.Value,
+        operand_shape: tuple[DimInput, ...],
+        out_shape: tuple[DimInput, ...],
+        np_dtype: np.dtype[Any],
+        dtype_enum: ir.DataType,
+        window_dims: tuple[int, ...],
+        window_strides: tuple[int, ...],
+        padding: tuple[tuple[int, ...], ...],
+        base_dilation: tuple[int, ...],
+        window_dilation: tuple[int, ...],
+    ) -> ir.Value:
+        # A window sum is separable across axes. Gather each axis's windows,
+        # then sum that added window dimension using integer arithmetic.
+        # This preserves fixed-width wraparound, unlike float Conv + Cast.
+        # ORT 1.31.1 CPU ReduceSum saturates signed overflow; CumSum wraps.
+        # CPU CumSum has signed integer kernels. Fixed-width integer Cast
+        # reinterprets out-of-range bits, so unsigned work can use the matching
+        # signed representation and cast back with identical modular results.
+        work_dtype = np.dtype(np.int64 if np_dtype.itemsize == 8 else np.int32)
+        work_enum = numpy_dtype_to_ir(work_dtype)
+        value = operand
+        if work_enum != dtype_enum:
+            value = _builder_op(
+                ctx,
+                "Cast",
+                [value],
+                name_hint="rw_int_widen",
+                dtype=work_enum,
+                shape=operand_shape,
+                attributes={"to": int(work_enum.value)},
+            )
+        value, shape = self._apply_base_dilation(
+            ctx, value, operand_shape, base_dilation, work_dtype, work_enum
+        )
+        pads = _flatten_padding(padding)
+        if any(pads):
+            zero = ctx.builder.add_initializer_from_array(
+                name=ctx.fresh_name("rw_int_zero"),
+                array=np.asarray(0, dtype=work_dtype),
+            )
+            shape = tuple(
+                int(cast(int, dim)) + lo + hi if _is_static_int(dim) else None
+                for dim, (lo, hi) in zip(shape, padding)
+            )
+            value = _builder_op(
+                ctx,
+                "Pad",
+                [value, _const_i64(ctx, pads, "rw_int_pads"), zero],
+                name_hint="rw_int_pad",
+                dtype=work_enum,
+                shape=shape,
+                attributes={"mode": "constant"},
+            )
+
+        zero_i64 = _const_i64(ctx, 0, "rw_int_start")
+        for axis, (window, stride, dilation) in enumerate(
+            zip(window_dims, window_strides, window_dilation)
+        ):
+            if window == stride == 1:
+                continue
+            extent = _gather_int_scalar(
+                ctx, _shape_of(ctx, value, "rw_int_shape"), axis, "rw_int_extent"
+            )
+            effective_window = (window - 1) * dilation + 1
+            # Range(0, extent - effective_window + 1, stride) gives every
+            # legal start, including symbolic input lengths at runtime.
+            limit = _builder_op(
+                ctx,
+                "Sub",
+                [extent, _const_i64(ctx, effective_window - 1, "rw_int_span")],
+                name_hint="rw_int_limit",
+                dtype=ir.DataType.INT64,
+                shape=(),
+            )
+            starts = _builder_op(
+                ctx,
+                "Range",
+                [zero_i64, limit, _const_i64(ctx, stride, "rw_int_stride")],
+                name_hint="rw_int_starts",
+                dtype=ir.DataType.INT64,
+                shape=(out_shape[axis],),
+            )
+            starts = _builder_op(
+                ctx,
+                "Unsqueeze",
+                [starts, _const_i64(ctx, [1], "rw_int_column")],
+                name_hint="rw_int_starts_column",
+                dtype=ir.DataType.INT64,
+                shape=(out_shape[axis], 1),
+            )
+            offsets = _const_i64(
+                ctx, np.arange(window, dtype=np.int64) * dilation, "rw_int_offsets"
+            )
+            indices = _builder_op(
+                ctx,
+                "Add",
+                [starts, offsets],
+                name_hint="rw_int_indices",
+                dtype=ir.DataType.INT64,
+                shape=(out_shape[axis], window),
+            )
+            gathered_shape = (
+                shape[:axis] + (out_shape[axis], window) + shape[axis + 1 :]
+            )
+            value = _builder_op(
+                ctx,
+                "Gather",
+                [value, indices],
+                name_hint="rw_int_windows",
+                dtype=work_enum,
+                shape=gathered_shape,
+                attributes={"axis": axis},
+            )
+            shape = shape[:axis] + (out_shape[axis],) + shape[axis + 1 :]
+            value = _builder_op(
+                ctx,
+                "CumSum",
+                [value, _const_i64(ctx, axis + 1, "rw_int_sum_axis")],
+                name_hint="rw_int_prefix_sum",
+                dtype=work_enum,
+                shape=gathered_shape,
+            )
+            value = _builder_op(
+                ctx,
+                "Gather",
+                [value, _const_i64(ctx, -1, "rw_int_last")],
+                name_hint="rw_int_sum",
+                dtype=work_enum,
+                shape=shape,
+                attributes={"axis": axis + 1},
+            )
+        if work_enum != dtype_enum:
+            value = _builder_op(
+                ctx,
+                "Cast",
+                [value],
+                name_hint="rw_int_narrow",
+                dtype=dtype_enum,
+                shape=out_shape,
+                attributes={"to": int(dtype_enum.value)},
+            )
+        return value
 
     def _apply_base_dilation(
         self,

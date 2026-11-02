@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
@@ -26,8 +26,13 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.numpy._common import (
+    get_orig_impl,
+    make_jnp_primitive,
+    promoted_dtype_via_jax,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -41,32 +46,6 @@ BatchDim: TypeAlias = int | None
 
 def _result_dtype() -> np.dtype[Any]:
     return np.dtype(np.int32)
-
-
-def _cast_to_dtype(
-    ctx: LoweringContextProtocol,
-    val: ir.Value,
-    *,
-    from_dtype: np.dtype[Any],
-    to_dtype: np.dtype[Any],
-    name_hint: str,
-    shape: tuple[DimInput, ...],
-) -> ir.Value:
-    if from_dtype == to_dtype:
-        return val
-    target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
-    cast_val = cast(
-        ir.Value,
-        ctx.builder.Cast(
-            val,
-            to=int(target_enum.value),
-            _outputs=[ctx.fresh_name(name_hint)],
-        ),
-    )
-    cast_val.type = ir.TensorType(target_enum)
-    _stamp_type_and_shape(cast_val, shape)
-    _ensure_value_metadata(ctx, cast_val)
-    return cast_val
 
 
 def _unsqueeze(
@@ -344,9 +323,9 @@ class JnpDigitizePlugin(PrimitiveLeafPlugin):
         if int(bins_len) < 1:
             raise ValueError("jnp.digitize lowering requires at least one bin")
 
-        x_dtype: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
-        bins_dtype: np.dtype[Any] = np.dtype(getattr(bins_var.aval, "dtype", x_dtype))
-        compare_dtype: np.dtype[Any] = np.promote_types(x_dtype, bins_dtype)
+        compare_enum = numpy_dtype_to_ir(
+            promoted_dtype_via_jax(x_var.aval, bins_var.aval)
+        )
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("digitize_x"))
         bins_val = ctx.get_value_for_var(
@@ -357,21 +336,11 @@ class JnpDigitizePlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("digitize_out")
         )
 
-        x_ready = _cast_to_dtype(
-            ctx,
-            x_val,
-            from_dtype=x_dtype,
-            to_dtype=compare_dtype,
-            name_hint="digitize_x_cast",
-            shape=x_shape,
+        x_ready = cast_value_to_dtype(
+            ctx, x_val, compare_enum, name_hint="digitize_x_cast"
         )
-        bins_ready = _cast_to_dtype(
-            ctx,
-            bins_val,
-            from_dtype=bins_dtype,
-            to_dtype=compare_dtype,
-            name_hint="digitize_bins_cast",
-            shape=bins_shape,
+        bins_ready = cast_value_to_dtype(
+            ctx, bins_val, compare_enum, name_hint="digitize_bins_cast"
         )
 
         bins_broadcast = bins_ready
@@ -422,13 +391,13 @@ class JnpDigitizePlugin(PrimitiveLeafPlugin):
 
         first_bin = _gather_bin_scalar(
             ctx,
-            bins_ready,
+            bins_val,
             index=0,
             name_hint="digitize_first_bin",
         )
         last_bin = _gather_bin_scalar(
             ctx,
-            bins_ready,
+            bins_val,
             index=int(bins_len) - 1,
             name_hint="digitize_last_bin",
         )

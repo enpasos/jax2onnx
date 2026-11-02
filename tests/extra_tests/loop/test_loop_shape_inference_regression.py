@@ -1,5 +1,6 @@
 # tests/extra_tests/loop/test_loop_shape_inference_regression.py
 
+import jax
 from typing import Optional
 import onnx
 import jax.numpy as jnp
@@ -67,20 +68,20 @@ def _assert_loop_body_state_rank_only(g: onnx.GraphProto) -> None:
 @pytest.mark.filterwarnings("ignore:.*appears in graph inputs.*:UserWarning")
 def test_loop_body_rank_only_and_ort_loads(tmp_path):
     # Build ONNX; keep double precision path on to match original use case.
-    model = to_onnx(
-        _fn_loop_body_indexing_mul,
-        inputs=[],  # xs=None case
-        enable_double_precision=True,  # matches failing scenario
-        opset=21,
-        model_name="loop_rank_only_shapes",
-    )
-    p = tmp_path / "loop_rank_only_shapes.onnx"
-    p.write_bytes(model.SerializeToString())
+    with jax.enable_x64(True):
+        model = to_onnx(
+            _fn_loop_body_indexing_mul,
+            inputs=[],  # matches failing scenario
+            opset=21,
+            model_name="loop_rank_only_shapes",
+        )
+        p = tmp_path / "loop_rank_only_shapes.onnx"
+        p.write_bytes(model.SerializeToString())
 
-    # Structural check: body state I/O are rank-only (dynamic dims)
-    m = onnx.load(str(p))
-    _assert_loop_body_state_rank_only(m.graph)
+        # Structural check: body state I/O are rank-only (dynamic dims)
+        m = onnx.load(str(p))
+        _assert_loop_body_state_rank_only(m.graph)
 
-    # Runtime check: ORT should accept the model (no shape/type inference error).
-    ort = pytest.importorskip("onnxruntime")
-    _ = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        # Runtime check: ORT should accept the model (no shape/type inference error).
+        ort = pytest.importorskip("onnxruntime")
+        _ = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])

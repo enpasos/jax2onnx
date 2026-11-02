@@ -19,6 +19,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 import jax.numpy as jnp
 
@@ -51,7 +52,7 @@ import jax.numpy as jnp
                 jnp.array([4.0, 5.0, 6.0], dtype=jnp.float32),
             ],
             "expected_output_shapes": [(3,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Where:3"],
                 no_unused_inputs=True,
@@ -85,7 +86,7 @@ import jax.numpy as jnp
                 jnp.array([4.0, 5.0, 6.0], dtype=jnp.float32),
             ],
             "expected_output_shapes": [(3,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Where:3"],
                 no_unused_inputs=True,
@@ -103,7 +104,7 @@ import jax.numpy as jnp
                 jnp.array([30, 31, 32, 33], dtype=jnp.float32),
             ],
             "expected_output_shapes": [(4,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Cast:4 -> Equal:4 -> Where:4"],
                 no_unused_inputs=True,
@@ -122,7 +123,7 @@ import jax.numpy as jnp
                 jnp.array([4.0, 4.1, 4.2, 4.3, 4.4, 4.5], dtype=jnp.float32),
             ],
             "expected_output_shapes": [(6,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Cast:6 -> Equal:6 -> Where:6"],
                 no_unused_inputs=True,

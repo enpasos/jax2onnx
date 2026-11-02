@@ -319,7 +319,6 @@ def test_normalization_mode_reaches_control_flow_contexts(
 ) -> None:
     parent = IRContext(
         opset=23,
-        enable_double_precision=False,
         normalization_mode=normalization_mode,
         input_specs=[],
     )

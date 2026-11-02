@@ -14,9 +14,8 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -44,12 +43,12 @@ def _abstract_eval_via_orig(
     x: AbstractValue,
 ) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
-    x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
+    x_dtype: np.dtype[Any] = np.dtype(x.dtype)
     x_spec = jax.ShapeDtypeStruct(x_shape, x_dtype)
     orig = get_orig_impl(prim, func_name)
     out = jax.eval_shape(lambda value: orig(value), x_spec)
     out_shape = tuple(getattr(out, "shape", ()))
-    out_dtype = np.dtype(getattr(out, "dtype", x_dtype))
+    out_dtype = np.dtype(out.dtype)
     return ShapedArray(out_shape, out_dtype)
 
 
@@ -78,7 +77,7 @@ def _cast_to_dtype(
     np_dtype: np.dtype[Any],
     name_hint: str,
 ) -> ir.Value:
-    dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
+    dtype_enum = numpy_dtype_to_ir(np_dtype)
     if getattr(getattr(val, "type", None), "dtype", None) == dtype_enum:
         return val
     cast_val = cast(
@@ -183,10 +182,8 @@ class JnpSpacingPlugin(PrimitiveLeafPlugin):
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
-        out_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(out_var, "aval", None), "dtype", np.float32)
-        )
-        dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        out_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
+        dtype_enum = numpy_dtype_to_ir(out_dtype)
         np_dtype = ir_dtype_to_numpy(dtype_enum, default=out_dtype)
         if np_dtype is None:
             np_dtype = out_dtype

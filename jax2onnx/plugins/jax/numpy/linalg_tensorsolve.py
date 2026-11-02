@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -86,8 +86,8 @@ def _abstract_eval_via_orig(
 ) -> ShapedArray:
     a_shape = tuple(getattr(a, "shape", ()))
     b_shape = tuple(getattr(b, "shape", ()))
-    a_dtype = np.dtype(getattr(a, "dtype", np.float32))
-    b_dtype = np.dtype(getattr(b, "dtype", np.float32))
+    a_dtype = np.dtype(a.dtype)
+    b_dtype = np.dtype(b.dtype)
     if np.issubdtype(a_dtype, np.complexfloating) or np.issubdtype(
         b_dtype, np.complexfloating
     ):
@@ -100,7 +100,7 @@ def _abstract_eval_via_orig(
         jax.ShapeDtypeStruct(a_shape, a_dtype),
         jax.ShapeDtypeStruct(b_shape, b_dtype),
     )
-    out_dtype = np.dtype(getattr(out, "dtype", np.float32))
+    out_dtype = np.dtype(out.dtype)
     if np.issubdtype(out_dtype, np.complexfloating):
         raise TypeError(
             "jnp.linalg.tensorsolve lowering does not support complex outputs"
@@ -235,9 +235,9 @@ class JnpLinalgTensorSolvePlugin(PrimitiveLeafPlugin):
         if out_shape != output_shape:
             raise ValueError("jnp.linalg.tensorsolve output shape mismatch")
 
-        a_dtype = np.dtype(getattr(a_var.aval, "dtype", np.float32))
-        b_dtype = np.dtype(getattr(b_var.aval, "dtype", a_dtype))
-        out_dtype = np.dtype(getattr(out_var.aval, "dtype", b_dtype))
+        a_dtype = np.dtype(a_var.aval.dtype)
+        b_dtype = np.dtype(b_var.aval.dtype)
+        out_dtype = np.dtype(out_var.aval.dtype)
         if (
             np.issubdtype(a_dtype, np.complexfloating)
             or np.issubdtype(b_dtype, np.complexfloating)
@@ -247,7 +247,7 @@ class JnpLinalgTensorSolvePlugin(PrimitiveLeafPlugin):
                 "jnp.linalg.tensorsolve lowering does not support complex dtypes"
             )
 
-        dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        dtype_enum = numpy_dtype_to_ir(out_dtype)
         a_val = ctx.get_value_for_var(
             a_var, name_hint=ctx.fresh_name("linalg_tensorsolve_a")
         )

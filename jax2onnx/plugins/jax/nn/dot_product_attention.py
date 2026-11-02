@@ -44,7 +44,7 @@ from jax2onnx.plugins.jax.lax.scatter_utils import (
     _shape_of,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _builder_op
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 
@@ -978,12 +978,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(k_t, (batch_dim_i, num_heads_i, head_dim_sym, k_len_i))
 
         # Like JAX, compute the logits, masks and softmax in at least float32.
-        # float32 follows the double-precision policy, which also promotes the
-        # scalar constants below, so a fixed FLOAT would mismatch them.
+        # Constants and local work operands use the same source-derived type.
         logits_np_dtype = np.dtype(jnp.promote_types(np_dtype, np.float32))
-        logits_dtype = _dtype_to_ir(
-            logits_np_dtype, ctx.builder.enable_double_precision
-        )
+        logits_dtype = numpy_dtype_to_ir(logits_np_dtype)
         q_t = _cast_to_dtype(
             ctx,
             q_t,
@@ -1271,9 +1268,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             if mask_shape:
                 _stamp_type_and_shape(mask_val, mask_dims_sym)
-            mask_dtype: np.dtype[Any] = np.dtype(
-                getattr(mask_var.aval, "dtype", np.bool_)
-            )
+            mask_dtype: np.dtype[Any] = np.dtype(mask_var.aval.dtype)
             if mask_dtype != np.bool_:
                 mask_val = _builder_tensor_op(
                     ctx,

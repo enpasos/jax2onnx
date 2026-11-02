@@ -9,7 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -88,7 +88,7 @@ from jax2onnx.plugins.plugin_system import (
                     2, 12, 5, 5
                 ),
             ],
-            "enable_double_precision": True,
+            "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 ["Where:2x12x5x5"],
                 no_unused_inputs=True,
@@ -127,7 +127,7 @@ from jax2onnx.plugins.plugin_system import (
                     3, 12, 4, 4
                 ),
             ],
-            "enable_double_precision": True,
+            "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 ["Where:3x12x4x4"],
                 no_unused_inputs=True,
@@ -151,7 +151,7 @@ class SelectPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("select_out")
         )
 
-        if getattr(cond_var.aval, "dtype", np.bool_) != np.bool_:
+        if cond_var.aval.dtype != np.bool_:
             cond_val = cast(
                 ir.Value,
                 ctx.builder.Cast(
@@ -179,10 +179,7 @@ class SelectPlugin(PrimitiveLeafPlugin):
                 _outputs=[desired_name],
             ),
         )
-        out_dtype_enum = _dtype_to_ir(
-            np.dtype(getattr(out_var.aval, "dtype", np.float32)),
-            ctx.builder.enable_double_precision,
-        )
+        out_dtype_enum = numpy_dtype_to_ir(out_var.aval.dtype)
         result.type = ir.TensorType(out_dtype_enum)
         out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", ()))
         result.shape = ir.Shape(out_shape)

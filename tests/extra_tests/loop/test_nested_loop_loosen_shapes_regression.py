@@ -1,5 +1,6 @@
 # tests/extra_tests/loop/test_nested_loop_loosen_shapes_regression.py
 
+import jax
 import pytest
 import onnx
 import onnxruntime as ort
@@ -99,27 +100,27 @@ def test_nested_loop_with_loosen_loads_and_drops_arith_vis(tmp_path):
     The converter always relaxes internal Loop bodies; verify ORT loads and
     no risky value_info entries remain.
     """
-    model = to_onnx(
-        _nested_loop_repro,
-        inputs=[],
-        enable_double_precision=True,
-        opset=21,
-        model_name="nested_loop_loosen",
-    )
-    p = tmp_path / "nested_loop_loosen.onnx"
-    p.write_bytes(model.SerializeToString())
+    with jax.enable_x64(True):
+        model = to_onnx(
+            _nested_loop_repro,
+            inputs=[],
+            opset=21,
+            model_name="nested_loop_loosen",
+        )
+        p = tmp_path / "nested_loop_loosen.onnx"
+        p.write_bytes(model.SerializeToString())
 
-    # Loads and runs
-    sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
-    outs = sess.run(None, {})
-    assert len(outs) == 1
-    assert tuple(outs[0].shape) == (5, 210, 1, 1)
+        # Loads and runs
+        sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        outs = sess.run(None, {})
+        assert len(outs) == 1
+        assert tuple(outs[0].shape) == (5, 210, 1, 1)
 
-    # And internal VIs in bodies are clean
-    m = onnx.load(str(p))
-    for b in _loop_bodies(m.graph):
-        prod = _producer_map(b)
-        for vi in b.value_info:
-            assert not (
-                _has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE)
-            ), f"Found risky VI '{vi.name}' in Loop body despite loosening."
+        # And internal VIs in bodies are clean
+        m = onnx.load(str(p))
+        for b in _loop_bodies(m.graph):
+            prod = _producer_map(b)
+            for vi in b.value_info:
+                assert not (
+                    _has_concrete_dim(vi) and (prod.get(vi.name) in SENSITIVE)
+                ), f"Found risky VI '{vi.name}' in Loop body despite loosening."

@@ -87,6 +87,18 @@ def _const_scalar_of_dtype(
             "testcase": "iota_float32",
             "callable": lambda: jax.lax.iota(np.float32, 10),
             "input_shapes": [],
+            "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                ["Range:10 -> Cast:10"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "iota_float64",
+            "callable": lambda: jax.lax.iota(np.float64, 10),
+            "input_shapes": [],
+            "expected_output_dtypes": [np.float64],
+            "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 ["Range:10 -> Cast:10"],
                 no_unused_inputs=True,

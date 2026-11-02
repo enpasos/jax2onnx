@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -322,10 +322,8 @@ class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
                 perm.shape = ir.Shape((batch, permutation_size))
             out_i64_shape = (batch, permutation_size)
 
-        out_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(out_var, "aval", None), "dtype", np.int32)
-        )
-        out_dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        out_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
+        out_dtype_enum = numpy_dtype_to_ir(out_dtype)
         if out_dtype_enum is None:
             raise TypeError(
                 f"Unsupported lu_pivots_to_permutation output dtype '{out_dtype}'"

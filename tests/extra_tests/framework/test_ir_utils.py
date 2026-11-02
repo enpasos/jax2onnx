@@ -2,6 +2,7 @@
 
 import numpy as np
 import onnx_ir as ir
+import pytest
 
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
@@ -10,7 +11,6 @@ from jax2onnx.ir_utils import (
     iter_ir_functions,
     maybe_numpy_dtype,
     numpy_dtype_to_ir,
-    numpy_dtype_to_ir_with_float_policy,
     tensor_attr,
     tensor_to_numpy,
 )
@@ -92,34 +92,14 @@ def test_numpy_dtype_to_ir_uses_onnx_ir_dtype_mapping() -> None:
     assert numpy_dtype_to_ir(np.dtype(np.float16)) == ir.DataType.FLOAT16
     assert numpy_dtype_to_ir(np.dtype(np.int32)) == ir.DataType.INT32
     assert numpy_dtype_to_ir(np.dtype(np.bool_)) == ir.DataType.BOOL
-    assert (
-        numpy_dtype_to_ir(
-            object(),
-            default=ir.DataType.INT64,
-        )
-        == ir.DataType.INT64
-    )
+    assert numpy_dtype_to_ir(np.dtype(np.int16)) == ir.DataType.INT16
 
 
-def test_numpy_dtype_to_ir_with_float_policy_matches_converter_rules() -> None:
-    assert numpy_dtype_to_ir_with_float_policy(None, False) == ir.DataType.FLOAT
-    assert numpy_dtype_to_ir_with_float_policy(None, True) == ir.DataType.DOUBLE
-    assert (
-        numpy_dtype_to_ir_with_float_policy(np.dtype(np.float16), True)
-        == ir.DataType.FLOAT16
-    )
-    assert (
-        numpy_dtype_to_ir_with_float_policy(np.dtype(np.float32), False)
-        == ir.DataType.FLOAT
-    )
-    assert (
-        numpy_dtype_to_ir_with_float_policy(np.dtype(np.float32), True)
-        == ir.DataType.DOUBLE
-    )
-    assert (
-        numpy_dtype_to_ir_with_float_policy(np.dtype(np.int16), True)
-        == ir.DataType.INT16
-    )
+def test_numpy_dtype_to_ir_rejects_unknown_source_types() -> None:
+    with pytest.raises(TypeError, match="Missing traced dtype"):
+        numpy_dtype_to_ir(None)
+    with pytest.raises(TypeError, match="Unsupported source dtype"):
+        numpy_dtype_to_ir(object())
 
 
 def test_maybe_numpy_dtype_normalizes_or_returns_none() -> None:

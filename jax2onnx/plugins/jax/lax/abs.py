@@ -7,7 +7,6 @@ import jax
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -46,9 +45,6 @@ class AbsPlugin(PrimitiveLeafPlugin):
         x_val = ctx.require_value_for_var(x_var)
         out_spec = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("abs_out")
-        )
-        x_val = promote_float32_operand(
-            ctx, x_val, target_dtype=out_spec.dtype, name_hint="abs_input_double"
         )
 
         result = ctx.builder.op("Abs", [x_val], output=out_spec)

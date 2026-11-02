@@ -15,7 +15,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -34,6 +34,7 @@ from jax2onnx.plugins.jax.numpy.linalg_solve import _cast_to_output_dtype
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -78,8 +79,8 @@ def _abstract_eval_via_orig(
 ) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     y_shape = tuple(getattr(y, "shape", ()))
-    x_dtype = np.dtype(getattr(x, "dtype", np.float32))
-    y_dtype = np.dtype(getattr(y, "dtype", np.float32))
+    x_dtype = np.dtype(x.dtype)
+    y_dtype = np.dtype(y.dtype)
     if np.issubdtype(x_dtype, np.complexfloating) or np.issubdtype(
         y_dtype, np.complexfloating
     ):
@@ -97,9 +98,7 @@ def _abstract_eval_via_orig(
         jax.ShapeDtypeStruct(x_shape, x_dtype),
         jax.ShapeDtypeStruct(y_shape, y_dtype),
     )
-    return ShapedArray(
-        tuple(getattr(out, "shape", ())), getattr(out, "dtype", np.float32)
-    )
+    return ShapedArray(tuple(getattr(out, "shape", ())), out.dtype)
 
 
 def _reduce_sum_1d(
@@ -158,7 +157,7 @@ def _reduce_sum_1d(
                 np.asarray([1.0, 3.0], dtype=np.float32),
             ],
             "expected_output_shapes": [(2,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["ReduceSum", "Div", "Unsqueeze", "Concat:2"],
                 no_unused_inputs=True,
@@ -172,7 +171,7 @@ def _reduce_sum_1d(
                 np.asarray([3.0, 5.0, 9.0], dtype=np.float32),
             ],
             "expected_output_shapes": [(2,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 ["Mul:3", "ReduceSum", "Sub", "Div", "Concat:2"],
                 no_unused_inputs=True,
@@ -224,9 +223,9 @@ class JnpPolyfitPlugin(PrimitiveLeafPlugin):
             tuple(getattr(out_var.aval, "shape", ())),
         )
 
-        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.float32))
-        y_dtype = np.dtype(getattr(y_var.aval, "dtype", x_dtype))
-        out_dtype = np.dtype(getattr(out_var.aval, "dtype", y_dtype))
+        x_dtype = np.dtype(x_var.aval.dtype)
+        y_dtype = np.dtype(y_var.aval.dtype)
+        out_dtype = np.dtype(out_var.aval.dtype)
         if (
             np.issubdtype(x_dtype, np.complexfloating)
             or np.issubdtype(y_dtype, np.complexfloating)
@@ -234,7 +233,7 @@ class JnpPolyfitPlugin(PrimitiveLeafPlugin):
         ):
             raise TypeError("jnp.polyfit lowering does not support complex dtypes")
 
-        dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        dtype_enum = numpy_dtype_to_ir(out_dtype)
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("polyfit_x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("polyfit_y"))
         out_spec = ctx.get_value_for_var(

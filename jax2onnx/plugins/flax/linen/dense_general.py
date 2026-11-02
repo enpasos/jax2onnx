@@ -11,6 +11,7 @@ from flax.linen import linear as linen_linear
 
 from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.flax.nnx import linear_general as nnx_linear_general
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
@@ -23,6 +24,30 @@ from jax2onnx.plugins.plugin_system import (
 EXPECT_GEMM_ONLY: Final = nnx_linear_general.EXPECT_GEMM_ONLY
 EXPECT_RGR: Final = nnx_linear_general.EXPECT_RGR
 EXPECT_DYNAMIC_RGR: Final = nnx_linear_general.EXPECT_DYNAMIC_RGR
+
+
+def _expect_linen_rgr(*, dynamic: bool = False) -> Callable[[Any], bool]:
+    float32_check = EXPECT_DYNAMIC_RGR if dynamic else EXPECT_RGR
+    float64_check = EG(
+        [
+            (
+                "Reshape -> Gemm -> Reshape",
+                {"counts": {"Gemm": 1, "CastLike": 2, "Transpose": 0}},
+            ),
+            "CastLike -> Gemm",
+            *(["Shape -> Slice -> Concat -> Reshape"] if dynamic else []),
+        ],
+        no_unused_inputs=True,
+    )
+
+    def check(model: Any) -> bool:
+        if len(model.graph.input) != 1:
+            return False
+        elem_type = model.graph.input[0].type.tensor_type.elem_type
+        check_graph = {1: float32_check, 11: float64_check}.get(elem_type)
+        return check_graph(model) if check_graph is not None else False
+
+    return check
 
 
 def _is_trailing_axes(axis: Sequence[int], ndim: int) -> bool:
@@ -93,7 +118,7 @@ def _is_trailing_axes(axis: Sequence[int], ndim: int) -> bool:
             ),
             "input_shapes": [(2, 4, 256)],
             "expected_output_shapes": [(2, 4, 8, 32)],
-            "post_check_onnx_graph": EXPECT_RGR,
+            "post_check_onnx_graph": _expect_linen_rgr(),
         },
         {
             "testcase": "dense_general_contract_last_two",
@@ -110,7 +135,7 @@ def _is_trailing_axes(axis: Sequence[int], ndim: int) -> bool:
             ),
             "input_shapes": [(2, 4, 8, 32)],
             "expected_output_shapes": [(2, 4, 256)],
-            "post_check_onnx_graph": EXPECT_RGR,
+            "post_check_onnx_graph": _expect_linen_rgr(),
         },
         {
             "testcase": "dense_general_dynamic_batch",
@@ -128,7 +153,7 @@ def _is_trailing_axes(axis: Sequence[int], ndim: int) -> bool:
             "input_shapes": [("B", 10, 128)],
             "expected_output_shapes": [("B", 10, 64)],
             "run_only_dynamic": True,
-            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+            "post_check_onnx_graph": _expect_linen_rgr(dynamic=True),
         },
         {
             "testcase": "dense_general_no_bias",

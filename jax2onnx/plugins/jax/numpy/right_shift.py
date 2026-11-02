@@ -277,13 +277,9 @@ def lower_right_shift_core(
     (out_var,) = eqn.outvars
 
     x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name(input_x_hint))
-    prefer_dt: np.dtype[Any] = np.dtype(
-        getattr(getattr(x_var, "aval", None), "dtype", np.int32)
-    )
     y_val = ctx.get_value_for_var(
         y_var,
         name_hint=ctx.fresh_name(input_y_hint),
-        prefer_np_dtype=prefer_dt,
     )
     out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name(output_hint))
 

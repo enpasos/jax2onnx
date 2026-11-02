@@ -59,13 +59,55 @@ single self-contained `.onnx` file instead of spilling large initializers into a
   [Normalization Representation](#normalization-representation) and
   [Known Limitations](known_limitations.md) for the selection rules and tested
   accuracy limits.
-- `enable_double_precision`: Temporarily enables x64 export and emits `tensor(double)` where appropriate.
-  Explicit FP32 casts and array constructors retain their rounding and direct
-  FP32 outputs. Supported arithmetic lowerings explicitly widen their FP32 data
-  operands when the legacy export policy requires DOUBLE computation. Bitcasts
-  keep their original operand representation.
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
+
+## Dtypes and Precision
+
+`to_onnx(...)` exports the computation prepared in JAX. Input types, parameters,
+explicit casts, and framework computation settings determine its precision.
+Shape-only inputs such as `("B", 128)` default to FP32, even when JAX x64 is
+enabled. Use arrays or `jax.ShapeDtypeStruct` to declare other input types.
+
+For FP64, configure the model and typed inputs in an effective JAX x64 context,
+and use the same context for `allclose(...)`:
+
+```python
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from jax2onnx import allclose, to_onnx
+
+
+def configured_model(x):
+    return jnp.sin(x)
+
+
+with jax.enable_x64():
+    model_path = to_onnx(
+        configured_model,
+        inputs=[jax.ShapeDtypeStruct((2, 128), jnp.float64)],
+        return_mode="file",
+        output_path="model.f64.onnx",
+    )
+    matches, message = allclose(
+        configured_model,
+        model_path,
+        inputs=[np.ones((2, 128), dtype=np.float64)],
+    )
+    assert matches, message
+```
+
+The x64 context permits FP64; it does not rewrite explicit FP32 operations or
+fixed framework dtype settings. Casting existing FP32 weights to FP64 preserves
+their already-rounded values. A declared input type that JAX tracing would
+narrow is rejected with a configuration diagnostic.
+
+`enable_double_precision` has been removed from both `to_onnx` and `allclose`.
+Passing it with any value, including `False` or `None`, raises `TypeError` before
+export or validation. Remove the argument and prepare the model, inputs, and JAX
+configuration explicitly.
 
 JAX inputs retain their `weak_type` promotion behaviour, including when passed
 through `@onnx_function` or captured by it. For example, a weak FP32 scalar can

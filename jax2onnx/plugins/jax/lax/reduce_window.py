@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -266,7 +266,7 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
         out_shape: tuple[DimInput, ...] = tuple(
             getattr(getattr(out_var, "aval", None), "shape", ())
         )
-        dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
+        dtype_enum = numpy_dtype_to_ir(np_dtype)
         if dtype_enum is None:
             raise TypeError(f"Unsupported dtype for reduce_window: {np_dtype}")
 

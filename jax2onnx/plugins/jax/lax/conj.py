@@ -6,16 +6,18 @@ import numpy as np
 import onnx_ir as ir
 import jax
 
-from typing import Any, cast
+from typing import Any
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
+    _base_dtype_for_complex,
     conjugate_packed_tensor,
     ensure_packed_real_pair,
-    is_packed_complex_tensor,
+    pack_known_real,
 )
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -28,9 +30,18 @@ from jax2onnx.plugins.plugin_system import (
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.conj.html",
     onnx=[
         {
-            "component": "Identity",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
-        }
+            "component": "Expand",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Expand.html",
+        },
+        {
+            "component": "Unsqueeze",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Unsqueeze.html",
+        },
+        {
+            "component": "Concat",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
+        },
+        {"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"},
     ],
     since="0.10.1",
     context="primitives.lax",
@@ -40,7 +51,16 @@ from jax2onnx.plugins.plugin_system import (
             "testcase": "conj_real",
             "callable": lambda x: jax.lax.conj(x),
             "input_shapes": [(3,)],
-            "post_check_onnx_graph": EG(["Identity:3"], no_unused_inputs=True),
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Expand:3 -> Unsqueeze:3x1 -> Concat:3x2",
+                        {"counts": {"Expand": 1, "Unsqueeze": 2, "Concat": 1}},
+                    )
+                ],
+                must_absent=["Cast", "CastLike", "Mul", "Neg"],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "conj_complex64",
@@ -82,11 +102,9 @@ class ConjPlugin(PrimitiveLeafPlugin):
                 return False
 
         dtype = getattr(x_val, "dtype", None)
-        complex_hint = (
-            dtype in COMPLEX_DTYPES
-            or is_packed_complex_tensor(x_val)
-            or _is_complex_var(x_var)
-        )
+        # A real source tensor can itself have a trailing dimension of two.
+        # Its aval, rather than that shape, distinguishes packed complex data.
+        complex_hint = dtype in COMPLEX_DTYPES or _is_complex_var(x_var)
 
         if complex_hint:
             packed, base_dtype = ensure_packed_real_pair(ctx, x_val, name_hint="conj")
@@ -107,21 +125,15 @@ class ConjPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, conj_val)
             return
 
-        identity_val = cast(
-            ir.Value,
-            ctx.builder.Identity(
-                x_val,
-                _outputs=[
-                    getattr(out_spec, "name", None) or ctx.fresh_name("conj_out")
-                ],
-            ),
+        # lax.conj(real) constructs complex(real, +0), unlike jnp.conj's real
+        # identity. Expanding a typed zero keeps its sign and also handles
+        # infinities/NaNs, for which multiplying the input by zero is invalid.
+        base_dtype = _base_dtype_for_complex(numpy_dtype_to_ir(out_var.aval.dtype))
+        result = pack_known_real(
+            ctx,
+            x_val,
+            base_dtype,
+            name_hint="conj_real",
+            output_name=out_spec.name,
         )
-        identity_val.type = getattr(out_spec, "type", None) or getattr(
-            x_val, "type", None
-        )
-        if identity_val.type is None and dtype is not None:
-            identity_val.type = ir.TensorType(dtype)
-        output_shape = tuple(getattr(out_var.aval, "shape", ()))
-        _stamp_type_and_shape(identity_val, output_shape)
-        _ensure_value_metadata(ctx, identity_val)
-        ctx.bind_value_for_var(out_var, identity_val)
+        ctx.bind_value_for_var(out_var, result)

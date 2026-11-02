@@ -30,8 +30,28 @@ from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
+
+
+def _power_fixture(*, dtype: Any) -> Callable[[], jax.Array]:
+    values = np.array([1.0, 2.0, 3.0], dtype=dtype)
+
+    def call() -> jax.Array:
+        return jnp.power(values, 2.0)
+
+    return call
+
+
+def _pow_fixture(*, dtype: Any) -> Callable[[], jax.Array]:
+    values = np.array([1.0, 2.0, 3.0], dtype=dtype)
+
+    def call() -> jax.Array:
+        return jnp.pow(values, 3.0)
+
+    return call
 
 
 def _broadcast_shape(
@@ -113,12 +133,12 @@ _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
         },
         {
             "testcase": "pow_jnp_power",
-            "callable": lambda: jnp.power(
-                np.array([1.0, 2.0, 3.0], dtype=np.float32), 2.0
+            "callable": construct_and_call(
+                _power_fixture, dtype=with_requested_dtype()
             ),
             "input_values": [],
             "expected_output_shapes": [(3,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -178,12 +198,10 @@ _POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
         },
         {
             "testcase": "pow_jnp_pow",
-            "callable": lambda: jnp.pow(
-                np.array([1.0, 2.0, 3.0], dtype=np.float32), 3.0
-            ),
+            "callable": construct_and_call(_pow_fixture, dtype=with_requested_dtype()),
             "input_values": [],
             "expected_output_shapes": [(3,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {

@@ -188,7 +188,7 @@ def test_symbolic_input_normalization_preserves_declared_weakness():
     normalized = _normalize_input_specs(
         [jax.ShapeDtypeStruct(("B", 2), jnp.float32, weak_type=True)]
     )
-    (spec,) = _as_sds_list(normalized, enable_double_precision=False)
+    (spec,) = _as_sds_list(normalized)
 
     assert spec.weak_type
     assert spec.dtype == np.dtype(np.float32)
@@ -198,7 +198,7 @@ def test_symbolic_input_normalization_preserves_declared_weakness():
 
 def test_shape_only_and_numpy_inputs_remain_strong():
     normalized = _normalize_input_specs([(2,), np.asarray(2048.0, dtype=np.float32)])
-    specs = _as_sds_list(normalized, enable_double_precision=False)
+    specs = _as_sds_list(normalized)
 
     assert all(not spec.weak_type for spec in specs)
     model = to_onnx(_add_explicit_half, [np.asarray(2048.0, dtype=np.float32)])

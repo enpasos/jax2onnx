@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -57,7 +57,7 @@ def _const_scalar(
     value: int | float,
     name_hint: str,
 ) -> ir.Value:
-    dtype_enum = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
+    dtype_enum = numpy_dtype_to_ir(dtype)
     result: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint),
         array=np.asarray(value, dtype=dtype),
@@ -119,7 +119,7 @@ def _cast_to_dtype(
     shape: tuple[int, ...],
     name_hint: str,
 ) -> ir.Value:
-    target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
+    target_enum = numpy_dtype_to_ir(to_dtype)
     if getattr(getattr(val, "type", None), "dtype", None) == target_enum:
         return val
     result = cast(
@@ -143,7 +143,7 @@ def _abstract_eval_via_orig(
     dtype: np.dtype[Any] | type | None,
 ) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
-    x_dtype = np.dtype(getattr(x, "dtype", np.float32))
+    x_dtype = np.dtype(x.dtype)
     if np.issubdtype(x_dtype, np.complexfloating):
         raise TypeError("jnp.nancumprod lowering does not support complex inputs")
 
@@ -151,7 +151,7 @@ def _abstract_eval_via_orig(
         lambda value: _JAX_NANCUMPROD_ORIG(value, axis=axis, dtype=dtype),
         jax.ShapeDtypeStruct(x_shape, x_dtype),
     )
-    out_dtype = np.dtype(getattr(out, "dtype", np.float32))
+    out_dtype = np.dtype(out.dtype)
     if np.issubdtype(out_dtype, np.complexfloating):
         raise TypeError("jnp.nancumprod lowering does not support complex outputs")
     return ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
@@ -286,8 +286,8 @@ class JnpNanCumProdPlugin(PrimitiveLeafPlugin):
         if axis_size < 1:
             raise ValueError("jnp.nancumprod lowering requires non-empty axis")
 
-        operand_dtype = np.dtype(getattr(operand_var.aval, "dtype", np.float32))
-        out_dtype = np.dtype(getattr(out_var.aval, "dtype", operand_dtype))
+        operand_dtype = np.dtype(operand_var.aval.dtype)
+        out_dtype = np.dtype(out_var.aval.dtype)
         if np.issubdtype(operand_dtype, np.complexfloating) or np.issubdtype(
             out_dtype, np.complexfloating
         ):
@@ -309,9 +309,7 @@ class JnpNanCumProdPlugin(PrimitiveLeafPlugin):
                 name_hint="jnp_nancumprod_flatten",
             )
         else:
-            dtype_enum = _dtype_to_ir(
-                operand_dtype, ctx.builder.enable_double_precision
-            )
+            dtype_enum = numpy_dtype_to_ir(operand_dtype)
             work_val.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(work_val, work_shape)
             _ensure_value_metadata(ctx, work_val)
@@ -349,7 +347,7 @@ class JnpNanCumProdPlugin(PrimitiveLeafPlugin):
             shape=work_shape,
             name_hint="jnp_nancumprod_cast",
         )
-        out_dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        out_dtype_enum = numpy_dtype_to_ir(out_dtype)
         product_input.type = ir.TensorType(out_dtype_enum)
         _stamp_type_and_shape(product_input, work_shape)
         _ensure_value_metadata(ctx, product_input)

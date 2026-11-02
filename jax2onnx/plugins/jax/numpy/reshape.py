@@ -29,7 +29,9 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_requested_dtype,
 )
 from jax2onnx.utils.shape_poly import (
     dim_expr_constant_value,
@@ -123,6 +125,17 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
     return jnp.reshape(outputs, [height * block_size, width * block_size, new_depth])
 
 
+def _reshape_scalar(
+    value: ArrayLike, shape: tuple[int, ...], *, dtype: Any
+) -> Callable[[], jax.Array]:
+    array = np.asarray(value, dtype=dtype)
+
+    def call() -> jax.Array:
+        return jnp.reshape(array, shape)
+
+    return call
+
+
 @register_native_primitive(
     jaxpr_primitive=_RESHAPE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.reshape.html",
@@ -197,10 +210,12 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
         },
         {
             "testcase": "reshape_to_scalar",
-            "callable": lambda: jnp.reshape(np.array([7.0], dtype=np.float32), ()),
+            "callable": construct_and_call(
+                _reshape_scalar, [7.0], (), dtype=with_requested_dtype()
+            ),
             "input_values": [],
             "expected_output_shapes": [()],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -213,10 +228,12 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
         },
         {
             "testcase": "reshape_from_scalar",
-            "callable": lambda: jnp.reshape(np.array(3.0, dtype=np.float32), (1,)),
+            "callable": construct_and_call(
+                _reshape_scalar, 3.0, (1,), dtype=with_requested_dtype()
+            ),
             "input_values": [],
             "expected_output_shapes": [(1,)],
-            "expected_output_dtypes": [np.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     {

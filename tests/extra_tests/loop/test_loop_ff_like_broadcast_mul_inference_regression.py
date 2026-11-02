@@ -83,28 +83,28 @@ def _mul_shapes_in_loop_bodies(onnx_model: onnx.ModelProto):
 
 @pytest.mark.parametrize("dtype", [jnp.float64])  # match integration: double
 def test_ff_like_mul_in_loop_inference_currently_fails(dtype):
-    spec = jax.ShapeDtypeStruct(("B", 4, 5), dtype)
-    try:
-        model = to_onnx(
-            ff_like,
-            inputs=[spec],
-            enable_double_precision=True,
-            opset=21,
-            model_name="ff_like_broadcast_mul_inference_regression",
+    with jax.enable_x64(True):
+        spec = jax.ShapeDtypeStruct(("B", 4, 5), dtype)
+        try:
+            model = to_onnx(
+                ff_like,
+                inputs=[spec],
+                opset=21,
+                model_name="ff_like_broadcast_mul_inference_regression",
+            )
+        except InconclusiveDimensionOperation as exc:
+            pytest.xfail(f"converter cannot export loops with symbolic dims: {exc}")
+
+        # If you want to inspect Mul shapes, uncomment:
+        # for nm, s0, s1, wh in _mul_shapes_in_loop_bodies(model):
+        #     print(f"[MUL] {wh} :: {nm}: {s0} × {s1}")
+
+        # Regression FIX: the model should now load successfully in ORT.
+        # Creating the session would raise (Type/ShapeInferenceError) if the Loop
+        # body still had incompatible dimensions.
+        sess = ort.InferenceSession(
+            model.SerializeToString(),
+            providers=["CPUExecutionProvider"],
         )
-    except InconclusiveDimensionOperation as exc:
-        pytest.xfail(f"converter cannot export loops with symbolic dims: {exc}")
-
-    # If you want to inspect Mul shapes, uncomment:
-    # for nm, s0, s1, wh in _mul_shapes_in_loop_bodies(model):
-    #     print(f"[MUL] {wh} :: {nm}: {s0} × {s1}")
-
-    # Regression FIX: the model should now load successfully in ORT.
-    # Creating the session would raise (Type/ShapeInferenceError) if the Loop
-    # body still had incompatible dimensions.
-    sess = ort.InferenceSession(
-        model.SerializeToString(),
-        providers=["CPUExecutionProvider"],
-    )
-    # Sanity: a session object must be created.
-    assert sess is not None
+        # Sanity: a session object must be created.
+        assert sess is not None

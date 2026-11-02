@@ -11,6 +11,7 @@ output dtypes via explicit Casts when needed.
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import pytest
 from jax import lax
@@ -69,36 +70,36 @@ def test_nested_loop_gathernd_mixed_dtypes_fails_without_harmonization(
     We don't depend on ORT failing to load (that varies by ORT/version and the
     JAX program can contain explicit Casts).
     """
-    monkeypatch.setenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", "1")
+    with jax.enable_x64(True):
+        monkeypatch.setenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", "1")
 
-    model = to_onnx(
-        _fn_nested_loop_gathernd_mixed_dtypes,
-        inputs=[],
-        enable_double_precision=True,
-        opset=21,
-        model_name="nested_loop_gathernd_mixed_no_cast",
-    )
-    p = tmp_path / "nested_loop_gathernd_mixed_no_cast.onnx"
-    p.write_bytes(model.SerializeToString())
+        model = to_onnx(
+            _fn_nested_loop_gathernd_mixed_dtypes,
+            inputs=[],
+            opset=21,
+            model_name="nested_loop_gathernd_mixed_no_cast",
+        )
+        p = tmp_path / "nested_loop_gathernd_mixed_no_cast.onnx"
+        p.write_bytes(model.SerializeToString())
 
-    m = onnx.load(str(p))
+        m = onnx.load(str(p))
 
-    def iter_loop_bodies(graph):
-        for n in graph.node:
-            if n.op_type == "Loop":
-                for a in n.attribute:
-                    if a.name == "body" and a.g is not None:
-                        yield a.g
-                        yield from iter_loop_bodies(a.g)
+        def iter_loop_bodies(graph):
+            for n in graph.node:
+                if n.op_type == "Loop":
+                    for a in n.attribute:
+                        if a.name == "body" and a.g is not None:
+                            yield a.g
+                            yield from iter_loop_bodies(a.g)
 
-    def body_contains_castalign(g):
-        for n in g.node:
-            if n.op_type == "Cast" and (n.name or "").find("CastAlignBinOp") != -1:
-                return True
-        return False
+        def body_contains_castalign(g):
+            for n in g.node:
+                if n.op_type == "Cast" and (n.name or "").find("CastAlignBinOp") != -1:
+                    return True
+            return False
 
-    assert not any(
-        body_contains_castalign(g) for g in iter_loop_bodies(m.graph)
-    ), "Harmonization casts ('CastAlignBinOp') should NOT be present when disabled."
+        assert not any(
+            body_contains_castalign(g) for g in iter_loop_bodies(m.graph)
+        ), "Harmonization casts ('CastAlignBinOp') should NOT be present when disabled."
 
-    monkeypatch.delenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", raising=False)
+        monkeypatch.delenv("JAX2ONNX_DISABLE_LOOP_BINOP_CAST", raising=False)

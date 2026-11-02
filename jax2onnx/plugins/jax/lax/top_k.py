@@ -17,6 +17,7 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -37,13 +38,13 @@ from jax2onnx.plugins.plugin_system import (
             "testcase": "top_k_last_axis",
             "callable": lambda x: jax.lax.top_k(x, 3),
             "input_shapes": [(5,)],
-            "expected_output_dtypes": [np.float32, np.int32],
+            "expected_output_dtypes": [with_requested_dtype(), np.int32],
         },
         {
             "testcase": "top_k_matrix",
             "callable": lambda x: jax.lax.top_k(x, 2),
             "input_shapes": [(4, 6)],
-            "expected_output_dtypes": [np.float32, np.int32],
+            "expected_output_dtypes": [with_requested_dtype(), np.int32],
         },
     ],
 )

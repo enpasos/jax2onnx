@@ -29,8 +29,6 @@ OUTER_SCAN_STEPS = 1
 INNER_SCAN_STEPS = 2
 OUTPUT_PATH = Path("issue52_loop_concat_bug.onnx")
 
-jax.config.update("jax_enable_x64", True)
-
 
 def _stack_block(state: jax.Array) -> jax.Array:
     rho = state[0]
@@ -92,27 +90,27 @@ def _inputs() -> list[jax.ShapeDtypeStruct]:
 
 
 def export_model(path: Path | None = None) -> onnx.ModelProto:
-    model = to_onnx(
-        _model_fn,
-        inputs=_inputs(),
-        enable_double_precision=True,
-        model_name="issue52_loop_concat",
-        opset=21,
-    )
+    with jax.enable_x64():
+        model = to_onnx(
+            _model_fn,
+            inputs=_inputs(),
+            model_name="issue52_loop_concat",
+            opset=21,
+        )
     if path is not None:
         onnx.save(model, path)
     return model
 
 
 def export_ir_model() -> ir.Model:
-    return to_onnx(
-        _model_fn,
-        inputs=_inputs(),
-        enable_double_precision=True,
-        model_name="issue52_loop_concat",
-        opset=21,
-        return_mode="ir",
-    )
+    with jax.enable_x64():
+        return to_onnx(
+            _model_fn,
+            inputs=_inputs(),
+            model_name="issue52_loop_concat",
+            opset=21,
+            return_mode="ir",
+        )
 
 
 def dims_for(name: str, model: onnx.ModelProto) -> list[int | str | None]:

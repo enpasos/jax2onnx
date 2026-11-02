@@ -8,9 +8,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from jax.typing import DTypeLike
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -36,7 +37,7 @@ def _typed_jnp_cumsum(
     x: ArrayLike,
     *,
     axis: int | None = None,
-    dtype: np.dtype[Any] | type | None = None,
+    dtype: DTypeLike | None = None,
     reverse: bool = False,
 ) -> jax.Array:
     cumsum_fn = cast(Callable[..., jax.Array], jnp.cumsum)
@@ -76,7 +77,7 @@ def _typed_jnp_cumsum(
                 x, axis=-1, reverse=True, dtype=jnp.float64
             ),
             "input_shapes": [(1, 5)],
-            "enable_double_precision": True,
+            "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -135,7 +136,7 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
         *,
         axis: int | None = None,
         reverse: bool = False,
-        dtype: np.dtype[Any] | type | None = None,
+        dtype: DTypeLike | None = None,
         **_: Any,
     ) -> ShapedArray:
         out_shape = x.shape
@@ -173,14 +174,12 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
         target_dtype = (
             np.dtype(req_dtype)
             if req_dtype is not None
-            else np.dtype(getattr(operand_var.aval, "dtype", np.float32))
+            else np.dtype(operand_var.aval.dtype)
         )
-        operand_dtype = np.dtype(getattr(operand_var.aval, "dtype", target_dtype))
+        operand_dtype = np.dtype(operand_var.aval.dtype)
 
         if operand_dtype != target_dtype:
-            target_enum = _dtype_to_ir(
-                target_dtype, ctx.builder.enable_double_precision
-            )
+            target_enum = numpy_dtype_to_ir(target_dtype)
             cast_val = ctx.builder.Cast(
                 operand_val,
                 _outputs=[ctx.fresh_name("jnp_cumsum_cast")],
@@ -191,9 +190,7 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, cast_val)
             input_for_cumsum = cast_val
         else:
-            target_enum = _dtype_to_ir(
-                operand_dtype, ctx.builder.enable_double_precision
-            )
+            target_enum = numpy_dtype_to_ir(operand_dtype)
 
         axis_val = _const_i64(ctx, np.asarray(axis, dtype=np.int64), "cumsum_axis")
         _stamp_type_and_shape(axis_val, ())
@@ -231,7 +228,7 @@ def _cumsum_impl(
     x: ArrayLike,
     *rest: Any,
     axis: Optional[int] = None,
-    dtype: np.dtype[Any] | type | None = None,
+    dtype: DTypeLike | None = None,
     reverse: bool = False,
     precision: Any | None = None,
     exclusive: bool = False,
@@ -324,7 +321,7 @@ def _runtime_cumsum(
     x: ArrayLike,
     *rest: Any,
     axis: int | None = None,
-    dtype: np.dtype[Any] | type | None = None,
+    dtype: DTypeLike | None = None,
     reverse: bool = False,
     precision: Any | None = None,
     exclusive: bool = False,

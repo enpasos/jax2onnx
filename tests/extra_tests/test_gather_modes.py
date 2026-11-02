@@ -29,14 +29,14 @@ def _gather_one_hot(x: jnp.ndarray) -> jnp.ndarray:
 
 
 def test_gather_clip_mode_raises_not_implemented():
-    x = np.ones((4, 5, 6), dtype=np.float32)
-    with pytest.raises(NotImplementedError):
-        to_onnx(
-            _gather_one_hot,
-            [jax.ShapeDtypeStruct(x.shape, x.dtype)],
-            model_name="gather_clip",
-            enable_double_precision=False,
-        )
+    with jax.enable_x64(False):
+        x = np.ones((4, 5, 6), dtype=np.float32)
+        with pytest.raises(NotImplementedError):
+            to_onnx(
+                _gather_one_hot,
+                [jax.ShapeDtypeStruct(x.shape, x.dtype)],
+                model_name="gather_clip",
+            )
 
 
 def _take_window(x: jnp.ndarray, start: jnp.ndarray) -> jnp.ndarray:
@@ -45,31 +45,31 @@ def _take_window(x: jnp.ndarray, start: jnp.ndarray) -> jnp.ndarray:
 
 
 def test_gather_dynamic_window_matches_onnx_ir():
-    rng = np.random.default_rng(0)
-    data = rng.normal(size=(2, 8)).astype(np.float32)
-    start = np.array(2, dtype=np.int32)
+    with jax.enable_x64(False):
+        rng = np.random.default_rng(0)
+        data = rng.normal(size=(2, 8)).astype(np.float32)
+        start = np.array(2, dtype=np.int32)
 
-    expected = np.asarray(_take_window(data, start))
+        expected = np.asarray(_take_window(data, start))
 
-    onnx_model = to_onnx(
-        _take_window,
-        [
-            jax.ShapeDtypeStruct(data.shape, jnp.float32),
-            jax.ShapeDtypeStruct((), jnp.int32),
-        ],
-        model_name="gather_dynamic_window",
-        enable_double_precision=False,
-    )
+        onnx_model = to_onnx(
+            _take_window,
+            [
+                jax.ShapeDtypeStruct(data.shape, jnp.float32),
+                jax.ShapeDtypeStruct((), jnp.int32),
+            ],
+            model_name="gather_dynamic_window",
+        )
 
-    ort = pytest.importorskip("onnxruntime")
-    session = ort.InferenceSession(onnx_model.SerializeToString())
-    feeds = {
-        session.get_inputs()[0].name: data,
-        session.get_inputs()[1].name: np.asarray(start, dtype=np.int32),
-    }
-    (got,) = session.run(None, feeds)
+        ort = pytest.importorskip("onnxruntime")
+        session = ort.InferenceSession(onnx_model.SerializeToString())
+        feeds = {
+            session.get_inputs()[0].name: data,
+            session.get_inputs()[1].name: np.asarray(start, dtype=np.int32),
+        }
+        (got,) = session.run(None, feeds)
 
-    np.testing.assert_allclose(expected, got, rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(expected, got, rtol=1e-6, atol=1e-6)
 
 
 def _vmap_dynamic_slice_windows(x: jnp.ndarray) -> jnp.ndarray:
@@ -83,19 +83,19 @@ def _vmap_dynamic_slice_windows(x: jnp.ndarray) -> jnp.ndarray:
 
 
 def test_issue_182_vmap_dynamic_slice_windows_matches_onnx_ir():
-    rng = np.random.default_rng(0)
-    data = rng.normal(size=(1, 64)).astype(np.float32)
-    expected = np.asarray(_vmap_dynamic_slice_windows(data))
+    with jax.enable_x64(False):
+        rng = np.random.default_rng(0)
+        data = rng.normal(size=(1, 64)).astype(np.float32)
+        expected = np.asarray(_vmap_dynamic_slice_windows(data))
 
-    onnx_model = to_onnx(
-        _vmap_dynamic_slice_windows,
-        [jax.ShapeDtypeStruct(data.shape, jnp.float32)],
-        model_name="issue182_vmap_dynamic_slice_windows",
-        enable_double_precision=False,
-    )
+        onnx_model = to_onnx(
+            _vmap_dynamic_slice_windows,
+            [jax.ShapeDtypeStruct(data.shape, jnp.float32)],
+            model_name="issue182_vmap_dynamic_slice_windows",
+        )
 
-    ort = pytest.importorskip("onnxruntime")
-    session = ort.InferenceSession(onnx_model.SerializeToString())
-    (got,) = session.run(None, {session.get_inputs()[0].name: data})
+        ort = pytest.importorskip("onnxruntime")
+        session = ort.InferenceSession(onnx_model.SerializeToString())
+        (got,) = session.run(None, {session.get_inputs()[0].name: data})
 
-    np.testing.assert_allclose(expected, got, rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(expected, got, rtol=1e-6, atol=1e-6)

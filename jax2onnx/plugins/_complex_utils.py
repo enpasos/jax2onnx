@@ -16,6 +16,8 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
 )
+from jax2onnx.plugins._loop_extent_meta import propagate_axis0_override
+from jax2onnx.plugins._utils import cast_value_to_dtype
 
 
 _COMPLEX_PAIR: Final[Dict[ir.DataType, ir.DataType]] = {
@@ -126,8 +128,6 @@ def pack_native_complex(
         raise ValueError(f"pack_native_complex expects complex dtype, received {dtype}")
 
     base_dtype = _base_dtype_for_complex(dtype)
-    if ctx.builder.enable_double_precision and base_dtype == ir.DataType.FLOAT:
-        base_dtype = ir.DataType.DOUBLE
     dims = _shape_tuple(tensor)
     packed_shape = dims + (2,)
 
@@ -324,6 +324,55 @@ def split_packed_real_imag(
         parts.append(gathered)
     real_part, imag_part = parts
     return real_part, imag_part
+
+
+def pack_known_real(
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    component_dtype: ir.DataType,
+    *,
+    name_hint: str,
+    output_name: str | None = None,
+) -> ir.Value:
+    """Pack a known-real operand and typed +0 at the caller's component width."""
+    if component_dtype not in REAL_PAIR_DTYPES:
+        raise TypeError(
+            f"Complex components require FLOAT or DOUBLE, got {component_dtype}"
+        )
+    real = cast_value_to_dtype(
+        ctx, value, component_dtype, name_hint=f"{name_hint}_real_cast"
+    )
+    zero = ctx.bind_const_for_var(
+        object(), np.asarray(0, dtype=component_dtype.numpy())
+    )
+    shape = ctx.builder.op(
+        "Shape",
+        [real],
+        output=ir.Value(
+            name=ctx.fresh_name(f"{name_hint}_real_shape"),
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape((len(_shape_tuple(real)),)),
+        ),
+    )
+    imag = ctx.builder.op(
+        "Expand",
+        [zero, shape],
+        output=ir.Value(
+            name=ctx.fresh_name(f"{name_hint}_imag_zero"),
+            type=ir.TensorType(component_dtype),
+            shape=real.shape,
+        ),
+    )
+    packed = pack_real_imag_pair(
+        ctx,
+        real,
+        imag,
+        component_dtype,
+        name_hint=f"{name_hint}_pack",
+        output_name=output_name,
+    )
+    propagate_axis0_override(real, packed)
+    return packed
 
 
 def pack_real_imag_pair(

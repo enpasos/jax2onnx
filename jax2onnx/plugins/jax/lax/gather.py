@@ -10,8 +10,13 @@ import numpy as np
 import onnx_ir as ir
 from jax import lax
 
+from jax2onnx._compat.jax import fresh_var_like, new_jaxpr_eqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
+from jax2onnx.plugins._complex_utils import (
+    _base_dtype_for_complex,
+    ensure_packed_real_pair,
+)
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
     _ensure_value_metadata,
@@ -344,6 +349,53 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 "gather lowering currently supports modes "
                 f"{sorted(m.name for m in allowed_modes)}; got {mode!r}"
             )
+        if np.issubdtype(np.dtype(data_var.aval.dtype), np.complexfloating):
+            component_dtype = _base_dtype_for_complex(
+                numpy_dtype_to_ir(data_var.aval.dtype)
+            )
+            physical_params = dict(eqn.params)
+            if _mode_name(mode) == "FILL_OR_DROP":
+                fill = physical_params.get("fill_value")
+                fill = np.asarray(
+                    np.nan if fill is None else fill, dtype=data_var.aval.dtype
+                )
+                if fill.real.tobytes() != fill.imag.tobytes():
+                    raise NotImplementedError(
+                        "complex gather fill_value with unequal real and imaginary "
+                        "components is currently not implemented"
+                    )
+                physical_params["fill_value"] = fill.real[()]
+            physical_in = fresh_var_like(data_var)
+            physical_in.aval = data_var.aval.update(
+                shape=tuple(data_var.aval.shape) + (2,),
+                dtype=np.dtype(component_dtype.numpy()),
+            )
+            physical_out = fresh_var_like(out_var)
+            physical_out.aval = out_var.aval.update(
+                shape=tuple(out_var.aval.shape) + (2,),
+                dtype=np.dtype(component_dtype.numpy()),
+            )
+            packed_data, _ = ensure_packed_real_pair(
+                ctx, ctx.require_value_for_var(data_var), name_hint="gather_data"
+            )
+            ctx.bind_value_for_var(physical_in, packed_data)
+            dimensions = eqn.params["dimension_numbers"]
+            physical_params["dimension_numbers"] = dimensions._replace(
+                offset_dims=tuple(dimensions.offset_dims) + (len(out_var.aval.shape),)
+            )
+            physical_params["slice_sizes"] = tuple(eqn.params["slice_sizes"]) + (2,)
+            physical_eqn = new_jaxpr_eqn(
+                [physical_in, indices_var],
+                [physical_out],
+                eqn.primitive,
+                physical_params,
+                eqn.effects,
+                source_info=eqn.source_info,
+                ctx=eqn.ctx,
+            )
+            self.lower(ctx, physical_eqn)
+            ctx.bind_value_for_var(out_var, ctx.require_value_for_var(physical_out))
+            return
         _ensure_constant_folders_registered(ctx)
         constant_indices_value = ctx.try_evaluate_const(indices_var)
 

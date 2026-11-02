@@ -13,14 +13,19 @@ from jax2onnx._compat.jax import (
 )
 import jax.numpy as jnp
 import numpy as np
+import onnx_ir as ir
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._precision_utils import emit_float16_arithmetic_with_rounding
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
     get_orig_impl,
     jnp_binding_specs,
     make_jnp_primitive,
@@ -71,9 +76,8 @@ class JnpOuterPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(a: AbstractValue, b: AbstractValue) -> ShapedArray:
-        result_shape = tuple(a.shape) + tuple(b.shape)
-        result_dtype = np.result_type(a.dtype, b.dtype)
-        return ShapedArray(result_shape, result_dtype)
+        original = get_orig_impl(JnpOuterPlugin._PRIM, JnpOuterPlugin._FUNC_NAME)
+        return abstract_eval_via_jax(original, a, b)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (a_var, b_var) = eqn.invars
@@ -81,45 +85,47 @@ class JnpOuterPlugin(PrimitiveLeafPlugin):
 
         a_val = ctx.get_value_for_var(a_var, name_hint=ctx.fresh_name("outer_a"))
         b_val = ctx.get_value_for_var(b_var, name_hint=ctx.fresh_name("outer_b"))
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError("IR build context missing builder for outer lowering")
-
-        a_shape = tuple(getattr(a_var.aval, "shape", ()))
-        b_shape = tuple(getattr(b_var.aval, "shape", ()))
-        target_shape = tuple(getattr(out_var.aval, "shape", ()))
+        builder = ctx.builder
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("Outer")
+        )
+        dtype = numpy_dtype_to_ir(out_var.aval.dtype)
+        a_val = cast_value_to_dtype(ctx, a_val, dtype, name_hint="outer_a_cast")
+        b_val = cast_value_to_dtype(ctx, b_val, dtype, name_hint="outer_b_cast")
+        target_shape = tuple(out_var.aval.shape)
 
         a_reshape = builder.Reshape(
             a_val,
             _const_i64(
                 ctx,
-                np.asarray(a_shape + (1,) * len(b_shape), dtype=np.int64),
+                np.asarray([-1, 1], dtype=np.int64),
                 "outer_a_shape",
             ),
             _outputs=[ctx.fresh_name("outer_a_broadcast")],
         )
-        _stamp_type_and_shape(a_reshape, a_shape + (1,) * len(b_shape))
+        a_reshape.type = ir.TensorType(dtype)
+        _stamp_type_and_shape(a_reshape, (target_shape[0], 1))
         _ensure_value_metadata(ctx, a_reshape)
 
         b_reshape = builder.Reshape(
             b_val,
             _const_i64(
                 ctx,
-                np.asarray((1,) * len(a_shape) + b_shape, dtype=np.int64),
+                np.asarray([1, -1], dtype=np.int64),
                 "outer_b_shape",
             ),
             _outputs=[ctx.fresh_name("outer_b_broadcast")],
         )
-        _stamp_type_and_shape(b_reshape, (1,) * len(a_shape) + b_shape)
+        b_reshape.type = ir.TensorType(dtype)
+        _stamp_type_and_shape(b_reshape, (1, target_shape[1]))
         _ensure_value_metadata(ctx, b_reshape)
 
-        result = builder.Mul(
-            a_reshape,
-            b_reshape,
-            _outputs=[ctx.fresh_name("Outer")],
-        )
-        _stamp_type_and_shape(result, target_shape)
-        _ensure_value_metadata(ctx, result)
+        if dtype == ir.DataType.FLOAT16:
+            result = emit_float16_arithmetic_with_rounding(
+                ctx, "Mul", a_reshape, b_reshape, output=out_spec
+            )
+        else:
+            result = builder.op("Mul", [a_reshape, b_reshape], output=out_spec)
 
         ctx.bind_value_for_var(out_var, result)
 

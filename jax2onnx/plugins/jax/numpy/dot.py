@@ -10,6 +10,7 @@ from jax2onnx._compat.jax import (
     JaxprEqn,
     ShapedArray,
     batching,
+    canonicalize_precision,
 )
 import jax.numpy as jnp
 import onnx_ir as ir
@@ -17,10 +18,10 @@ from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
-from jax2onnx.plugins._complex_utils import cast_real_tensor
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -128,15 +129,22 @@ class JnpDotPlugin(PrimitiveLeafPlugin):
         if builder is None:
             raise AttributeError("IR build context missing builder for dot lowering")
 
+        target_dtype = numpy_dtype_to_ir(out_var.aval.dtype)
         if eqn.params.get("preferred_element_type") is not None:
-            # ONNX MatMul has a single dtype for inputs and output, so a JAX
-            # request for wider accumulation must promote both operands.
-            target_dtype = numpy_dtype_to_ir(out_var.aval.dtype)
-            a_val = cast_real_tensor(
-                ctx, a_val, target_dtype, name_hint="matmul_a_cast"
+            work_dtype = target_dtype
+            if (
+                a_val.dtype == b_val.dtype
+                and a_val.dtype is not None
+                and a_val.dtype.is_floating_point()
+                and target_dtype.is_floating_point()
+                and a_val.dtype.bitwidth > target_dtype.bitwidth
+            ):
+                work_dtype = a_val.dtype
+            a_val = cast_value_to_dtype(
+                ctx, a_val, work_dtype, name_hint="matmul_a_cast"
             )
-            b_val = cast_real_tensor(
-                ctx, b_val, target_dtype, name_hint="matmul_b_cast"
+            b_val = cast_value_to_dtype(
+                ctx, b_val, work_dtype, name_hint="matmul_b_cast"
             )
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("MatMul")
@@ -146,9 +154,7 @@ class JnpDotPlugin(PrimitiveLeafPlugin):
             _outputs=[out_name],
         )
 
-        # MatMul preserves its operands' dtype. The context's output
-        # placeholder may use the default float32 policy for float16 avals.
-        # Reusing it would make an otherwise valid FP16 graph inconsistent.
+        # MatMul preserves the computation operands' dtype.
         a_dtype = a_val.dtype
         if a_dtype is not None:
             result.type = ir.TensorType(a_dtype)
@@ -158,6 +164,9 @@ class JnpDotPlugin(PrimitiveLeafPlugin):
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
+        result = cast_value_to_dtype(
+            ctx, result, target_dtype, name_hint="dot_result_cast"
+        )
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
@@ -179,6 +188,20 @@ class JnpDotPlugin(PrimitiveLeafPlugin):
                 preferred_element_type: Any = None,
                 out_sharding: Any = None,
             ) -> ArrayLike:
+                precision = canonicalize_precision(precision)
+                if (
+                    isinstance(
+                        precision, (jax.lax.DotAlgorithm, jax.lax.DotAlgorithmPreset)
+                    )
+                    and precision != jax.lax.DotAlgorithmPreset.DEFAULT
+                ):
+                    return orig(
+                        a,
+                        b,
+                        precision=precision,
+                        preferred_element_type=preferred_element_type,
+                        out_sharding=out_sharding,
+                    )
                 a_arr = jnp.asarray(a)
                 b_arr = jnp.asarray(b)
 

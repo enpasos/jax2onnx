@@ -8,9 +8,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from jax.typing import DTypeLike
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -86,10 +87,8 @@ class RandomNormalPlugin(PrimitiveLeafPlugin):
         (out_var,) = eqn.outvars
 
         shape_param = tuple(int(dim) for dim in eqn.params.get("shape", ()))
-        out_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(out_var, "aval", None), "dtype", np.float32)
-        )
-        dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        out_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
+        dtype_enum = numpy_dtype_to_ir(out_dtype)
 
         # Materialize key so RNG plumbing remains explicit in the graph build.
         ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("random_normal_key"))
@@ -154,7 +153,7 @@ class RandomNormalPlugin(PrimitiveLeafPlugin):
             def _patched(
                 key: ArrayLike,
                 shape: tuple[int, ...] | list[int] = (),
-                dtype: np.dtype | type = jnp.float32,
+                dtype: DTypeLike = jnp.float32,
             ) -> ArrayLike:
                 shape_tuple = tuple(int(dim) for dim in shape)
                 return cls._PRIM.bind(

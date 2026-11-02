@@ -55,12 +55,8 @@ def test_jnp_cos_emits_cos_below_float64(dtype: type) -> None:
 
 @pytest.fixture
 def enable_x64() -> Iterator[None]:
-    original_x64 = bool(jax.config.read("jax_enable_x64"))
-    jax.config.update("jax_enable_x64", True)
-    try:
+    with jax.enable_x64():
         yield
-    finally:
-        jax.config.update("jax_enable_x64", original_x64)
 
 
 @pytest.mark.parametrize("fn", [_jnp_cos, _lax_cos], ids=["jnp", "lax"])
@@ -91,7 +87,7 @@ def test_cos_float64_is_accurate_across_argument_range(
         ]
     )
     x = np.concatenate([finite, [np.nan, np.inf, -np.inf]])
-    model = to_onnx(fn, [x], enable_double_precision=True)
+    model = to_onnx(fn, [x])
 
     # All supported ORT versions provide DOUBLE Sin, whereas older CPU
     # runtimes do not provide DOUBLE Cos. Avoid a phase-shifting Add too.
@@ -116,9 +112,7 @@ def test_cos_float64_preserves_scalar_and_symbolic_shapes(
     shape: tuple[int | str, ...],
     enable_x64: None,
 ) -> None:
-    model = to_onnx(
-        fn, [jax.ShapeDtypeStruct(shape, np.float64)], enable_double_precision=True
-    )
+    model = to_onnx(fn, [jax.ShapeDtypeStruct(shape, np.float64)])
     if shape:
         assert model.graph.output[0].type.tensor_type.shape.dim[0].dim_param == "B"
         inputs = [np.array([1e14]), np.array([-1e100, 0.0, 1e14])]

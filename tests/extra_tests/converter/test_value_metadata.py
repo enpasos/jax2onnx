@@ -19,7 +19,6 @@ def _make_symbolic_model():
         input_params=None,
         model_name="value_metadata_check",
         opset=21,
-        enable_double_precision=False,
         record_primitive_calls_file=None,
     )
 
@@ -68,7 +67,6 @@ def test_stacktrace_metadata_includes_jax_traceback(monkeypatch) -> None:
         inputs=[jax.ShapeDtypeStruct((3,), jnp.float32)],
         model_name="stacktrace_sample",
         opset=21,
-        enable_double_precision=False,
         input_params=None,
         record_primitive_calls_file=None,
     )

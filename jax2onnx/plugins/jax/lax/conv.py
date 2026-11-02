@@ -8,17 +8,16 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
+    _base_dtype_for_complex,
     cast_real_tensor,
     ensure_packed_real_pair,
     is_packed_complex_tensor,
     pack_real_imag_pair,
-    resolve_common_real_dtype,
     split_packed_real_imag,
-    coerce_dim_values,
 )
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
@@ -26,7 +25,7 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._index_utils import _builder_op, _const_i64
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -179,6 +178,147 @@ def _transpose_kernel(
     return out
 
 
+def _maybe_pointwise_double_conv(
+    ctx: LoweringContextProtocol,
+    lhs: ir.Value,
+    rhs: ir.Value,
+    attributes: dict[str, object],
+    name_hint: str,
+) -> ir.Value | None:
+    """Use grouped DOUBLE Einsum for a spatially unchanged pointwise Conv."""
+
+    if lhs.dtype != ir.DataType.DOUBLE or rhs.dtype != ir.DataType.DOUBLE:
+        return None
+    if lhs.shape is None or rhs.shape is None:
+        return None
+    lhs_shape, rhs_shape = tuple(lhs.shape), tuple(rhs.shape)
+    rank = len(lhs_shape)
+    equation = {3: "ncw,oc->now", 4: "nchw,oc->nohw"}.get(rank)
+    if (
+        equation is None
+        or len(rhs_shape) != rank
+        or any(
+            not _is_static_int(dim) or int(cast(int, dim)) != 1 for dim in rhs_shape[2:]
+        )
+    ):
+        return None
+    if any(s != 1 for s in cast(Sequence[int], attributes.get("strides", ()))):
+        return None
+    if any(d != 1 for d in cast(Sequence[int], attributes.get("dilations", ()))):
+        return None
+    if any(cast(Sequence[int], attributes.get("pads", ()))):
+        return None
+    # SAME padding is also zero for a unit kernel with unit stride/dilation.
+    if attributes.get("auto_pad", "NOTSET") not in (
+        "NOTSET",
+        "VALID",
+        "SAME_UPPER",
+        "SAME_LOWER",
+    ):
+        return None
+    channels = (lhs_shape[1], rhs_shape[0], rhs_shape[1])
+    if not all(_is_static_int(dim) and int(cast(int, dim)) > 0 for dim in channels):
+        return None
+    in_channels, out_channels, in_per_group = (int(cast(int, dim)) for dim in channels)
+    groups = int(cast(int, attributes.get("group", 1)))
+    if groups <= 0 or in_channels != groups * in_per_group or out_channels % groups:
+        return None
+    out_per_group = out_channels // groups
+    spatial_axes = list(range(2, rank))
+    output_shape = lhs_shape[:1] + (out_channels,) + lhs_shape[2:]
+    kernel = _builder_op(
+        ctx,
+        "Squeeze",
+        [rhs, _const_i64(ctx, spatial_axes, "pointwise_kernel_axes")],
+        name_hint="pointwise_kernel",
+        dtype=ir.DataType.DOUBLE,
+        shape=(out_channels, in_per_group),
+    )
+    products: list[ir.Value] = []
+    for group in range(groups):
+        operands: list[ir.Value] = []
+        for value, axis, width, shape in (
+            (
+                lhs,
+                1,
+                in_per_group,
+                lhs_shape[:1] + (in_per_group,) + lhs_shape[2:],
+            ),
+            (kernel, 0, out_per_group, (out_per_group, in_per_group)),
+        ):
+            if groups > 1:
+                value = _builder_op(
+                    ctx,
+                    "Slice",
+                    [
+                        value,
+                        _const_i64(ctx, [group * width], "pointwise_start"),
+                        _const_i64(ctx, [(group + 1) * width], "pointwise_end"),
+                        _const_i64(ctx, [axis], "pointwise_axis"),
+                    ],
+                    name_hint="pointwise_group",
+                    dtype=ir.DataType.DOUBLE,
+                    shape=shape,
+                )
+            operands.append(value)
+        products.append(
+            _builder_op(
+                ctx,
+                "Einsum",
+                operands,
+                name_hint="pointwise_product",
+                dtype=ir.DataType.DOUBLE,
+                shape=lhs_shape[:1] + (out_per_group,) + lhs_shape[2:],
+                attributes={"equation": equation},
+            )
+        )
+    result = products[0]
+    if groups > 1:
+        result = _builder_op(
+            ctx,
+            "Concat",
+            products,
+            name_hint=name_hint,
+            dtype=ir.DataType.DOUBLE,
+            shape=output_shape,
+            attributes={"axis": 1},
+        )
+    return result
+
+
+def _check_complex128_grouped_graph(model: Any) -> bool:
+    if len(model.graph.input) != 2 or len(model.graph.output) != 1:
+        return False
+    if any(
+        value.type.tensor_type.elem_type != 11
+        for value in (*model.graph.input, *model.graph.output)
+    ):
+        return False
+    value_types = {
+        value.name: value.type.tensor_type.elem_type
+        for value in (*model.graph.input, *model.graph.value_info, *model.graph.output)
+    }
+    for node in model.graph.node:
+        if node.op_type in {"Einsum", "Sub", "Add"}:
+            if not node.output or value_types.get(node.output[0]) != 11:
+                return False
+    return bool(
+        EG(
+            [
+                (
+                    "Einsum:1x2x2x2 -> Concat:1x4x2x2 -> "
+                    "Sub:1x4x2x2 -> Unsqueeze:1x4x2x2x1 -> Concat:1x4x2x2x2",
+                    {"counts": {"Einsum": 8, "Sub": 1, "Add": 1}},
+                ),
+                "Einsum:1x2x2x2 -> Concat:1x4x2x2 -> "
+                "Add:1x4x2x2 -> Unsqueeze:1x4x2x2x1 -> Concat:1x4x2x2x2",
+            ],
+            must_absent=["Conv", "MatMul", "Cast", "CastLike"],
+            no_unused_inputs=True,
+        )(model)
+    )
+
+
 def _reshape_kernel(
     ctx: LoweringContextProtocol,
     val: ir.Value,
@@ -294,6 +434,10 @@ def _conv_transpose_kernel(
         {
             "component": "Conv",
             "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
+        },
+        {
+            "component": "Einsum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
         },
         {
             "component": "ConvTranspose",
@@ -519,12 +663,7 @@ def _conv_transpose_kernel(
             ],
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
-            "post_check_onnx_graph": EG(
-                [
-                    {"path": "Conv", "counts": {"Conv": 4}},
-                ],
-                no_unused_inputs=True,
-            ),
+            "post_check_onnx_graph": _check_complex128_grouped_graph,
         },
         {
             "testcase": "conv_transpose_lhs_dilation_nchw",
@@ -814,14 +953,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             else:
                 conv_kwargs["pads"] = _flatten_padding(pad_pairs)
 
-        conv_dtype_enum = _dtype_to_ir(
-            np.dtype(
-                getattr(
-                    out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32)
-                )
-            ),
-            ctx.builder.enable_double_precision,
-        )
+        conv_dtype_enum = numpy_dtype_to_ir(out_var.aval.dtype)
 
         if self._maybe_lower_complex(
             ctx,
@@ -914,14 +1046,20 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                 )
             )
         else:
-            conv_result = _as_value(
-                ctx.builder.Conv(
-                    canonical_input,
-                    canonical_kernel,
-                    _outputs=[conv_output_name],
-                    **conv_kwargs,
-                )
+            pointwise_result = _maybe_pointwise_double_conv(
+                ctx, canonical_input, canonical_kernel, conv_kwargs, conv_output_name
             )
+            if pointwise_result is None:
+                conv_result = _as_value(
+                    ctx.builder.Conv(
+                        canonical_input,
+                        canonical_kernel,
+                        _outputs=[conv_output_name],
+                        **conv_kwargs,
+                    )
+                )
+            else:
+                conv_result = pointwise_result
 
         if need_output_transpose:
             assert perm_to_nchw is not None
@@ -1027,13 +1165,9 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                 "in ONNX lowering."
             )
 
-        lhs_packed, lhs_base = ensure_packed_real_pair(
-            ctx, lhs_val, name_hint="conv_lhs_pack"
-        )
-        rhs_packed, rhs_base = ensure_packed_real_pair(
-            ctx, rhs_val, name_hint="conv_rhs_pack"
-        )
-        target_dtype = resolve_common_real_dtype(lhs_base, rhs_base)
+        lhs_packed, _ = ensure_packed_real_pair(ctx, lhs_val, name_hint="conv_lhs_pack")
+        rhs_packed, _ = ensure_packed_real_pair(ctx, rhs_val, name_hint="conv_rhs_pack")
+        target_dtype = _base_dtype_for_complex(numpy_dtype_to_ir(out_var.aval.dtype))
 
         lhs_ready = (
             lhs_packed
@@ -1103,38 +1237,6 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, transposed)
             return transposed
 
-        def _cast_value(
-            value: ir.Value,
-            dtype: ir.DataType,
-            name_hint: str,
-            *,
-            fallback_shape: tuple[int, ...],
-        ) -> ir.Value:
-            if getattr(value, "dtype", None) == dtype:
-                return value
-            casted = _as_value(
-                ctx.builder.Cast(
-                    value,
-                    to=int(dtype.value),
-                    _outputs=[ctx.fresh_name(name_hint)],
-                )
-            )
-            casted.type = ir.TensorType(dtype)
-            shape_meta = getattr(value, "shape", None)
-            if isinstance(shape_meta, ir.Shape):
-                dims = coerce_dim_values(tuple(shape_meta.dims))
-            elif isinstance(shape_meta, Sequence):
-                dims = coerce_dim_values(tuple(shape_meta))
-            else:
-                dims = coerce_dim_values(fallback_shape)
-            _stamp_type_and_shape(casted, dims)
-            _ensure_value_metadata(ctx, casted)
-            return casted
-
-        conv_compute_dtype = target_dtype
-        if target_dtype == ir.DataType.DOUBLE:
-            conv_compute_dtype = ir.DataType.FLOAT
-
         lhs_real_canon = _transpose_to_layout(
             lhs_real, perm_input, lhs_shape, "conv_lhs_real_nchw"
         )
@@ -1148,33 +1250,12 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             rhs_imag, perm_kernel, rhs_shape, "conv_rhs_imag_oihw"
         )
 
-        if conv_compute_dtype != target_dtype:
-            lhs_real_canon = _cast_value(
-                lhs_real_canon,
-                conv_compute_dtype,
-                "conv_lhs_real_cast",
-                fallback_shape=conv_shape_nchw,
-            )
-            lhs_imag_canon = _cast_value(
-                lhs_imag_canon,
-                conv_compute_dtype,
-                "conv_lhs_imag_cast",
-                fallback_shape=conv_shape_nchw,
-            )
-            rhs_real_canon = _cast_value(
-                rhs_real_canon,
-                conv_compute_dtype,
-                "conv_rhs_real_cast",
-                fallback_shape=conv_shape_nchw,
-            )
-            rhs_imag_canon = _cast_value(
-                rhs_imag_canon,
-                conv_compute_dtype,
-                "conv_rhs_imag_cast",
-                fallback_shape=conv_shape_nchw,
-            )
-
         def _conv_op(lhs: ir.Value, rhs: ir.Value, name_hint: str) -> ir.Value:
+            pointwise = _maybe_pointwise_double_conv(
+                ctx, lhs, rhs, conv_kwargs, name_hint
+            )
+            if pointwise is not None:
+                return pointwise
             conv = _as_value(
                 ctx.builder.Conv(
                     lhs,
@@ -1183,7 +1264,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                     **conv_kwargs,
                 )
             )
-            conv.type = ir.TensorType(conv_compute_dtype)
+            conv.type = ir.TensorType(target_dtype)
             _stamp_type_and_shape(conv, conv_shape_nchw)
             _ensure_value_metadata(ctx, conv)
             return conv
@@ -1200,7 +1281,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("conv_real_part")],
             )
         )
-        real_part.type = ir.TensorType(conv_compute_dtype)
+        real_part.type = ir.TensorType(target_dtype)
         _stamp_type_and_shape(real_part, conv_shape_nchw)
         _ensure_value_metadata(ctx, real_part)
 
@@ -1211,23 +1292,9 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("conv_imag_part")],
             )
         )
-        imag_part.type = ir.TensorType(conv_compute_dtype)
+        imag_part.type = ir.TensorType(target_dtype)
         _stamp_type_and_shape(imag_part, conv_shape_nchw)
         _ensure_value_metadata(ctx, imag_part)
-
-        if conv_compute_dtype != target_dtype:
-            real_part = _cast_value(
-                real_part,
-                target_dtype,
-                "conv_real_upcast",
-                fallback_shape=conv_shape_nchw,
-            )
-            imag_part = _cast_value(
-                imag_part,
-                target_dtype,
-                "conv_imag_upcast",
-                fallback_shape=conv_shape_nchw,
-            )
 
         def _from_nchw(
             value: ir.Value,

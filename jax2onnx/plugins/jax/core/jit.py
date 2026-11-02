@@ -9,7 +9,7 @@ import numpy as np
 
 import jax
 
-from jax._src import core as jcore
+from jax2onnx._compat import jax as jcore
 from jax2onnx._compat.jax import fresh_var_like
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG

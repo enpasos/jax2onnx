@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
@@ -122,3 +124,30 @@ def test_scan_arity_falls_back_to_legacy_params() -> None:
 def test_scan_arity_rejects_inconsistent_arity() -> None:
     with pytest.raises(ValueError, match="Inconsistent Scan arity"):
         compat.scan_arity({"num_consts": 2, "num_carry": 1}, 2)
+
+
+def test_trace_decomposition_preserves_weak_types_and_captured_constants() -> None:
+    captured = np.array([1.0, 2.0], dtype=np.float32)
+    aval = compat.ShapedArray((), np.float32, weak_type=True)
+
+    closed = compat.trace_decomposition(lambda x: (x + 1, x + captured), [aval], {})
+
+    assert closed.jaxpr.invars[0].aval == aval
+    assert closed.jaxpr.outvars[0].aval.weak_type
+    assert not closed.jaxpr.outvars[1].aval.weak_type
+    assert len(closed.consts) == 1
+    np.testing.assert_array_equal(closed.consts[0], captured)
+
+
+def test_call_hi_primitive_rejects_effects_before_expansion() -> None:
+    def unexpected_expansion(**params: Any) -> Any:
+        raise AssertionError("effectful expansion must not execute")
+
+    eqn = SimpleNamespace(
+        effects=frozenset(),
+        params={"_prim": SimpleNamespace(effects=frozenset({"effect"}))},
+        primitive=SimpleNamespace(to_lojax=unexpected_expansion),
+    )
+
+    with pytest.raises(NotImplementedError, match="Effectful call_hi_primitive"):
+        compat.call_hi_primitive_jaxpr(eqn)

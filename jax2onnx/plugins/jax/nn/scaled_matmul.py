@@ -16,7 +16,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -221,9 +221,7 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
         b_block = K_b // K_bs
 
         target_dtype = np.dtype(preferred_element_type)
-        target_dtype_enum = _dtype_to_ir(
-            target_dtype, ctx.builder.enable_double_precision
-        )
+        target_dtype_enum = numpy_dtype_to_ir(target_dtype)
         if target_dtype_enum is None:
             raise TypeError(
                 f"Unsupported preferred_element_type for scaled_matmul: {target_dtype}"

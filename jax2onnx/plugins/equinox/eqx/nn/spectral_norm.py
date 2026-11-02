@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final
+from typing import Any, Callable, ClassVar
 
 import equinox as eqx
 import jax
@@ -11,16 +11,28 @@ from jax.extend.core import Primitive
 
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
+    construct_and_call,
     register_native_primitive,
+    with_prng_key,
+    with_requested_dtype,
 )
 
-_EQX_SPECTRAL_NORM: Final[eqx.nn.SpectralNorm] = eqx.nn.SpectralNorm(
-    layer=eqx.nn.Linear(8, 4, key=jax.random.PRNGKey(0)),
-    weight_name="weight",
-    inference=True,
-    key=jax.random.PRNGKey(1),
-)
-_EQX_SPECTRAL_NORM_STATE: Final[eqx.nn.State] = eqx.nn.State(_EQX_SPECTRAL_NORM)
+
+def _spectral_norm_example(
+    dtype: Any, *, layer_key: jax.Array, key: jax.Array
+) -> Callable[[jax.Array], jax.Array]:
+    model = eqx.nn.SpectralNorm(
+        layer=eqx.nn.Linear(8, 4, dtype=dtype, key=layer_key),
+        weight_name="weight",
+        inference=True,
+        key=key,
+    )
+    state = eqx.nn.State(model)
+
+    def call(x: jax.Array) -> jax.Array:
+        return model(x, state)[0]
+
+    return call
 
 
 @register_native_primitive(
@@ -39,11 +51,12 @@ _EQX_SPECTRAL_NORM_STATE: Final[eqx.nn.State] = eqx.nn.State(_EQX_SPECTRAL_NORM)
     testcases=[
         {
             "testcase": "eqx_spectral_norm_linear_inference",
-            "callable": lambda x, _mod=_EQX_SPECTRAL_NORM, _state=_EQX_SPECTRAL_NORM_STATE: _mod(
-                x, _state
-            )[
-                0
-            ],
+            "callable": construct_and_call(
+                _spectral_norm_example,
+                dtype=with_requested_dtype(),
+                layer_key=with_prng_key(0),
+                key=with_prng_key(1),
+            ),
             "input_shapes": [(8,)],
             "expected_output_shapes": [(4,)],
             "run_only_f32_variant": True,

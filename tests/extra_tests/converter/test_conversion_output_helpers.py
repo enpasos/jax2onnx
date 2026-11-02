@@ -24,7 +24,6 @@ def _prepare_identity_context(shape: tuple[object, ...]):
         fn=_identity,
         inputs=[jax.ShapeDtypeStruct(shape, jnp.float32)],
         input_params=None,
-        enable_double_precision=False,
         inputs_as_nchw=None,
         outputs_as_nchw=None,
         input_names=["x"],
@@ -32,7 +31,6 @@ def _prepare_identity_context(shape: tuple[object, ...]):
     )
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=trace.sds_list,
         frozen_params=trace.frozen_params,
         record_primitive_calls_file=None,
@@ -48,7 +46,6 @@ def test_bind_jaxpr_outputs_adds_standard_outputs() -> None:
         ctx,
         trace.jaxpr,
         outputs_as_nchw=(),
-        enable_double_precision=False,
     )
 
     assert ctx.builder.outputs == [ctx.builder.inputs[0]]
@@ -61,7 +58,6 @@ def test_bind_jaxpr_outputs_adds_nchw_transpose() -> None:
         ctx,
         trace.jaxpr,
         outputs_as_nchw=(0,),
-        enable_double_precision=False,
     )
 
     assert len(ctx.builder.outputs) == 1
@@ -84,7 +80,6 @@ def test_bind_jaxpr_outputs_rejects_nchw_for_non_4d_output() -> None:
             ctx,
             trace.jaxpr,
             outputs_as_nchw=(0,),
-            enable_double_precision=False,
         )
 
 
@@ -96,7 +91,6 @@ def test_bind_jaxpr_outputs_rejects_missing_production_without_allocating(
         fn=lambda x: x + x,
         inputs=[jax.ShapeDtypeStruct((1, 2, 3, 4), jnp.float32)],
         input_params=None,
-        enable_double_precision=False,
         inputs_as_nchw=None,
         outputs_as_nchw=None,
         input_names=["x"],
@@ -104,7 +98,6 @@ def test_bind_jaxpr_outputs_rejects_missing_production_without_allocating(
     )
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=trace.sds_list,
         frozen_params=trace.frozen_params,
         record_primitive_calls_file=None,
@@ -117,7 +110,6 @@ def test_bind_jaxpr_outputs_rejects_missing_production_without_allocating(
             ctx,
             trace.jaxpr,
             outputs_as_nchw=outputs_as_nchw,
-            enable_double_precision=False,
         )
 
     assert ctx.builder._var2val == before
@@ -131,7 +123,6 @@ def test_bind_jaxpr_outputs_materializes_literal_outputs() -> None:
     )
     ctx = _create_ir_context(
         opset=21,
-        enable_double_precision=False,
         input_specs=[],
         frozen_params={},
         record_primitive_calls_file=None,

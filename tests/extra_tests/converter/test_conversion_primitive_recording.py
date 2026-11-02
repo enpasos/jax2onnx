@@ -23,7 +23,6 @@ def test_record_primitive_calls_file_writes_lowering_records(tmp_path) -> None:
         input_params=None,
         model_name="primitive_calls",
         opset=21,
-        enable_double_precision=False,
         record_primitive_calls_file=str(log_path),
     )
 

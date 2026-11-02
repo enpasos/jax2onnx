@@ -5,9 +5,8 @@ from __future__ import annotations
 import numpy as np
 
 import jax
-import jax.numpy as jnp
 
-from jax2onnx.plugins.plugin_system import register_example
+from jax2onnx.plugins.plugin_system import register_example, with_requested_dtype
 
 
 def two_times_silu(x: jax.Array) -> jax.Array:
@@ -28,7 +27,7 @@ register_example(
             "callable": two_times_silu,
             "input_values": [np.array([0.75], dtype=np.float32)],
             "expected_output_shapes": [(1,)],
-            "expected_output_dtypes": [jnp.float32],
+            "expected_output_dtypes": [with_requested_dtype()],
         },
     ],
 )

@@ -19,7 +19,6 @@ from jax2onnx.plugins._complex_utils import (
     ensure_packed_real_pair,
     is_packed_complex_tensor,
     pack_real_imag_pair,
-    resolve_common_real_dtype,
     split_packed_real_imag,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -29,7 +28,8 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.plugins._utils import cast_value_to_dtype
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 
 
 def _value_ir_dtype(value: ir.Value) -> ir.DataType | None:
@@ -231,6 +231,32 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         lhs_batch = tuple(lhs_batch)
         rhs_batch = tuple(rhs_batch)
 
+        input_dtypes = (np.dtype(lhs_var.aval.dtype), np.dtype(rhs_var.aval.dtype))
+        algorithm_dtype = None
+        precision = params.get("precision")
+        if isinstance(precision, (jax.lax.DotAlgorithm, jax.lax.DotAlgorithmPreset)):
+            if precision == jax.lax.DotAlgorithmPreset.F32_F32_F32:
+                algorithm_dtype = ir.DataType.FLOAT
+            elif precision == jax.lax.DotAlgorithmPreset.F64_F64_F64:
+                algorithm_dtype = ir.DataType.DOUBLE
+            elif precision != jax.lax.DotAlgorithmPreset.DEFAULT:
+                raise NotImplementedError(
+                    f"dot_general precision {precision!r} is currently not implemented"
+                )
+            if algorithm_dtype is not None and (
+                any(
+                    dtype not in (np.dtype(np.float32), np.dtype(np.float64))
+                    for dtype in input_dtypes
+                )
+                or np.dtype(out_var.aval.dtype)
+                not in (np.dtype(np.float32), np.dtype(np.float64))
+            ):
+                raise NotImplementedError(
+                    f"dot_general precision {precision!r} for input dtypes "
+                    f"{input_dtypes!r} and output dtype {out_var.aval.dtype!r} "
+                    "is currently not implemented"
+                )
+
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("dot_lhs"))
         rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("dot_rhs"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dot_out"))
@@ -257,7 +283,6 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         ):
             return
 
-        input_dtypes = (np.dtype(lhs_var.aval.dtype), np.dtype(rhs_var.aval.dtype))
         if all(
             dtype in (np.dtype(np.int8), np.dtype(np.uint8)) for dtype in input_dtypes
         ) and np.dtype(out_var.aval.dtype) == np.dtype(np.int32):
@@ -277,32 +302,45 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             )
             return
 
-        if self._try_lower_matmul(
-            ctx,
-            lhs_var,
-            rhs_var,
-            out_var,
-            lhs_val,
-            rhs_val,
-            out_spec,
-            lhs_shape,
-            rhs_shape,
-            out_shape,
-            lhs_contract,
-            rhs_contract,
-            lhs_batch,
-            rhs_batch,
+        result_dtype = numpy_dtype_to_ir(out_var.aval.dtype)
+        work_dtype = algorithm_dtype or result_dtype
+        if result_dtype.is_floating_point() and all(
+            np.issubdtype(dtype, np.floating) or dtype.name == "bfloat16"
+            for dtype in input_dtypes
         ):
-            return
+            # With homogeneous operands, a narrower preferred result type does
+            # not round the inputs before the contraction. An explicit algorithm
+            # instead owns its operand and accumulation types.
+            if (
+                algorithm_dtype is None
+                and lhs_val.dtype == rhs_val.dtype
+                and lhs_val.dtype is not None
+                and lhs_val.dtype.bitwidth > result_dtype.bitwidth
+            ):
+                work_dtype = lhs_val.dtype
+            lhs_val = cast_value_to_dtype(
+                ctx, lhs_val, work_dtype, name_hint="dot_lhs_accumulate"
+            )
+            rhs_val = cast_value_to_dtype(
+                ctx, rhs_val, work_dtype, name_hint="dot_rhs_accumulate"
+            )
 
-        self._lower_via_einsum(
+        work_spec = out_spec
+        if work_dtype != result_dtype:
+            work_spec = ir.Value(
+                name=ctx.fresh_name("dot_work"),
+                type=ir.TensorType(work_dtype),
+                shape=out_spec.shape,
+            )
+
+        result = self._try_lower_matmul(
             ctx,
             lhs_var,
             rhs_var,
             out_var,
             lhs_val,
             rhs_val,
-            out_spec,
+            work_spec,
             lhs_shape,
             rhs_shape,
             out_shape,
@@ -311,6 +349,27 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             lhs_batch,
             rhs_batch,
         )
+        if result is None:
+            result = self._lower_via_einsum(
+                ctx,
+                lhs_var,
+                rhs_var,
+                out_var,
+                lhs_val,
+                rhs_val,
+                work_spec,
+                lhs_shape,
+                rhs_shape,
+                out_shape,
+                lhs_contract,
+                rhs_contract,
+                lhs_batch,
+                rhs_batch,
+            )
+        result = cast_value_to_dtype(
+            ctx, result, result_dtype, name_hint="dot_result_cast"
+        )
+        ctx.bind_value_for_var(out_var, result)
 
     @staticmethod
     def _integer_shape_tensor(
@@ -647,13 +706,14 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         if not (complex_var_hint or complex_dtype_hint or packed_hint):
             return False
 
-        lhs_packed, lhs_base_dtype = ensure_packed_real_pair(
-            ctx, lhs_val, name_hint="dot_lhs_pack"
-        )
-        rhs_packed, rhs_base_dtype = ensure_packed_real_pair(
-            ctx, rhs_val, name_hint="dot_rhs_pack"
-        )
-        target_dtype = resolve_common_real_dtype(lhs_base_dtype, rhs_base_dtype)
+        lhs_packed, _ = ensure_packed_real_pair(ctx, lhs_val, name_hint="dot_lhs_pack")
+        rhs_packed, _ = ensure_packed_real_pair(ctx, rhs_val, name_hint="dot_rhs_pack")
+        # The complex result also carries a requested wider accumulation type.
+        # Its packed real/imag components must perform that wider computation.
+        target_dtype = {
+            np.dtype(np.complex64): ir.DataType.FLOAT,
+            np.dtype(np.complex128): ir.DataType.DOUBLE,
+        }[np.dtype(out_var.aval.dtype)]
 
         lhs_ready = (
             lhs_packed
@@ -806,12 +866,12 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         rhs_contract: tuple[int, ...],
         lhs_batch: tuple[int, ...],
         rhs_batch: tuple[int, ...],
-    ) -> bool:
+    ) -> ir.Value | None:
         if lhs_batch or rhs_batch:
             if tuple(lhs_batch) != tuple(rhs_batch):
-                return False
+                return None
             if len(lhs_contract) != 1 or len(rhs_contract) != 1:
-                return False
+                return None
 
             lhs_contract_axis = lhs_contract[0]
             rhs_contract_axis = rhs_contract[0]
@@ -831,7 +891,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             ]
 
             if len(lhs_free_axes) != 1 or len(rhs_free_axes) != 1:
-                return False
+                return None
 
             lhs_perm = list(lhs_batch) + lhs_free_axes + [lhs_contract_axis]
             rhs_perm = list(rhs_batch) + [rhs_contract_axis] + rhs_free_axes
@@ -865,7 +925,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             )
 
             desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("MatMul")
-            result = ctx.builder.MatMul(
+            result: ir.Value = ctx.builder.MatMul(
                 lhs_prepped,
                 rhs_prepped,
                 _outputs=[desired_name],
@@ -885,20 +945,19 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             result.type = ir.TensorType(result_dtype)
             _stamp_type_and_shape(result, out_shape)
             _ensure_value_metadata(ctx, result)
-            ctx.bind_value_for_var(out_var, result)
-            return True
+            return result
 
         if len(lhs_contract) != 1 or len(rhs_contract) != 1:
-            return False
+            return None
         if len(lhs_batch) != 0 or len(rhs_batch) != 0:
-            return False
+            return None
         if len(lhs_shape) != 2 or len(rhs_shape) != 2:
-            return False
+            return None
 
         rhs_contract_axis = rhs_contract[0]
         rhs_rank = len(rhs_shape)
         if rhs_contract_axis not in (0, rhs_rank - 1):
-            return False
+            return None
 
         transpose_rhs = rhs_contract_axis == rhs_rank - 1
         rhs_input = rhs_val
@@ -918,12 +977,12 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, transposed)
             rhs_input = transposed
 
-        out_dtype = np.dtype(
-            getattr(out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32))
-        )
+        bias_dtype = ir_dtype_to_numpy(lhs_val.dtype, default=None)
+        if bias_dtype is None:
+            raise TypeError("dot_general contraction is missing its work dtype")
         bias_val = ctx.builder.add_initializer_from_scalar(
             name=ctx.fresh_name("dot_bias"),
-            value=np.array(0, dtype=out_dtype),
+            value=np.array(0, dtype=bias_dtype),
         )
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Gemm")
@@ -940,12 +999,11 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         result_dtype = (
             _value_ir_dtype(lhs_val)
             or _value_ir_dtype(rhs_input)
-            or numpy_dtype_to_ir(out_dtype)
+            or numpy_dtype_to_ir(bias_dtype)
         )
         result.type = ir.TensorType(result_dtype)
         _ensure_value_metadata(ctx, result)
-        ctx.bind_value_for_var(out_var, result)
-        return True
+        return result
 
     def _lower_via_einsum(
         self,
@@ -963,7 +1021,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         rhs_contract: tuple[int, ...],
         lhs_batch: tuple[int, ...],
         rhs_batch: tuple[int, ...],
-    ) -> None:
+    ) -> ir.Value:
         lhs_shape = tuple(lhs_shape)
         rhs_shape = tuple(rhs_shape)
         lhs_contract = tuple(lhs_contract)
@@ -1037,7 +1095,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("Einsum")
 
-        result = ctx.builder.Einsum(
+        result: ir.Value = ctx.builder.Einsum(
             lhs_val_prepped,
             rhs_val_prepped,
             equation=equation,
@@ -1065,7 +1123,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
-        ctx.bind_value_for_var(out_var, result)
+        return result
 
     def _prepare_operand_for_einsum(
         self,

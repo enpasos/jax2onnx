@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -75,9 +75,7 @@ class IntegerPowPlugin(PrimitiveLeafPlugin):
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ipow_out"))
 
-        target_dtype: np.dtype[Any] = np.dtype(
-            getattr(base_var.aval, "dtype", np.float32)
-        )
+        target_dtype: np.dtype[Any] = np.dtype(base_var.aval.dtype)
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("ipow_out")
         producer = getattr(out_spec, "producer", lambda: None)
         if callable(producer) and producer() is not None:
@@ -96,7 +94,7 @@ class IntegerPowPlugin(PrimitiveLeafPlugin):
                 ir.Value, ctx.builder.Pow(base_val, exp_const, _outputs=[desired_name])
             )
 
-        out_dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        out_dtype_enum = numpy_dtype_to_ir(target_dtype)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         result.type = ir.TensorType(out_dtype_enum)
         _stamp_type_and_shape(result, out_shape)

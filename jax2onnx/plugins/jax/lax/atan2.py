@@ -2,48 +2,72 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
-    _ensure_value_metadata,
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
-def _cast_to(
-    ctx: LoweringContextProtocol,
-    value: ir.Value,
-    *,
-    target_dtype: ir.DataType,
-    output_shape: tuple[DimInput, ...],
-    name_hint: str,
-) -> ir.Value:
-    if value.dtype == target_dtype:
-        return value
-    cast_val = cast(
-        ir.Value,
-        ctx.builder.Cast(
-            value,
-            to=int(target_dtype.value),
-            _outputs=[ctx.fresh_name(name_hint)],
-        ),
+def _atan2_graph_check(model: Any) -> bool:
+    double = model.graph.output[0].type.tensor_type.elem_type == int(
+        ir.DataType.DOUBLE.value
     )
-    cast_val.type = ir.TensorType(target_dtype)
-    _stamp_type_and_shape(cast_val, output_shape)
-    _ensure_value_metadata(ctx, cast_val)
-    return cast_val
+    if double:
+        valid = bool(
+            EG(
+                [("Sqrt:7 -> Add:7 -> Div:7", {"counts": {"Sqrt": 2, "Mul": 17}})],
+                must_absent=["Atan", "Cast", "CastLike"],
+                no_unused_inputs=True,
+            )(model)
+        )
+        floating = {
+            int(t.value)
+            for t in (
+                ir.DataType.FLOAT16,
+                ir.DataType.BFLOAT16,
+                ir.DataType.FLOAT,
+                ir.DataType.DOUBLE,
+            )
+        }
+        tensors = [*model.graph.input, *model.graph.value_info, *model.graph.output]
+        return (
+            valid
+            and all(
+                value.type.tensor_type.elem_type not in floating
+                or value.type.tensor_type.elem_type == int(ir.DataType.DOUBLE.value)
+                for value in tensors
+            )
+            and all(
+                t.data_type == int(ir.DataType.DOUBLE.value)
+                for t in model.graph.initializer
+            )
+        )
+    return bool(
+        EG(
+            [
+                (
+                    "Where:7 -> Atan:7 -> Sub:7 -> Where:7 -> Sub:7 -> Where:7 -> Mul:7",
+                    {"counts": {"Atan": 1, "Sqrt": 0}},
+                )
+            ],
+            no_unused_inputs=True,
+        )(model)
+    )
 
 
 @register_native_primitive(
@@ -67,7 +91,10 @@ def _cast_to(
         },
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
         {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
-        {"component": "Or", "doc": "https://onnx.ai/onnx/operators/onnx__Or.html"},
+        *[
+            {"component": op, "doc": f"https://onnx.ai/onnx/operators/onnx__{op}.html"}
+            for op in ("Abs", "IsInf", "And", "Sqrt", "Mul", "Cast")
+        ],
     ],
     since="0.12.1",
     context="primitives.lax",
@@ -80,11 +107,8 @@ def _cast_to(
                 np.array([1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 0.0], dtype=np.float32),
                 np.array([1.0, 1.0, -1.0, -1.0, 0.0, 0.0, 0.0], dtype=np.float32),
             ],
-            "expected_output_dtypes": [np.float32],
-            "post_check_onnx_graph": EG(
-                ["Div:7 -> Atan:7"],
-                no_unused_inputs=True,
-            ),
+            "expected_output_dtypes": [with_requested_dtype()],
+            "post_check_onnx_graph": _atan2_graph_check,
         },
         {
             "testcase": "atan2_broadcast",
@@ -96,158 +120,103 @@ def _cast_to(
     ],
 )
 class Atan2Plugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
-        x_var, y_var = eqn.invars
+    def lower(self, ctx: NativeLoweringContext, eqn: Any) -> None:
+        vertical_var, horizontal_var = eqn.invars
         (out_var,) = eqn.outvars
+        vertical = ctx.require_value_for_var(vertical_var)
+        horizontal = ctx.require_value_for_var(horizontal_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("atan2_out")
+        )
+        target_dtype = numpy_dtype_to_ir(out_var.aval.dtype)
+        work_dtype = (
+            ir.DataType.DOUBLE
+            if target_dtype == ir.DataType.DOUBLE
+            else ir.DataType.FLOAT
+        )
+        y = cast_value_to_dtype(ctx, vertical, work_dtype, name_hint="atan2_y_work")
+        x = cast_value_to_dtype(ctx, horizontal, work_dtype, name_hint="atan2_x_work")
+        out_shape: tuple[DimInput, ...] = tuple(out_var.aval.shape)
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("atan2_x"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("atan2_y"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("atan2_out"))
-
-        out_np_dtype: np.dtype[Any] = np.dtype(
-            getattr(out_var.aval, "dtype", np.float32)
-        )
-        out_dtype = _dtype_to_ir(out_np_dtype, ctx.builder.enable_double_precision)
-        x_shape: tuple[DimInput, ...] = tuple(
-            getattr(getattr(x_var, "aval", None), "shape", ())
-        )
-        y_shape: tuple[DimInput, ...] = tuple(
-            getattr(getattr(y_var, "aval", None), "shape", ())
-        )
-        out_shape: tuple[DimInput, ...] = tuple(
-            getattr(getattr(out_var, "aval", None), "shape", ())
-        )
-
-        x_ready = _cast_to(
-            ctx,
-            x_val,
-            target_dtype=out_dtype,
-            output_shape=x_shape,
-            name_hint="atan2_x_cast",
-        )
-        y_ready = _cast_to(
-            ctx,
-            y_val,
-            target_dtype=out_dtype,
-            output_shape=y_shape,
-            name_hint="atan2_y_cast",
-        )
-
-        const_np_dtype = np.float64 if out_dtype == ir.DataType.DOUBLE else np.float32
-
-        def _const(value: float) -> ir.Value:
-            const_value: ir.Value = ctx.bind_const_for_var(
-                object(), np.asarray(value, dtype=const_np_dtype)
+        def emit(
+            op: str,
+            *inputs: ir.Value,
+            dtype: ir.DataType = work_dtype,
+            like: ir.Value | None = None,
+        ) -> ir.Value:
+            value = ir.Value(
+                name=ctx.fresh_name(f"atan2_{op.lower()}"), type=ir.TensorType(dtype)
             )
-            return const_value
+            if like is not None:
+                value.shape = like.shape
+            else:
+                _stamp_type_and_shape(value, out_shape)
+            return ctx.builder.op(op, list(inputs), output=value)
 
-        zero = _const(0.0)
-        pi = _const(np.pi)
-        pi_half = _const(np.pi / 2.0)
-        neg_pi_half = _const(-np.pi / 2.0)
+        def scalar(number: float) -> ir.Value:
+            return ctx.bind_const_for_var(
+                object(), np.asarray(number, dtype=work_dtype.numpy())
+            )
 
-        x_over_y = cast(
-            ir.Value,
-            ctx.builder.Div(
-                x_ready,
-                y_ready,
-                _outputs=[ctx.fresh_name("atan2_div")],
-            ),
+        zero, one, negative_one = (scalar(v) for v in (0.0, 1.0, -1.0))
+        pi, half_pi = scalar(np.pi), scalar(np.pi / 2)
+        ax, ay = emit("Abs", x, like=x), emit("Abs", y, like=y)
+        swap = emit("Greater", ay, ax, dtype=ir.DataType.BOOL)
+        small = emit("Where", swap, ax, ay)
+        large = emit("Where", swap, ay, ax)
+        ratio = emit("Div", small, large)
+        x_zero = emit("Equal", x, zero, dtype=ir.DataType.BOOL, like=x)
+        y_zero = emit("Equal", y, zero, dtype=ir.DataType.BOOL, like=y)
+        both_zero = emit("And", x_zero, y_zero, dtype=ir.DataType.BOOL)
+        both_inf = emit(
+            "And",
+            emit("IsInf", ax, dtype=ir.DataType.BOOL, like=ax),
+            emit("IsInf", ay, dtype=ir.DataType.BOOL, like=ay),
+            dtype=ir.DataType.BOOL,
         )
-        x_over_y.type = ir.TensorType(out_dtype)
-        _stamp_type_and_shape(x_over_y, out_shape)
-        _ensure_value_metadata(ctx, x_over_y)
+        ratio = emit("Where", both_zero, zero, ratio)
+        ratio = emit("Where", both_inf, one, ratio)
 
-        if out_dtype == ir.DataType.DOUBLE:
-            atan_input = _cast_to(
-                ctx,
-                x_over_y,
-                target_dtype=ir.DataType.FLOAT,
-                output_shape=out_shape,
-                name_hint="atan2_atan_in_f32",
+        if work_dtype == ir.DataType.DOUBLE:
+            # Two half-angle reductions bound r by tan(pi/16). The degree-21
+            # alternating polynomial then has truncation error below 1.3e-17.
+            d1 = emit(
+                "Add", one, emit("Sqrt", emit("Add", one, emit("Mul", ratio, ratio)))
             )
-            atan_f32 = cast(
-                ir.Value,
-                ctx.builder.Atan(
-                    atan_input,
-                    _outputs=[ctx.fresh_name("atan2_base_f32")],
-                ),
+            reduced = emit("Div", ratio, d1)
+            d2 = emit(
+                "Add",
+                one,
+                emit("Sqrt", emit("Add", one, emit("Mul", reduced, reduced))),
             )
-            atan_f32.type = ir.TensorType(ir.DataType.FLOAT)
-            _stamp_type_and_shape(atan_f32, out_shape)
-            _ensure_value_metadata(ctx, atan_f32)
-            base = _cast_to(
-                ctx,
-                atan_f32,
-                target_dtype=ir.DataType.DOUBLE,
-                output_shape=out_shape,
-                name_hint="atan2_base_f64",
-            )
+            r = emit("Div", reduced, d2)
+            squared = emit("Mul", r, r)
+            polynomial = scalar(1 / 21)
+            for index in range(9, -1, -1):
+                polynomial = emit(
+                    "Add",
+                    scalar((-1.0) ** index / (2 * index + 1)),
+                    emit("Mul", squared, polynomial),
+                )
+            # Reconstruct from the original ratio, preserving tiny angles even
+            # when an intermediate reduced argument underflows.
+            scale = emit("Div", scalar(4), emit("Mul", d1, d2))
+            base = emit("Mul", emit("Mul", ratio, scale), polynomial)
         else:
-            base = cast(
-                ir.Value,
-                ctx.builder.Atan(x_over_y, _outputs=[ctx.fresh_name("atan2_base")]),
-            )
-            base.type = ir.TensorType(out_dtype)
-            _stamp_type_and_shape(base, out_shape)
-            _ensure_value_metadata(ctx, base)
+            base = emit("Atan", ratio)
 
-        y_gt0 = ctx.builder.Greater(y_ready, zero, _outputs=[ctx.fresh_name("y_gt0")])
-        y_lt0 = ctx.builder.Less(y_ready, zero, _outputs=[ctx.fresh_name("y_lt0")])
-        x_gt0 = ctx.builder.Greater(x_ready, zero, _outputs=[ctx.fresh_name("x_gt0")])
-        x_lt0 = ctx.builder.Less(x_ready, zero, _outputs=[ctx.fresh_name("x_lt0")])
-        x_eq0 = ctx.builder.Equal(x_ready, zero, _outputs=[ctx.fresh_name("x_eq0")])
-        x_ge0 = ctx.builder.Or(x_gt0, x_eq0, _outputs=[ctx.fresh_name("x_ge0")])
+        angle = emit("Where", swap, emit("Sub", half_pi, base), base)
 
-        base_plus_pi = ctx.builder.Add(
-            base,
-            pi,
-            _outputs=[ctx.fresh_name("atan2_base_plus_pi")],
-        )
-        base_minus_pi = ctx.builder.Sub(
-            base,
-            pi,
-            _outputs=[ctx.fresh_name("atan2_base_minus_pi")],
-        )
-        res_y_lt0 = ctx.builder.Where(
-            x_ge0,
-            base_plus_pi,
-            base_minus_pi,
-            _outputs=[ctx.fresh_name("atan2_res_y_lt0")],
-        )
+        def negative(value: ir.Value, is_zero: ir.Value) -> ir.Value:
+            reciprocal = emit("Div", one, value, like=value)
+            signed = emit("Where", is_zero, reciprocal, value, like=value)
+            return emit("Less", signed, zero, dtype=ir.DataType.BOOL, like=value)
 
-        res_y_eq0_inner = ctx.builder.Where(
-            x_lt0,
-            neg_pi_half,
-            zero,
-            _outputs=[ctx.fresh_name("atan2_res_y_eq0_inner")],
+        angle = emit("Where", negative(x, x_zero), emit("Sub", pi, angle), angle)
+        factor = emit("Where", negative(y, y_zero), negative_one, one, like=y)
+        result = emit("Mul", angle, factor)
+        result = cast_value_to_dtype(
+            ctx, result, target_dtype, name_hint="atan2_result"
         )
-        res_y_eq0 = ctx.builder.Where(
-            x_gt0,
-            pi_half,
-            res_y_eq0_inner,
-            _outputs=[ctx.fresh_name("atan2_res_y_eq0")],
-        )
-
-        res_not_y_gt0 = ctx.builder.Where(
-            y_lt0,
-            res_y_lt0,
-            res_y_eq0,
-            _outputs=[ctx.fresh_name("atan2_res_not_y_gt0")],
-        )
-
-        output_name = getattr(out_spec, "name", None) or ctx.fresh_name("atan2_out")
-        producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
-            output_name = ctx.fresh_name("atan2_out")
-
-        result = ctx.builder.Where(
-            y_gt0,
-            base,
-            res_not_y_gt0,
-            _outputs=[output_name],
-        )
-        result.type = ir.TensorType(out_dtype)
-        _stamp_type_and_shape(result, out_shape)
-        _ensure_value_metadata(ctx, result)
+        result.name = out_spec.name or ctx.fresh_name("atan2_out")
         ctx.bind_value_for_var(out_var, result)

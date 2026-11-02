@@ -10,6 +10,8 @@ import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.plugins._loop_extent_meta import propagate_axis0_override
+from jax2onnx.plugins._precision_utils import require_default_accuracy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.plugin_system import (
@@ -44,6 +46,7 @@ class RsqrtPlugin(PrimitiveLeafPlugin):
     def lower(
         self, ctx: LoweringContextProtocol, eqn: JaxprEqn
     ) -> None:  # pragma: no cover - exercised via tests
+        require_default_accuracy(eqn)
         builder = ctx.builder
 
         x_var = eqn.invars[0]
@@ -51,6 +54,39 @@ class RsqrtPlugin(PrimitiveLeafPlugin):
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("rsqrt_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("rsqrt_out"))
+
+        if np.dtype(x_var.aval.dtype) == np.dtype(np.float16):
+            # Rsqrt has one source result boundary. Rounding an intermediate
+            # Sqrt to half would add a boundary absent from the JAX primitive.
+            work = ir.Value(
+                name=ctx.fresh_name("rsqrt_float_input"),
+                type=ir.TensorType(ir.DataType.FLOAT),
+                shape=x_val.shape,
+            )
+            builder.op("Cast", [x_val], {"to": int(ir.DataType.FLOAT)}, output=work)
+            propagate_axis0_override(x_val, work)
+            sqrt = ir.Value(
+                name=ctx.fresh_name("rsqrt_float_sqrt"),
+                type=ir.TensorType(ir.DataType.FLOAT),
+                shape=x_val.shape,
+            )
+            builder.op("Sqrt", [work], output=sqrt)
+            one = builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("rsqrt_float_one"),
+                value=np.float32(1),
+            )
+            computed = ir.Value(
+                name=ctx.fresh_name("rsqrt_float_result"),
+                type=ir.TensorType(ir.DataType.FLOAT),
+                shape=out_spec.shape,
+            )
+            builder.op("Div", [one, sqrt], output=computed)
+            result = builder.op(
+                "Cast", [computed], {"to": int(ir.DataType.FLOAT16)}, output=out_spec
+            )
+            propagate_axis0_override(x_val, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
 
         sqrt_val = builder.Sqrt(
             x_val,

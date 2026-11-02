@@ -14,7 +14,7 @@ import numpy as np
 import onnx_ir as ir
 
 import jax2onnx
-from jax2onnx.converter.conversion_api import _to_ir_dtype_from_np, to_onnx
+from jax2onnx.converter.conversion_api import to_onnx
 from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.converter.optimizer_graph_utils import (
     _consumer_nodes,
@@ -22,7 +22,7 @@ from jax2onnx.converter.optimizer_graph_utils import (
     _producer_node,
 )
 from jax2onnx.converter.output_binding import _value_is_graph_connected
-from jax2onnx.ir_utils import numpy_dtype_to_ir_with_float_policy
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.plugin_system import (
     INSTANCE_MAP2,
     PLUGIN_REGISTRY,
@@ -30,6 +30,7 @@ from jax2onnx.plugins.plugin_system import (
     _IN_FUNCTION_BUILD,
     _ONNX_FN_HITS,
     _import_tree,
+    _pack_function_arguments,
     apply_monkey_patches,
     onnx_function,
 )
@@ -45,21 +46,8 @@ def test_bfloat16_and_float16_ir_dtype_helpers() -> None:
     bf16_dtype = jnp.dtype("bfloat16")
     f16_dtype = np.dtype(np.float16)
 
-    assert _to_ir_dtype_from_np(bf16_dtype) == ir.DataType.BFLOAT16
-    assert _to_ir_dtype_from_np(f16_dtype) == ir.DataType.FLOAT
-
-    assert (
-        numpy_dtype_to_ir_with_float_policy(bf16_dtype, enable_double_precision=False)
-        == ir.DataType.BFLOAT16
-    )
-    assert (
-        numpy_dtype_to_ir_with_float_policy(bf16_dtype, enable_double_precision=True)
-        == ir.DataType.BFLOAT16
-    )
-    assert (
-        numpy_dtype_to_ir_with_float_policy(f16_dtype, enable_double_precision=False)
-        == ir.DataType.FLOAT16
-    )
+    assert numpy_dtype_to_ir(bf16_dtype) == ir.DataType.BFLOAT16
+    assert numpy_dtype_to_ir(f16_dtype) == ir.DataType.FLOAT16
 
 
 def test_inputs_as_nchw_preserves_low_precision_dtypes() -> None:
@@ -72,7 +60,6 @@ def test_inputs_as_nchw_preserves_low_precision_dtypes() -> None:
             inputs=[jax.ShapeDtypeStruct((1, 4, 4, 3), dtype)],
             input_params={},
             model_name="nchw_low_precision",
-            enable_double_precision=False,
             opset=21,
             record_primitive_calls_file=None,
             inputs_as_nchw=[0],
@@ -178,7 +165,7 @@ def test_run_allclose_complex_and_bfloat16_preserves_imaginary_part(
 
 
 def test_graph_connectivity_and_optimizer_fast_paths() -> None:
-    ctx = IRContext(opset=21, enable_double_precision=False)
+    ctx = IRContext(opset=21)
     x = ctx.add_input_for_invar(_DummyVar((2,), np.dtype(np.float32)), 0)
     const_val = ctx.bind_const_for_var(
         object(), np.asarray([1.0, 2.0], dtype=np.float32)
@@ -244,7 +231,6 @@ def test_to_onnx_restores_x64_when_user_fn_mutates_config() -> None:
         jax2onnx.to_onnx(
             mutating_fn,
             [(2,)],
-            enable_double_precision=False,
             return_mode="ir",
         )
         assert bool(jax.config.read("jax_enable_x64")) is False
@@ -342,13 +328,20 @@ def test_function_plugin_abstract_eval_uses_requested_instance() -> None:
             if isinstance(p, FunctionPlugin) and p.target is TinySliceBlock
         )
         spec = jax.ShapeDtypeStruct(sample.shape, sample.dtype)
+        _, trace_params = _pack_function_arguments((), {})
         # The plugin was last called on block_b. Tracing a previously captured
         # call for block_a must still infer block_a's output shape.
         shape_a = jax.eval_shape(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_a)), spec
+            lambda x: plugin.primitive.bind(
+                x, instance_key=id(block_a), **trace_params
+            ),
+            spec,
         )
         shape_b = jax.eval_shape(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_b)), spec
+            lambda x: plugin.primitive.bind(
+                x, instance_key=id(block_b), **trace_params
+            ),
+            spec,
         )
 
     assert shape_a.shape == (1,)
@@ -379,11 +372,12 @@ def test_function_plugin_batching_uses_requested_instance() -> None:
         )
         # Batch an earlier call after another instance updated the plugin's
         # most recent callable. Each captured key must keep its own weights.
+        _, trace_params = _pack_function_arguments((), {})
         batched_a = jax.vmap(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_a))
+            lambda x: plugin.primitive.bind(x, instance_key=id(block_a), **trace_params)
         )(sample)
         batched_b = jax.vmap(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_b))
+            lambda x: plugin.primitive.bind(x, instance_key=id(block_b), **trace_params)
         )(sample)
 
     np.testing.assert_allclose(np.asarray(batched_a), np.asarray(sample) * 2.0)

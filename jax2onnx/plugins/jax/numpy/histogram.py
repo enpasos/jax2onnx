@@ -16,7 +16,7 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -30,6 +30,7 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
+    with_requested_dtype,
 )
 
 
@@ -59,7 +60,7 @@ def _as_dtype(
     shape: tuple[object, ...],
     name_hint: str,
 ) -> ir.Value:
-    target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
+    target_enum = numpy_dtype_to_ir(to_dtype)
     if (
         from_dtype == to_dtype
         and getattr(getattr(val, "type", None), "dtype", None) == target_enum
@@ -199,8 +200,8 @@ def _abstract_eval_via_orig(
     if int(bins_shape[0]) < 2:
         raise ValueError("jnp.histogram lowering requires at least two bin edges")
 
-    a_dtype: np.dtype[Any] = np.dtype(getattr(a, "dtype", np.float32))
-    bins_dtype: np.dtype[Any] = np.dtype(getattr(bins, "dtype", np.float32))
+    a_dtype: np.dtype[Any] = np.dtype(a.dtype)
+    bins_dtype: np.dtype[Any] = np.dtype(bins.dtype)
     a_spec = jax.ShapeDtypeStruct(a_shape, a_dtype)
     bins_spec = jax.ShapeDtypeStruct(bins_shape, bins_dtype)
     orig = get_orig_impl(prim, func_name)
@@ -208,11 +209,11 @@ def _abstract_eval_via_orig(
     return (
         ShapedArray(
             tuple(getattr(hist, "shape", ())),
-            np.dtype(getattr(hist, "dtype", np.float32)),
+            np.dtype(hist.dtype),
         ),
         ShapedArray(
             tuple(getattr(edges, "shape", ())),
-            np.dtype(getattr(edges, "dtype", np.float32)),
+            np.dtype(edges.dtype),
         ),
     )
 
@@ -261,7 +262,7 @@ def _abstract_eval_via_orig(
                 np.asarray([0.0, 0.5, 1.0, 2.0, 3.0, 4.0], dtype=np.float32),
                 np.asarray([0.0, 1.0, 3.0, 4.0], dtype=np.float32),
             ],
-            "expected_output_dtypes": [np.float32, np.float32],
+            "expected_output_dtypes": [with_requested_dtype(), with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [
                     "GreaterOrEqual:3x6",
@@ -278,7 +279,7 @@ def _abstract_eval_via_orig(
                 np.asarray([-1.0, 0.0, 1.0, 3.0, 5.0], dtype=np.float32),
                 np.asarray([0.0, 1.0, 2.0, 4.0], dtype=np.float32),
             ],
-            "expected_output_dtypes": [np.float32, np.float32],
+            "expected_output_dtypes": [with_requested_dtype(), with_requested_dtype()],
         },
         {
             "testcase": "jnp_histogram_integer_inputs",
@@ -337,17 +338,12 @@ class JnpHistogramPlugin(PrimitiveLeafPlugin):
 
         hist_shape = tuple(getattr(hist_var.aval, "shape", ()))
         edges_shape = tuple(getattr(edges_var.aval, "shape", ()))
-        hist_dtype: np.dtype[Any] = np.dtype(
-            getattr(hist_var.aval, "dtype", np.float32)
-        )
-        edge_dtype: np.dtype[Any] = np.dtype(
-            getattr(edges_var.aval, "dtype", np.float32)
-        )
-        a_dtype: np.dtype[Any] = np.dtype(getattr(a_var.aval, "dtype", np.float32))
-        bins_dtype: np.dtype[Any] = np.dtype(
-            getattr(bins_var.aval, "dtype", edge_dtype)
-        )
-        compare_dtype: np.dtype[Any] = np.promote_types(a_dtype, edge_dtype)
+        hist_dtype: np.dtype[Any] = np.dtype(hist_var.aval.dtype)
+        edge_dtype: np.dtype[Any] = np.dtype(edges_var.aval.dtype)
+        a_dtype: np.dtype[Any] = np.dtype(a_var.aval.dtype)
+        bins_dtype: np.dtype[Any] = np.dtype(bins_var.aval.dtype)
+        # JAX first prepares inexact samples and converts edges to that dtype.
+        compare_dtype = edge_dtype
 
         a_val = ctx.get_value_for_var(a_var, name_hint=ctx.fresh_name("histogram_a"))
         bins_val = ctx.get_value_for_var(
@@ -487,7 +483,7 @@ class JnpHistogramPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(in_bin, matrix_shape)
         _ensure_value_metadata(ctx, in_bin)
 
-        hist_enum = _dtype_to_ir(hist_dtype, ctx.builder.enable_double_precision)
+        hist_enum = numpy_dtype_to_ir(hist_dtype)
         bin_hits = ctx.builder.Cast(
             in_bin,
             to=int(hist_enum.value),
@@ -535,9 +531,7 @@ class JnpHistogramPlugin(PrimitiveLeafPlugin):
         if getattr(edges_spec, "type", None) is not None:
             edges_result.type = edges_spec.type
         else:
-            edges_result.type = ir.TensorType(
-                _dtype_to_ir(edge_dtype, ctx.builder.enable_double_precision)
-            )
+            edges_result.type = ir.TensorType(numpy_dtype_to_ir(edge_dtype))
         if getattr(edges_spec, "shape", None) is not None:
             edges_result.shape = edges_spec.shape
         else:

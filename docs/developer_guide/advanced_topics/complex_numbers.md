@@ -17,7 +17,8 @@ To stay portable across runtimes we represent every complex tensor as a real ten
 | Helper | Purpose |
 | --- | --- |
 | `ensure_complex_dtype(ctx, value, target_dtype)` | Cast native complex tensors between `COMPLEX64` and `COMPLEX128` when a lowering needs an exact complex dtype. |
-| `pack_native_complex(ctx, tensor)` | Reinterpret a native `complex64/complex128` value as a packed real tensor (`[..., 2]`). Handles double-precision upgrades automatically when `enable_double_precision=True`. |
+| `pack_native_complex(ctx, tensor)` | Represent a native complex value as a packed real tensor (`[..., 2]`): `complex64` uses `FLOAT`, and `complex128` uses `DOUBLE`. |
+| `pack_known_real(ctx, value, component_dtype, *, name_hint)` | Convert a known-real value to the requested component width and pack it with a typed positive-zero imaginary component. |
 | `is_packed_complex_tensor(value)` | Detect whether a value already uses the packed representation. |
 | `ensure_packed_real_pair(ctx, value, *, name_hint)` | Return `(packed_tensor, base_dtype)` for both native complex inputs and already-packed tensors. Raises if the value is neither. |
 | `cast_real_tensor(ctx, value, target_dtype, *, name_hint)` | Insert a `Cast` when the packed tensor must move between `FLOAT` and `DOUBLE` representations. |
@@ -29,6 +30,15 @@ To stay portable across runtimes we represent every complex tensor as a real ten
 | `unpack_to_native_complex(...)` | Convert a packed tensor back to a native complex value (used rarely, e.g. when handing results back to JAX in test harnesses). |
 
 These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookkeeping so individual plugins only need to express the real-valued arithmetic. New complex-aware plugins should rely on them instead of ad hoc `Gather` / `Reshape` sequences so every lowering shares the same representation.
+
+The source computation determines the complex width. Enabling JAX x64 permits
+`complex128` but does not widen explicit `complex64` values. Prepare typed inputs
+and model operations accordingly; packing preserves that choice. Any casts
+needed by a consumer must leave shared values and constant payloads intact.
+Complex constants receive their packed payload, component dtype and shape
+together when bound in the IR; constant folding retains the original complex
+source array. A real tensor ending in dimension 2 is still real: use the source
+aval to decide whether packing is required.
 
 ## Supported operations
 
@@ -60,7 +70,20 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
   - Each of the four real-valued paths runs through the existing Conv lowering (after layout canonicalisation). Outputs are optionally transposed back to the requested layout and re-packed with `pack_real_imag_pair`.
 
 - **Conjugation** (`jax.lax.conj`, `jnp.conj`):
-  - Normalise packed/native complex inputs with `ensure_packed_real_pair`, call `conjugate_packed_tensor` to negate the imaginary channel, and return the packed output. Real inputs bypass through an `Identity`.
+  - Complex inputs use `conjugate_packed_tensor` to negate the imaginary channel.
+    When the source result is complex for a real input, `pack_known_real`
+    supplies the positive-zero imaginary component.
+
+- **Explicit conversion** (`lax.convert_element_type`, `astype`):
+  - Real-to-complex conversion packs the requested component width;
+    complex-to-complex conversion casts both components. Complex-to-real
+    conversion projects the real component before the requested conversion.
+
+- **Complex exponential** (`lax.exp`, `jnp.exp`):
+  - Both APIs share `exp(real) * (cos(imag) + i*sin(imag))` in the source
+    component dtype. DOUBLE reuses the existing real Cos runtime adaptation.
+    Numerical qualification covers the finite RoPE witnesses; other complex
+    numerical domains require separate qualification.
 
 - **Complex-valued outputs** (`lax.linalg.eig`, `jnp.roots`):
   - Plugins that naturally produce complex results should emit the same packed
@@ -85,6 +108,8 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
 - Not every JAX primitive that accepts complex inputs has a complex-aware
   lowering. Several linear-algebra paths still reject complex inputs explicitly;
   add support case by case using the same packed-real recipe.
+- Complex Gather fill values currently need identical real/imaginary component
+  bits. Unequal components receive an explicit unsupported diagnostic.
 - `IRFFT` needs static onesided length information. If a new frontend path hides
   that length, add metadata/tests before claiming coverage.
 - Convolution transpose / deconvolution paths should reuse the same four-real

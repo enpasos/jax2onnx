@@ -91,9 +91,6 @@ class IRBuilderAPI(Protocol):
     def opset(self) -> int: ...
 
     @property
-    def enable_double_precision(self) -> bool: ...
-
-    @property
     def graph(self) -> ir.Graph: ...
 
     @property
@@ -216,9 +213,6 @@ class NativeLoweringContext(SymbolicDimTracker, Protocol):
     def opset(self) -> int: ...
 
     @property
-    def enable_double_precision(self) -> bool: ...
-
-    @property
     def normalization_mode(self) -> str: ...
 
     def fresh_name(self, base: str) -> str: ...
@@ -233,8 +227,6 @@ class NativeLoweringContext(SymbolicDimTracker, Protocol):
     def require_value_for_var(
         self,
         var: object,
-        *,
-        prefer_np_dtype: np.dtype[Any] | None = None,
     ) -> ir.Value: ...
 
     def lookup_value_for_var(self, var: object) -> ir.Value | None: ...
@@ -244,7 +236,6 @@ class NativeLoweringContext(SymbolicDimTracker, Protocol):
         var: object,
         *,
         name_hint: str | None = None,
-        prefer_np_dtype: np.dtype[Any] | None = None,
     ) -> ir.Value: ...
 
     def bind_value_for_var(self, var: object, value: ir.Value) -> None: ...
@@ -328,7 +319,6 @@ class ConverterContext(NativeLoweringContext, Protocol):
         var: object,
         *,
         name_hint: str | None = None,
-        prefer_np_dtype: np.dtype[Any] | None = None,
     ) -> ir.Value: ...
 
     def ensure_external_flag(self, name: str, var: object | None) -> ir.Value: ...

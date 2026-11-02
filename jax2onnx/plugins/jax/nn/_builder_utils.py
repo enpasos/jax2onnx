@@ -12,7 +12,6 @@ from jax2onnx._compat.jax import (
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
-from jax2onnx.plugins._precision_utils import promote_float32_operand
 
 
 def lower_unary_elementwise(
@@ -31,13 +30,6 @@ def lower_unary_elementwise(
     ctx.fresh_name(input_hint)
     x_val = ctx.require_value_for_var(x_var)
     out_spec = ctx.allocate_value_for_var(y_var, name_hint=ctx.fresh_name(output_hint))
-    x_val = promote_float32_operand(
-        ctx,
-        x_val,
-        target_dtype=out_spec.dtype,
-        name_hint=f"{output_hint}_input_double",
-    )
-
     desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(output_hint)
     producer = getattr(out_spec, "producer", None)
     if callable(producer) and producer() is not None:

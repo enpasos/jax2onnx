@@ -13,18 +13,19 @@ from jax2onnx._compat.jax import (
 )
 import jax.numpy as jnp
 import numpy as np
-import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
     get_orig_impl,
     jnp_binding_specs,
     make_jnp_primitive,
+    promoted_dtype_via_jax,
 )
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -93,8 +94,8 @@ class JnpLessPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(x: AbstractValue, y: AbstractValue) -> ShapedArray:
-        out_shape = tuple(jnp.broadcast_shapes(x.shape, y.shape))
-        return ShapedArray(out_shape, np.dtype(np.bool_))
+        original = get_orig_impl(JnpLessPlugin._PRIM, JnpLessPlugin._FUNC_NAME)
+        return abstract_eval_via_jax(original, x, y)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
@@ -108,52 +109,21 @@ class JnpLessPlugin(PrimitiveLeafPlugin):
             rhs_var,
             name_hint=ctx.fresh_name("jnp_less_rhs"),
         )
-        out_spec = ctx.get_value_for_var(
+        out_spec = ctx.allocate_value_for_var(
             out_var,
             name_hint=ctx.fresh_name("jnp_less_out"),
         )
 
-        lhs_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(lhs_var, "aval", None), "dtype", np.float32)
+        target_ir = numpy_dtype_to_ir(
+            promoted_dtype_via_jax(lhs_var.aval, rhs_var.aval)
         )
-        rhs_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(rhs_var, "aval", None), "dtype", np.float32)
+        lhs_cmp = cast_value_to_dtype(
+            ctx, lhs_val, target_ir, name_hint="jnp_less_lhs_cast"
         )
-        target_dtype: np.dtype[Any] = np.promote_types(lhs_dtype, rhs_dtype)
-        target_ir = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-
-        lhs_cmp = lhs_val
-        if lhs_dtype != target_dtype:
-            lhs_cmp = ctx.builder.Cast(
-                lhs_val,
-                _outputs=[ctx.fresh_name("jnp_less_lhs_cast")],
-                to=int(target_ir.value),
-            )
-            lhs_cmp.type = ir.TensorType(target_ir)
-            lhs_cmp.shape = lhs_val.shape
-            _ensure_value_metadata(ctx, lhs_cmp)
-
-        rhs_cmp = rhs_val
-        if rhs_dtype != target_dtype:
-            rhs_cmp = ctx.builder.Cast(
-                rhs_val,
-                _outputs=[ctx.fresh_name("jnp_less_rhs_cast")],
-                to=int(target_ir.value),
-            )
-            rhs_cmp.type = ir.TensorType(target_ir)
-            rhs_cmp.shape = rhs_val.shape
-            _ensure_value_metadata(ctx, rhs_cmp)
-
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("jnp_less_out")
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("jnp_less_out")
-
-        result = ctx.builder.Less(lhs_cmp, rhs_cmp, _outputs=[desired_name])
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
+        rhs_cmp = cast_value_to_dtype(
+            ctx, rhs_val, target_ir, name_hint="jnp_less_rhs_cast"
+        )
+        result = ctx.builder.op("Less", [lhs_cmp, rhs_cmp], output=out_spec)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

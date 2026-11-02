@@ -45,28 +45,30 @@ def _loopy_two_adds(y):
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
 def test_model_has_no_duplicate_shape_helpers(dtype):
-    ort = pytest.importorskip("onnxruntime")
+    with jax.enable_x64(dtype == jnp.float64):
+        ort = pytest.importorskip("onnxruntime")
 
-    spec = jax.ShapeDtypeStruct(("B", 4), dtype)
-    model = to_onnx(
-        _loopy_two_adds,
-        inputs=[spec],
-        enable_double_precision=(dtype == jnp.float64),
-        opset=21,
-        model_name="ssa_no_dupe_shape_helpers",
-    )
+        spec = jax.ShapeDtypeStruct(("B", 4), dtype)
+        model = to_onnx(
+            _loopy_two_adds,
+            inputs=[spec],
+            opset=21,
+            model_name="ssa_no_dupe_shape_helpers",
+        )
 
-    outs = _all_node_outputs_recursive(model.graph)
-    dupes = [
-        n
-        for n, c in collections.Counter(outs).items()
-        if c > 1 and n.endswith("__shape")
-    ]
-    assert not dupes, f"Duplicate '*__shape' helpers detected: {dupes}"
+        outs = _all_node_outputs_recursive(model.graph)
+        dupes = [
+            n
+            for n, c in collections.Counter(outs).items()
+            if c > 1 and n.endswith("__shape")
+        ]
+        assert not dupes, f"Duplicate '*__shape' helpers detected: {dupes}"
 
-    sess = ort.InferenceSession(
-        model.SerializeToString(), providers=["CPUExecutionProvider"]
-    )
-    B = 3
-    x = np.random.randn(B, 4).astype(np.float32 if dtype == jnp.float32 else np.float64)
-    sess.run(None, {sess.get_inputs()[0].name: x})
+        sess = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        B = 3
+        x = np.random.randn(B, 4).astype(
+            np.float32 if dtype == jnp.float32 else np.float64
+        )
+        sess.run(None, {sess.get_inputs()[0].name: x})

@@ -40,7 +40,6 @@ def _convert_add_one() -> object:
         input_params=None,
         model_name="conversion_guardrail",
         opset=21,
-        enable_double_precision=False,
         record_primitive_calls_file=None,
     )
 
@@ -125,7 +124,7 @@ def test_nested_lowering_source_labels_missing_plugin_errors() -> None:
     ).jaxpr
     eqn = jaxpr.eqns[0].replace(primitive=Primitive("missing_nested_primitive"))
     jaxpr = jaxpr.replace(eqns=[eqn])
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     ctx.add_input_for_invar(jaxpr.invars[0], 0)
 
     with pytest.raises(
@@ -143,7 +142,7 @@ def test_nested_lowering_dispatches_function_plugins(monkeypatch) -> None:
         primitive=Primitive("function_style_nested"), params={"marker": "nested"}
     )
     jaxpr = jaxpr.replace(eqns=[eqn])
-    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx = IRContext(opset=21, input_specs=[])
     ctx.add_input_for_invar(jaxpr.invars[0], 0)
     input_value = ctx.builder.inputs[0]
     monkeypatch.setitem(

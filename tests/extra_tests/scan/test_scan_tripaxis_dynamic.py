@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 from jax import lax
 import onnx
@@ -34,25 +35,25 @@ def _two_scans_len_mismatch():
 
 
 @pytest.mark.order(-1)
-@pytest.mark.parametrize("enable_double_precision", [False])
-def test_tripaxis_is_dynamic(tmp_path, enable_double_precision):
-    ort = pytest.importorskip("onnxruntime")
+@pytest.mark.parametrize("enable_x64", [False])
+def test_tripaxis_is_dynamic(tmp_path, enable_x64):
+    with jax.enable_x64(enable_x64):
+        ort = pytest.importorskip("onnxruntime")
 
-    path = tmp_path / "two_scans_dynamic.onnx"
-    model = to_onnx(
-        _two_scans_len_mismatch,
-        [],
-        model_name="two_scans_dynamic",
-        enable_double_precision=enable_double_precision,
-    )
-    onnx.save_model(model, path)
+        path = tmp_path / "two_scans_dynamic.onnx"
+        model = to_onnx(
+            _two_scans_len_mismatch,
+            [],
+            model_name="two_scans_dynamic",
+        )
+        onnx.save_model(model, path)
 
-    onnx.checker.check_model(model)
-    ort.InferenceSession(str(path))
+        onnx.checker.check_model(model)
+        ort.InferenceSession(str(path))
 
-    for vi in model.graph.value_info:
-        if vi.name.startswith("scan_unused_output"):
-            first_dim = vi.type.tensor_type.shape.dim[0]
-            assert not first_dim.HasField(
-                "dim_value"
-            ), f"{vi.name} trip-axis is unexpectedly static"
+        for vi in model.graph.value_info:
+            if vi.name.startswith("scan_unused_output"):
+                first_dim = vi.type.tensor_type.shape.dim[0]
+                assert not first_dim.HasField(
+                    "dim_value"
+                ), f"{vi.name} trip-axis is unexpectedly static"

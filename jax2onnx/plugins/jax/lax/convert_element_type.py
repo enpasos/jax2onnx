@@ -9,8 +9,17 @@ import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.plugins._complex_utils import (
+    COMPLEX_DTYPES,
+    _base_dtype_for_complex,
+    ensure_packed_real_pair,
+    pack_known_real,
+    split_packed_real_imag,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._loop_extent_meta import propagate_axis0_override
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -91,20 +100,7 @@ class ConvertElementTypePlugin(PrimitiveLeafPlugin):
 
         def scalar(value: int) -> ir.Value:
             array = np.asarray(value, dtype=compute_dtype.numpy())
-            constant = ctx.bind_const_for_var(object(), array)
-            if constant.dtype == compute_dtype:
-                return constant
-            # Legacy double export promotes floating constants, including
-            # bounds for FLOAT16 and explicit FLOAT operands. An explicit
-            # Cast survives postprocessing, unlike retyping the constant.
-            output = ir.Value(
-                name=ctx.fresh_name("convert_bound"),
-                type=ir.TensorType(compute_dtype),
-                shape=constant.shape,
-            )
-            return ctx.builder.op(
-                "Cast", [constant], {"to": int(compute_dtype.value)}, output=output
-            )
+            return ctx.bind_const_for_var(object(), array)
 
         is_nan = ctx.builder.op(
             "IsNaN",
@@ -142,12 +138,40 @@ class ConvertElementTypePlugin(PrimitiveLeafPlugin):
         operand_val = ctx.get_value_for_var(
             operand_var, name_hint=ctx.fresh_name("convert_in")
         )
+        source_val = operand_val
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("convert_out")
         )
 
         target_dtype = numpy_dtype_to_ir(np.dtype(out_var.aval.dtype))
         source_dtype = np.dtype(operand_var.aval.dtype)
+        source_is_complex = np.issubdtype(source_dtype, np.complexfloating)
+        if target_dtype in COMPLEX_DTYPES:
+            component_dtype = _base_dtype_for_complex(target_dtype)
+            if source_is_complex:
+                packed, _ = ensure_packed_real_pair(
+                    ctx, operand_val, name_hint="convert_complex"
+                )
+                result = cast_value_to_dtype(
+                    ctx, packed, component_dtype, name_hint="convert_components"
+                )
+            else:
+                result = pack_known_real(
+                    ctx, operand_val, component_dtype, name_hint="convert_real"
+                )
+            propagate_axis0_override(source_val, result)
+            _ensure_value_metadata(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
+
+        if source_is_complex:
+            packed, component_dtype = ensure_packed_real_pair(
+                ctx, operand_val, name_hint="convert_complex"
+            )
+            operand_val, _ = split_packed_real_imag(
+                ctx, packed, component_dtype, prefix="convert_real"
+            )
+            source_dtype = np.dtype(component_dtype.numpy())
         if target_dtype in {ir.DataType.INT8, ir.DataType.UINT8} and (
             np.issubdtype(source_dtype, np.floating) or source_dtype.name == "bfloat16"
         ):
@@ -169,5 +193,6 @@ class ConvertElementTypePlugin(PrimitiveLeafPlugin):
         result.type = ir.TensorType(target_dtype)
         result.shape = operand_val.shape
         _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+        propagate_axis0_override(source_val, result)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
