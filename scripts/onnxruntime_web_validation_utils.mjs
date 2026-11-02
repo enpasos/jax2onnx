@@ -69,13 +69,12 @@ export function makeTensor(ort, spec) {
 function comparableData(type, data) {
   switch (type) {
     case "float16":
-      if (
-        typeof globalThis.Float16Array === "function" &&
-        data instanceof globalThis.Float16Array
-      ) {
-        return Array.from(data, Number);
-      }
-      return Array.from(data, float16BitsToNumber);
+      // ONNX Runtime returns Float16Array where supported, and Uint16Array
+      // elsewhere. Read raw bits so native numeric values are not decoded twice.
+      return Array.from(
+        new Uint16Array(data.buffer, data.byteOffset, data.byteLength / 2),
+        float16BitsToNumber,
+      );
     case "float32":
     case "float64":
       return Array.from(data, Number);
