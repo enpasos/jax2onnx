@@ -556,6 +556,23 @@ jobs:
         poetry run python -B scripts/replay_source_cast_failure.py \
           --receipts-dir "$RUNNER_TEMP/jax2onnx-pytest-batches"
 
+    - name: Export bounded full-suite accounting
+      if: always()
+      timeout-minutes: 3
+      run: |
+        python -B scripts/run_pytest_batches.py \
+          --export-full-accounting "$RUNNER_TEMP/jax2onnx-pytest-batches" \
+          --output-dir "$RUNNER_TEMP/full-pytest-accounting"
+
+    - name: Upload bounded full-suite accounting
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: pytest-accounting-python-${{ matrix.python-version }}
+        path: ${{ runner.temp }}/full-pytest-accounting/
+        retention-days: 14
+        if-no-files-found: error
+
     - name: Upload bounded native TopK capture
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

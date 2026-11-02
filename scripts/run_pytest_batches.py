@@ -25,6 +25,7 @@ import stat
 import subprocess
 import sys
 import sysconfig
+import tarfile
 import tempfile
 import threading
 import time
@@ -51,6 +52,9 @@ _CONTROL_SCHEMA = "source-cast-observer-off-v1"
 # Complete collection inventories grow with C, independently of the assigned S.
 # Match the existing native transport and restored receipt tar-member ceiling.
 _NATIVE_RECEIPT_LIMIT = 64 * 1024**2
+_FULL_ACCOUNTING_ARCHIVE_LIMIT = 64 * 1024**2
+_FULL_ACCOUNTING_INDEX_LIMIT = 1024**2
+_FULL_ACCOUNTING_TIMEOUT_SECONDS = 120
 _REQUEST_FIELDS = (
     "kind",
     "assigned",
@@ -1419,6 +1423,287 @@ def _worker(request_path: Path) -> int:
     return result
 
 
+def _export_full_accounting(root: Path, output: Path) -> int:
+    """Package only original accounting files; never relabel the original run."""
+    root = root.absolute()
+    output = output.absolute()
+    if (
+        root.is_symlink()
+        or output.parent.resolve() != root.parent.resolve()
+        or output.name == root.name
+        or output.exists()
+        or output.is_symlink()
+    ):
+        print(
+            "Full accounting export needs a fresh sibling output directory",
+            file=sys.stderr,
+        )
+        return 1
+    output.mkdir()
+    archive = output / "accounting.tar.gz"
+    index: dict[str, Any] = {
+        "schema": "jax2onnx-full-accounting-export-v1",
+        "export_status": "INCOMPLETE",
+        "original_run_status": "UNAVAILABLE",
+        "scope": "Original accounting bytes only; no model payload or acceptance replacement",
+        "limits": {
+            "compressed_bytes": _FULL_ACCOUNTING_ARCHIVE_LIMIT,
+            "member_bytes": _NATIVE_RECEIPT_LIMIT,
+            "index_bytes": _FULL_ACCOUNTING_INDEX_LIMIT,
+            "timeout_seconds": _FULL_ACCOUNTING_TIMEOUT_SECONDS,
+        },
+        "files": [],
+        "absent": [],
+        "errors": [],
+        "raw_bytes": 0,
+        "compressed_bytes": 0,
+        "per_kind": {},
+    }
+    deadline = time.monotonic() + _FULL_ACCOUNTING_TIMEOUT_SECONDS
+    root_fd = None
+    members: list[tuple[str, tuple[int, ...]]] = []
+    inspected: dict[str, tuple[tuple[int, ...], str]] = {}
+
+    def check_time() -> None:
+        if time.monotonic() >= deadline:
+            raise ValueError("accounting export deadline exceeded")
+
+    def fingerprint(value: os.stat_result) -> tuple[int, ...]:
+        return (
+            value.st_dev,
+            value.st_ino,
+            value.st_size,
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+            value.st_mode,
+            value.st_nlink,
+        )
+
+    def open_member(relative: str) -> tuple[Any, os.stat_result]:
+        check_time()
+        assert root_fd is not None
+        parts = relative.split("/")
+        directory = os.dup(root_fd)
+        try:
+            if len(parts) == 2:
+                child = os.open(
+                    parts[0],
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory,
+                )
+                os.close(directory)
+                directory = child
+            descriptor = os.open(
+                parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+            )
+        except OSError as error:
+            raise OSError(error.errno, error.strerror, relative) from error
+        finally:
+            os.close(directory)
+        stream = os.fdopen(descriptor, "rb")
+        value = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(value.st_mode)
+            or value.st_nlink != 1
+            or value.st_size > _NATIVE_RECEIPT_LIMIT
+        ):
+            stream.close()
+            raise ValueError(f"unsafe or oversized accounting member: {relative}")
+        return stream, value
+
+    def read_json(relative: str) -> dict[str, Any]:
+        with open_member(relative)[0] as stream:
+            before = fingerprint(os.fstat(stream.fileno()))
+            payload = stream.read(_NATIVE_RECEIPT_LIMIT + 1)
+            check_time()
+            if (
+                len(payload) != before[2]
+                or fingerprint(os.fstat(stream.fileno())) != before
+            ):
+                raise ValueError(f"accounting member changed: {relative}")
+        value = json.loads(payload)
+        if type(value) is not dict:
+            raise ValueError(f"accounting JSON is not an object: {relative}")
+        inspected[relative] = (before, hashlib.sha256(payload).hexdigest())
+        return value
+
+    def select(relative: str, required: bool) -> None:
+        try:
+            with open_member(relative)[0] as stream:
+                before = fingerprint(os.fstat(stream.fileno()))
+            if relative in inspected and before != inspected[relative][0]:
+                raise ValueError(f"accounting member changed: {relative}")
+            members.append((relative, before))
+        except FileNotFoundError:
+            index["absent"].append({"path": relative, "required": required})
+            if required:
+                index["errors"].append(f"missing accounting member: {relative}")
+        except (OSError, ValueError) as error:
+            index["errors"].append(str(error))
+
+    try:
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        run = read_json("run.json")
+        if run.get("status") not in {"PASS", "FAIL", "RUNNING"}:
+            raise ValueError("invalid original run status")
+        index["original_run_status"] = run["status"]
+        processes = run.get("processes")
+        if type(processes) is not list or len(processes) > 1024:
+            raise ValueError("invalid or oversized original process inventory")
+        folders: list[str] = []
+        for event in processes:
+            folder = event.get("folder") if type(event) is dict else None
+            if (
+                type(folder) is not str
+                or re.fullmatch(
+                    r"collection|global-collection|batch-[0-9]{4,8}", folder
+                )
+                is None
+                or folder in folders
+                or event.get("kind") not in {"collection", "batch"}
+                or folder.startswith("batch-") != (event.get("kind") == "batch")
+            ):
+                raise ValueError("invalid original process folder/kind inventory")
+            folders.append(folder)
+            if (
+                event.get("returncode") is None
+                or not event.get("finished")
+                or event.get("output_complete") is not True
+            ):
+                index["errors"].append(f"original worker is not closed: {folder}")
+        if run["status"] == "RUNNING":
+            index["errors"].append("original run is partial/RUNNING")
+        select("run.json", True)
+        for event in processes:
+            folder = event["folder"]
+            request = read_json(f"{folder}/request.json")
+            receipt = read_json(f"{folder}/receipt.json")
+            if (
+                request.get("kind") != event["kind"]
+                or receipt.get("kind") != event["kind"]
+            ):
+                raise ValueError(f"original worker kind differs: {folder}")
+            options = request.get("pytest_args")
+            if type(options) is not list or any(
+                type(value) is not str for value in options
+            ):
+                raise ValueError(f"invalid original worker pytest arguments: {folder}")
+            authority = _ci_lane_worker_authority(options)
+            closed = (
+                bool(receipt.get("finished")) and type(receipt.get("exitstatus")) is int
+            )
+            if not closed:
+                index["errors"].append(
+                    f"original worker receipt is not closed: {folder}"
+                )
+            for name in ("request.json", "receipt.json", "output.log"):
+                select(f"{folder}/{name}", True)
+            select(f"{folder}/junit.xml", closed)
+            events_expected = any(
+                receipt.get(name)
+                for name in (
+                    "phases",
+                    "collection_reports",
+                    "collection_errors",
+                    "collection_skips",
+                )
+            )
+            select(f"{folder}/events.jsonl", bool(events_expected))
+            if authority is not None:
+                select(f"{folder}/lane-terminal.json", closed)
+
+        class CompressedOutput:
+            def write(self, payload: bytes) -> int:
+                check_time()
+                if (
+                    index["compressed_bytes"] + len(payload)
+                    > _FULL_ACCOUNTING_ARCHIVE_LIMIT
+                ):
+                    raise ValueError("compressed accounting archive exceeds quota")
+                count = destination.write(payload)
+                if count != len(payload):
+                    raise OSError("short accounting archive write")
+                index["compressed_bytes"] += count
+                compressed_hash.update(payload)
+                return count
+
+        class OriginalMember:
+            def read(self, size: int) -> bytes:
+                check_time()
+                payload = original.read(size)
+                check_time()
+                digest.update(payload)
+                return payload
+
+        compressed_hash = hashlib.sha256()
+        with archive.open("xb") as destination:
+            compressed_output: Any = CompressedOutput()
+            with tarfile.open(fileobj=compressed_output, mode="w|gz") as packed:
+                for relative, before in members:
+                    with open_member(relative)[0] as original:
+                        if fingerprint(os.fstat(original.fileno())) != before:
+                            raise ValueError(f"accounting member changed: {relative}")
+                        info = tarfile.TarInfo(relative)
+                        info.size, info.mode, info.mtime = (
+                            before[2],
+                            stat.S_IMODE(before[5]),
+                            0,
+                        )
+                        digest = hashlib.sha256()
+                        original_member: Any = OriginalMember()
+                        packed.addfile(info, original_member)
+                        if fingerprint(os.fstat(original.fileno())) != before:
+                            raise ValueError(f"accounting member changed: {relative}")
+                    if (
+                        relative in inspected
+                        and digest.hexdigest() != inspected[relative][1]
+                    ):
+                        raise ValueError(f"accounting JSON changed: {relative}")
+                    kind = relative.rsplit("/", 1)[-1]
+                    index["files"].append(
+                        {
+                            "path": relative,
+                            "bytes": before[2],
+                            "sha256": digest.hexdigest(),
+                            "kind": kind,
+                        }
+                    )
+                    index["raw_bytes"] += before[2]
+                    totals = index["per_kind"].setdefault(
+                        kind, {"files": 0, "raw_bytes": 0}
+                    )
+                    totals["files"] += 1
+                    totals["raw_bytes"] += before[2]
+        for relative, before in members:
+            with open_member(relative)[0] as original:
+                if fingerprint(os.fstat(original.fileno())) != before:
+                    raise ValueError(
+                        f"accounting member changed after export: {relative}"
+                    )
+        check_time()
+        index["archive_sha256"] = compressed_hash.hexdigest()
+        index["export_status"] = "INCOMPLETE" if index["errors"] else "COMPLETE"
+    except (OSError, ValueError, TypeError, tarfile.TarError) as error:
+        index["errors"].append(str(error))
+        archive.unlink(missing_ok=True)
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+    payload = json.dumps(index, indent=2, sort_keys=True).encode() + b"\n"
+    if len(payload) > _FULL_ACCOUNTING_INDEX_LIMIT:
+        archive.unlink(missing_ok=True)
+        index = {
+            "schema": index["schema"],
+            "export_status": "INCOMPLETE",
+            "original_run_status": index["original_run_status"],
+            "errors": ["accounting index exceeds quota; no archive retained"],
+        }
+        payload = json.dumps(index, sort_keys=True).encode() + b"\n"
+    (output / "index.json").write_bytes(payload)
+    print(f"Full accounting export: {index['export_status']}", flush=True)
+    return 0 if index["export_status"] == "COMPLETE" else 1
+
+
 def _primary_results(root: Path, run: dict[str, Any]) -> None:
     """Retain small original files before the workflow packs bulk failure data."""
     selected = []
@@ -2208,6 +2493,7 @@ def _ci_join_standard_parts(
 
 def _main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--export-full-accounting", type=Path)
     parser.add_argument("--ci-standard-part", choices=("a", "b"))
     parser.add_argument("--ci-join-standard-parts", nargs=2, type=Path)
     parser.add_argument("--ci-standard-profile", type=Path)
@@ -2232,6 +2518,26 @@ def _main() -> int:
     )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.export_full_accounting is not None:
+        if (
+            args.output_dir is None
+            or args.ci_standard_part
+            or args.ci_join_standard_parts
+            or args.ci_standard_profile
+            or args.ci_job_observations
+            or args.ci_lane
+            or args.ci_extra_scope
+            or args.ci_main_baseline
+            or args.ci_campaign_contract
+            or args._ci_provision_campaign
+            or args.pytest_args
+            or args.test_path
+            or args.batch_size != _MAX_BATCH_SIZE
+        ):
+            parser.error(
+                "full accounting export needs only an input run and sibling output"
+            )
+        return _export_full_accounting(args.export_full_accounting, args.output_dir)
     if args.ci_join_standard_parts:
         if (
             not args.output_dir

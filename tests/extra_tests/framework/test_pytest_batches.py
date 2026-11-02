@@ -5405,3 +5405,372 @@ def test_real_complete_support_extra_keeps_authority_and_native_failures_closed(
             "source" in run["failure"]["message"]
             or "bytes" in run["failure"]["message"]
         )
+
+
+def _full_accounting_fixture(tmp_path, module, *, status="PASS", canonical=False):
+    root = tmp_path / "full"
+    root.mkdir()
+    ids = ["test_cases.py::test_one", "test_cases.py::test_two"]
+    processes = []
+    options = (
+        [
+            f"{name}={value}"
+            for name, value in zip(
+                module._CI_PRIVATE_OPTIONS,
+                ("standard", "/original/main.json", "0" * 64),
+                strict=True,
+            )
+        ]
+        if canonical
+        else []
+    )
+    for folder, assigned in (
+        ("collection", []),
+        ("batch-0001", ids[:1]),
+        ("batch-0002", ids[1:]),
+    ):
+        directory = root / folder
+        directory.mkdir()
+        kind = "collection" if folder == "collection" else "batch"
+        failed = status == "FAIL" and folder == "batch-0002"
+        request = {
+            "kind": kind,
+            "pytest_args": options
+            + (["--collect-only"] if kind == "collection" else []),
+        }
+        if kind == "batch":
+            request.update(
+                assigned=assigned, full_preselection_ids=ids, collection_skips=[]
+            )
+        phases = {
+            nodeid: [
+                {
+                    "when": when,
+                    "outcome": "failed" if failed and when == "call" else "passed",
+                }
+                for when in ("setup", "call", "teardown")
+            ]
+            for nodeid in assigned
+        }
+        receipt = {
+            "kind": kind,
+            "started": "2026-11-02T00:00:00+00:00",
+            "finished": "2026-11-02T00:00:01+00:00",
+            "exitstatus": int(failed),
+            "items": [
+                {"nodeid": n} for n in (ids if kind == "collection" else assigned)
+            ],
+            "full_preselection_ids": ids,
+            "phases": phases,
+            "completed": assigned,
+            "collection_errors": [],
+            "collection_skips": [],
+        }
+        for name, data in (("request.json", request), ("receipt.json", receipt)):
+            (directory / name).write_text(json.dumps(data) + "\n")
+        (directory / "output.log").write_text(f"original {folder} stdout\n")
+        cases = "".join(
+            f'<testcase classname="test_cases" name="{nodeid.split("::")[1]}">'
+            + ("<failure>original failure</failure>" if failed else "")
+            + "</testcase>"
+            for nodeid in assigned
+        )
+        (directory / "junit.xml").write_text(
+            f"<testsuites><testsuite>{cases}</testsuite></testsuites>"
+        )
+        if phases:
+            (directory / "events.jsonl").write_text(
+                "".join(
+                    json.dumps({"kind": "phase", "nodeid": nodeid, **phase}) + "\n"
+                    for nodeid, reports in phases.items()
+                    for phase in reports
+                )
+            )
+        if canonical:
+            (directory / "lane-terminal.json").write_text(
+                json.dumps(
+                    {
+                        "request_sha256": hashlib.sha256(
+                            (directory / "request.json").read_bytes()
+                        ).hexdigest(),
+                        "receipt_sha256": hashlib.sha256(
+                            (directory / "receipt.json").read_bytes()
+                        ).hexdigest(),
+                        "manifest_sha256": "0" * 64,
+                        "exitstatus": int(failed),
+                    }
+                )
+                + "\n"
+            )
+        processes.append(
+            {
+                "kind": kind,
+                "folder": folder,
+                "returncode": int(failed),
+                "started": "2026-11-02T00:00:00+00:00",
+                "finished": "2026-11-02T00:00:01+00:00",
+                "output_complete": True,
+            }
+        )
+    (root / "run.json").write_text(
+        json.dumps(
+            {
+                "status": status,
+                "processes": processes,
+                "nodeids": ids,
+                "batches": [[ids[0]], [ids[1]]],
+                "completed": ids if status == "PASS" else ids[:1],
+                "finished": "2026-11-02T00:00:02+00:00",
+            }
+        )
+        + "\n"
+    )
+    return root
+
+
+@pytest.mark.parametrize("status,canonical", [("PASS", False), ("FAIL", True)])
+def test_full_accounting_export_preserves_original_complete_and_failed_bytes(
+    tmp_path, status, canonical
+):
+    import tarfile
+
+    module = _runner()
+    root = _full_accounting_fixture(
+        tmp_path, module, status=status, canonical=canonical
+    )
+    for relative in ("batch-0001/model.onnx", "batch-0002/outputs.npz"):
+        (root / relative).write_bytes(b"not accounting" * 65536)
+    misleading = root / "batch-0001/nested/receipt.json"
+    misleading.parent.mkdir()
+    misleading.write_text("this is deliberately not JSON")
+    (root / "unrecorded").mkdir()
+    (root / "unrecorded/receipt.json").write_text("must not be discovered")
+    before = {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in root.rglob("*")
+        if p.is_file()
+    }
+    output = tmp_path / "accounting"
+    assert module._export_full_accounting(root, output) == 0
+    index = json.loads((output / "index.json").read_text())
+    assert (
+        index["export_status"] == "COMPLETE" and index["original_run_status"] == status
+    )
+    expected = {"run.json"}
+    for event in json.loads(before["run.json"])["processes"]:
+        folder = event["folder"]
+        expected.update(
+            f"{folder}/{name}"
+            for name in ("request.json", "receipt.json", "output.log", "junit.xml")
+        )
+        if event["kind"] == "batch":
+            expected.add(f"{folder}/events.jsonl")
+        if canonical:
+            expected.add(f"{folder}/lane-terminal.json")
+    with tarfile.open(output / "accounting.tar.gz", "r:gz") as packed:
+        assert set(packed.getnames()) == expected
+        for member in packed:
+            assert member.isfile()
+            stream = packed.extractfile(member)
+            assert stream is not None and stream.read() == before[member.name]
+    assert {entry["path"] for entry in index["files"]} == expected
+    assert all(
+        entry["sha256"] == hashlib.sha256(before[entry["path"]]).hexdigest()
+        for entry in index["files"]
+    )
+    assert index["raw_bytes"] == sum(len(before[name]) for name in expected)
+    assert (
+        sum(value["raw_bytes"] for value in index["per_kind"].values())
+        == index["raw_bytes"]
+    )
+    compressed = (output / "accounting.tar.gz").read_bytes()
+    assert index["compressed_bytes"] == len(compressed)
+    assert index["archive_sha256"] == hashlib.sha256(compressed).hexdigest()
+    assert {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in root.rglob("*")
+        if p.is_file()
+    } == before
+    absent = {entry["path"]: entry["required"] for entry in index["absent"]}
+    assert absent["collection/events.jsonl"] is False
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "partial",
+        "unfinished-receipt",
+        "oversize",
+        "compressed-quota",
+        "index-quota",
+        "symlink",
+        "changed",
+        "deadline",
+    ],
+)
+def test_full_accounting_export_fails_closed_with_a_bounded_index(
+    tmp_path, monkeypatch, fault
+):
+    module = _runner()
+    root = _full_accounting_fixture(tmp_path, module, status="FAIL")
+    output = tmp_path / "accounting"
+    if fault == "missing":
+        (root / "batch-0002/receipt.json").unlink()
+    elif fault == "partial":
+        run_path = root / "run.json"
+        run = json.loads(run_path.read_text())
+        run["processes"][-1].update(
+            returncode=None, finished=None, output_complete=False
+        )
+        run_path.write_text(json.dumps(run))
+        receipt_path = root / "batch-0002/receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        receipt.update(finished=None, exitstatus=None, completed=[])
+        for nodeid in receipt["phases"]:
+            receipt["phases"][nodeid] = [{"when": "setup", "outcome": "passed"}]
+        receipt_path.write_text(json.dumps(receipt))
+        (root / "batch-0002/junit.xml").unlink()
+    elif fault == "unfinished-receipt":
+        run = json.loads((root / "run.json").read_text())
+        assert run["processes"][-1]["returncode"] is not None
+        assert run["processes"][-1]["finished"]
+        assert run["processes"][-1]["output_complete"] is True
+        receipt_path = root / "batch-0002/receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        del receipt["finished"]
+        del receipt["exitstatus"]
+        receipt_path.write_text(json.dumps(receipt))
+        (root / "batch-0002/junit.xml").unlink()
+    elif fault == "oversize":
+        monkeypatch.setattr(module, "_NATIVE_RECEIPT_LIMIT", 4096)
+        (root / "batch-0002/output.log").write_bytes(b"x" * 4097)
+    elif fault == "compressed-quota":
+        monkeypatch.setattr(module, "_FULL_ACCOUNTING_ARCHIVE_LIMIT", 128)
+    elif fault == "index-quota":
+        monkeypatch.setattr(module, "_FULL_ACCOUNTING_INDEX_LIMIT", 256)
+    elif fault == "symlink":
+        external = tmp_path / "external-secret"
+        external.write_text("must not enter the archive")
+        (root / "batch-0002/output.log").unlink()
+        (root / "batch-0002/output.log").symlink_to(external)
+    elif fault == "changed":
+        original_add = module.tarfile.TarFile.addfile
+        changed = False
+
+        def addfile(*args, **kwargs):
+            nonlocal changed
+            if not changed:
+                (root / "batch-0002/events.jsonl").write_text(
+                    "changed after inventory\n"
+                )
+                changed = True
+            return original_add(*args, **kwargs)
+
+        monkeypatch.setattr(module.tarfile.TarFile, "addfile", addfile)
+    elif fault == "deadline":
+        calls = iter([0.0, 121.0])
+        monkeypatch.setattr(module.time, "monotonic", lambda: next(calls, 121.0))
+    assert module._export_full_accounting(root, output) == 1
+    payload = (output / "index.json").read_bytes()
+    assert len(payload) <= module._FULL_ACCOUNTING_INDEX_LIMIT
+    index = json.loads(payload)
+    assert index["export_status"] == "INCOMPLETE" and index["errors"]
+    if fault != "deadline":
+        assert index["original_run_status"] == "FAIL"
+    if fault in {"compressed-quota", "index-quota", "changed", "deadline"}:
+        assert not (output / "accounting.tar.gz").exists()
+    if fault in {"partial", "unfinished-receipt"}:
+        assert {"path": "batch-0002/junit.xml", "required": False} in index["absent"]
+    if fault == "unfinished-receipt":
+        import tarfile
+
+        assert "original worker receipt is not closed: batch-0002" in index["errors"]
+        with tarfile.open(output / "accounting.tar.gz", "r:gz") as packed:
+            for name in (
+                "run.json",
+                "batch-0002/request.json",
+                "batch-0002/receipt.json",
+                "batch-0002/output.log",
+            ):
+                assert packed.extractfile(name).read() == (root / name).read_bytes()
+    if fault in {"oversize", "symlink"}:
+        import tarfile
+
+        with tarfile.open(output / "accounting.tar.gz", "r:gz") as packed:
+            assert "batch-0002/output.log" not in packed.getnames()
+
+
+def test_full_accounting_export_cli_does_not_launch_workers_or_relabel_failure(
+    tmp_path, monkeypatch
+):
+    module = _runner()
+    root = _full_accounting_fixture(tmp_path, module, status="FAIL")
+    output = tmp_path / "accounting"
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("accounting export must not execute any worker")
+
+    monkeypatch.setattr(module, "_child", forbidden)
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            str(_RUNNER),
+            "--export-full-accounting",
+            str(root),
+            "--output-dir",
+            str(output),
+        ],
+    )
+    assert module._main() == 0
+    assert (
+        json.loads((output / "index.json").read_text())["original_run_status"] == "FAIL"
+    )
+
+
+def test_full_accounting_workflow_uploads_accounting_before_unchanged_bulk_and_topk():
+    import yaml
+
+    steps = yaml.safe_load(
+        (_RUNNER.parents[1] / ".github/workflows/ci.yml").read_text()
+    )["jobs"]["test"]["steps"]
+    named = {step.get("name"): step for step in steps}
+    order = [step.get("name") for step in steps]
+    pack = named["Export bounded full-suite accounting"]
+    upload = named["Upload bounded full-suite accounting"]
+    assert pack["if"] == upload["if"] == "always()"
+    assert pack["timeout-minutes"] == 3
+    assert (
+        '--export-full-accounting "$RUNNER_TEMP/jax2onnx-pytest-batches"' in pack["run"]
+    )
+    assert '--output-dir "$RUNNER_TEMP/full-pytest-accounting"' in pack["run"]
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert (
+        upload["with"]["path"] == chr(36) + "{{ runner.temp }}/full-pytest-accounting/"
+    )
+    assert (
+        order.index("Run full checks")
+        < order.index(pack["name"])
+        < order.index(upload["name"])
+    )
+    assert (
+        order.index(upload["name"])
+        < order.index("Upload bounded native TopK capture")
+        < order.index("Upload full-suite pytest receipts")
+    )
+    assert (
+        named["Upload full-suite pytest receipts"]["with"]["path"]
+        == chr(36) + "{{ runner.temp }}/jax2onnx-pytest-batches"
+    )
+    assert (
+        named["Upload bounded native TopK capture"]["with"]["path"]
+        == chr(36)
+        + "{{ runner.temp }}/jax2onnx-pytest-batches/batch-*/source-bf16-topk-native/"
+    )
+    assert (
+        named["Upload full-suite pytest receipts"]["if"]
+        == named["Upload bounded native TopK capture"]["if"]
+        == "always()"
+    )
+    assert upload["uses"] == named["Upload full-suite pytest receipts"]["uses"]

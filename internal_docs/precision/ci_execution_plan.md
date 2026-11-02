@@ -45,6 +45,17 @@ The tracked `PRECISION_ROUTINE_ACTIVATED` literal remains false: qualification
 runs every original owner, STANDARD, new minimum owners, focused EXTRA and the
 same-head browsers together. It cannot be changed through a manual input.
 Only a later independently accepted ordinary commit can enable retirement.
+Full Python jobs also upload a separate accounting archive before their original
+bulk receipts. The existing runner exports only `run.json` and the recorded
+workers' requests, receipts, phase events, JUnit and logs, retaining their original
+paths, bytes and failed or partial status. The streaming export has a 64 MiB
+compressed limit, a 64 MiB member limit, a 1 MiB index limit and a 120-second
+deadline.
+Missing required files, unsafe paths, changed bytes or exceeded limits make the
+named packaging step fail with an `INCOMPLETE` index. This visibility path does
+not replace model payloads, the separate TopK capture, raw review or any acceptance
+criterion; both original uploads remain.
+
 The original full-C runner remains raw-audit dependent: zero exit alone is not
 strict A acceptance, reviewed skip/xfail qualification or numerical equivalence. Routine STANDARD retains
 full S and the fixed strict unions; minimum Python 3.11 remains an additional
