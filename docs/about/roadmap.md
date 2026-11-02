@@ -20,6 +20,12 @@
 
 ### **jax2onnx 0.18.0**
 
+* **Restore affected exports with JAX 0.12:** Handle newer internal
+  representations used by `argwhere`, `nonzero`, `polyval`, and `sinc`, while
+  retaining compatibility with JAX 0.10.2.
+* **Preserve FP16 sequence types in `scan`:** Keep each step's input in the
+  sequence dtype, preventing invalid mixed FP16/FP64 graphs with either setting
+  of `enable_double_precision`.
 * **Introduce a typed lowering core:** Add a closed native plugin context,
   explicit input/output binding, and graph ownership checks. Prepare
   legacy extension calls at registration and share child-context construction
@@ -44,6 +50,16 @@
 * **Preserve precision and export integrity:** Keep FP16/BF16 types across NCHW
   export bridges, protect existing graph values during output allocation, and
   retain safe import retries and precision restoration after failed exports.
+* **Preserve JAX scalar promotion across export boundaries:** Retain weak
+  typing through inputs, named functions, captured values, and function reuse.
+  A weak FP32 scalar combined with an FP16 value can stay FP16 when JAX requires
+  it, while a strongly typed FP32 operand still requests FP32 promotion.
+* **Export 8-bit quantized matrix computations:** Preserve INT8/UINT8 operands
+  with INT32 accumulation and match JAX's saturation and NaN-to-zero handling
+  when converting floating values to 8-bit integers. Keep the configured Linen
+  Dense computation for structured weights, and demonstrate ordinary export
+  with a separately tested, optional Qwix W8A8 example. See
+  [PR #287](https://github.com/enpasos/jax2onnx/pull/287).
 * **Repair explicit FP32 consumers in double-precision export:** Adapt arithmetic
   operands explicitly while preserving the preceding FP32 rounding, direct FP32
   outputs, and bitcast representations. Align concatenation inputs and outputs

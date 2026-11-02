@@ -13,6 +13,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.typing import DTypeLike
 from jaxtyping import Array
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -43,7 +44,7 @@ class DinoRoPE(eqx.Module):
     shift_coords: Optional[float] = eqx.field(static=True)
     jitter_coords: Optional[float] = eqx.field(static=True)
     rescale_coords: Optional[float] = eqx.field(static=True)
-    dtype: jnp.dtype = eqx.field(static=True)
+    dtype: DTypeLike = eqx.field(static=True)
     periods: jax.Array
 
     def __init__(
@@ -58,8 +59,8 @@ class DinoRoPE(eqx.Module):
         shift_coords: Optional[float] = None,
         jitter_coords: Optional[float] = None,
         rescale_coords: Optional[float] = None,
-        periods_dtype: jnp.dtype = jnp.bfloat16,
-        dtype: jnp.dtype = jnp.float32,
+        periods_dtype: DTypeLike = jnp.bfloat16,
+        dtype: DTypeLike = jnp.float32,
     ):
         if dim % (4 * num_heads) != 0:
             raise ValueError("dim must be divisible by 4 * num_heads.")

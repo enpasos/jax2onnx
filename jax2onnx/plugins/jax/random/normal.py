@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from jax.typing import DTypeLike
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -154,7 +155,7 @@ class RandomNormalPlugin(PrimitiveLeafPlugin):
             def _patched(
                 key: ArrayLike,
                 shape: tuple[int, ...] | list[int] = (),
-                dtype: np.dtype | type = jnp.float32,
+                dtype: DTypeLike = jnp.float32,
             ) -> ArrayLike:
                 shape_tuple = tuple(int(dim) for dim in shape)
                 return cls._PRIM.bind(

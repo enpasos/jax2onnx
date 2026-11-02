@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
+from jax.typing import DTypeLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -59,8 +60,8 @@ class DinoRoPE(nnx.Module):
         shift_coords: Optional[float] = None,
         jitter_coords: Optional[float] = None,
         rescale_coords: Optional[float] = None,
-        periods_dtype: jnp.dtype = jnp.bfloat16,
-        dtype: jnp.dtype = jnp.float32,
+        periods_dtype: DTypeLike = jnp.bfloat16,
+        dtype: DTypeLike = jnp.float32,
     ):
         if dim % (4 * num_heads) != 0:
             raise ValueError("dim must be divisible by 4 * num_heads.")
