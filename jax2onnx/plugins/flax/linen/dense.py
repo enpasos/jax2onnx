@@ -455,6 +455,17 @@ class DensePlugin(PrimitiveLeafPlugin):
                 bias = params.get("bias") if self.use_bias else None
 
                 if kernel is not None:
+                    # Structured parameters belong to the module's own call path.
+                    # The shortcut primitive accepts one array per parameter.
+                    if not jax.tree_util.treedef_is_leaf(
+                        jax.tree_util.tree_structure(kernel)
+                    ) or (
+                        bias is not None
+                        and not jax.tree_util.treedef_is_leaf(
+                            jax.tree_util.tree_structure(bias)
+                        )
+                    ):
+                        return call_orig(self, x)
                     # We have pre-initialized params - use them directly
                     inputs = x
                     if bias is None and self.use_bias:

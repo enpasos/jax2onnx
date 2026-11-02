@@ -227,6 +227,28 @@ def test_onnx_coverage_open_action_bucket_summary_counts_only_uncovered_ops() ->
     assert "Add" not in summary
 
 
+def test_onnx_coverage_recognizes_typed_builder_operations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(onnx_coverage, "PLUGIN_ROOT", tmp_path)
+    (tmp_path / "sample.py").write_text(
+        'ctx.builder.op("MatMulInteger", [lhs, rhs])\n'
+        "ctx.builder.op_multi_out(\n    'TopK', [x, k], num_outputs=2)\n"
+        "ctx.builder.Neg(x)\n",
+        encoding="utf-8",
+    )
+
+    _, lowering = onnx_coverage.collect_plugin_operator_usage(
+        plugin_root=tmp_path, include_examples=False
+    )
+
+    assert dict(lowering) == {
+        "MatMulInteger": {"sample"},
+        "TopK": {"sample"},
+        "Neg": {"sample"},
+    }
+
+
 def test_write_or_check_generated_accepts_current_file(tmp_path: Path) -> None:
     target = tmp_path / "coverage.md"
     target.write_text("# Coverage\n", encoding="utf-8")

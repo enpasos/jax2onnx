@@ -21,7 +21,16 @@ from jax2onnx.plugins.plugin_system import (
     jaxpr_primitive="convert_element_type",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.convert_element_type.html",
     onnx=[
-        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"}
+        {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
+        {"component": "Clip", "doc": "https://onnx.ai/onnx/operators/onnx__Clip.html"},
+        {
+            "component": "IsNaN",
+            "doc": "https://onnx.ai/onnx/operators/onnx__IsNaN.html",
+        },
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
     ],
     since="0.2.0",
     context="primitives.lax",
@@ -39,7 +48,92 @@ from jax2onnx.plugins.plugin_system import (
     ],
 )
 class ConvertElementTypePlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.convert_element_type`` to a single ONNX Cast."""
+    """Lower explicit casts, preserving JAX's saturation for 8-bit integers."""
+
+    @staticmethod
+    def _saturate_float_operand(
+        ctx: LoweringContextProtocol,
+        operand: ir.Value,
+        target_dtype: ir.DataType,
+    ) -> ir.Value:
+        if ctx.opset < 11:
+            raise NotImplementedError(
+                "Floating-to-8-bit convert_element_type requires opset >= 11 "
+                "for Clip min/max inputs"
+            )
+        compute_dtype = operand.dtype
+        if compute_dtype == ir.DataType.BFLOAT16:
+            if ctx.opset < 13:
+                raise NotImplementedError(
+                    "bfloat16-to-8-bit convert_element_type requires opset >= 13 "
+                    "for bfloat16 Cast inputs"
+                )
+            # CPU Clip and Where have no bfloat16 kernels. Every bfloat16
+            # value is represented exactly by float32, including the bounds.
+            compute_dtype = ir.DataType.FLOAT
+            widened = ir.Value(
+                name=ctx.fresh_name("convert_float32"),
+                type=ir.TensorType(compute_dtype),
+                shape=operand.shape,
+            )
+            operand = ctx.builder.op(
+                "Cast", [operand], {"to": int(compute_dtype.value)}, output=widened
+            )
+        if compute_dtype not in {
+            ir.DataType.FLOAT16,
+            ir.DataType.FLOAT,
+            ir.DataType.DOUBLE,
+        }:
+            raise TypeError(
+                f"Floating conversion to {target_dtype} requires a supported "
+                f"floating operand dtype, got {compute_dtype}"
+            )
+
+        def scalar(value: int) -> ir.Value:
+            array = np.asarray(value, dtype=compute_dtype.numpy())
+            constant = ctx.bind_const_for_var(object(), array)
+            if constant.dtype == compute_dtype:
+                return constant
+            # Legacy double export promotes floating constants, including
+            # bounds for FLOAT16 and explicit FLOAT operands. An explicit
+            # Cast survives postprocessing, unlike retyping the constant.
+            output = ir.Value(
+                name=ctx.fresh_name("convert_bound"),
+                type=ir.TensorType(compute_dtype),
+                shape=constant.shape,
+            )
+            return ctx.builder.op(
+                "Cast", [constant], {"to": int(compute_dtype.value)}, output=output
+            )
+
+        is_nan = ctx.builder.op(
+            "IsNaN",
+            [operand],
+            output=ir.Value(
+                name=ctx.fresh_name("convert_is_nan"),
+                type=ir.TensorType(ir.DataType.BOOL),
+                shape=operand.shape,
+            ),
+        )
+        finite_or_infinite = ctx.builder.op(
+            "Where",
+            [is_nan, scalar(0), operand],
+            output=ir.Value(
+                name=ctx.fresh_name("convert_nan_to_zero"),
+                type=ir.TensorType(compute_dtype),
+                shape=operand.shape,
+            ),
+        )
+        limits = np.iinfo(target_dtype.numpy())
+        return ctx.builder.op(
+            "Clip",
+            [finite_or_infinite, scalar(int(limits.min)), scalar(int(limits.max))],
+            output=ir.Value(
+                name=ctx.fresh_name("convert_saturated"),
+                type=ir.TensorType(compute_dtype),
+                shape=operand.shape,
+            ),
+        )
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         operand_var = eqn.invars[0]
@@ -53,6 +147,11 @@ class ConvertElementTypePlugin(PrimitiveLeafPlugin):
         )
 
         target_dtype = numpy_dtype_to_ir(np.dtype(out_var.aval.dtype))
+        source_dtype = np.dtype(operand_var.aval.dtype)
+        if target_dtype in {ir.DataType.INT8, ir.DataType.UINT8} and (
+            np.issubdtype(source_dtype, np.floating) or source_dtype.name == "bfloat16"
+        ):
+            operand_val = self._saturate_float_operand(ctx, operand_val, target_dtype)
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("convert_out")
         producer = getattr(out_spec, "producer", lambda: None)

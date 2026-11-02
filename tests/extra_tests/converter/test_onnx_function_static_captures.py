@@ -116,6 +116,74 @@ def _call_static_axes(x):
     return _static_axes(x, axes=(1, 0)), _static_axes(x, axes=(0, 1))
 
 
+@onnx_function(unique=True)
+def _static_weak_scalar(x, *, config):
+    return x + config["scalar"]
+
+
+@pytest.fixture
+def _float32_jax_configuration():
+    previous = bool(jax.config.read("jax_enable_x64"))
+    jax.config.update("jax_enable_x64", False)
+    try:
+        yield
+    finally:
+        jax.config.update("jax_enable_x64", previous)
+
+
+def test_static_jax_arrays_with_equal_contents_keep_distinct_weakness(
+    _float32_jax_configuration,
+):
+    weak = jnp.asarray(2048.0)
+    strong = jnp.asarray(2048.0, dtype=weak.dtype)
+    assert weak.weak_type and not strong.weak_type
+    assert static_value_key(weak) != static_value_key(strong)
+
+    def call_pair(x):
+        return (
+            _static_weak_scalar(x, config={"scalar": weak}),
+            _static_weak_scalar(x, config={"scalar": strong}),
+        )
+
+    x = np.asarray([1.0], dtype=np.float16)
+    model = to_onnx(call_pair, [x], input_names=["x"])
+    onnx.checker.check_model(model, full_check=True)
+    native_input = jnp.asarray(x)
+    expected = call_pair(native_input)
+
+    def fresh_call(values):
+        return call_pair(values)
+
+    compiled = jax.jit(fresh_call)
+    for result in (compiled(native_input), compiled(native_input)):
+        for actual, reference in zip(result, expected):
+            assert actual.dtype == reference.dtype
+            assert actual.shape == reference.shape
+            np.testing.assert_array_equal(actual, reference)
+
+    assert len(model.functions) == 2
+    assert expected[0].dtype == np.float16
+    assert expected[1].dtype == np.float32
+    np.testing.assert_array_equal(expected[0], np.asarray([2048.0], dtype=np.float16))
+    np.testing.assert_array_equal(expected[1], np.asarray([2049.0], dtype=np.float32))
+    for optimization in (
+        ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+        ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+    ):
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 1
+        options.inter_op_num_threads = 1
+        options.graph_optimization_level = optimization
+        session = ort.InferenceSession(
+            model.SerializeToString(), options, providers=["CPUExecutionProvider"]
+        )
+        results = session.run(None, {"x": x})
+        for actual, reference in zip(results, expected):
+            assert actual.dtype == reference.dtype
+            assert actual.shape == reference.shape
+            np.testing.assert_array_equal(actual, reference)
+
+
 def _export_session(target, input_shape=(2,)):
     model = to_onnx(
         target,

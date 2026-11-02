@@ -15,7 +15,12 @@
   operands and unified safe output allocation for native lowerings;
   cached finalized native `ir.Function` objects directly and introduced a
   closed native plugin context alongside the existing compatibility contract;
-  raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`.
+  raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`;
+  preserved JAX weak scalar promotion through inputs, named functions and
+  captures; added INT8/UINT8 matrix contractions with INT32 accumulation;
+  preserved saturation and NaN handling for floating-to-8-bit conversions;
+  retained configured Linen computation for structured Dense parameters;
+  and added a separately tested optional Qwix W8A8 export example.
 - **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
   with explicit errors for input dilation combined with non-unit
   `window_strides` and complex transposed convolutions, and rejected

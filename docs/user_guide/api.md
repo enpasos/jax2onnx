@@ -67,6 +67,19 @@ single self-contained `.onnx` file instead of spilling large initializers into a
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
 
+JAX inputs retain their `weak_type` promotion behaviour, including when passed
+through `@onnx_function` or captured by it. For example, a weak FP32 scalar can
+combine with an explicitly typed FP16 value in FP16; a strong FP32 operand
+instead requests FP32 promotion. NumPy inputs remain strongly typed.
+
+`lax.dot_general` with INT8 or UINT8 operands and an INT32 result uses integer
+accumulation through `MatMulInteger`. This also applies to ordinary JAX
+computations emitted by optional quantization libraries. Preparing or training
+a quantized model remains a separate step before `to_onnx`.
+Conversion from FP16, BF16, FP32 or FP64 to INT8 or UINT8 preserves saturation
+at the integer limits and maps NaN to zero; integer-to-integer conversions
+retain wrapping behaviour.
+
 For example, this opts a Fast-Variance GroupNorm into `GroupNormalization` with
 opset 21+, while retaining an explicit compatibility artifact for runtimes or
 inputs where the exported graph should retain the framework reduction layout:

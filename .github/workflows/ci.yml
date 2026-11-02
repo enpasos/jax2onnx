@@ -104,12 +104,44 @@ jobs:
           tests/extra_tests/converter/test_context_typing_compat.py \
           tests/extra_tests/converter/test_native_context_typing.py \
           tests/extra_tests/converter/test_native_function_scope.py \
+          tests/extra_tests/converter/test_conversion_weak_type.py \
           tests/extra_tests/loop/test_fori_loop_captures.py \
+          tests/extra_tests/linen/test_dense_structured_parameters.py \
+          tests/extra_tests/test_integer_dot_general.py \
+          tests/extra_tests/test_integer_conversion_precision.py \
           tests/primitives/test_linen.py \
           tests/extra_tests/test_bfloat16_capability_matrix.py \
           tests/extra_tests/test_cos_precision.py \
           tests/extra_tests/test_float16_cpu_inference.py \
           tests/extra_tests/test_log1p_expm1_precision.py
+
+  qwix-w8a8:
+    name: Qwix W8A8 integration (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      JAX_PLATFORMS: cpu
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: '3.12'
+
+    - name: Install Poetry
+      run: pip install "poetry>=2.0,<3.0"
+
+    - name: Install locked dependencies and optional Qwix recipe
+      run: |
+        poetry install --no-interaction
+        poetry run pip install --no-deps git+https://github.com/google/qwix.git@9ee1079245682ed82e5da00ce855e4daf77a086b
+
+    - name: Require Qwix and execute quantized export
+      run: |
+        poetry run python -c 'import qwix; from importlib.metadata import version; print("qwix==" + version("qwix"))'
+        poetry run pytest -q tests/extra_tests/test_qwix_quantized_export.py
 
   normalization-accuracy:
     name: normalization accuracy (Python ${{ matrix.python-version }})

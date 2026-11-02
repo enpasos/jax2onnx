@@ -37,6 +37,13 @@ minimum.
 | No float64 `Cos` on CPU | Missing in 1.24.1, present in 1.31.0 | float64 `lax.cos`, `jnp.cos` | Half-angle form `1 - 2 * Sin(x / 2)²` |
 | No float64 `Erf` on CPU | CPU 1.24.1, 1.31.0 | float64 exact `jax.nn.gelu`, `nnx.gelu` | None: the export uses `Erf` (or `Gelu`, which expands to it) and fails to load; float64 test variants are skipped. |
 | CPU `Where` returns `+0.0` when it selects `-0.0` | CPU 1.24.1, 1.31.0 | `log1p`, `expm1`, `sinh` | `log1p` and `sinh` end in `Mul` to keep the sign; `expm1(-0.0)` exports as `+0.0`. |
+| `MatMulInteger` with a zero contraction length can leave output values uninitialized | CPU 1.31.0 | INT8/UINT8 `lax.dot_general` with INT32 accumulation | A known empty contraction produces explicit INT32 zeros. Potentially empty symbolic contractions pad both operands with one zero product; this may copy the operands. Fixed positive contractions retain direct integer multiplication. |
+| BF16 `Clip` and `Where` kernels are unavailable | CPU 1.31.0 | BF16 conversion to INT8/UINT8 | Widen exactly to FP32 for NaN handling and saturation, then cast to the requested integer type. FP16, FP32 and FP64 retain their actual computation type. Minimum-runtime qualification is separate. |
+
+An ONNX `Cast` alone also differs from the observed JAX FP16/BF16/FP32/FP64
+conversion to INT8/UINT8 at overflow, infinity and NaN boundaries. Those
+conversions map NaN to zero and clamp to the destination range before casting.
+Integer-to-integer conversions keep their existing wrapping behaviour.
 
 To check a kernel, create a session for a one-node model with that operator and
 dtype. For providers other than CPU, set the session option

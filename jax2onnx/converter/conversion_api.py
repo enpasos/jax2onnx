@@ -201,7 +201,11 @@ def _as_sds_list(
                     dims_list.append(int(dim))
                 else:
                     dims_list.append(dim)
-            sds_list.append(jax.ShapeDtypeStruct(tuple(dims_list), spec.dtype))
+            sds_list.append(
+                jax.ShapeDtypeStruct(
+                    tuple(dims_list), spec.dtype, weak_type=spec.weak_type
+                )
+            )
             continue
 
         dims_tuple = tuple(

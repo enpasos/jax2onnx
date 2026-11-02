@@ -1,6 +1,7 @@
 # A simpler precision architecture
 
-Status: concept, 2 November 2026. Implementation has not started.
+Status: first implementation checkpoint in progress, 2 November 2026, on
+`precision-contract`. The complete precision transition is not implemented.
 
 The proposed replacement for [PR #277](https://github.com/enpasos/jax2onnx/pull/277)
 is one consistent precision rule in the existing exporter, demonstrated by a
@@ -200,12 +201,91 @@ not repaired by choosing the convenient result. Historical failures in #277
 remain recorded as such, and are not retroactively passed by this narrower
 proposal. Green diagnostic tests do not establish numerical correctness.
 
+## First implementation checkpoint
+
+The first change preserves JAX `weak_type` through ordinary input preparation,
+named functions, captures and function-cache keys. This is one shared tracing
+property, not a new precision mode. The accompanying operator change represents
+8-bit integer `dot_general` operands with INT32 accumulation using
+`MatMulInteger`. Existing pure value lookup already preserves canonical
+bindings and does not need another implementation.
+
+On unchanged `main` (`ff012402`), official JAX 0.10.2 CPU returns FP16 `2048`
+for a weak FP32 `2048.0` plus a typed FP16 `1`. All three native roles agree;
+both ORT optimization modes instead return FP32 `2049`. The strong FP32
+counterpart correctly returns FP32 `2049`. An INT8 contraction of 1,041
+`127 * 127` products returns INT32 `16,790,289` in all native roles, while export
+emits an invalid INT8 `Gemm`. ONNX Runtime 1.31.0 CPU executes direct
+`MatMulInteger` models for all four signed/unsigned operand combinations.
+
+Acceptance for these discrete and FP16 witnesses is exact, including output
+shape and dtype. Integer accumulation is inspected before downstream FP32
+scaling. The optional Qwix FP32 example uses fixed `rtol=1e-6`, `atol=1e-6`
+for matching native references and runtime results, with output structure,
+shape and dtype checked separately. Each claimed result needs eager, fresh-JIT
+and warmed-JIT references and both claimed ORT optimization settings.
+
+Reuse the small weak-input and function-specialization corrections and
+`2048.0` counterexamples from `precision-migration` at `3aaed9ff`, adapting
+them to the ordinary pipeline. Do not copy its SOURCE profiles, tracing
+controllers or deployment-evidence infrastructure. Its integer matrix path
+rejects integer operands, so it supplies no INT8 implementation to reuse.
+Exact initializer-payload comparisons are a useful later candidate, not part
+of this checkpoint without a separate concrete need.
+
+The unchanged optional Qwix recipe now reaches two integer products through
+ordinary export. Its first attempted export exposed the Dense shortcut's
+flat-array assumption and floating-to-8-bit overflow differences. Both repairs
+are generic: structured Dense parameters use the existing original-call
+fallback, and FP16/BF16/FP32/FP64 conversions sanitize NaN and saturate before
+casting. No Qwix recognition is present in the converter. Repeated empty
+contractions also exposed uninitialized runtime output; static zeros and local
+padding for potentially empty symbolic contractions avoid that kernel path.
+
+This checkpoint preserves the current explicit precision-flag behaviour.
+The known double-export example still returns FP64 `1` where the model's FP32
+arithmetic returns `0`; removing that global promotion and preserving local
+x64 scopes remain future transition work. The next compatibility decisions are:
+
+| Existing workflow | Decision required before the public transition |
+| --- | --- |
+| Omitted precision flag | Preserve the caller's x64 configuration instead of implicitly disabling it. |
+| Shape-only inputs with double export | Replace the implicit FP64 default with explicit typed FP64 inputs; the proposed shape-only default stays FP32. |
+| Typed FP64 input while JAX x64 is disabled | Reject the incompatible input before tracing instead of silently narrowing it or changing the caller's configuration. |
+| Explicit old precision flag | Choose and announce the API version boundary and migration error, with tested equivalents for the claimed workflows. |
+| Fixed FP32 casts in third-party sources | Keep their meaning. A workflow relying on global widening needs a real framework configuration or an explicit unresolved compatibility decision. |
+| A local x64 scope around a named function | Preserve its effective tracing context and cache identity before removing the old policy. |
+
+The bounded follow-up is to resolve those cases with concrete examples, then
+remove the shared tracing/default and constant/payload promotion rules together
+with their affected plugin consumers. Do not add a parallel compatibility
+engine. The trained-classifier accuracy and size demonstration follows that
+decision; this small fixed-weight integration is not its substitute.
+
+The focused regressions pass on the locked JAX 0.10.2 and 0.11.2 cohorts and
+with minimum ONNX Runtime 1.24.1. Pinned hooks and the strict documentation
+build pass. Independent review found no blocking production defect for this
+checkpoint; complete-suite and hosted timing acceptance remain open.
+
+The local full-suite attempt was stopped at the existing 4 GiB process-memory
+limit after 82 seconds. A separate unchanged-main control hit the same limit
+at the large GPT test after 67 seconds. Both runs are incomplete, not passes;
+neither establishes a memory regression or a complete comparison. The existing
+hosted full-suite jobs must supply the missing results without reducing model
+inputs or coverage. Their exact new commit and job durations must be checked.
+
+Local focused runs take seconds; they do not forecast hosted setup or
+full-suite cost. A reliable total estimate for the public transition depends
+on the unresolved compatibility decisions above. The initial one-to-three-day
+estimate applied only to this first checkpoint and is not a completion
+forecast for the migration.
+
 ## How to proceed and when to stop
 
-**First establish feasibility.** The proposed initial limit is two engineering
-days, to be agreed before implementation work begins. This is a cap for the
-investigation, not an estimate for the complete architecture change. Record
-time and compute cost; do not start an open-ended autonomous migration.
+**First establish feasibility.** The bounded first checkpoint is authorized;
+the feasibility results above establish its change boundary. They do not
+authorize an open-ended migration. Agree a separate effort budget before the
+public transition and record time and compute cost.
 
 Use unchanged `main` as the baseline. Confirm the actual Qwix recipe and traced
 operations, reproduce the export gap, and identify the precision-policy sites

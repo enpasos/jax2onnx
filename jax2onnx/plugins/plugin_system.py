@@ -620,7 +620,11 @@ class FunctionPlugin(PrimitivePlugin):
         if isinstance(aval, ShapedArray):
             return aval
         if hasattr(aval, "shape") and hasattr(aval, "dtype"):
-            return ShapedArray(aval.shape, aval.dtype)
+            return ShapedArray(
+                aval.shape,
+                aval.dtype,
+                weak_type=bool(getattr(aval, "weak_type", False)),
+            )
         raise TypeError(
             f"Cannot convert abstract value of type {type(aval)} to ShapedArray."
         )
@@ -633,7 +637,7 @@ class FunctionPlugin(PrimitivePlugin):
 
         specs = [
             (
-                jax.ShapeDtypeStruct(arg.shape, arg.dtype)
+                jax.ShapeDtypeStruct(arg.shape, arg.dtype, weak_type=arg.weak_type)
                 if isinstance(arg, ShapedArray)
                 else arg
             )
@@ -924,7 +928,7 @@ class FunctionPlugin(PrimitivePlugin):
                         if isinstance(candidate, (int, np.integer)):
                             actual_dim = int(candidate)
             shape.append(actual_dim)
-        return jax.ShapeDtypeStruct(tuple(shape), aval.dtype)
+        return jax.ShapeDtypeStruct(tuple(shape), aval.dtype, weak_type=aval.weak_type)
 
     @staticmethod
     def _parameter_spec(value: object) -> jax.ShapeDtypeStruct:
@@ -936,7 +940,7 @@ class FunctionPlugin(PrimitivePlugin):
                     dtype = np.dtype(aval.dtype)
                 except TypeError:
                     dtype = np.dtype(np.float32)
-                return jax.ShapeDtypeStruct(aval.shape, dtype)
+                return jax.ShapeDtypeStruct(aval.shape, dtype, weak_type=aval.weak_type)
         array = np.asarray(value)
         return jax.ShapeDtypeStruct(array.shape, array.dtype)
 
@@ -960,7 +964,10 @@ class FunctionPlugin(PrimitivePlugin):
                 dynamic.append(DynamicCapture(name, spec, parent_value))
                 aval = self._aval_to_shaped_array(value.aval)
                 signature.append(
-                    (name, ("dynamic", tuple(aval.shape), str(aval.dtype)))
+                    (
+                        name,
+                        ("dynamic", tuple(aval.shape), str(aval.dtype), aval.weak_type),
+                    )
                 )
             elif ctx._promote_call_input_params and name in ctx._call_input_param_names:
                 spec = self._parameter_spec(value)
@@ -968,7 +975,15 @@ class FunctionPlugin(PrimitivePlugin):
                     DynamicCapture(name, spec, ctx.ensure_external_flag(name, None))
                 )
                 signature.append(
-                    (name, ("call_input", tuple(spec.shape), str(spec.dtype)))
+                    (
+                        name,
+                        (
+                            "call_input",
+                            tuple(spec.shape),
+                            str(spec.dtype),
+                            spec.weak_type,
+                        ),
+                    )
                 )
             else:
                 signature.append((name, self._static_capture_signature(value)))
@@ -997,7 +1012,15 @@ class FunctionPlugin(PrimitivePlugin):
                     DynamicCapture(name, spec, ctx.ensure_external_flag(name, None))
                 )
                 signature.append(
-                    (name, ("call_input", tuple(spec.shape), str(spec.dtype)))
+                    (
+                        name,
+                        (
+                            "call_input",
+                            tuple(spec.shape),
+                            str(spec.dtype),
+                            spec.weak_type,
+                        ),
+                    )
                 )
         return FunctionCaptures(tuple(dynamic), static, tuple(signature))
 
@@ -1008,7 +1031,8 @@ class FunctionPlugin(PrimitivePlugin):
         captures: FunctionCaptures,
     ) -> FunctionKey:
         input_signature = tuple(
-            (tuple(aval.shape), str(aval.dtype)) for aval in self._input_avals(eqn)
+            (tuple(aval.shape), str(aval.dtype), aval.weak_type)
+            for aval in self._input_avals(eqn)
         )
         capture_signature = (
             self._build_unique_signature(callee, captures.signature)
@@ -1027,7 +1051,7 @@ class FunctionPlugin(PrimitivePlugin):
         captures: FunctionCaptures,
     ) -> ClosedJaxpr:
         base_specs = tuple(
-            jax.ShapeDtypeStruct(aval.shape, aval.dtype)
+            jax.ShapeDtypeStruct(aval.shape, aval.dtype, weak_type=aval.weak_type)
             for aval in self._input_avals(eqn)
         )
         base_count = len(base_specs)

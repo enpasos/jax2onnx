@@ -163,7 +163,13 @@ def _value_key(value: object, active: set[int]) -> tuple[object, ...]:
                     else _immutable_numpy_array(array)
                 )
                 contents = _ArrayContents(_array_digest(storage), storage)
-            return (value_type, _dtype_key(array.dtype), tuple(array.shape), contents)
+            return (
+                value_type,
+                _dtype_key(array.dtype),
+                tuple(array.shape),
+                bool(value.weak_type) if isinstance(value, jax.Array) else False,
+                contents,
+            )
         if isinstance(value, dict):
             entries = tuple(
                 (_value_key(key, active), _value_key(item, active))

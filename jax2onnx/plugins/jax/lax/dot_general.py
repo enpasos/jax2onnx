@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 import string
 from typing import Any, Iterator, cast
 
@@ -49,6 +50,10 @@ def _value_ir_dtype(value: ir.Value) -> ir.DataType | None:
         {
             "component": "Einsum",
             "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
+        },
+        {
+            "component": "MatMulInteger",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMulInteger.html",
         },
     ],
     since="0.2.0",
@@ -192,10 +197,25 @@ def _value_ir_dtype(value: ir.Value) -> ir.DataType | None:
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "dot_general_int8_accumulate_int32",
+            "callable": lambda x, y: jax.lax.dot_general(
+                x,
+                y,
+                (((1,), (0,)), ((), ())),
+                preferred_element_type=np.int32,
+            ),
+            "input_values": [
+                np.array([[-128, 127], [1, -1]], dtype=np.int8),
+                np.array([[127, -128], [-1, 1]], dtype=np.int8),
+            ],
+            "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(["MatMulInteger:2x2"], no_unused_inputs=True),
+        },
     ],
 )
 class DotGeneralPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.dot_general`` via MatMul/Gemm fast-path or Einsum fallback."""
+    """Lower ``lax.dot_general`` with dtype-specific matrix accumulation."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         lhs_var, rhs_var = eqn.invars
@@ -237,6 +257,26 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         ):
             return
 
+        input_dtypes = (np.dtype(lhs_var.aval.dtype), np.dtype(rhs_var.aval.dtype))
+        if all(
+            dtype in (np.dtype(np.int8), np.dtype(np.uint8)) for dtype in input_dtypes
+        ) and np.dtype(out_var.aval.dtype) == np.dtype(np.int32):
+            self._lower_integer_matmul(
+                ctx,
+                lhs_val,
+                rhs_val,
+                out_var,
+                out_spec,
+                lhs_shape,
+                rhs_shape,
+                out_shape,
+                lhs_contract,
+                rhs_contract,
+                lhs_batch,
+                rhs_batch,
+            )
+            return
+
         if self._try_lower_matmul(
             ctx,
             lhs_var,
@@ -271,6 +311,261 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             lhs_batch,
             rhs_batch,
         )
+
+    @staticmethod
+    def _integer_shape_tensor(
+        ctx: LoweringContextProtocol,
+        groups: list[tuple[ir.Value, tuple[Any, ...], tuple[int, ...]]],
+        name_hint: str,
+    ) -> tuple[ir.Value, tuple[Any, ...]]:
+        """Build a reshape shape from products of original operand dimensions."""
+        dimensions = tuple(
+            (
+                math.prod(int(shape[axis]) for axis in axes)
+                if all(isinstance(shape[axis], (int, np.integer)) for axis in axes)
+                else None
+            )
+            for _, shape, axes in groups
+        )
+        if all(dim is not None for dim in dimensions):
+            return (
+                _const_i64(
+                    ctx,
+                    np.asarray(dimensions, dtype=np.int64),
+                    ctx.fresh_name(name_hint),
+                ),
+                dimensions,
+            )
+
+        pieces = []
+        for (value, shape, axes), dimension in zip(groups, dimensions):
+            if dimension is not None:
+                piece = _const_i64(
+                    ctx,
+                    np.asarray([dimension], dtype=np.int64),
+                    ctx.fresh_name(f"{name_hint}_dim"),
+                )
+            else:
+                source_shape = ctx.builder.op("Shape", [value])
+                source_shape.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(source_shape, (len(shape),))
+                indices = _const_i64(
+                    ctx,
+                    np.asarray(axes, dtype=np.int64),
+                    ctx.fresh_name(f"{name_hint}_axes"),
+                )
+                selected = ctx.builder.op(
+                    "Gather", [source_shape, indices], {"axis": 0}
+                )
+                selected.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(selected, (len(axes),))
+                piece = ctx.builder.op("ReduceProd", [selected], {"keepdims": 1})
+                piece.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(piece, (1,))
+            _ensure_value_metadata(ctx, piece)
+            pieces.append(piece)
+        result = ctx.builder.op("Concat", pieces, {"axis": 0})
+        result.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(result, (len(groups),))
+        _ensure_value_metadata(ctx, result)
+        return result, dimensions
+
+    def _lower_integer_matmul(
+        self,
+        ctx: LoweringContextProtocol,
+        lhs: ir.Value,
+        rhs: ir.Value,
+        out_var: Any,
+        out_spec: ir.Value,
+        lhs_shape: tuple[Any, ...],
+        rhs_shape: tuple[Any, ...],
+        out_shape: tuple[Any, ...],
+        lhs_contract: tuple[int, ...],
+        rhs_contract: tuple[int, ...],
+        lhs_batch: tuple[int, ...],
+        rhs_batch: tuple[int, ...],
+    ) -> None:
+        """Flatten arbitrary contractions without losing INT32 accumulation."""
+        opset = int(getattr(ctx.builder, "opset", 21))
+        if opset < 10:
+            raise NotImplementedError(
+                "INT8/UINT8 dot_general lowering currently requires opset >= 10 "
+                f"for MatMulInteger (requested opset {opset})."
+            )
+        lhs_free = tuple(
+            axis
+            for axis in range(len(lhs_shape))
+            if axis not in lhs_batch and axis not in lhs_contract
+        )
+        rhs_free = tuple(
+            axis
+            for axis in range(len(rhs_shape))
+            if axis not in rhs_batch and axis not in rhs_contract
+        )
+        output_groups: list[tuple[ir.Value, tuple[Any, ...], tuple[int, ...]]] = [
+            (lhs, lhs_shape, (axis,)) for axis in (*lhs_batch, *lhs_free)
+        ]
+        output_groups.extend((rhs, rhs_shape, (axis,)) for axis in rhs_free)
+
+        if any(
+            isinstance(lhs_shape[axis], (int, np.integer)) and int(lhs_shape[axis]) == 0
+            for axis in lhs_contract
+        ):
+            # ORT's CPU MatMulInteger kernel can leave K=0 outputs uninitialized.
+            # An empty contraction is the additive identity, including scalar
+            # results and outputs whose free dimensions are symbolic or empty.
+            shape_tensor, _ = self._integer_shape_tensor(
+                ctx, output_groups, "dot_integer_zero_shape"
+            )
+            result = ctx.builder.op(
+                "ConstantOfShape",
+                [shape_tensor],
+                {"value": ir.AttrTensor("value", ir.tensor(np.asarray([0], np.int32)))},
+            )
+            result.name = out_spec.name
+            result.type = ir.TensorType(ir.DataType.INT32)
+            _stamp_type_and_shape(result, out_shape)
+            _ensure_value_metadata(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
+
+        def reshape_integer(
+            value: ir.Value, shape_tensor: ir.Value, shape: tuple[Any, ...]
+        ) -> ir.Value:
+            if opset >= 14:
+                return ctx.builder.op(
+                    "Reshape", [value, shape_tensor], {"allowzero": 1}
+                )
+            if not all(
+                isinstance(dim, (int, np.integer)) and int(dim) > 0 for dim in shape
+            ):
+                raise NotImplementedError(
+                    "The current integer dot_general grouped-reshape lowering "
+                    "requires opset >= 14 for potentially zero dimensions "
+                    f"(Reshape allowzero; requested opset {opset})."
+                )
+            return ctx.builder.op("Reshape", [value, shape_tensor])
+
+        def prepare(
+            value: ir.Value,
+            shape: tuple[Any, ...],
+            batch: tuple[int, ...],
+            first: tuple[int, ...],
+            second: tuple[int, ...],
+            prefix: str,
+        ) -> tuple[ir.Value, tuple[Any, ...]]:
+            permutation = (*batch, *first, *second)
+            prepared = value
+            if permutation != tuple(range(len(shape))):
+                prepared = ctx.builder.op(
+                    "Transpose",
+                    [value],
+                    {"perm": ir.AttrInt64s("perm", permutation)},
+                )
+                prepared.type = value.type
+                _stamp_type_and_shape(
+                    prepared, tuple(shape[axis] for axis in permutation)
+                )
+                _ensure_value_metadata(ctx, prepared)
+            groups: list[tuple[ir.Value, tuple[Any, ...], tuple[int, ...]]] = [
+                (value, shape, (axis,)) for axis in batch
+            ]
+            groups.extend([(value, shape, first), (value, shape, second)])
+            # Keep the ordinary matrix case free of extra reshape nodes.
+            if all(len(axes) == 1 for _, _, axes in groups):
+                return prepared, tuple(shape[axes[0]] for _, _, axes in groups)
+            shape_tensor, matrix_shape = self._integer_shape_tensor(ctx, groups, prefix)
+            prepared = reshape_integer(prepared, shape_tensor, matrix_shape)
+            prepared.type = value.type
+            _stamp_type_and_shape(prepared, matrix_shape)
+            _ensure_value_metadata(ctx, prepared)
+            return prepared, matrix_shape
+
+        lhs_matrix, lhs_matrix_shape = prepare(
+            lhs, lhs_shape, lhs_batch, lhs_free, lhs_contract, "dot_integer_lhs_shape"
+        )
+        rhs_matrix, rhs_matrix_shape = prepare(
+            rhs, rhs_shape, rhs_batch, rhs_contract, rhs_free, "dot_integer_rhs_shape"
+        )
+
+        if not isinstance(lhs_matrix_shape[-1], (int, np.integer)):
+            if opset < 11:
+                raise NotImplementedError(
+                    "The current symbolic-contraction integer dot_general lowering "
+                    "requires opset >= 11 for Pad inputs "
+                    f"(requested opset {opset})."
+                )
+
+            # Symbolic expressions such as K - 1 may evaluate to zero. Appending
+            # one zero product preserves the exact INT32 sum while keeping K
+            # positive for ORT. Pad may copy both operands; fixed K avoids it.
+            def pad_contract(
+                value: ir.Value,
+                shape: tuple[Any, ...],
+                axis: int,
+                prefix: str,
+            ) -> ir.Value:
+                rank = len(shape)
+                padding = [0] * (2 * rank)
+                padding[rank + axis] = 1
+                pads = _const_i64(
+                    ctx,
+                    np.asarray(padding, dtype=np.int64),
+                    ctx.fresh_name(f"{prefix}_pads"),
+                )
+                zero = ctx.builder.add_initializer_from_scalar(
+                    name=ctx.fresh_name(f"{prefix}_zero"),
+                    value=np.asarray(
+                        0,
+                        dtype=(
+                            np.int8
+                            if _value_ir_dtype(value) == ir.DataType.INT8
+                            else np.uint8
+                        ),
+                    ),
+                )
+                padded = ctx.builder.op(
+                    "Pad", [value, pads, zero], {"mode": "constant"}
+                )
+                padded.type = value.type
+                padded_shape = list(shape)
+                padded_shape[axis] = None
+                _stamp_type_and_shape(padded, tuple(padded_shape))
+                _ensure_value_metadata(ctx, padded)
+                return padded
+
+            lhs_matrix = pad_contract(
+                lhs_matrix,
+                lhs_matrix_shape,
+                len(lhs_matrix_shape) - 1,
+                "dot_integer_lhs",
+            )
+            rhs_matrix = pad_contract(
+                rhs_matrix,
+                rhs_matrix_shape,
+                len(rhs_matrix_shape) - 2,
+                "dot_integer_rhs",
+            )
+        matrix_shape = (
+            *lhs_matrix_shape[:-2],
+            lhs_matrix_shape[-2],
+            rhs_matrix_shape[-1],
+        )
+        result = ctx.builder.op("MatMulInteger", [lhs_matrix, rhs_matrix])
+        result.type = ir.TensorType(ir.DataType.INT32)
+        _stamp_type_and_shape(result, matrix_shape)
+        _ensure_value_metadata(ctx, result)
+
+        if len(lhs_free) != 1 or len(rhs_free) != 1:
+            shape_tensor, _ = self._integer_shape_tensor(
+                ctx, output_groups, "dot_integer_output_shape"
+            )
+            result = reshape_integer(result, shape_tensor, out_shape)
+            result.type = ir.TensorType(ir.DataType.INT32)
+        result.name = out_spec.name
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
 
     def _maybe_lower_complex(
         self,

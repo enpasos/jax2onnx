@@ -30,6 +30,9 @@ INDEX_LINK_RE = re.compile(r'href="onnx__([A-Za-z0-9_]+)\.html"')
 TITLE_RE = re.compile(r"<title>ONNX Operators - ([^<]+)</title>")
 META_RE = re.compile(r"onnx__([A-Za-z0-9_]+)\.html")
 BUILDER_RE = re.compile(r"\b(?:ctx\.)?builder\.([A-Z][A-Za-z0-9_]*)\s*\(")
+TYPED_BUILDER_RE = re.compile(
+    r"\b(?:ctx\.)?builder\.op(?:_multi_out)?\(\s*['\"]([A-Z][A-Za-z0-9_]*)['\"]"
+)
 
 logger = logging.getLogger("generate_onnx_operator_coverage")
 
@@ -204,7 +207,7 @@ def collect_plugin_operator_usage(
         for op in META_RE.findall(text):
             metadata_usage[op].add(module)
 
-        for op in BUILDER_RE.findall(text):
+        for op in BUILDER_RE.findall(text) + TYPED_BUILDER_RE.findall(text):
             lowering_usage[op].add(module)
 
     return metadata_usage, lowering_usage
