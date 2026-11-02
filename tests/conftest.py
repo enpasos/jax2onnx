@@ -28,6 +28,7 @@ def pytest_addoption(parser):
     group.addoption("--source-metadata-acceptance", metavar="REPORT")
     group.addoption("--source-metadata-baseline", metavar="PATH")
     group.addoption("--source-metadata-adapters", metavar="PATH")
+    group.addoption("--source-metadata-scope", choices=("registered-predicate88",))
     group.addoption(
         "--source-metadata-case",
         action="append",
@@ -45,6 +46,7 @@ def pytest_configure(config):
                 "source_metadata_baseline",
                 "source_metadata_adapters",
                 "source_metadata_case",
+                "source_metadata_scope",
             )
         ):
             raise pytest.UsageError(

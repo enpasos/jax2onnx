@@ -28,6 +28,24 @@ inputs and numerical criteria are unchanged. Historical contracts and the
 records the two callback changes without transporting acceptance or adding a
 registry.
 
+The tracked `source_predicate_replay_adapters.json` and the existing metadata
+owner's `--source-metadata-scope=registered-predicate88` reproduce the exact
+ordered 44 rows with x64 disabled and enabled. Python Full owns a named locked
+dependency step on Python 3.11–3.14; minimum Python 3.11 and the minimum Python
+3.12 support EXTRA job run the same scope inside their existing work budgets.
+A successful invocation requires pytest
+success, all 88 complete scientific verdicts and a final selected-row inventory
+check. Its separate `selected_scope` verdict leaves the full ledger's `ERROR`
+and `required_exit_status=1` intact. Without the named scope, the original strict
+whole-migration exit rule and historical two-entrypoint defaults remain.
+The named invocation has now passed all 88 cells independently on locked
+Python 3.11 and 3.13 and genuine minimum Python 3.11. Each run exits zero for
+this selected scientific scope, while its complete report retains global
+`ERROR`, `required_exit_status=1`, 3,712 raw cells and 1,838 missing frozen
+criterion pairs. The same 88 obligations are tested in three environments;
+these results do not add to the historical 52 or establish hosted acceptance.
+The exact candidate must still pass its declared CI owners and final checks.
+
 The implementation owns genuine NumPy integral-axis metadata without rewriting
 its canonical dtype/storage evidence. It also captures the original internal
 dtype helpers, finite native cache state and selected class/module dependencies

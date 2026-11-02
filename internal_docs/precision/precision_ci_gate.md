@@ -1,6 +1,6 @@
 # CI gates for the precision migration
 
-These are the acceptance rules for PR #277, updated 2026-11-01. They preserve
+These are the acceptance rules for PR #277, updated 2026-11-02. They preserve
 the complete [migration work plan](precision_implementation_work_plan.md).
 The [execution plan](ci_execution_plan.md) owns literal selections, commands,
 resource measurements and activation evidence; the [handoff](implementation_handoff.md)
@@ -27,20 +27,26 @@ release requirements.
 
 ## Current qualification
 
-At the recorded 2026-11-01 checkpoint, [CI608](https://github.com/enpasos/jax2onnx/actions/runs/41350883818)
-on `6e791644` had successful API outcomes for eighteen STANDARD jobs and five
-EXTRA jobs. The longest complete STANDARD job took 1,047 seconds. Both campaigns
-met their separate aggregate-time and successful-upload budgets. This API
-accounting does not replace raw phase, context, owned-memory or scientific
-qualification.
+At the recorded 2026-11-02 checkpoint, published `e09f3447` completed all
+**33 [CI610 checks](https://github.com/enpasos/jax2onnx/actions/runs/41364282456) successfully**. The [PR checks](https://github.com/enpasos/jax2onnx/pull/277/checks)
+retain the actual candidate outcomes. API timestamps and successful-upload ZIP
+sizes record a longest whole STANDARD job of **1,062 seconds**, aggregate
+STANDARD time of **6,136 seconds** and **69,376,550 bytes**. Separate EXTRA
+accounting records **2,781 seconds** and **42,310,515 bytes**. These are API
+accounting observations only, not raw phase, owned-memory or scientific closure.
 
-The full Node and Chrome jobs ended with runner-shutdown signals; their causes
-remain unverified. The four full Python jobs were still running at this
-observation. These failures remain failed, and [current PR checks](https://github.com/enpasos/jax2onnx/pull/277/checks)
-must qualify the exact candidate head.
+Console results report all 54 CPU cases and both companion controls passing in
+each of the four full Python cohorts; the Web controls also pass. Raw Python
+JUnit and phase acceptance remain unverified because the giant full-result ZIP
+has not been processed. Full CPU jobs exceeded the provisional 45-minute target.
+Full Web owned-RSS qualification remains open: the reported single-process
+high-water already exceeds 4 GiB; aggregate owned RSS and headroom were not
+measured. Complete global scientific acceptance and B–F remain open.
 
-Earlier failed and interrupted campaigns remain recorded in the execution plan
-and handoff with their original causes and outcomes.
+Earlier [CI608 runner-shutdown failures](https://github.com/enpasos/jax2onnx/actions/runs/41350883818)
+and interrupted campaigns retain their original failed outcomes and unresolved
+causes in the execution plan and handoff. The exact next candidate head still
+requires its own checks and independent review.
 
 The tracked activation switch remains false, so original and replacement owners
 run together. Expanded focused selections and browser obligations need actual

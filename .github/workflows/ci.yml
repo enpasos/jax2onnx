@@ -200,6 +200,7 @@ jobs:
     - name: Observe minimum-version setup and compatibility checks
       env:
         EXPECTED_CHECKOUT_SHA: ${{ needs.acceptance-context.outputs.head_sha }}
+        RUN_SOURCE_PREDICATE88: ${{ needs.acceptance-context.outputs.full_acceptance == 'true' || needs.acceptance-context.outputs.routine_activated != 'true' }}
       run: |
         set -euo pipefail
         python -B scripts/run_with_resources.py \
@@ -212,6 +213,15 @@ jobs:
         mkdir -m 700 "$RUNNER_TEMP/minimum311-tmp"
         export TMPDIR="$RUNNER_TEMP/minimum311-tmp"
         printf 'Minimum311 exact acceptance commit: %s\n' "$EXPECTED_CHECKOUT_SHA"
+        source_anchor=ccc861b0dff5042958a267addc43b622a4b61d49
+        source_head="$(git rev-parse --verify 'HEAD^{commit}')"
+        test "$source_head" = "$EXPECTED_CHECKOUT_SHA"
+        git fetch --no-tags --depth=1 origin "$source_anchor"
+        test "$(git rev-parse --verify 'ccc861b0^{commit}')" = "$source_anchor"
+        git archive "$source_anchor" tests > /dev/null
+        test "$(git rev-parse --verify 'HEAD^{commit}')" = "$source_head"
+        test -z "$(git status --porcelain --untracked-files=no)"
+        printf 'Frozen SOURCE history: %s; checked-out head: %s\n' "$source_anchor" "$source_head"
         pip install "poetry>=2.0,<3.0"
         poetry install --no-interaction
         poetry run python scripts/install_minimum_dependencies.py
@@ -267,6 +277,15 @@ jobs:
           tests/extra_tests/test_cos_precision.py \
           tests/extra_tests/test_float16_cpu_inference.py \
           tests/extra_tests/test_log1p_expm1_precision.py
+        if [ "$RUN_SOURCE_PREDICATE88" = 'true' ]; then
+          echo 'SOURCE registered-predicate88: genuine minimum dependency ownership'
+          JAX_PLATFORMS=cpu poetry run python -B -m pytest -n 0 -q \
+            tests/extra_tests/converter/test_source_precision_metadata.py \
+            --source-metadata-scope=registered-predicate88 \
+            --source-metadata-acceptance="$RUNNER_TEMP/source-predicate88-minimum.json" \
+            --junitxml="$RUNNER_TEMP/source-predicate88-minimum-junit.xml" \
+            --basetemp="$TMPDIR/source-predicate88"
+        fi
         BASH_MINIMUM
 
     - name: Upload minimum311 STANDARD receipts
@@ -279,6 +298,9 @@ jobs:
           ${{ runner.temp }}/minimum311-controlled.log
           ${{ runner.temp }}/minimum311-junit.xml
           ${{ runner.temp }}/minimum311-installed-packages.json
+          ${{ runner.temp }}/source-predicate88-minimum.json
+          ${{ runner.temp }}/source-predicate88-minimum.json.evidence/
+          ${{ runner.temp }}/source-predicate88-minimum-junit.xml
         retention-days: ${{ job.status == 'success' && 7 || 14 }}
         compression-level: 6
         if-no-files-found: warn
@@ -490,6 +512,36 @@ jobs:
         JAX2ONNX_MAXDIFFUSION_MODELS: ""
       run: ./scripts/run_all_checks.sh
 
+    - name: Qualify tracked SOURCE predicate88 (locked dependencies)
+      env:
+        JAX_PLATFORMS: cpu
+      run: |
+        set -euo pipefail
+        python -B scripts/run_with_resources.py \
+          --output-dir "$RUNNER_TEMP/source-predicate88-resources" \
+          --timeout-seconds 600 --max-rss-mib 4096 --min-available-mib 2048 \
+          --min-disk-free-mib 4096 --disk-path "$RUNNER_TEMP" --disk-path "$GITHUB_WORKSPACE" -- \
+          poetry run python -B -m pytest -n 0 -q \
+            tests/extra_tests/converter/test_source_precision_metadata.py \
+            --source-metadata-scope=registered-predicate88 \
+            --source-metadata-acceptance="$RUNNER_TEMP/source-predicate88.json" \
+            --junitxml="$RUNNER_TEMP/source-predicate88-junit.xml" \
+            --basetemp="$RUNNER_TEMP/source-predicate88-pytest"
+
+    - name: Upload SOURCE predicate88 scope and full ledger
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: source-predicate88-python${{ matrix.python-version }}-${{ job.status }}
+        path: |
+          ${{ runner.temp }}/source-predicate88-resources/
+          ${{ runner.temp }}/source-predicate88.json
+          ${{ runner.temp }}/source-predicate88.json.evidence/
+          ${{ runner.temp }}/source-predicate88-junit.xml
+        retention-days: ${{ job.status == 'success' && 7 || 14 }}
+        compression-level: 6
+        if-no-files-found: warn
+
     - name: Control observer necessity after an original cast failure
       if: failure()
       timeout-minutes: 5
@@ -667,7 +719,7 @@ jobs:
         # Render only the tracked profile's declared values and existing slots.
         # Explicit SOURCE diagnostics require the frozen original tests archive.
         # Keep the existing STANDARD/support/join preparation unchanged.
-        if [[ "$CANDIDATE_LANE" == extra && "$CANDIDATE_ROLE" == locked ]]; then
+        if [[ "$CANDIDATE_LANE" == extra && ( "$CANDIDATE_ROLE" == locked || "$CANDIDATE_ID" == minimum312-extra ) ]]; then
           source_anchor=ccc861b0dff5042958a267addc43b622a4b61d49
           source_head="$(git rev-parse --verify 'HEAD^{commit}')"
           test "$source_head" = "$EXPECTED_CHECKOUT_SHA"
@@ -867,6 +919,15 @@ jobs:
           "${lane_args[@]}" --ci-main-baseline "$CANDIDATE_DIR/main.json" \
           --_ci-provision-campaign "$CANDIDATE_COHORT" "${selection_args[@]}" \
           -- --durations=50 --durations-min=1
+        if [[ "$CANDIDATE_ID" == minimum312-extra ]]; then
+          echo 'SOURCE registered-predicate88: minimum Python 3.12 support EXTRA ownership'
+          python -B -m pytest -n 0 -q \
+            tests/extra_tests/converter/test_source_precision_metadata.py \
+            --source-metadata-scope=registered-predicate88 \
+            --source-metadata-acceptance="$CANDIDATE_DIR/source-predicate88.json" \
+            --junitxml="$CANDIDATE_DIR/source-predicate88-junit.xml" \
+            --basetemp="$TMPDIR/source-predicate88"
+        fi
         if [[ "$CANDIDATE_ROLE" == normalization ]]; then
           test ! -e tests/primitives && test ! -L tests/primitives
           test ! -e tests/examples && test ! -L tests/examples
@@ -884,6 +945,8 @@ jobs:
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/standard-start-capacity.json
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/run/run.json
           ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/run/primary/
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/source-predicate88.json
+          ${{ runner.temp }}/ci-candidate-${{ matrix.id }}/source-predicate88-junit.xml
         retention-days: ${{ job.status == 'success' && 7 || 14 }}
         compression-level: 6
         if-no-files-found: warn

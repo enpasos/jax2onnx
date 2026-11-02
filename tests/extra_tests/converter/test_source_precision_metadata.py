@@ -29,6 +29,42 @@ from scripts import source_precision_inventory as inventory_owner
 from scripts import source_precision_probe as probe
 from tests import t_generator
 
+_PREDICATE_SCOPE = "registered-predicate88"
+_PREDICATE_ADAPTERS = (
+    probe.REPOSITORY_ROOT
+    / "internal_docs/precision/source_predicate_replay_adapters.json"
+)
+_PREDICATE_ADAPTER_SHA256 = (
+    "d9bebda4fa64496403b4548e0e4c8c7d0a5c4ac3163e16376b457b40ec3f3a09"
+)
+# This ordered recipe is the reviewed 44 original rows, each in both caller
+# settings. It deliberately leaves the historical 357-row defaults untouched.
+_PREDICATE_ROWS = (
+    ("plugin::eq", 0),
+    ("plugin::ge", 0),
+    ("plugin::gt", 0),
+    ("plugin::is_finite", 0),
+    *(("plugin::jax.numpy.all", index) for index in range(3)),
+    *(("plugin::jax.numpy.any", index) for index in range(3)),
+    *(("plugin::jax.numpy.equal", index) for index in range(3)),
+    *(("plugin::jax.numpy.greater", index) for index in range(4)),
+    *(("plugin::jax.numpy.greater_equal", index) for index in range(4)),
+    ("plugin::jax.numpy.isfinite", 0),
+    *(("plugin::jax.numpy.less", index) for index in range(4)),
+    *(("plugin::jax.numpy.less_equal", index) for index in range(4)),
+    ("plugin::le", 0),
+    ("plugin::lt", 0),
+    ("plugin::ne", 0),
+    *(("plugin::reduce_and", index) for index in range(3)),
+    *(("plugin::reduce_or", index) for index in range(4)),
+    *(("plugin::reduce_xor", index) for index in range(4)),
+)
+_PREDICATE_IDENTITIES = tuple(
+    (*row, caller)
+    for row in _PREDICATE_ROWS
+    for caller in ("raw-x64-off", "raw-x64-on")
+)
+
 
 def _original_scope():
     payload = probe.DEFAULT_BASELINE.read_bytes()
@@ -161,6 +197,19 @@ def configure_source_metadata_acceptance(config, owner, state):
 
     if state["configured"]:
         return
+    scope = config.getoption("source_metadata_scope")
+    state["scope"] = scope
+    if scope not in (None, _PREDICATE_SCOPE):
+        raise pytest.UsageError("Unknown named SOURCE scope")
+    if scope and any(
+        config.getoption(name)
+        for name in (
+            "source_metadata_baseline",
+            "source_metadata_adapters",
+            "source_metadata_case",
+        )
+    ):
+        raise pytest.UsageError("Named SOURCE scope does not accept input overrides")
     evidence_directory = state["report"].parent / (state["report"].name + ".evidence")
     if evidence_directory.exists():
         raise ValueError("SOURCE acceptance evidence directory already exists")
@@ -193,6 +242,8 @@ def configure_source_metadata_acceptance(config, owner, state):
                 "SOURCE case needs an exact raw identity and caller context"
             )
         selection.append(identity)
+    if scope:
+        selection = list(_PREDICATE_IDENTITIES)
     registrations, _ = inventory_owner.raw_registrations()
     if selection:
         inventory_owner.source_metadata_selection_preflight(
@@ -205,12 +256,23 @@ def configure_source_metadata_acceptance(config, owner, state):
     adapters = {}
     if selection:
         adapter_path = Path(
-            config.getoption("source_metadata_adapters")
+            _PREDICATE_ADAPTERS
+            if scope
+            else config.getoption("source_metadata_adapters")
             or probe.REPOSITORY_ROOT
             / "internal_docs/precision/source_replay_adapters.json"
         )
         adapter_payload = adapter_path.read_bytes()
+        if (
+            scope
+            and hashlib.sha256(adapter_payload).hexdigest() != _PREDICATE_ADAPTER_SHA256
+        ):
+            raise ValueError("Named SOURCE adapter bytes differ from reviewed recipe")
         adapters = json.loads(adapter_payload)
+        if scope and tuple(adapters["rows"]) != tuple(
+            f"{origin}::{ordinal}" for origin, ordinal in _PREDICATE_ROWS
+        ):
+            raise ValueError("Named SOURCE adapter row order differs")
         state["input_bindings"][str(adapter_path.resolve())] = hashlib.sha256(
             adapter_payload
         ).hexdigest()
@@ -255,12 +317,85 @@ def configure_source_metadata_acceptance(config, owner, state):
         )
         method.__module__ = __name__
         setattr(owner, descriptor.selector, method)
-    state.update(configured=True, descriptors=descriptors, identities=tuple(selection))
+    state.update(
+        configured=True,
+        descriptors=descriptors,
+        identities=tuple(selection),
+        scope=scope,
+    )
+
+
+def _predicate_scope_verdict(state, report, collected, terminal, exitstatus, observed):
+    """Consume reconciled scientific evidence without changing the full ledger."""
+    if (
+        exitstatus != pytest.ExitCode.OK
+        or report.get("error")
+        or report.get("collection_complete") is not True
+        or report.get("outcomes_complete") is not True
+    ):
+        raise ValueError(
+            "Named SOURCE scope requires original pytest success and reconciliation"
+        )
+    if tuple(tuple(item["identity"]) for item in collected) != _PREDICATE_IDENTITIES:
+        raise ValueError("Named SOURCE scope requires the exact ordered 88 items")
+    if tuple(state["identities"]) != _PREDICATE_IDENTITIES:
+        raise ValueError("Named SOURCE scope recipe changed")
+    registrations, _ = inventory_owner.raw_registrations()
+    # The very same final observation is passed to reconciliation and this
+    # selected-row preflight. Unrelated inventory errors remain in the ledger.
+    inventory_owner.source_metadata_selection_preflight(
+        state["inventory"],
+        observed,
+        state["plan"],
+        registrations,
+        _PREDICATE_IDENTITIES,
+    )
+    obligations = {
+        tuple(item["identity"]): item
+        for item in report["obligations"]
+        if item["kind"] == "raw-cell"
+    }
+    for item in collected:
+        phases = terminal.get(item["nodeid"], {})
+        cell = obligations[tuple(item["identity"])]
+        scientific = cell["required_numerical_checks"]
+        required = {
+            "native_three_role_agreement",
+            "ort_disabled",
+            "ort_all",
+            "same_artifact_and_feeds_both_modes",
+            "reviewed_criteria",
+            "criteria_comparison",
+            "dtype_shape_output_count",
+            "component_nan_masks",
+            "zero_signs",
+            "operation_rounding",
+            "required_internal_fp64",
+        }
+        if (
+            phases.get("stages")
+            != dict.fromkeys(("setup", "call", "teardown"), "passed")
+            or cell["nodeid"] != item["nodeid"]
+            or cell["stage_body_complete"] is not True
+            or cell["stage_contract_passed"] is not True
+            or cell["capability_status"] != "validated"
+            or cell["numerical_acceptance"] != "validated"
+            or not required <= scientific.keys()
+            or any(
+                check["status"] != "validated"
+                for name, check in scientific.items()
+                if name != "declared_criteria_pair"
+                or check.get("informational") != "true"
+            )
+        ):
+            raise ValueError("Named SOURCE item lacks complete scientific acceptance")
+    return {"name": _PREDICATE_SCOPE, "status": "validated", "cells": 88}
 
 
 def finish_source_metadata_acceptance(session, state, exitstatus):
     """Keep the frozen ledger even when actual admission/collection is invalid."""
     collected, outcomes, evidence, report = (), [], [], None
+    terminal, final_observed = {}, None
     try:
         if not state["configured"]:
             raise ValueError(
@@ -306,9 +441,10 @@ def finish_source_metadata_acceptance(session, state, exitstatus):
                 for record in collected
             )
         )
+        final_observed = inventory_owner.collect_inventory()
         report = inventory_owner.reconcile_source_metadata(
             state["inventory"],
-            inventory_owner.collect_inventory(),
+            final_observed,
             state["plan"],
             baseline_sha256=state["baseline_sha256"],
             epoch=asdict(state["epoch"]),
@@ -361,14 +497,36 @@ def finish_source_metadata_acceptance(session, state, exitstatus):
         for item in state["reports"]
     ]
     report["original_pytest_exitstatus"] = int(exitstatus)
+    if state.get("scope"):
+        try:
+            report["selected_scope"] = _predicate_scope_verdict(
+                state, report, collected, terminal, exitstatus, final_observed
+            )
+        except Exception as exc:
+            report["selected_scope"] = {
+                "name": _PREDICATE_SCOPE,
+                "status": "failed",
+                "detail": f"{type(exc).__name__}: {exc}",
+            }
+        report["invocation_exit_status"] = (
+            0
+            if report["selected_scope"]["status"] == "validated"
+            else int(exitstatus) or 1
+        )
+        session.exitstatus = report["invocation_exit_status"]
     state["report"].parent.mkdir(parents=True, exist_ok=True)
     with state["report"].open("x") as stream:
         json.dump(report, stream, sort_keys=True, separators=(",", ":"))
         stream.write("\n")
-    if report["required_exit_status"] and exitstatus in {
-        pytest.ExitCode.OK,
-        pytest.ExitCode.NO_TESTS_COLLECTED,
-    }:
+    if (
+        not state.get("scope")
+        and report["required_exit_status"]
+        and exitstatus
+        in {
+            pytest.ExitCode.OK,
+            pytest.ExitCode.NO_TESTS_COLLECTED,
+        }
+    ):
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
@@ -510,6 +668,324 @@ def _forbid_legacy_and_native(monkeypatch):
     monkeypatch.setattr(jax, "jit", forbidden)
     monkeypatch.setattr(user_interface, "_to_onnx", forbidden)
     monkeypatch.setattr(onnxruntime, "InferenceSession", forbidden)
+
+
+def _predicate_verdict_fixture():
+    """Synthetic consumer inputs; this fixture is never scientific evidence."""
+    payload = inventory_owner.CURRENT_BASELINE.read_bytes()
+    inventory = json.loads(payload)
+    state = {
+        "inventory": inventory,
+        "plan": probe.build_probe_plan(
+            inventory, baseline_sha256=hashlib.sha256(payload).hexdigest()
+        ),
+        "identities": _PREDICATE_IDENTITIES,
+    }
+    collected = [
+        {"identity": identity, "nodeid": f"owner::{index}"}
+        for index, identity in enumerate(_PREDICATE_IDENTITIES)
+    ]
+    reports = [phase for item in collected for phase in _report_fixture(item["nodeid"])]
+    terminal = inventory_owner.source_metadata_pytest_statuses(collected, reports)
+    checks = (
+        "native_three_role_agreement",
+        "ort_disabled",
+        "ort_all",
+        "same_artifact_and_feeds_both_modes",
+        "reviewed_criteria",
+        "criteria_comparison",
+        "dtype_shape_output_count",
+        "component_nan_masks",
+        "zero_signs",
+        "operation_rounding",
+        "required_internal_fp64",
+    )
+    report = {
+        "complete_migration_acceptance": "error",
+        "required_exit_status": 1,
+        "inventory_errors": ["unrelated inventory drift"],
+        "collection_complete": True,
+        "outcomes_complete": True,
+        "obligations": [
+            {
+                **item,
+                "kind": "raw-cell",
+                "stage_body_complete": True,
+                "stage_contract_passed": True,
+                "capability_status": "validated",
+                "numerical_acceptance": "validated",
+                "required_numerical_checks": {
+                    **{name: {"status": "validated"} for name in checks},
+                    "declared_criteria_pair": {
+                        "status": "unverified",
+                        "informational": "true",
+                    },
+                },
+            }
+            for item in collected
+        ],
+    }
+    return state, report, collected, terminal, copy.deepcopy(inventory)
+
+
+def test_tracked_predicate_recipe_uses_normal_current_admission(tmp_path, monkeypatch):
+    state, _, _, _, observed = _predicate_verdict_fixture()
+    state.update(
+        configured=False,
+        report=tmp_path / "report.json",
+        epoch=_EPOCH,
+        observed_inventory=observed,
+        baseline_payload=inventory_owner.CURRENT_BASELINE.read_bytes(),
+        input_bindings={},
+    )
+    options = {
+        "source_metadata_scope": _PREDICATE_SCOPE,
+        "source_metadata_baseline": None,
+        "source_metadata_adapters": None,
+        "source_metadata_case": [],
+    }
+    historical = (
+        probe.REPOSITORY_ROOT / "internal_docs/precision/source_replay_adapters.json"
+    ).read_bytes()
+    owner = type("Owner", (), {})
+    _forbid_legacy_and_native(monkeypatch)
+    configure_source_metadata_acceptance(
+        types.SimpleNamespace(getoption=options.get), owner, state
+    )
+    assert state["identities"] == _PREDICATE_IDENTITIES
+    assert len(_PREDICATE_ROWS) == 44 and len(set(_PREDICATE_IDENTITIES)) == 88
+    assert (
+        tuple(item.identity for item in state["descriptors"]) == _PREDICATE_IDENTITIES
+    )
+    assert (
+        state["input_bindings"][str(_PREDICATE_ADAPTERS.resolve())]
+        == _PREDICATE_ADAPTER_SHA256
+    )
+    assert (
+        probe.REPOSITORY_ROOT / "internal_docs/precision/source_replay_adapters.json"
+    ).read_bytes() == historical
+
+
+@pytest.mark.parametrize(
+    "option",
+    ["source_metadata_baseline", "source_metadata_adapters", "source_metadata_case"],
+)
+def test_named_predicate_scope_rejects_overrides_before_factory(
+    tmp_path, monkeypatch, option
+):
+    options = {"source_metadata_scope": _PREDICATE_SCOPE, option: "override"}
+    _forbid_legacy_and_native(monkeypatch)
+    with pytest.raises(pytest.UsageError, match="input overrides"):
+        configure_source_metadata_acceptance(
+            types.SimpleNamespace(getoption=options.get),
+            type("Owner", (), {}),
+            {"configured": False, "report": tmp_path / "report.json"},
+        )
+
+
+def test_predicate_scope_verdict_preserves_global_error_and_final_observation(
+    monkeypatch,
+):
+    state, report, collected, terminal, observed = _predicate_verdict_fixture()
+    before = copy.deepcopy(report)
+    original = inventory_owner.source_metadata_selection_preflight
+    calls = []
+
+    def checked(frozen, actual, *args):
+        assert actual is observed
+        calls.append(actual)
+        return original(frozen, actual, *args)
+
+    _forbid_legacy_and_native(monkeypatch)
+    monkeypatch.setattr(inventory_owner, "source_metadata_selection_preflight", checked)
+    assert _predicate_scope_verdict(
+        state, report, collected, terminal, 0, observed
+    ) == {"name": _PREDICATE_SCOPE, "status": "validated", "cells": 88}
+    assert calls == [observed] and report == before
+    assert report["complete_migration_acceptance"] == "error"
+    assert report["required_exit_status"] == 1
+
+
+@pytest.mark.parametrize(
+    "scope,original,expected",
+    [
+        (None, 0, 1),
+        (_PREDICATE_SCOPE, 0, 0),
+        (_PREDICATE_SCOPE, 1, 1),
+        (_PREDICATE_SCOPE, 2, 2),
+    ],
+)
+def test_named_scope_exit_is_separate_from_full_ledger(
+    tmp_path, monkeypatch, scope, original, expected
+):
+    # Exercise hook wiring with a synthetic reconciler result, not a claim that
+    # these consumer fixtures contain actual numerical evidence.
+    state, report, collected, _, observed = _predicate_verdict_fixture()
+    state.update(
+        configured=True,
+        scope=scope,
+        items=[],
+        descriptors=(),
+        epoch=_EPOCH,
+        baseline_sha256=state["plan"].baseline_sha256,
+        input_bindings={},
+        frozen_ledger={
+            "inventory_errors": [],
+            "inventory_mismatch_evidence": {"observed_snapshot_sha256": "a" * 64},
+        },
+        reports=[
+            phase for item in collected for phase in _report_fixture(item["nodeid"])
+        ],
+        collection_finished=True,
+        collection_reports=[],
+        collection_owner="owner",
+        requested_pytest_args=[],
+        report=tmp_path / "scope.json",
+    )
+    observations = []
+
+    def reconcile(frozen, actual, *args, **kwargs):
+        assert actual is observed
+        observations.append(actual)
+        return copy.deepcopy(report)
+
+    _forbid_legacy_and_native(monkeypatch)
+    monkeypatch.setattr(t_generator, "source_metadata_epoch", lambda: _EPOCH)
+    monkeypatch.setattr(
+        t_generator,
+        "source_metadata_collection_records",
+        lambda items: tuple(collected),
+    )
+    monkeypatch.setattr(inventory_owner, "collect_inventory", lambda: observed)
+    monkeypatch.setattr(inventory_owner, "reconcile_source_metadata", reconcile)
+    session = types.SimpleNamespace(
+        config=types.SimpleNamespace(getoption=lambda name: []), exitstatus=original
+    )
+    finish_source_metadata_acceptance(session, state, original)
+    retained = json.loads(state["report"].read_bytes())
+    assert observations == [observed]
+    assert retained["complete_migration_acceptance"] == "error"
+    assert retained["required_exit_status"] == 1
+    assert retained["original_pytest_exitstatus"] == original
+    assert session.exitstatus == expected
+    if scope:
+        assert retained["invocation_exit_status"] == expected
+        assert retained["selected_scope"]["status"] == (
+            "validated" if original == 0 else "failed"
+        )
+    else:
+        assert "selected_scope" not in retained
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "reorder",
+        "duplicate",
+        "missing",
+        "extra",
+        "recipe",
+        "original-exit",
+        "reconciliation-error",
+        "collection-incomplete",
+        "outcomes-incomplete",
+        "late-contract",
+        "late-registration",
+        "body",
+        "contract",
+        "capability",
+        "numerics",
+        "nodeid",
+        "setup",
+        "call",
+        "teardown",
+        "skip",
+        "missing-phase",
+        "native_three_role_agreement",
+        "ort_disabled",
+        "ort_all",
+        "same_artifact_and_feeds_both_modes",
+        "reviewed_criteria",
+        "criteria_comparison",
+        "dtype_shape_output_count",
+        "component_nan_masks",
+        "zero_signs",
+        "operation_rounding",
+        "required_internal_fp64",
+        "missing-check",
+    ],
+)
+def test_predicate_scope_verdict_rejects_incomplete_or_drifted_scope(
+    monkeypatch, mutation
+):
+    state, report, collected, terminal, observed = _predicate_verdict_fixture()
+    exitstatus = 0
+    cell = report["obligations"][0]
+    if mutation == "reorder":
+        collected[0], collected[1] = collected[1], collected[0]
+    elif mutation == "duplicate":
+        collected[1] = collected[0]
+    elif mutation == "missing":
+        collected.pop()
+    elif mutation == "extra":
+        collected.append(collected[0])
+    elif mutation == "recipe":
+        state["identities"] = tuple(reversed(state["identities"]))
+    elif mutation == "original-exit":
+        exitstatus = 1
+    elif mutation == "reconciliation-error":
+        report["error"] = "admission failed"
+    elif mutation in {"collection-incomplete", "outcomes-incomplete"}:
+        report[mutation.replace("-incomplete", "_complete")] = False
+    elif mutation == "late-contract":
+        index = next(
+            index
+            for index, item in enumerate(observed["registrations"])
+            if item[0] == "plugin::eq"
+        )
+        row = next(item for item in observed["cases"] if item[:2] == [index, 0])
+        observed["contracts"][row[5]]["testcase"] = "changed"
+    elif mutation == "late-registration":
+        index = next(
+            index
+            for index, item in enumerate(observed["registrations"])
+            if item[0] == "plugin::eq"
+        )
+        row = list(observed["registrations"][index])
+        row[1] = "changed.owner"
+        observed["registrations"][index] = row
+    elif mutation in {"body", "contract", "capability", "numerics", "nodeid"}:
+        key, value = {
+            "body": ("stage_body_complete", False),
+            "contract": ("stage_contract_passed", False),
+            "capability": ("capability_status", "unverified"),
+            "numerics": ("numerical_acceptance", "failed"),
+            "nodeid": ("nodeid", "other"),
+        }[mutation]
+        cell[key] = value
+    elif mutation in {"setup", "call", "teardown", "skip", "missing-phase"}:
+        phases = _report_fixture(collected[0]["nodeid"])
+        if mutation == "missing-phase":
+            phases.pop()
+        else:
+            selected = "call" if mutation == "skip" else mutation
+            next(item for item in phases if item.when == selected).outcome = (
+                "skipped" if mutation == "skip" else "failed"
+            )
+            if selected == "setup":
+                phases = [item for item in phases if item.when != "call"]
+        terminal.update(
+            inventory_owner.source_metadata_pytest_statuses(collected, phases)
+        )
+    elif mutation == "missing-check":
+        del cell["required_numerical_checks"]["ort_all"]
+    else:
+        cell["required_numerical_checks"][mutation]["status"] = "unverified"
+    _forbid_legacy_and_native(monkeypatch)
+    with pytest.raises(ValueError):
+        _predicate_scope_verdict(
+            state, report, collected, terminal, exitstatus, observed
+        )
 
 
 def test_collection_keeps_original_recipe_bytes_and_does_not_execute(

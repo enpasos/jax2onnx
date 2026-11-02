@@ -1,0 +1,489 @@
+{
+  "inventory_sha256": "bb0b210e5425fed30ba99e494f1fa1738e3660cdb368a74779bf285baff03b67",
+  "rows": {
+    "plugin::eq::0": {
+      "contract_sha256": "ce643fc798148054e57e52289434551cb18ee4573c86cab5ccec3c4d918d6bd2",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::ge::0": {
+      "contract_sha256": "53e62a49b78281fc37cc9b1c350d3e1598662bb9076403a6c86708fb3d19ece8",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::gt::0": {
+      "contract_sha256": "636757fa9e85fb9151c92c42a84b6237b5a3dfa4cf9b4cfcd2f0f74ec059ae79",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::is_finite::0": {
+      "contract_sha256": "2ab1f149fdb4e2a476b1b97826580fefe3958d6cb42e06ba9d23e5df0997a69b",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.all::0": {
+      "contract_sha256": "0f7e71fe86eeb4df683b81c97fc916e32a1ee7912e78d81fe3b54dd8fd96ed4f",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.all::1": {
+      "contract_sha256": "ea0693038efc93b995f91197df440c2d91d1a25147fcaba8f78b233b5cbf17d5",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.all::2": {
+      "contract_sha256": "68fb903866f996601b965821015290f051db43f67ef2e4f32ecc89a529831782",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.any::0": {
+      "contract_sha256": "5bc1a8f5bc42c5667a3a071fb9bc58697da013f1952a1633a6024e8e310ed0a8",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.any::1": {
+      "contract_sha256": "5ea3157a6f9427c0d5d6ad26ea8a22e93abc54465b03b76b26dd977b7c9f4d7d",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.any::2": {
+      "contract_sha256": "f446b548ffe6dca26668c8bc2dc363eba9f59a348ac5b144da493066f58f38e5",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.equal::0": {
+      "contract_sha256": "5d47309315fc00377166d201baf9dcca7b9f60d89f6f8713eed61a33e68d7736",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.equal::1": {
+      "contract_sha256": "cf526947bf079781ebb007d63b8c97284b215905c46250b3787cdbc97086e8b5",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.equal::2": {
+      "contract_sha256": "f890398cde635ad47f58150f0baee6854779e5cbb7b76271c1eec4755b6cc71d",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.greater::0": {
+      "contract_sha256": "60ce3b30a079aaf02b3075022c6df614fa7f94f8efd62f930345da0ed6cf460d",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.greater::1": {
+      "contract_sha256": "d0354b4f873d5160074acef36fd4f8a9f2b84c727aa29ab9536ecfce03adeaeb",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.greater::2": {
+      "contract_sha256": "530656c6e9537069882bc2a766d475ff26f5e9629472f810fd69f9828a9698ec",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.greater::3": {
+      "contract_sha256": "40e9c26989eb785e30b3b53da434d615997b23916140a3effcc47c51335f94a0",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.greater_equal::0": {
+      "contract_sha256": "c14d122399bce4144d36c8c13a036f9f557cd0fbf4c50892e0f26a2d5ca4aa3a",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.greater_equal::1": {
+      "contract_sha256": "2ac701fc0843ab54207093331e3e8e4105253073abfbf37628d4b8db96fe66e7",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.greater_equal::2": {
+      "contract_sha256": "0dd2682d91feba34925ffa8d28302e78508b2ce3dbb5cd253e1dae9269fc6ff9",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.greater_equal::3": {
+      "contract_sha256": "035d6c4cc67458682b5de16b76227f2e535bf347bebac8b58f5fe2f84e87d026",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.isfinite::0": {
+      "contract_sha256": "6d24b581f4caee95e114b25aefee361912996c2d416adc925403124ee38c0455",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.less::0": {
+      "contract_sha256": "a00769b47c236de2d5883e52aaaf6ff8ff9ea4f91f3ac6d3b6532003fd41f9a8",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.less::1": {
+      "contract_sha256": "fe13a27fcc844dde21bd52d5e1cebbedd8321fff968542cf1389a949f57565c3",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.less::2": {
+      "contract_sha256": "7239ed69559451cbc4f71d684b4a67d24e1e1f218299fe24fff91b1baac0005d",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.less::3": {
+      "contract_sha256": "0312caf0f2602eb91f867395c040ba6f149bc6f21d4175320762f2beaf76f481",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.less_equal::0": {
+      "contract_sha256": "a63463170926987d5ec5eead5a44124c7cdb55bcbeaf4cd6f698295844d53cb8",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.less_equal::1": {
+      "contract_sha256": "b41851d8d199deab7ba0d3ba33dd63ca04fe4217ab301be4fdc16589436be8c4",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.less_equal::2": {
+      "contract_sha256": "383c05784f4799b31d93b298424f07338ed40a0e3e3573610238bb0cd6cc9d94",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::jax.numpy.less_equal::3": {
+      "contract_sha256": "7ddeaa7d59aaa029b6fff5901027678554c5a5814b19b884d6c20cfa8b2993f9",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::le::0": {
+      "contract_sha256": "f21767997b7e5d0c002bcb5a71cc0ee0f9f5b9186e24bc9d89a80ac33242d040",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::lt::0": {
+      "contract_sha256": "4f168c8231fec31853a6c7708727e323df8cec9f446749cc72e8790be96b300d",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::ne::0": {
+      "contract_sha256": "9f48632129dd175ec8c5da45af108a22b4dfaeabdcd323fdeaa5ced5df030303",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_and::0": {
+      "contract_sha256": "cd4c143bb649b6502ac265fd5ae5defb20a4c25d9d4ae4c5ddbdd284b566a41f",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_and::1": {
+      "contract_sha256": "cd2dacf9bd6dc03128d224432c11e3295367a38d5e3339aa3490b59f861ad0f9",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_and::2": {
+      "contract_sha256": "a7758cd8d15c078b1e4eae8655d32f26492e67f629e94c40441ec68e753d6eac",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_or::0": {
+      "contract_sha256": "29d4a5b4c6629a9c6ebe44347a31f211233ccf6583e1bea0283198389d01df2d",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_or::1": {
+      "contract_sha256": "ca21ca08b2de20d5a861ab6d2d21e6d9662f0f5a6f4c60a77800f8d1957beaff",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_or::2": {
+      "contract_sha256": "c5f447be1ba7a4afeb8e12c6e199b5cb0daba677422b0717a67b742b97c4c06b",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_or::3": {
+      "contract_sha256": "df48ccc7cad7e845322b9ca6f4cfc7f61ca990b21e0323594a6d0955ee7042c5",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_xor::0": {
+      "contract_sha256": "0d0d0fca2d24bae2c58d85153b226ca2efdf3013bdbe38dfe0eac471f296011a",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_xor::1": {
+      "contract_sha256": "d2d00db9385b745a3f54a52f786980d175b785a8308377874337956f189c9ce3",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_xor::2": {
+      "contract_sha256": "f5735fa094fd7f90fafba81bd95b3165ab59c5b8c075c0e86a120c0d00417fff",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    },
+    "plugin::reduce_xor::3": {
+      "contract_sha256": "6dced74983ab83c1d2db399e6509c5aa12950950d07313d1e6fa52fc35a543cf",
+      "criteria": {
+        "applicability": "all-logical-discrete",
+        "mode": "exact"
+      },
+      "native_protocol": {
+        "mode": "stateless-three-role-v1",
+        "reviewed": true
+      }
+    }
+  }
+}

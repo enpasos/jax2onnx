@@ -185,6 +185,63 @@ def test_cache_report_preserves_existing_receipts_archive_root():
     assert cache["uses"] == receipts["uses"]
 
 
+def test_tracked_source_predicate88_has_locked_and_minimum_execution_owners():
+    jobs = _workflow()["jobs"]
+    full = jobs["test"]
+    assert full["strategy"]["matrix"]["python-version"] == [
+        "3.11",
+        "3.12",
+        "3.13",
+        "3.14",
+    ]
+    scope = "--source-metadata-scope=registered-predicate88"
+    owner = "tests/extra_tests/converter/test_source_precision_metadata.py"
+    step = next(
+        item
+        for item in full["steps"]
+        if item.get("name")
+        == "Qualify tracked SOURCE predicate88 (locked dependencies)"
+    )
+    assert scope in step["run"] and owner in step["run"]
+    assert "poetry run python -B -m pytest -n 0" in step["run"]
+    assert "--timeout-seconds 600 --max-rss-mib 4096" in step["run"]
+    assert "continue-on-error" not in step and "||" not in step["run"]
+    uploaded = next(
+        item
+        for item in full["steps"]
+        if item.get("name") == "Upload SOURCE predicate88 scope and full ledger"
+    )
+    assert uploaded["if"] == "always()"
+    assert "source-predicate88.json.evidence/" in uploaded["with"]["path"]
+    minimum311 = jobs["minimum-dependencies"]
+    work311 = next(
+        item for item in minimum311["steps"] if "BASH_MINIMUM" in item.get("run", "")
+    )
+    assert minimum311["timeout-minutes"] == 20
+    assert "--timeout-seconds 1100 --max-rss-mib 4096" in work311["run"]
+    assert scope in work311["run"] and owner in work311["run"]
+    assert (
+        work311["run"].index("scripts/install_minimum_dependencies.py")
+        < work311["run"].index(scope)
+        < work311["run"].rindex("BASH_MINIMUM")
+    )
+    assert "full_acceptance" in work311["env"]["RUN_SOURCE_PREDICATE88"]
+    candidate = jobs["candidate-standard"]
+    work312 = next(
+        item["run"] for item in candidate["steps"] if item.get("id") == "work"
+    )
+    block = work312.split('if [[ "$CANDIDATE_ID" == minimum312-extra ]]; then')[
+        -1
+    ].split("\nfi", 1)[0]
+    assert scope in block and owner in block
+    assert '"$CANDIDATE_DIR/source-predicate88.json"' in block
+    assert '"$TMPDIR/source-predicate88"' in block
+    assert work312.index("python -B scripts/run_pytest_batches.py") < work312.index(
+        scope
+    )
+    assert "execution_work_seconds=1100" in work312
+
+
 def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp_path):
     workflow = _workflow()
     steps = workflow["jobs"]["test"]["steps"]
@@ -242,7 +299,7 @@ def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp
     work = next(step["run"] for step in candidate["steps"] if step.get("id") == "work")
     body = "\n".join("  " + line for line in script.splitlines()[1:])
     guarded = (
-        'if [[ "$CANDIDATE_LANE" == extra && "$CANDIDATE_ROLE" == locked ]]; then\n'
+        'if [[ "$CANDIDATE_LANE" == extra && ( "$CANDIDATE_ROLE" == locked || "$CANDIDATE_ID" == minimum312-extra ) ]]; then\n'
         + body
         + "\nfi"
     )
@@ -256,7 +313,17 @@ def test_source_metadata_anchor_is_provisioned_in_shallow_jobs_before_pytest(tmp
         < work.index("python -B scripts/run_pytest_batches.py")
     )
     for name, job in workflow["jobs"].items():
-        if name not in {"test", "candidate-standard"}:
+        if name == "minimum-dependencies":
+            minimum = next(
+                step["run"]
+                for step in job["steps"]
+                if "BASH_MINIMUM" in step.get("run", "")
+            )
+            assert "\n".join(script.splitlines()[1:]) in minimum
+            assert minimum.index(fetch) < minimum.index(
+                "poetry install --no-interaction"
+            )
+        elif name not in {"test", "candidate-standard"}:
             assert all(
                 "source_anchor=" not in step.get("run", "")
                 for step in job.get("steps", [])

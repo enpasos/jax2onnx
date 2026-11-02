@@ -50,6 +50,20 @@ strict A acceptance, reviewed skip/xfail qualification or numerical equivalence.
 full S and the fixed strict unions; minimum Python 3.11 remains an additional
 required job with its exact original seventeen selectors.
 
+Full Python acceptance additionally owns the tracked
+`--source-metadata-scope=registered-predicate88` command through the existing
+metadata owner: one named locked step per Python 3.11–3.14 cohort, minimum
+Python 3.11 in its controlled work, and the minimum Python 3.12 support EXTRA
+job in its controlled work. The exact 44-row adapter and ordered off/on recipe
+select 88 original cells. The invocation passes only with original pytest exit
+zero, all setup/call/teardown phases and scientific checks validated, unchanged
+bound inputs, and selected-row preflight against the final reconciled inventory.
+The separate `selected_scope`/`invocation_exit_status` fields do not change the
+full report's global `ERROR` or `required_exit_status=1`. Ordinary invocations
+retain the strict complete-migration exit rule. Reports, JUnit, saved evidence
+and resource observations are retained; these additions must qualify within
+the unchanged existing work/job and evidence budgets on the actual candidate.
+
 Minimum 3.11 setup, minimum installation, generation and tests now share the
 ordinary 1,100-second WORK / 4-GiB observer and 20-minute whole-job limit. Its
 successful receipts and entire job, plus the shared head/mode resolver and its
