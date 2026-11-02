@@ -1119,6 +1119,8 @@ def test_primary_results_precede_bulk_receipts_without_changing_archive_layout()
         "${{ runner.temp }}/ci-candidate-${{ matrix.id }}/standard-start-capacity.json",
         "${{ runner.temp }}/ci-candidate-${{ matrix.id }}/run/run.json",
         "${{ runner.temp }}/ci-candidate-${{ matrix.id }}/run/primary/",
+        "${{ runner.temp }}/ci-candidate-${{ matrix.id }}/source-predicate88.json",
+        "${{ runner.temp }}/ci-candidate-${{ matrix.id }}/source-predicate88-junit.xml",
     ]
     assert receipts["with"]["name"] == (
         "${{ matrix.lane == 'extra' && 'candidate-extra' || 'candidate-standard' }}"
@@ -1880,9 +1882,10 @@ def test_complete_support_extra_rejects_foreign_dispatch_before_runner(key, valu
     assert result.returncode != 0 and "unexpected-runner" not in result.stdout
 
 
+@pytest.mark.parametrize("source_scope", ["false", "true"])
 @pytest.mark.parametrize("failure", ["none", "minimum-install", "pip-check", "pytest"])
 def test_minimum311_monitors_original_seventeen_selectors_and_stops_on_failure(
-    tmp_path, failure
+    tmp_path, failure, source_scope
 ):
     job = _workflow()["jobs"]["minimum-dependencies"]
     assert job["timeout-minutes"] == 20 and job["needs"] == "acceptance-context"
@@ -1892,6 +1895,17 @@ def test_minimum311_monitors_original_seventeen_selectors_and_stops_on_failure(
         if step.get("name") == "Observe minimum-version setup and compatibility checks"
     )
     commands = r"""
+    git() {
+      printf 'git' >> "$GIT_EVENTS"; printf ' %q' "$@" >> "$GIT_EVENTS"; printf '\n' >> "$GIT_EVENTS"
+      case "$*" in
+        'rev-parse --verify HEAD^{commit}') printf '%s\n' "$EXPECTED_CHECKOUT_SHA" ;;
+        'fetch --no-tags --depth=1 origin ccc861b0dff5042958a267addc43b622a4b61d49') ;;
+        'rev-parse --verify ccc861b0^{commit}') printf '%s\n' ccc861b0dff5042958a267addc43b622a4b61d49 ;;
+        'archive ccc861b0dff5042958a267addc43b622a4b61d49 tests') ;;
+        'status --porcelain --untracked-files=no') ;;
+        *) printf 'Unexpected fixture git command\n' >&2; return 98 ;;
+      esac
+    }
     python() {
       printf 'observer'; printf ' %q' "$@"; printf '\n'
       while [[ "$1" != -- ]]; do shift; done
@@ -1906,11 +1920,13 @@ def test_minimum311_monitors_original_seventeen_selectors_and_stops_on_failure(
         'run python scripts/install_minimum_dependencies.py') [[ "$FAIL_STAGE" != minimum-install ]] || return 71 ;;
         'run pip check') [[ "$FAIL_STAGE" != pip-check ]] || return 72 ;;
         'run pytest '*) [[ "$JAX_PLATFORMS" == cpu && "$JAX_ENABLE_X64" == True ]]; [[ "$FAIL_STAGE" != pytest ]] || return 73 ;;
+        'run python -B -m pytest '*) [[ "$JAX_PLATFORMS" == cpu && "$RUN_SOURCE_PREDICATE88" == true ]] ;;
       esac
     }
-    export -f python pip poetry
+    export -f git python pip poetry
     """
     events = tmp_path / "events"
+    git_events = tmp_path / "git-events"
     result = subprocess.run(
         ["bash", "-euo", "pipefail", "-c", commands + "\n" + step["run"]],
         env={
@@ -1919,11 +1935,28 @@ def test_minimum311_monitors_original_seventeen_selectors_and_stops_on_failure(
             "GITHUB_WORKSPACE": str(tmp_path),
             "EXPECTED_CHECKOUT_SHA": "a" * 40,
             "EVENTS": str(events),
+            "GIT_EVENTS": str(git_events),
+            "RUN_SOURCE_PREDICATE88": source_scope,
             "FAIL_STAGE": failure,
         },
         text=True,
         capture_output=True,
     )
+    assert [shlex.split(line) for line in git_events.read_text().splitlines()] == [
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"],
+        [
+            "git",
+            "fetch",
+            "--no-tags",
+            "--depth=1",
+            "origin",
+            "ccc861b0dff5042958a267addc43b622a4b61d49",
+        ],
+        ["git", "rev-parse", "--verify", "ccc861b0^{commit}"],
+        ["git", "archive", "ccc861b0dff5042958a267addc43b622a4b61d49", "tests"],
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"],
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+    ]
     lines = [shlex.split(line) for line in events.read_text().splitlines()]
     assert lines[:2] == [
         ["poetry", "install", "--no-interaction"],
@@ -1961,6 +1994,33 @@ def test_minimum311_monitors_original_seventeen_selectors_and_stops_on_failure(
             *profile["collection_args"],
         ]
         assert lines.index(generation[0]) < lines.index(selected[0])
+    source_selected = [
+        line
+        for line in lines
+        if line[:6] == ["poetry", "run", "python", "-B", "-m", "pytest"]
+    ]
+    if source_scope == "true" and failure == "none":
+        assert source_selected == [
+            [
+                "poetry",
+                "run",
+                "python",
+                "-B",
+                "-m",
+                "pytest",
+                "-n",
+                "0",
+                "-q",
+                "tests/extra_tests/converter/test_source_precision_metadata.py",
+                "--source-metadata-scope=registered-predicate88",
+                f"--source-metadata-acceptance={tmp_path}/source-predicate88-minimum.json",
+                f"--junitxml={tmp_path}/source-predicate88-minimum-junit.xml",
+                f"--basetemp={tmp_path}/minimum311-tmp/source-predicate88",
+            ]
+        ]
+        assert lines.index(selected[0]) < lines.index(source_selected[0])
+    else:
+        assert source_selected == []
     receipts = next(
         step
         for step in job["steps"]
