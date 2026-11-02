@@ -169,20 +169,28 @@ def _normalize_input_specs(raw_inputs: Sequence[UserInputSpec]) -> List[InputSpe
                 int(dim) if isinstance(dim, np.integer) else dim
                 for dim in tuple(item.shape)
             )
-            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            normalized.append(
+                jax.ShapeDtypeStruct(dims, item.dtype, weak_type=item.weak_type)
+            )
             continue
         if isinstance(item, core.ShapedArray):
             dims = tuple(
                 int(dim) if isinstance(dim, np.integer) else dim for dim in item.shape
             )
-            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            normalized.append(
+                jax.ShapeDtypeStruct(dims, item.dtype, weak_type=item.weak_type)
+            )
             continue
         if isinstance(item, _SupportsShapeAndDtype):
             dims = tuple(
                 int(dim) if isinstance(dim, np.integer) else dim
                 for dim in tuple(item.shape)
             )
-            normalized.append(jax.ShapeDtypeStruct(dims, item.dtype))
+            normalized.append(
+                jax.ShapeDtypeStruct(
+                    dims, item.dtype, weak_type=bool(getattr(item, "weak_type", False))
+                )
+            )
             continue
         if isinstance(item, (list, tuple)):
             normalized.append(_normalize_shape_tuple(item))

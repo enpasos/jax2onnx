@@ -11,7 +11,7 @@ from .typing_support import ConverterContext
 @dataclass(frozen=True)
 class FunctionKey:
     qualified_name: str  # e.g. "pkg.module.SuperBlock"
-    input_sig: tuple[tuple[tuple[object, ...], str], ...]
+    input_sig: tuple[tuple[tuple[object, ...], str, bool], ...]
     capture_sig: tuple[object, ...]  # instance/config hash or tuple of static fields
 
 
