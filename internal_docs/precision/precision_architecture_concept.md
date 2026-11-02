@@ -1,7 +1,9 @@
 # A simpler precision architecture
 
-Status: first implementation checkpoint in progress, 2 November 2026, on
-`precision-contract`. The complete precision transition is not implemented.
+Status: Step 1 is merged in PR #287. The bounded Step 2 feasibility check is
+complete. The Step 2 goal was activated on 2 November 2026 using the full text
+below. Implementation follows the five checkpoints, with correctness, a clear
+user interface and maintainability as acceptance requirements.
 
 The proposed replacement for [PR #277](https://github.com/enpasos/jax2onnx/pull/277)
 is one consistent precision rule in the existing exporter, demonstrated by a
@@ -141,6 +143,9 @@ path is an unresolved decision, not permission to remove it silently.
 The intended end state is one rule at an explicit, announced API version
 boundary, with migration examples and an actionable error for the obsolete
 argument. The released API stays unchanged until that transition is qualified.
+Inside the implementation PR, preserving the old arithmetic is not a separate
+requirement; keep temporary compatibility only where an existing CI check
+actually needs it during the migration.
 Any temporary compatibility code needs a removal point before the new contract
 is released; permanent dual arithmetic modes are not the solution.
 
@@ -201,120 +206,468 @@ not repaired by choosing the convenient result. Historical failures in #277
 remain recorded as such, and are not retroactively passed by this narrower
 proposal. Green diagnostic tests do not establish numerical correctness.
 
-## First implementation checkpoint
+## Step 1 — completed foundation
 
-The first change preserves JAX `weak_type` through ordinary input preparation,
-named functions, captures and function-cache keys. This is one shared tracing
-property, not a new precision mode. The accompanying operator change represents
-8-bit integer `dot_general` operands with INT32 accumulation using
-`MatMulInteger`. Existing pure value lookup already preserves canonical
-bindings and does not need another implementation.
+[PR #287](https://github.com/enpasos/jax2onnx/pull/287) is merged into `main`
+at `8d502aac`. It preserves weak scalar promotion through ordinary inputs,
+named functions, captures and function reuse. It also preserves 8-bit integer
+matrix operands with INT32 accumulation, saturating floating-to-8-bit casts,
+and the configured Linen computation for structured weights. These changes
+use the ordinary converter; Qwix remains an optional example dependency.
 
-On unchanged `main` (`ff012402`), official JAX 0.10.2 CPU returns FP16 `2048`
-for a weak FP32 `2048.0` plus a typed FP16 `1`. All three native roles agree;
-both ORT optimization modes instead return FP32 `2049`. The strong FP32
-counterpart correctly returns FP32 `2049`. An INT8 contraction of 1,041
-`127 * 127` products returns INT32 `16,790,289` in all native roles, while export
-emits an invalid INT8 `Gemm`. ONNX Runtime 1.31.0 CPU executes direct
-`MatMulInteger` models for all four signed/unsigned operand combinations.
+The exact witnesses distinguish weak FP32 `2048 + FP16(1)`, which returns
+FP16 `2048`, from the strongly typed FP32 result `2049`, and an INT8 contraction
+whose INT32 result is `16,790,289`. The fixed-weight Qwix model exports its two
+integer products through the same API. Its FP32 comparison uses
+`rtol=1e-6`, `atol=1e-6`; native eager, fresh-JIT and warmed-JIT results and both
+ORT optimization settings are required. Hosted CPU testing also established
+the need for the portable UINT8 encoding of UINT8-left/INT8-right products.
 
-Acceptance for these discrete and FP16 witnesses is exact, including output
-shape and dtype. Integer accumulation is inspected before downstream FP32
-scaling. The optional Qwix FP32 example uses fixed `rtol=1e-6`, `atol=1e-6`
-for matching native references and runtime results, with output structure,
-shape and dtype checked separately. Each claimed result needs eager, fresh-JIT
-and warmed-JIT references and both claimed ORT optimization settings.
+All nine checks in [the accepted CI run](https://github.com/enpasos/jax2onnx/actions/runs/41413918783)
+passed on `1e6c884f`, including the complete Python 3.11–3.14 jobs, minimum
+dependencies and optional Qwix integration. The longest job took 19:02.
+Earlier local full-suite attempts on the checkpoint and unchanged main stopped
+at the 4 GiB memory limit; those attempts remain incomplete.
 
-Reuse the small weak-input and function-specialization corrections and
-`2048.0` counterexamples from `precision-migration` at `3aaed9ff`, adapting
-them to the ordinary pipeline. Do not copy its SOURCE profiles, tracing
-controllers or deployment-evidence infrastructure. Its integer matrix path
-rejects integer operands, so it supplies no INT8 implementation to reuse.
-Exact initializer-payload comparisons are a useful later candidate, not part
-of this checkpoint without a separate concrete need.
+The subsequent dependency-compatibility commit `0723b2fe` repairs affected
+exports on the locked JAX 0.10.2 and 0.12.0.1 cohorts and fixes FP16 sequence
+metadata in `scan`.
+Its local standard suite passed in sequential groups: 4,754 passed and two
+existing optional skips. Another 119 focused tests passed on each JAX cohort,
+along with all pinned hooks and the strict documentation build. This is
+separate evidence from PR #287's hosted run; it does not establish hosted
+acceptance for the newer dependency commit.
 
-The unchanged optional Qwix recipe now reaches two integer products through
-ordinary export. Its first attempted export exposed the Dense shortcut's
-flat-array assumption and floating-to-8-bit overflow differences. Both repairs
-are generic: structured Dense parameters use the existing original-call
-fallback, and FP16/BF16/FP32/FP64 conversions sanitize NaN and saturate before
-casting. No Qwix recognition is present in the converter. Repeated empty
-contractions also exposed uninitialized runtime output; static zeros and local
-padding for potentially empty symbolic contractions avoid that kernel path.
-Hosted CPU tests additionally exposed saturating intermediate sums for
-UINT8-left/INT8-right matrix products. An exact UINT8 encoding with an explicit
-right zero point avoids that CPU-dependent path without narrowing source values.
+The global `enable_double_precision` behaviour still exists. In particular,
+explicit FP32 arithmetic can become FP64 arithmetic during double export.
+The trained classifier, held-out task accuracy and artifact-size benefit also
+remain outstanding. Step 1 establishes useful export improvements, not the
+complete replacement architecture or the complete demonstration.
 
-This checkpoint preserves the current explicit precision-flag behaviour.
-The known double-export example still returns FP64 `1` where the model's FP32
-arithmetic returns `0`; removing that global promotion and preserving local
-x64 scopes remain future transition work. The next compatibility decisions are:
+## Step 2 — proposed public precision contract
 
-| Existing workflow | Decision required before the public transition |
+### Purpose and user experience
+
+Step 2 should make the existing exporter consistently follow the computation
+prepared in JAX. Its concrete benefit is reliable mixed-precision export:
+explicit rounding, constants and nested functions keep the same meaning,
+and users configure precision once in their model. Removing the competing
+global policy should also make future lowerings easier to maintain.
+
+The working quantized example does not by itself require this transition.
+Step 2 is justified by the proposed correctness, user-interface and maintenance
+improvements. Its acceptance must demonstrate those improvements directly;
+passing the quantized example alone is insufficient.
+
+For a model configured for FP64, the intended export call is:
+
+```python
+with jax.enable_x64():
+    model = to_onnx(
+        configured_model,
+        inputs=[jax.ShapeDtypeStruct((2,), jnp.float64)],
+    )
+```
+
+The model's parameters and operations must also express the intended precision.
+This context permits FP64; it does not rewrite explicit FP32 operations.
+Ordinary FP32 and quantized exports use the same API with their own typed inputs.
+
+### Public API boundary and migration
+
+The coordinated API boundary is the upcoming **0.18.0** release, as reviewed
+at the first implementation checkpoint. The package is currently 0.17.1;
+update both version declarations with the qualified transition. No release
+date or merge is implied. The transition follows these rules:
+
+| Existing workflow | Proposed rule and migration |
 | --- | --- |
-| Omitted precision flag | Preserve the caller's x64 configuration instead of implicitly disabling it. |
-| Shape-only inputs with double export | Replace the implicit FP64 default with explicit typed FP64 inputs; the proposed shape-only default stays FP32. |
-| Typed FP64 input while JAX x64 is disabled | Reject the incompatible input before tracing instead of silently narrowing it or changing the caller's configuration. |
-| Explicit old precision flag | Choose and announce the API version boundary and migration error, with tested equivalents for the claimed workflows. |
-| Fixed FP32 casts in third-party sources | Keep their meaning. A workflow relying on global widening needs a real framework configuration or an explicit unresolved compatibility decision. |
-| A local x64 scope around a named function | Preserve its effective tracing context and cache identity before removing the old policy. |
+| Omitted precision flag | Preserve the caller's effective JAX configuration during export and restore it after success or failure. |
+| Shape-only inputs, including inside an x64 context | Use the documented FP32 input default. Request FP64 with typed inputs. |
+| A declared input type that configured JAX tracing would narrow | Raise an actionable error before tracing. Scoped `jax.enable_x64()` is the portable FP64 preparation on both checked cohorts. |
+| Explicit FP64 permission with global x64 disabled | Respect it when the official JAX tracing API preserves that input type. The checked JAX 0.12 cohort does; JAX 0.10 abstract input tracing still narrows it and receives the diagnostic. |
+| Explicit `enable_double_precision=True` or `False` | Reject the obsolete argument with a migration message at the announced boundary. Configure the model and inputs, then omit the argument. |
+| Fixed FP32 casts or parameters in third-party code | Preserve them. Use the framework's actual dtype configuration where available; a workflow needing automatic rewriting remains an explicit compatibility decision. |
+| Local precision context around a named function | Preserve effective x64, matrix precision, explicit-x64 permission and NumPy promotion mode for delayed traces and function reuse. Keep explicit primitive precision parameters. |
+| `allclose(...)` validation | Use the same model and JAX configuration as export, with the same obsolete-argument diagnostic. Remove its independent x64 override and forced matrix-precision default at the same boundary. |
 
-The bounded follow-up is to resolve those cases with concrete examples, then
-remove the shared tracing/default and constant/payload promotion rules together
-with their affected plugin consumers. Do not add a parallel compatibility
-engine. The trained-classifier accuracy and size demonstration follows that
-decision; this small fixed-weight integration is not its substitute.
+Apply the pre-trace compatibility check to other supported types that JAX would
+otherwise narrow, including 64-bit integers; FP64 is the principal UX example.
 
-The focused regressions pass on the locked JAX 0.10.2 and 0.11.2 cohorts and
-with minimum ONNX Runtime 1.24.1. Pinned hooks and the strict documentation
-build pass. Independent review found no blocking production defect for this
-checkpoint; complete-suite and hosted timing acceptance remain open.
+Do not promise equivalence between an old globally widened computation and an
+unchanged FP32 model. First demonstrate migration of an ordinary FP32 workflow,
+a configurable FP64 workflow and a fixed-cast third-party-style workflow.
+Include an actual existing full-model double-export case with its complete
+inputs and established numerical criteria, not only scalar examples. Retain
+fixed supplied callables rather than rewriting them to force a plugin path.
+An important existing workflow without an acceptable migration blocks the
+transition decision.
 
-The local full-suite attempt was stopped at the existing 4 GiB process-memory
-limit after 82 seconds. A separate unchanged-main control hit the same limit
-at the large GPT test after 67 seconds. Both runs are incomplete, not passes;
-neither establishes a memory regression or a complete comparison. The existing
-hosted full-suite jobs must supply the missing results without reducing model
-inputs or coverage. Their exact new commit and job durations must be checked.
+### One coordinated implementation
 
-Local focused runs take seconds; they do not forecast hosted setup or
-full-suite cost. A reliable total estimate for the public transition depends
-on the unresolved compatibility decisions above. The initial one-to-three-day
-estimate applied only to this first checkpoint and is not a completion
-forecast for the migration.
+Keep one implementation in the existing pipeline. The static inventory finds
+roughly 90 production files reading or exposing the current policy. Most leaf
+changes are mechanical, but tracing, constant ownership and a few lowerings
+require semantic changes. Removing the public argument alone is insufficient.
 
-## How to proceed and when to stop
+| Owner | Required change |
+| --- | --- |
+| `user_interface.py`, `converter/conversion_api.py` | Coordinate export and validation, input defaults and x64 checks. Stop imposing a global arithmetic dtype. |
+| `ir_utils.py`, `converter/ir_builder.py`, `converter/ir_context.py`, `converter/ir_postprocess.py` | Map traced dtypes exactly and keep constant payloads and declarations consistent. Remove global promotion, narrowing and scope exceptions. Unknown or missing traced types get an explicit representation error. |
+| `plugins/plugin_system.py`, `converter/function_scope.py` | Preserve effective context for delayed function traces and cache identity, retaining Step 1's weak types and capture handling. |
+| Existing operator and control-flow plugins | Consume source types and signatures. Remove legacy-only promotion helpers; keep conversions required by the operation or its evidenced runtime implementation. |
+| `tests/t_generator.py` and existing regressions | Construct intentional typed model/input variants and check their actual JAX output types. Remove automatic FP64 expected-output rewriting. Review each changed legacy expectation. |
 
-**First establish feasibility.** The bounded first checkpoint is authorized;
-the feasibility results above establish its change boundary. They do not
-authorize an open-ended migration. Agree a separate effort budget before the
-public transition and record time and compute cost.
+The feasibility check addressed three concrete risks. Their implementations
+still need production review and complete regression coverage:
 
-Use unchanged `main` as the baseline. Confirm the actual Qwix recipe and traced
-operations, reproduce the export gap, and identify the precision-policy sites
-that must change for the general contract. The result should be a concrete
-change boundary, a compatibility decision list, proposed fixed numerical
-criteria and a remaining-effort estimate. Reuse #277's findings and small
-counterexamples before repeating investigations.
+- `jnp.where` can narrow a traced FP64 result and mutate a shared constant while
+  adapting one consumer. Establish a distinct local conversion without changing
+  the canonical constant seen by other consumers.
+- `scan` contains dtype-based scope heuristics and even selects an integer
+  result type from the global precision flag. Use the traced carry, sequence
+  and output signatures while retaining necessary ONNX interface casts.
+- Integer `reduce_window_sum` selects floating convolution precision from the
+  flag. Demonstrate exact source integer behaviour or identify the necessary
+  local lowering change before claiming that this policy can be removed safely.
 
-**Then make a go/no-go decision.** Continue only with a bounded implementation
-plan and an agreed effort budget. Stop for reassessment if the common contract
-requires another converter, model-specific tracing patches, compiler changes,
-or an expanding compatibility programme. If the useful example already works,
-document that result; it does not by itself justify a redesign.
+Keep attention's required work precision, BF16 runtime adaptations and INT8/INT32
+accumulation where their source and operation semantics require them. Do not
+replace these with a generic floating dtype rule, a second converter, a
+SOURCE/LEGACY switch or a model-specific export path.
 
-**Implement through the existing pipeline.** Work from `main` in small,
-reviewable changes. Separate behaviour-preserving cleanup from the explicit
-contract transition. Keep incomplete work unreleased until the general
-invariants, compatibility decision and complete demonstration are accepted.
-Borrow code from #277 only after identifying its necessary responsibility and
-validating it in the smaller design.
+### Delivery plan
 
-**Finish with an independent review of the result.** Review the public UX,
-the removed as well as added complexity, numerical evidence and CI cost.
-The project is complete only when both the general architecture and the
-practical benefit pass acceptance. A successful toy graph or a cleaner diagram
-is not sufficient.
+The checkpoints belong to one coordinated implementation PR. They are useful
+review and commit boundaries, not separately releasable precision modes.
+
+1. **Establish the baseline and retain real precision coverage.** Start from
+   fresh `main`, verify the dependency-compatibility fix and preserve local user
+   changes. Confirm the supported minimum and locked dependency variants rather
+   than infer them from an old document. Record the baseline commit and existing
+   CI coverage in the PR. Review the generated FP64 cases: prepare genuinely
+   FP64-configurable models and inputs through existing factories, and preserve
+   deliberate fixed FP32, mixed and half computations. Review the remaining NNX
+   MLP graph expectation against its source calculation. Keep its complete
+   inputs and numerical criteria. Confirm the API boundary and migration
+   examples. Open a draft PR with a short goal and scope when implementation
+   begins.
+
+   **Exit:** an independently reviewed fixture strategy, representative complete
+   FP32/FP64 and fixed-cast workflows, and a justified structural expectation.
+   An unresolved coverage loss or incompatible important workflow blocks the
+   broad mechanical migration. The 39 prototype tests alone do not pass this
+   checkpoint.
+
+2. **Make types and tracing consistent in the existing converter.** Adapt the
+   reviewed prototype's exact type mapping, canonical bindings, constant payload
+   handling and function-context capture. Keep the finite context fields in
+   existing tracing and cache ownership; route version differences through
+   `_compat/jax.py`. Coordinate input preparation, `to_onnx` and `allclose`.
+   Test configuration restoration after failures as well as successful calls.
+   Remove shared promotion and narrowing; do not retain them behind a new mode.
+   Integrate the small prototype lowering and framework repairs needed for
+   these contract regressions before migrating the remaining consumers.
+
+   **Exit:** all semantic scenarios covered by the 39 feasibility probes pass
+   through the ordinary test path on both locked JAX cohorts. The genuinely
+   FP64-prepared complete-model cases and the reviewed NNX structural case have
+   actually run and passed. Equivalent consolidation of tests is welcome;
+   retaining the number 39 is not a requirement. A fixture strategy or unchanged
+   test names alone cannot satisfy this gate. Independent review accepts the
+   ownership changes before broad migration of the remaining plugins.
+
+3. **Migrate lowerings and remove obsolete policy.** Review all existing
+   consumers of the old flag, including leaf plugins, control flow, optimizer
+   passes, validation and test generation. Reuse local `where` and `scan`
+   simplifications and the integer-window implementation where qualified.
+   Finish operator-owned FP16 rounding and framework dtype handling, including
+   exceptional values and the runtime settings actually claimed. Preserve
+   intentional source conversions and required accumulation. Remove obsolete
+   arguments, dead helpers, no-op compatibility signatures and scope guesses.
+
+   **Exit:** no active competing arithmetic policy remains. Focused regressions
+   pass on both JAX cohorts, existing actual FP64 coverage is retained, and
+   changed optimizer and framework paths have explicit semantic review.
+   A test may not become green by merely asserting a known numerical failure.
+
+4. **Qualify complete supported workflows and document the change.** Run the
+   complete standard suites across Python 3.11–3.14, minimum-dependency checks,
+   existing support jobs, pinned hooks and strict documentation build. Retain
+   Step 1's optional pinned Qwix integration in its existing job. Check the
+   existing artifact interfaces, including functions, serialization and packed
+   complex results. Update the API documentation, migration examples, dependency
+   limitations and upcoming release notes together.
+
+   **Exit:** independent review accepts correctness, compatibility and the
+   complexity removed; local required checks pass without reducing supported
+   cases, model inputs or numerical criteria.
+
+5. **Accept the exact final PR revision.** Publish reviewed checkpoints and
+   inspect their actual GitHub checks. Repair a red revision before publishing
+   further feature changes; necessary repair pushes remain possible. At final
+   acceptance, all required jobs must reach terminal `SUCCESS` on the exact PR
+   head, including every complete Python job and support job. Each Linux
+   STANDARD job must finish within 20 minutes. Review the final diff for
+   temporary scaffolding and undocumented behaviour changes.
+
+   **Exit:** the committed implementation, documentation, independent review
+   and hosted results all refer to that same final revision. Merging remains
+   the user's decision. This completes Step 2, not the later trained-model
+   demonstration.
+
+### Reuse from #277
+
+Use current `main` and Step 1 as the implementation foundation. The frozen
+`precision-migration` revision `3aaed9ff` is a source of specific examples and
+small independently applicable repairs, not a branch to merge or cherry-pick
+wholesale. Several of its witnesses are already in the feasibility prototype.
+
+The files below are under `tests/extra_tests/converter/` on that frozen revision.
+They identify useful starting material, not instructions to copy every test.
+
+| Material from #277 | Selective reuse in the ordinary pipeline |
+| --- | --- |
+| `test_source_precision_preparation.py` | Reuse explicit FP32 rounding, its FP64 counterpart, weak/strong promotion and mixed-output examples. Retain the original model bodies, inputs and meaningful assertions. |
+| `test_source_function_context.py` | Adapt equal-signature calls under different local contexts, correct cache reuse, nesting and restoration after errors. |
+| `test_source_initializers.py` | Extract typed payload, shared-consumer, clone/serialization and duplicate-constant tests, including relevant signed-zero and NaN-payload distinctions. |
+| `test_source_loop_precision.py` | Adapt mixed carry types, captured constants, scans without sequence inputs, and zero-trip, repeated and nested outputs. |
+| `test_source_optimizer_precision.py` | Reuse concrete rounding and shared-intermediate counterexamples to review existing optimization passes. Do not copy policy-based pass exclusions. |
+| Runtime findings and small production fixes | Keep evidenced limitations in the existing dependency/operator documentation. Review each code fragment against current ownership, retain only a necessary repair, and validate it afresh. |
+
+Port small model bodies, fixtures and assertions into existing test modules.
+Remove SOURCE/LEGACY wrappers, callable profiles, admission checks and custom
+reporting machinery. Do not reproduce tests that only establish separation
+between the old modes. Existing Step 1 fixes must not be implemented twice.
+Every ported numerical claim needs current validation; a historical green test,
+especially a test confirming a failure, is not inherited acceptance.
+
+Keep failures and incomplete investigations identifiable, including upstream
+reference contradictions. Reuse should save rediscovery, not turn an old
+failure into a pass or justify an expanded test-product matrix.
+
+### Step 2 acceptance
+
+- The ordinary API and `allclose` follow the approved rules above, including
+  configuration restoration after errors and useful migration errors.
+- The [FP32 cancellation witness from #277](https://github.com/enpasos/jax2onnx/blob/3aaed9ff/tests/extra_tests/converter/test_source_precision_preparation.py)
+  returns FP32 zero for FP64 input `2**24` after an explicit FP32 cast and
+  `(rounded + FP32(1)) - rounded`. An intentionally FP64 counterpart returns
+  FP64 one. Required official native references must agree before either
+  exported result is accepted.
+- Focused checks preserve constant payloads, shared consumers, mixed outputs,
+  explicit casts, weak promotion, named-function context/reuse, branches and
+  loops. Add distinct witnesses for the three risks above. Check exact shapes,
+  types, integers and relevant zero signs; use predefined operation-specific
+  criteria for other floating results.
+- Step 1's integer-accumulation and optional Qwix regressions continue to pass.
+  A trained classifier and its accuracy, size and deployment measurements are
+  a later demonstration milestone, not a prerequisite for this API-contract PR
+  and not fulfilled by it.
+- Existing operators and complete model inputs retain coverage on the supported
+  cohorts. Migrate tests that intentionally encoded the old policy against the
+  approved new source behaviour; do not widen numerical tolerances to obtain a
+  pass. Review actual typed fixtures and source results: unchanged `_f64` names
+  and test counts are insufficient. Every removed or changed structural
+  assertion needs a source-based justification. Existing native-reference
+  contradictions remain failures.
+- Full suites, minimum-dependency checks, pinned hooks and strict documentation
+  builds pass at the reviewed checkpoint. Each Linux STANDARD job remains under
+  20 minutes with existing coverage. Reuse the existing optional integration job
+  and focused tests; do not add a new evidence framework or a large test-product
+  matrix.
+- Independent review confirms that global promotion and scope heuristics are
+  gone, operation-specific conversions have clear owners, and ordinary imports
+  need no Qwix. No permanent parallel precision policy or temporary no-op
+  scaffolding remains. The final review explains which competing rules were
+  deleted and why each necessary runtime adaptation belongs to its operator;
+  net line count alone is not a maintainability verdict.
+- All required hosted checks reach terminal `SUCCESS` on the exact final PR
+  head, including all full Python 3.11–3.14 jobs and support jobs. A previous
+  head, a partial run, skipped required work or a cancelled job cannot satisfy
+  this gate. Green CI is necessary and does not replace the semantic and
+  maintenance review above.
+
+Passing these gates completes Step 2. Completion of the entire concept still
+requires the useful trained-model demonstration and its separate acceptance.
+
+### Feasibility result — 2 November 2026
+
+**The architecture is technically feasible in the existing converter.** The
+prototype needed no second exporter, global precision mode or compiler patch.
+Source types, constants, function context and operation-owned conversions fit
+the current responsibilities. This supports a bounded implementation proposal;
+it does not qualify a release or establish that the larger change is worth its
+cost today.
+
+The final focused set passed **39 tests on each of the official JAX 0.10.2 and
+0.12.0.1 cohorts** on Python 3.12 and 3.14 respectively, using ORT 1.31.0 and
+1.31.1. Numerical witnesses compare eager, fresh-JIT and warmed-JIT references
+with CPU ORT optimizations disabled and enabled; input diagnostics are checked
+separately. The tested scope is:
+
+| Question | Observed result |
+| --- | --- |
+| Explicit FP32 rounding inside an FP64-input computation | Exact FP32 zero; the deliberately FP64 counterpart returns exact FP64 one. |
+| Existing complete-model migration | Linen MLP in FP32 and explicitly configured FP64, plus the NNX MLP FP64 workflow, pass with complete `(7, 30)` inputs, original generator seeds and established `1e-7` FP64 criteria. Existing FP32 weights are retained and widened explicitly for the configured Linen model. |
+| Fixed supplied FP32 computation | The unchanged GPT-OSS RMSNorm class keeps its internal FP32 calculation on `(2, 64)` FP64 inputs and returns the source result within `1e-7`. This does not provide automatic FP64 rewriting of that class. |
+| Delayed function tracing and reuse | Four finite JAX precision settings survive ordinary, unique and nested function calls, with source weak types and captures retained. |
+| Shared constants, scan and integer windows | Consumer-local conversions preserve other users; INT32/INT64 and unsigned sums retain exact wrapping, including values above `2**53`, dilation, symbolic extents and empty outputs. |
+| Existing Step 1 witnesses | Weak/strong scalar results remain FP16 `2048` / FP32 `2049`; the 1,041-term integer contraction witness remains INT32 `16,790,289`. |
+| Configured framework precision | An additional Dense witness exposed an ignored Flax computation dtype. Using Flax's own `promote_dtype` preparation distinguishes exact FP32 `2**24` from FP64 `2**24 + 1`. |
+
+Several operation-specific repairs were necessary. Integer ORT `ReduceSum`
+saturated in the tested overflow cases; signed `CumSum` followed by selection
+of the final prefix preserved the source sum. The tested UINT32 and UINT64
+values use same-width signed work values and an exact final cast. The initial mixed-type FP64
+BatchNorm representation had no matching CPU kernel; tracing the original Flax
+calculation supplied a working source-faithful representation.
+
+The FP16 case is especially important. ORT 1.31.1 removed an intermediate half
+rounding boundary even with ordinary optimizations disabled, returning `1`
+where all required JAX references returned `0`. The prepared runtime graph
+confirmed the change. A small Add/Sub-owned representation using FP32 work and
+explicit FP16 result casts passed the original witness and a shared-input,
+signed-zero witness on both cohorts. The original unmodified runtime models
+remain failed. This establishes the tested repair, not qualification of all
+half operators, exceptional values, subnormals, providers or performance.
+
+The test-generator prototype also runs existing cases with caller-owned JAX
+configuration and checks each actual source output type, retaining the existing
+packed-complex interface. The final existing-test sample is **nine passed and
+one failed per cohort**. The remaining NNX MLP FP64 failure is its unchanged
+`BatchNormalization` graph expectation after the source calculation was
+expanded. Its separate complete numerical witness passes; the structural
+expectation still requires review and was not waived.
+
+Most importantly, unchanged `_f64` names and test counts do not prove unchanged
+FP64 coverage. Some supplied fixtures explicitly contain FP32 values or fixed
+FP32 model choices. Their intended polymorphic FP64 variants need explicit
+preparation through existing fixtures and factories, while deliberate mixed
+and half types must stay fixed. This review is a substantial part of the
+remaining work. Minimum dependencies, full regressions, broader operator and
+framework-binding behaviour, and hosted CI cost remain unqualified.
+
+The reviewed prototype and raw outcomes are retained locally under
+`tmp/precision-step2-feasibility-20261102/`; they are not part of the release
+implementation. Earlier failed attempts and runtime counterexamples remain in
+that record. The normal working branch contains this concept update; the
+experimental code lives in a separate disposable worktree.
+
+### Effort, boundaries and branch
+
+The user activated this goal on 2 November 2026. The five delivery checkpoints
+govern implementation; activation does not authorize a release or merge.
+Astra's preliminary estimate remains **seven to twelve engineering days**,
+including fixture migration, framework-binding review, minimum dependencies,
+complete regressions, documentation and independent review. Reuse from #277
+reduces rediscovery; it has not established a reliable smaller estimate. The
+estimate excludes classifier training and the later quality, artifact-size and
+deployment demonstration. It is not an elapsed-time or token forecast.
+
+Review progress and the remaining estimate at the first checkpoint and after
+the first two engineering days of implementation. Report concrete completed
+work, unresolved failures and any growth in scope. Do not manufacture a
+completion percentage from passing tests. Any hard time or token budget must
+be agreed separately. The previous four-hour cap applied only to the completed
+feasibility check; it does not carry over to implementation.
+
+Do not expand a difficult lowering into general arithmetic emulation, another
+policy engine, compiler changes or an unrelated operator project. Present the
+specific blocker and smallest alternatives for a user decision while leaving
+the affected acceptance gate unresolved. The same applies if genuine existing
+coverage or the 20-minute STANDARD limit cannot be retained. A technical
+limitation does not authorize silent scope reduction or completion of the goal.
+
+The local `precision-contract-step2` branch was created from the fetched main
+at `8d502aac`. A fresh fetch at implementation start still returned that main
+revision without the dependency fix. The branch therefore includes the already
+reviewed compatibility commit `0723b2fe`, cherry-picked as `639f1429`; their
+committed trees are identical. Continue on `precision-contract-step2`; preserve
+PR #277 and its branch as frozen historical material.
+
+Initial implementation validation has moved the 39 feasibility scenarios into
+ordinary regression tests. They pass on both locked JAX cohorts, together with
+ten input-fixture regressions. Fourteen generated cases also pass on each
+cohort, including complete static and dynamic FP64 Linen and NNX MLP workflows
+and their strict structural checks. This repairs the earlier sample failure;
+all seven pinned hooks also pass. Independent Astra review accepts this early
+gate for proceeding to the remaining policy cleanup. It is not full-suite,
+minimum-dependency or hosted CI acceptance. Remaining policy consumers, other
+framework bindings and intentionally typed fixtures still require migration
+and review before the transition is qualified.
+
+### Activated goal text
+
+The following full text is the contract for the goal activated on 2 November
+2026. The goal tool's 4,000-character limit requires a shorter stored entry,
+which explicitly incorporates this complete text and the plan above. Its
+completion boundary is Step 2; the later demonstration remains outstanding.
+
+```text
+Implement Step 2 of the precision architecture in
+/home/enpasos/projects/jax2onnx on precision-contract-step2, based on fresh main
+and internal_docs/precision/precision_architecture_concept.md. Use its public
+migration rules, delivery checkpoints, Step 2 acceptance criteria and hard
+boundaries as the contract. Use gpt-6.1-sol with ultra reasoning for
+implementation and tests, and gpt-6-astra with ultra reasoning for architecture
+decisions and independent checkpoint/final reviews. Additional use of
+gpt-6-astra with ultra reasoning is explicitly authorized whenever needed for
+analysis, difficult technical decisions or independent assessment during this
+goal; no separate permission is required.
+
+Deliver one precision contract through the existing to_onnx and allclose APIs:
+the prepared JAX model determines computation, accumulation, deliberate
+conversions and result types; typed inputs and effective JAX context retain
+their meaning. Coordinate the announced API boundary and provide an actionable
+diagnostic for the retired argument. Remove global promotion/narrowing, competing
+policy branches and temporary scaffolding. Keep necessary conversions owned by
+their operations, canonical typed values unchanged, and existing artifact
+interfaces and non-precision functionality intact.
+
+Follow the five delivery checkpoints. First qualify real FP64 fixture coverage
+and complete existing model migrations, including the remaining NNX MLP graph
+expectation; passing the 39 feasibility tests is insufficient. Selectively reuse
+#277's small regression witnesses, findings and independently applicable fixes
+as specified in the reuse table. Do not merge its frozen implementation or
+restore SOURCE/LEGACY controllers, profiles or evidence/reporting infrastructure.
+
+Retain supported cases, complete model inputs, dependency cohorts and existing
+numerical criteria. Use official JAX/jaxlib only; no compiler patches, overlays
+or custom builds. Preserve user changes and machine stability, including the
+existing single native worker and 4 GiB RAM limit. Do not weaken checks, silently
+rewrite fixed supplied sources or treat native-reference contradictions as
+passes. Limit runtime claims to settings actually validated. Unknown, incomplete
+and failed results remain distinguishable. Do not build a second exporter,
+general arithmetic-emulation layer or new mandatory Qwix dependency.
+
+Run focused dual-JAX checks for semantic changes. At reviewed implementation
+milestones and final acceptance, run the complete standard suites, supported
+minimum-dependency checks, pinned hooks, strict documentation build and existing
+support/integration jobs. Preserve main-equivalent STANDARD coverage; every
+Linux STANDARD job must finish within 20 minutes, excluding queue time only.
+Keep additional expensive checks separate and avoid redundant full reruns when
+no change or unresolved concern justifies them.
+
+Create meaningful reviewed and validated commits. On activation, ordinary
+commits and non-force pushes to precision-contract-step2 and opening/updating
+its one draft implementation PR are authorized. After each push, inspect the
+actual checks on that exact head; repair regressions before further feature
+pushes. Necessary repair pushes are allowed. Do not merge, force-push, publish a
+release, post unrequested comments or otherwise modify GitHub outside this scope.
+
+Report progress against the checkpoints and reassess effort at the first one
+and after two engineering days. Escalate any need to expand the architecture,
+weaken coverage or exceed the runtime bound; leave unresolved work unfinished.
+The seven-to-twelve-day estimate is provisional, not a token or spending budget.
+
+Finish only when the whole Step 2 scope is implemented, documented, independently
+reviewed and committed, with all required PR checks at terminal SUCCESS on the
+exact final head, including the complete Python 3.11–3.14 and support jobs.
+Passing CI alone is insufficient. Classifier training, held-out accuracy,
+artifact-size benefit and standalone deployment demonstration are a separate
+later milestone and must not be reported as completed by this goal.
+```
 
 ## Lessons and references
 
