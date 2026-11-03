@@ -31,7 +31,7 @@ class MLP(nnx.Module):
 # Instantiate model
 my_callable = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
 
-# Export straight to disk without keeping the proto in memory
+# Export to disk; file mode returns the saved path
 to_onnx(
     my_callable,
     [("B", 30)],
@@ -107,7 +107,7 @@ class MLPBlock(nnx.Module):
   def __init__(self, dim, *, rngs):
     self.linear1 = nnx.Linear(dim, dim, rngs=rngs)
     self.linear2 = nnx.Linear(dim, dim, rngs=rngs)
-    self.batchnorm = nnx.BatchNorm(dim, rngs=rngs)
+    self.batchnorm = nnx.BatchNorm(dim, use_running_average=True, rngs=rngs)
   def __call__(self, x):
     return nnx.gelu(self.linear2(self.batchnorm(nnx.gelu(self.linear1(x)))))
 
@@ -137,16 +137,22 @@ options.
 
 If conversion doesn't work out of the box, it could be due to:
 
-- **Non-dynamic function references:**  
-  JAXPR-based conversion requires function references to be resolved dynamically at call-time.  
-  **Solution:** Wrap your function call inside a lambda to enforce dynamic resolution:
+- **A high-level plugin is not reached:**
+  Some plugins temporarily replace JAX API attributes during tracing. A function
+  reference captured earlier may trace JAX's decomposition instead. Where you
+  control the callable, look up the API through its module at call time:
   ```python
-  my_dynamic_callable_function = lambda x: original_function(x)
+  import jax.numpy as jnp
+
+  my_callable = lambda x: jnp.expm1(x)
   ```
+  Wrapping an already captured reference does not change which function it
+  calls. Ordinary JAX callables do not generally require a lambda wrapper.
 
 - **Unsupported primitives:**  
   The callable may use a primitive not yet or not fully supported by `jax2onnx`.  
-  **Solution:** Write a [plugin](../developer_guide/plugin_system.md) to handle the unsupported function (this is straightforward!).
+  **Solution:** Check the [supported components](supported_components.md), report
+  a minimal reproduction, or add a [plugin](../developer_guide/plugin_system.md).
 
 For broader support boundaries, see [Known Limitations](known_limitations.md).
 

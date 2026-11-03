@@ -43,7 +43,7 @@ examples/maxtext/maxtext_llama2_7b.onnx
 
 ## External Data Sidecars
 
-`to_onnx(..., output_path=...)` serializes ONNX protobufs with external-data
+`to_onnx(..., return_mode="file", output_path=...)` serializes ONNX protobufs with external-data
 support. Initializers above the configured threshold may produce a sidecar named
 `<model>.onnx.data` next to the `.onnx` file. If that sidecar exists, the hosted
 sample is incomplete unless both files are present at matching relative paths.

@@ -493,7 +493,7 @@ def to_onnx(
     Converts a JAX function or model into an ONNX model.
 
     This function serves as the main entry point for converting JAX/Flax models to ONNX format.
-    It supports dynamic shapes and additional runtime parameters.
+    It supports dynamic shapes and additional keyword configuration.
     Precision follows the prepared JAX computation and caller configuration.
     Shape-only inputs default to FP32; use typed inputs to request other dtypes.
 
@@ -505,9 +505,10 @@ def to_onnx(
               (e.g. `jax.Array`, `np.ndarray`);
             * a tuple/list of ints/strs describing the desired shape.
               Example: `[('B', 128), (1, 10)]` implies two inputs, the first with a dynamic batch dimension 'B' and fixed size 128.
-        input_params: Optional mapping of string keys to runtime parameters that
-            should be exposed as inputs in the ONNX model rather than baked into
-            the export (e.g. `"deterministic"` flags).
+        input_params: Keyword arguments supplied when tracing the callable,
+            such as `"deterministic"` flags. These are normally fixed at export.
+            Referenced values required by ONNX Functions may become graph inputs;
+            inspect the exported interface before treating a flag as runtime input.
         model_name: Name to give the ONNX model. Defaults to "jax_model".
         opset: ONNX opset version to target. Defaults to 23.
         record_primitive_calls_file: Optional path to a file. If provided,

@@ -10,7 +10,8 @@ tools such as Netron and lets you give important model blocks stable names.
   emits a function call in the exported model, subject to the transformation
   behavior described below.
 - By default, function definitions are cached per callable or module instance,
-  input shapes/dtypes, and capture signature. Matching repeated calls reuse the
+  input shapes/dtypes and weak types, captured precision context, and capture
+  signature. Matching repeated calls reuse the
   definition. The node's `op_type` mirrors the callable name, and the domain uses
   the `"custom"` namespace.
 - `unique=True` also permits compatible module instances with equivalent state
@@ -74,7 +75,7 @@ def my_fn(...):
 
 - Non-unique functions use `{namespace}.{base}.{counter}`.
 - Unique functions use `{namespace}.{base}.unique` for the first instance and
-  `{namespace}.{base}.unique.{N}` for additional variants when the capture differs.
+  `{namespace}.{base}.unique.{N}` for additional variants when the reuse key differs.
 - `op_type` equals the sanitized base name (`type`/`name` when provided,
   otherwise the callable name) so node “types” stay human-friendly.
 
@@ -99,12 +100,17 @@ Produces `domain="my.model.square.unique"` for all reused call-sites.
 
 - Function identity considers:
   - Qualified target name.
-  - Input shapes/dtypes from the parent equation.
+  - Input shapes/dtypes and JAX weak-type promotion properties.
+  - Captured JAX precision settings, including x64 and matrix precision.
   - Captured parameters. For classes, we fingerprint the module state via
     `jax.tree_util.tree_flatten`.
 - With `unique=False`, reuse requires the same callable or module instance.
 - With `unique=True`, compatible instances with equivalent state can also reuse
   the same `FunctionProto`. Different keys receive separate domain suffixes.
+
+Local JAX precision settings at the function call are preserved when the
+function body is traced later. Identical shapes and dtypes alone therefore do
+not guarantee reuse across different precision contexts.
 
 Static Python keywords specialize the function body. Built-in containers and
 NumPy arrays are snapshotted when each call is traced, so changing a dictionary
