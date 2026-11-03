@@ -1,0 +1,7 @@
+# Optional, isolated CPU deployment environment; no jax2onnx installation.
+# Use Python 3.12 and run scripts/run_quantized_mnist.py with PYTHONPATH unset.
+flatbuffers==25.12.19
+numpy==2.4.6
+onnxruntime==1.31.1
+packaging==26.3
+protobuf==7.36.2

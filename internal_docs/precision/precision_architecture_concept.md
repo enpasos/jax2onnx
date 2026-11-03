@@ -4,7 +4,7 @@ Status: Step 1 ([PR #287](https://github.com/enpasos/jax2onnx/pull/287)) and
 Step 2 ([PR #288](https://github.com/enpasos/jax2onnx/pull/288)) are merged.
 [PR #277](https://github.com/enpasos/jax2onnx/pull/277) is closed without merge;
 its implementation and unresolved findings remain historical evidence.
-The precision architecture and migration work is complete. The remaining
+The precision architecture and migration work is complete. The
 trained-classifier demonstration has its own bounded
 [implementation plan and activation text](quantized_classifier_plan.md).
 The older goals, checkpoint sections and status reports below are history,

@@ -1,0 +1,13 @@
+# Optional preparation environment only: Python 3.12, official CPU wheels.
+# First install this repository's locked dependencies in an isolated environment.
+# Then: python -m pip install --no-deps -r scripts/requirements-quantized-mnist.txt
+# Verify consistency with: python -m pip check
+# Independent deployment needs only NumPy 2.4.6 and ONNX Runtime 1.31.1.
+jax==0.10.2
+jaxlib==0.10.2
+flax==0.12.8
+numpy==2.4.6
+optax==0.2.8
+onnx==1.23.2
+onnxruntime==1.31.1
+qwix @ git+https://github.com/google/qwix.git@9ee1079245682ed82e5da00ce855e4daf77a086b

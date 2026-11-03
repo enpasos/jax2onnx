@@ -1,11 +1,18 @@
 # A trained quantized classifier through ordinary export
 
-Status: implementation plan for the bounded follow-up to merged precision
+Status: implementation and acceptance contract for the bounded follow-up to merged precision
 Steps 1 and 2 ([#287](https://github.com/enpasos/jax2onnx/pull/287),
 [#288](https://github.com/enpasos/jax2onnx/pull/288)). The remaining work is the
 practical demonstration in the [architecture concept](precision_architecture_concept.md#practical-demonstration).
 The architecture and API migration are complete; #277 is closed without merge.
 The goal below governs autonomous implementation on `precision-quantized-example`.
+Checkpoint 1 found a numerical failure in the original dynamic-activation
+recipe. On 3 November 2026, the user approved the one alternative described
+below: fixed power-of-two activation scales prepared through public Qwix rules.
+All numerical, accuracy, size and resource gates remain in force. Training,
+calibration and full held-out deployment have passed checkpoints 1–3.
+Final integration and merge readiness are established by independent review
+and checks on the current head of [PR #289](https://github.com/enpasos/jax2onnx/pull/289).
 
 ## Goal and deliverables
 
@@ -34,7 +41,8 @@ special converter path, general model framework or reporting infrastructure.
   batch size 128 including the remainder. Record the pinned Optax Adam defaults.
   No alternate seeds, hyperparameter sweeps, fallback candidates,
   development-based checkpoint selection or early stopping. Use the final
-  weights. Development data diagnoses the fixed candidate; it is not training.
+  weights. Development data supplies the approved activation calibration and
+  diagnoses the fixed candidate; it is not training.
 - Keep the official 10,000 test images untouched until weights and recipe are
   frozen and hashed. Evaluate every image at inference batch size 1, without
   resizing, dropping or padding examples. Never tune against test results.
@@ -46,11 +54,15 @@ special converter path, general model framework or reporting infrastructure.
   Keep datasets and checkpoints outside git, including small checkpoints.
 - Reuse Qwix 0.1.8 at commit
   `9ee1079245682ed82e5da00ce855e4daf77a086b`: `dot_general`, INT8 weights and
-  activations, weight/activation `absmax`, `act_static_scale=False`,
+  activations, weight `absmax`, layer-specific fixed symmetric activation ranges,
+  `act_static_scale=False`,
   `tile_size=None`, `PtqProvider(..., disable_jit=True)`, no zero points.
   Prepare INT8 weights once; accumulate in INT32 and scale/return in FP32.
-  This dynamic activation recipe has no dataset-fitted calibration phase.
-  Do not invent one or claim that development evaluation calibrates scales.
+  As approved on 3 November, choose activation scales as powers of two from
+  the known input range and the 5,000 development images. Set each Qwix fixed
+  symmetric range to `127.5 * scale`. Calibration is model preparation before
+  export; freeze its results before official test access. The original dynamic
+  recipe remains a recorded failed candidate.
 - Pin the optional CPU preparation environment to Python 3.12, JAX/jaxlib
   0.10.2, Flax 0.12.8, NumPy 2.4.6, Optax 0.2.8, ONNX 1.23.2 and ORT 1.31.1.
   Retain the immutable Qwix commit and existing `--no-deps` installation recipe;
@@ -151,7 +163,7 @@ Preserve user changes and machine stability. Run training, export and runtime
 processes serially. Hosted parallelism does not authorize local concurrency.
 Small source-faithful repairs belong to existing converter/plugin owners and
 require independent review plus focused checks on both supported JAX cohorts.
-Need for a different model/recipe, static calibration, a general exporter path,
+Beyond the approved fixed-range calibration, a different model/recipe, a general exporter path,
 nonlocal repair, weakened checks or resource/runtime expansion requires escalation.
 Do not reopen the frozen precision migration or import #277 infrastructure;
 only small independently relevant witnesses may be reused.
@@ -160,6 +172,82 @@ Provisional estimate: **3–5 engineering days**, including qualification and
 review; reassess after checkpoint 1. This is an estimate, not a token/spend cap.
 Report failed, incomplete and unverified work honestly; do not declare completion
 because the estimate has elapsed or CI alone is green.
+
+## Checkpoint 1 finding and approved change
+
+The existing small Qwix witness passes in the pinned environment. The actual
+784–128–10 model, initialized with seed 0, fails its first development-image
+comparison at the unchanged `1e-6` tolerances. This is development image 4243
+from the original training archive, not an official test image. The first
+output comparison differs by up to `0.00195623` in both ORT optimization modes.
+
+Early preparation guards had 13 passing offline tests covering typed preprocessing,
+checksum-before-array-access and frozen checkpoint/recipe/split integrity. A
+fresh isolated runtime process also verifies that JAX, jaxlib, Flax, Qwix and
+jax2onnx are neither installed nor importable. These checks qualify the
+preparation guards and environment isolation only; at that stage classifier
+fidelity, accuracy, artifact benefit and independent inference were incomplete.
+
+The first mismatch occurs before the first integer matrix product. Both
+implementations use the same FP32 activation scale. For one pixel, division
+gives `1.4999998807907104` in JAX and `1.5` in ORT. Nearest-even rounding then
+produces INT8 values 1 and 2. A separate `Div → Round → INT8` witness reproduces
+this on official JAX/jaxlib 0.10.2 and 0.12.0.1, in eager, fresh-JIT and warmed-JIT
+references. ORT 1.31.1 agrees between optimization modes. The emitted FP32
+`Div` and nearest-even `Round` match the requested operations; the discrepancy
+does not justify changing generic division or biasing rounding in the exporter.
+Explicit strict fast-math and platform-dependent-math flags did not remove it
+in the tested JAX 0.10.2 process. At that point no training or official test
+evaluation had been performed; this original result remains failed.
+
+On 3 November 2026 the user approved Astra's one model-preparation alternative:
+layer-specific fixed symmetric activation ranges through Qwix's existing public
+`QuantizationRule`. Choose each scale as the smallest power of two covering its
+calibration maximum under Qwix's 127.5 bound, and set the fixed range to
+`127.5 * scale`. Use the known input range `[0, 1]` for the first layer (scale
+`1/64`) and the FP32 model's post-ReLU hidden maximum over all 5,000 development
+examples for the second. Calibration makes no guarantee against clipping of
+unseen or quantized activations; the full quality gates still decide acceptance.
+This introduces explicit
+calibration while retaining `/255`, the model, training protocol, INT8 weights,
+INT32 accumulation, ordinary export and every acceptance threshold.
+
+First verify the intended scale representation and the original
+development probe on an untrained model against every native reference and
+both ORT settings. Only a passing probe permits the single fixed training run,
+followed by one deterministic calibration and frozen weights/scales before
+official test access. There is no range search or further fallback candidate.
+The approval amends the recipe requirement of the active goal; it does not
+establish a successful numerical result. The original activation-absmax failure
+and its diagnostics remain failed historical evidence.
+
+The approved untrained candidate passes the first 16 development images plus
+the zero image against eager, fresh-JIT and warmed-JIT JAX and both ORT
+optimization settings. Both actual activation denominators are exactly `1/64`.
+The development calibration uses all 5,000 prescribed images. Its untrained
+artifacts are 407,044 bytes (FP32) and 106,082 bytes (W8A8), a ratio of 0.2606.
+These results qualify proceeding to training, not final task accuracy or the
+trained-model artifact claim. Astra's independent review accepts this gate.
+
+The single prescribed training run subsequently completed all 20 epochs. Its
+frozen checkpoint is
+`8d0802292268f6f051714720519666dffdba6c5be84788d98dc46be1977d559d`.
+The final 5,000-image calibration chose hidden scale `1/8` from maximum
+`15.180764198303223`. Both artifacts and scales were hashed before test access.
+On all 10,000 test images, FP32 has 9,796 correct predictions and W8A8 has
+9,793, consistently across the required native and independent ORT modes.
+All W8A8 logits match exactly. The trained artifacts retain the byte counts
+above. On the measured CPU, W8A8 is about eight times slower with similar memory
+use; the demonstrated advantage is file size. The user guide records the
+measurement protocol and limitations. Astra accepts checkpoints 1–3 and the
+implementation review, subject to the required integration checks and final
+PR qualification. Passing CI alone does not replace the scientific gates.
+
+Checkpoint 1 effort reassessment: the approved variant required no exporter
+changes, and training plus qualification fits comfortably within the existing
+local resource bounds. The initial 3–5-day estimate no longer represents the
+remaining work; that work is integration, documentation and the final CI run.
+There is no justification for expanding the architecture or the model scope.
 
 ## Active implementation goal
 
@@ -174,7 +262,8 @@ because the estimate has elapsed or CI alone is green.
 > Use GPT-6.1 Sol at Ultra for implementation and tests, and GPT-6 Astra at Ultra
 > for planning and independent review at checkpoints, final acceptance and
 > material uncertainty. Train only the specified seed-0, 20-epoch, no-bias
-> 784–128–10 Linen classifier; preserve the pinned dynamic-activation Qwix recipe,
+> 784–128–10 Linen classifier; use the pinned Qwix recipe with the user-approved
+> fixed power-of-two activation scales and development-only calibration,
 > untouched test set, frozen hashes, numerical/quality/size gates and ordinary
 > export path. Complete independent NumPy/ORT-only deployment and honest measured
 > artifact, memory and latency evidence. Keep datasets, checkpoints and generated

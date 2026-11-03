@@ -141,7 +141,8 @@ jobs:
     - name: Require Qwix and execute quantized export
       run: |
         poetry run python -c 'import qwix; from importlib.metadata import version; print("qwix==" + version("qwix"))'
-        poetry run pytest -q tests/extra_tests/test_qwix_quantized_export.py
+        poetry run python -c 'from scripts.quantized_mnist import require_environment; require_environment(qwix=True)'
+        poetry run pytest -q tests/extra_tests/test_qwix_quantized_export.py tests/extra_tests/test_quantized_mnist_example.py
 
   normalization-accuracy:
     name: normalization accuracy (Python ${{ matrix.python-version }})
