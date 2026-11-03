@@ -59,6 +59,7 @@ nav:
       - Getting Started: user_guide/getting_started.md
       - Validation & Deployment Readiness: user_guide/validation.md
       - RL Policy Deployment: user_guide/rl_policy_deployment.md
+      - Quantized MNIST: user_guide/quantized_mnist.md
       - Known Limitations: user_guide/known_limitations.md
       - Browser/WASM Deployment: user_guide/browser_wasm.md
       - API Reference: user_guide/api.md

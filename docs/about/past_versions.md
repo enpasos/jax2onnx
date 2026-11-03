@@ -1,6 +1,11 @@
 # Past Versions
 
-- **Unreleased**: Added explicit typed native plugin registration through
+- **Unreleased**: Precision follows the prepared JAX computation through
+  `to_onnx` and `allclose`; removed `enable_double_precision`, retained caller
+  precision contexts and typed constants, and kept shape-only inputs FP32.
+  See the [migration from v0.17.1](../user_guide/api.md#migration-from-v0171).
+  Added a [trained W8A8 classifier deployment example](../user_guide/quantized_mnist.md).
+  Added explicit typed native plugin registration through
   `register_native_primitive`, retaining `register_primitive` and raw-registry
   legacy extensions; unified Function/control-flow child settings and typed
   Function capture phases; fixed dynamic tensor and scalar constant keyword captures

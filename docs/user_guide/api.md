@@ -48,7 +48,9 @@ single self-contained `.onnx` file instead of spilling large initializers into a
 ## Parameters To Reach For First
 
 - `inputs`: Positional input specs, either concrete arrays, `ShapeDtypeStruct` values, or shape tuples like `("B", 128)`.
-- `input_params`: Runtime flags or keyword-like values that should stay model inputs instead of being baked into the export.
+- `input_params`: Keyword arguments supplied during tracing, normally fixed at
+  export. Values required dynamically by ONNX Functions may become graph inputs;
+  inspect the exported interface before treating a flag as a runtime input.
 - `return_mode`: `"proto"` for an `onnx.ModelProto`, `"ir"` for the intermediate `onnx_ir.Model`, or `"file"` to serialize directly to disk.
 - `export_mode`: `"standard"` for normal serialization, or `"web"` for single-file browser/WASM artifacts.
 - `normalization_mode`: Export representation for Flax NNX and Linen GroupNorm,
@@ -122,6 +124,26 @@ Conversion from FP16, BF16, FP32 or FP64 to INT8 or UINT8 preserves saturation
 at the integer limits and maps NaN to zero; integer-to-integer conversions
 retain wrapping behaviour.
 
+### Migration from v0.17.1
+
+In v0.17.1, omitting `enable_double_precision` or passing `False` disabled JAX
+x64 during export; `True` enabled exporter-wide promotion. Since 0.18.0, export
+preserves the caller's effective JAX configuration and the types chosen by the
+prepared model. Removing the old argument alone may therefore change results.
+To retain an explicitly FP32 computation, configure its parameters and inputs
+as FP32, and use a caller-owned `jax.enable_x64(False)` context where needed.
+For FP64, prepare the model and typed inputs in an enabled x64 context as above;
+enabling x64 alone does not widen fixed FP32 weights or arithmetic.
+
+`allclose` also preserves the caller's matrix-precision configuration instead
+of temporarily forcing `jax.default_matmul_precision("float32")`. Use matching
+JAX settings for model preparation, export and validation. NumPy reference
+inputs whose dtype JAX would narrow are rejected rather than silently changed.
+Validate representative inputs against your intended JAX computation when
+migrating; portable ONNX floating-point execution is not a bitwise guarantee.
+
+## Normalization Representation
+
 For example, this opts a Fast-Variance GroupNorm into `GroupNormalization` with
 opset 21+, while retaining an explicit compatibility artifact for runtimes or
 inputs where the exported graph should retain the framework reduction layout:
@@ -140,8 +162,6 @@ force_decomposed_model = to_onnx(
     normalization_mode="force_decomposed",
 )
 ```
-
-## Normalization Representation
 
 The `"auto"` policy has two steps: first, choose the implementation with the
 best reproducible accuracy in a defined test environment and fix its

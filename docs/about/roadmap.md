@@ -2,27 +2,29 @@
 
 ## Planned
 
-* Extend target-oriented validation guidance beyond the documented ONNX Runtime
-  CPU and Web/WASM flows, especially for mobile deployments where practical.
-* Broaden capability-matrix coverage across dtype and shape variants, including
-  BF16, dynamic dimensions, and non-square inputs.
-* Add focused end-to-end deployment examples for small vision and numerical
-  models.
-* Demonstrate prepared model precision on a trained classifier, measuring
-  held-out accuracy, artifact size, and deployment behavior separately from the
-  precision-contract implementation.
-* Add a realistic end-to-end RL deployment example based on a widely used RL
-  library, loading a trained actor and exporting the inference-only
-  `obs -> action` policy contract.
-* Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
-  examples, and physics/simulation use cases, including classification of newly
-  published upstream APIs before claiming them as supported.
+* Document and test how to export a JAX model to ONNX and run it in a mobile
+  application.
+* Test more operators and inference runtimes with different numerical
+  precisions, input dimensions that vary between calls, and non-square arrays.
+* Add a runnable numerical or simulation example that takes a system's state
+  or numerical parameters and computes an updated state or result with ONNX
+  Runtime, without installing JAX.
+* Publish a reproducible example that loads a trained reinforcement-learning
+  policy from an established library and exports its observation-to-action
+  computation to ONNX for inference.
+* Keep tables of supported JAX, Flax and Equinox APIs current as those libraries
+  evolve, and add regression tests for remaining operator and model conversion
+  gaps.
 
 
 ## Upcoming Version
 
 ### **jax2onnx 0.18.0**
 
+* **Deploy a trained quantized classifier:** Add an optional
+  [W8A8 MNIST example](../user_guide/quantized_mnist.md) with reproducible training,
+  ordinary ONNX export and independent CPU inference. Compare held-out accuracy,
+  actual artifact size, memory and latency; Qwix remains an optional dependency.
 * **Restore affected exports with JAX 0.12:** Handle newer internal
   representations used by `argwhere`, `nonzero`, `polyval`, and `sinc`, while
   retaining compatibility with JAX 0.10.2.
@@ -33,7 +35,8 @@
   inputs require an effective JAX configuration that preserves them. Preserve
   explicit casts, shared constants, and captured precision contexts. Remove
   `enable_double_precision` and diagnose any supplied value with migration
-  guidance. See [Dtypes and Precision](../user_guide/api.md#dtypes-and-precision).
+  guidance. See [Dtypes and Precision](../user_guide/api.md#dtypes-and-precision)
+  and [PR #288](https://github.com/enpasos/jax2onnx/pull/288).
 * **Introduce a typed lowering core:** Add a closed native plugin context,
   explicit input/output binding, and graph ownership checks. Prepare
   legacy extension calls at registration and share child-context construction

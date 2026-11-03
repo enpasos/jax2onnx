@@ -69,6 +69,12 @@ The zero-valued arrays keep the example minimal. For deployment decisions,
 repeat the runtime and numerical checks with representative inputs and
 tolerances appropriate for the model and dtype.
 
+`allclose` uses ONNX Runtime's CPU provider with one thread and graph
+optimizations disabled. Passing this check does not qualify a different
+provider or optimized deployment. Repeat validation with the actual runtime
+settings you intend to use. BF16 tensor I/O requires the separate I/O-binding
+path described in [Known Limitations](known_limitations.md#bf16-runtime-io).
+
 For reinforcement-learning actors, also validate the policy-specific public
 interface and action contract in [RL Policy Deployment](rl_policy_deployment.md).
 
@@ -204,7 +210,7 @@ class UpsamplingBlock(nnx.Module):
 
 block = UpsamplingBlock(nnx.Rngs(0))
 x = np.random.default_rng(1).normal(size=(1, 3, 3, 4)).astype(np.float32)
-model = to_onnx(block, [x])
+onnx_model = to_onnx(block, [x])
 
 with TemporaryDirectory() as directory:
     optimized_path = Path(directory) / "optimized.onnx"
@@ -213,11 +219,11 @@ with TemporaryDirectory() as directory:
     options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     options.optimized_model_filepath = str(optimized_path)
     session = ort.InferenceSession(
-        model.SerializeToString(), options, providers=["CPUExecutionProvider"]
+        onnx_model.SerializeToString(), options, providers=["CPUExecutionProvider"]
     )
     actual = session.run(None, {session.get_inputs()[0].name: x})[0]
     np.testing.assert_allclose(actual, np.asarray(block(x)), rtol=1e-5, atol=1e-5)
-    print("Exported:", Counter(node.op_type for node in model.graph.node))
+    print("Exported:", Counter(node.op_type for node in onnx_model.graph.node))
     optimized = onnx.load(optimized_path)
     print("Optimized:", Counter(node.op_type for node in optimized.graph.node))
 ```

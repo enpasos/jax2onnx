@@ -50,6 +50,32 @@ preserve their requested accuracy.
 
 ## Runtime Compatibility
 
+### BF16 Runtime I/O
+
+ONNX Runtime's ordinary NumPy `session.run` interface rejects BF16 arrays.
+The public `allclose` helper uses that interface, so it cannot validate a
+BF16 tensor input or output through this path. Export support and runtime
+kernel availability do not remove this binding limitation.
+
+For manual BF16 validation, pass raw `uint16` bits through
+`OrtValue.ortvalue_from_numpy_with_onnx_type` and I/O binding, then compare the
+decoded output with the prepared JAX computation. See the
+[working raw-bit validation example](https://github.com/enpasos/jax2onnx/blob/main/tests/extra_tests/test_log1p_expm1_precision.py).
+Validate the provider and optimization settings used for deployment.
+
+### Quantized Rounding Boundaries
+
+Small floating-point differences before integer rounding can change quantized
+values, even when the integer matrix product itself is exact. Dynamic
+activation quantization can therefore amplify a division difference between
+JAX and ONNX Runtime. A numerical check must cover the prepared quantization
+scheme as well as its integer contractions. The
+[trained W8A8 example](quantized_mnist.md) uses calibrated power-of-two
+activation scales and validates its complete held-out set; it does not
+establish support for arbitrary Qwix recipes.
+
+### Execution Targets
+
 ONNX Runtime compatibility depends on:
 
 - the operators emitted by the export,
@@ -322,8 +348,8 @@ The limits were set from measurements with ONNX Runtime 1.29 on an AMD Ryzen 9
 9950X3D CPU using JAX 0.10.2 and 0.11.1, then rounded up to two significant
 digits. The current lockfile's CPU accuracy jobs target Python 3.12 with JAX
 and JAXLIB 0.10.2, Flax 0.12.8, and NumPy 2.4.6; and Python 3.13 with JAX and
-JAXLIB 0.11.2, Flax 0.12.10, and NumPy 2.5.4. Both use Equinox 0.13.8, ONNX
-1.23.2, ONNX IR 1.0.0, and ONNX Runtime 1.31.0. Each GitHub Actions accuracy
+JAXLIB 0.12.0.1, Flax 0.12.12, and NumPy 2.5.4. Both use Equinox 0.13.8, ONNX
+1.23.2, ONNX IR 1.1.0, and ONNX Runtime 1.31.1. Each GitHub Actions accuracy
 job records its actual dependency versions, runner image, and CPU hardware in
 its job summary; use that record when interpreting a run. The CPU jobs are the
 authoritative numerical acceptance gate. Changes to limits, reference
