@@ -1,18 +1,21 @@
 # A trained quantized classifier through ordinary export
 
-Status: implementation and acceptance contract for the bounded follow-up to merged precision
-Steps 1 and 2 ([#287](https://github.com/enpasos/jax2onnx/pull/287),
-[#288](https://github.com/enpasos/jax2onnx/pull/288)). The remaining work is the
-practical demonstration in the [architecture concept](precision_architecture_concept.md#practical-demonstration).
-The architecture and API migration are complete; #277 is closed without merge.
-The goal below governs autonomous implementation on `precision-quantized-example`.
+Status: completed and merged in [PR #289](https://github.com/enpasos/jax2onnx/pull/289),
+following the precision architecture and API migration in
+[#287](https://github.com/enpasos/jax2onnx/pull/287) and
+[#288](https://github.com/enpasos/jax2onnx/pull/288). All four delivery checkpoints
+and six acceptance gates are satisfied. The implementation goal is complete;
+the branch instructions and goal text below are historical, not pending work.
+See the [user guide](../../docs/user_guide/quantized_mnist.md) for the runnable
+example, measurements and support boundaries. #277 remains closed without merge.
 Checkpoint 1 found a numerical failure in the original dynamic-activation
 recipe. On 3 November 2026, the user approved the one alternative described
 below: fixed power-of-two activation scales prepared through public Qwix rules.
-All numerical, accuracy, size and resource gates remain in force. Training,
-calibration and full held-out deployment have passed checkpoints 1–3.
-Final integration and merge readiness are established by independent review
-and checks on the current head of [PR #289](https://github.com/enpasos/jax2onnx/pull/289).
+The numerical, accuracy, size and resource criteria were preserved. Independent
+review, training, calibration, full held-out deployment, documentation and
+integration checks passed. All nine PR checks succeeded on `5a1aeb41`; the
+longest job took 17:03 including setup and cleanup. These are the accepted PR
+results, not a claim about the separate post-merge CI run on `main`.
 
 ## Goal and deliverables
 
@@ -240,16 +243,16 @@ All W8A8 logits match exactly. The trained artifacts retain the byte counts
 above. On the measured CPU, W8A8 is about eight times slower with similar memory
 use; the demonstrated advantage is file size. The user guide records the
 measurement protocol and limitations. Astra accepts checkpoints 1–3 and the
-implementation review, subject to the required integration checks and final
-PR qualification. Passing CI alone does not replace the scientific gates.
+implementation review. The required integration checks and final PR
+qualification also passed; passing CI alone did not replace the scientific gates.
 
 Checkpoint 1 effort reassessment: the approved variant required no exporter
 changes, and training plus qualification fits comfortably within the existing
-local resource bounds. The initial 3–5-day estimate no longer represents the
-remaining work; that work is integration, documentation and the final CI run.
+local resource bounds. At that checkpoint the remaining work was integration,
+documentation and final CI; those steps have since completed.
 There is no justification for expanding the architecture or the model scope.
 
-## Active implementation goal
+## Completed implementation goal — historical contract
 
 > Implement the bounded trained W8A8 MNIST classifier demonstration described in
 > `internal_docs/precision/quantized_classifier_plan.md` in

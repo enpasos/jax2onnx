@@ -4,11 +4,12 @@
 
 * Document and test how to export a JAX model to ONNX and run it in a mobile
   application.
-* Test more operators and inference runtimes with different numerical
-  precisions, input dimensions that vary between calls, and non-square arrays.
-* Add a runnable numerical or simulation example that takes a system's state
-  or numerical parameters and computes an updated state or result with ONNX
-  Runtime, without installing JAX.
+* Expand automated compatibility tests for FP16, BF16 and FP64 computations,
+  input dimensions that vary between calls, and non-square arrays. Document
+  supported operator and runtime combinations and their numerical limits.
+* Add a runnable numerical or physical simulation example that exports a
+  complete computation to ONNX and executes it in ONNX Runtime without JAX,
+  with numerical checks against the original model.
 * Publish a reproducible example that loads a trained reinforcement-learning
   policy from an established library and exports its observation-to-action
   computation to ONNX for inference.
@@ -17,145 +18,103 @@
   gaps.
 
 
-## Upcoming Version
+## Current Version
 
 ### **jax2onnx 0.18.0**
 
-* **Deploy a trained quantized classifier:** Add an optional
-  [W8A8 MNIST example](../user_guide/quantized_mnist.md) with reproducible training,
-  ordinary ONNX export and independent CPU inference. Compare held-out accuracy,
-  actual artifact size, memory and latency; Qwix remains an optional dependency.
-* **Restore affected exports with JAX 0.12:** Handle newer internal
-  representations used by `argwhere`, `nonzero`, `polyval`, and `sinc`, while
-  retaining compatibility with JAX 0.10.2.
-* **Preserve FP16 sequence types in `scan`:** Keep each step's input in the
-  sequence dtype, including when the caller enables JAX x64.
-* **Follow the prepared JAX computation:** Use one precision contract through
-  `to_onnx` and `allclose`. Shape-only specs remain FP32; explicitly typed FP64
-  inputs require an effective JAX configuration that preserves them. Preserve
-  explicit casts, shared constants, and captured precision contexts. Remove
-  `enable_double_precision` and diagnose any supplied value with migration
-  guidance. See [Dtypes and Precision](../user_guide/api.md#dtypes-and-precision)
+* **Breaking change — configure precision in JAX:** Remove
+  `enable_double_precision` from `to_onnx` and `allclose`; supplying it with any
+  value, including `False` or `None`, raises `TypeError`. Export now retains the
+  caller's JAX configuration, including when the old argument was omitted.
+  `allclose` also retains matrix-precision settings instead of forcing
+  `"float32"`. Removing the argument alone may change results: follow the
+  [migration from v0.17.1](../user_guide/api.md#migration-from-v0171).
+* **Preserve the prepared model's precision:** Model configuration, typed
+  inputs and explicit casts determine computation types. Shape-only input
+  specifications still default to FP32, even with JAX x64 enabled. For FP64,
+  prepare both the model and typed inputs in an enabled x64 context and use
+  matching settings for validation. Constants and local precision settings keep
+  their meaning. Unsupported explicit matrix algorithms and unary accuracy
+  requests raise errors; see [Known Limitations](../user_guide/known_limitations.md)
   and [PR #288](https://github.com/enpasos/jax2onnx/pull/288).
-* **Introduce a typed lowering core:** Add a closed native plugin context,
-  explicit input/output binding, and graph ownership checks. Prepare
-  legacy extension calls at registration and share child-context construction
-  across Functions and control flow. See the
-  [converter architecture](../developer_guide/architecture.md).
-* **Reuse native ONNX Function definitions:** Finalize and cache `ir.Function`
-  objects directly, preserving names, metadata, and graph ownership without
-  parallel function snapshots or a second finalization step.
-* **Preserve decorated-function arguments:** Keep dynamic keyword dependencies
-  through `jit` and nested control flow, preserve explicit flags and omitted
-  defaults, and select the correct decorated module instance. Document `vmap`
-  inlining and function-reuse rules in the
-  [ONNX Functions guide](../user_guide/onnx_functions.md).
-* **Make static configuration reuse safe:** Snapshot supported mutable
-  configuration and compare exact contents when reusing Function definitions.
-  Keep static strings, booleans, and axis configuration static during shape
-  inference, including under `jit`.
-* **Carry runtime flags through loops:** Forward export flags explicitly through
-  `scan`, `while_loop`, and `fori_loop` bodies, including nested scopes and zero
-  iterations. Represent fori closure values as regular JAX operands so their
-  dependencies survive tracing.
-* **Preserve precision and export integrity:** Keep FP16/BF16 types across NCHW
-  export bridges, protect existing graph values during output allocation, and
-  retain safe import retries and precision restoration after failed exports.
-* **Preserve JAX scalar promotion across export boundaries:** Retain weak
-  typing through inputs, named functions, captured values, and function reuse.
-  A weak FP32 scalar combined with an FP16 value can stay FP16 when JAX requires
-  it, while a strongly typed FP32 operand still requests FP32 promotion.
-* **Export 8-bit quantized matrix computations:** Preserve INT8/UINT8 operands
-  with INT32 accumulation and match JAX's saturation and NaN-to-zero handling
-  when converting floating values to 8-bit integers. Keep the configured Linen
-  Dense computation for structured weights, and demonstrate ordinary export
-  with a separately tested, optional Qwix W8A8 example. See
-  [PR #287](https://github.com/enpasos/jax2onnx/pull/287).
-* **Preserve operation-specific precision boundaries:** Keep explicit FP32
-  consumers and bitcast representations in their source types. Retain FP16
-  Add/Sub/Mul rounding with local FLOAT work and half result casts; FP16 Rsqrt
-  has one half boundary after FLOAT Sqrt and Div. Keep integer window sums in
-  exact integer arithmetic. Locked CPU runtime measurements and remaining
-  qualification limits are recorded in [Dependencies](dependencies.md) and
-  [Known Limitations](../user_guide/known_limitations.md).
-* **Keep `log1p`, `expm1`, and functions built on them accurate:** Replace
-  `Log(1 + x)` and `Exp(x) - 1`, which return zero or lose most digits for small
-  inputs, with compensated forms shared by the `lax` and `jnp` lowerings and
-  `jax.nn.log1mexp`. Build `jax.nn.log_sigmoid` on `log1p` instead of
-  `Log(Sigmoid(x))`, which returned `-inf` for `x <= -20` on ONNX Runtime, and
-  `jnp.sinh` and non-FP32 `lax.sinh` on `expm1` instead of
-  `(Exp(x) - Exp(-x)) / 2`; `jnp.sinh` keeps running on CUDA, which has no
-  `Sinh` kernel. Results stay within a few ulp in the input dtype without
-  promoting the model; BF16 computes in FP32 internally so ONNX Runtime can run
-  it. FP16 and BF16 exports of these functions keep their source dtype when the
-  caller enables JAX x64, and `jax.nn.log1mexp` now exports FP16
-  inputs. See
-  [Known Limitations](../user_guide/known_limitations.md#log1p-expm1-and-related-functions).
-* **Compute `jax.nn.dot_product_attention` like JAX:** Combine the boolean,
-  causal, local-window, and sequence-length masks, and replace masked logits
-  with JAX's large finite negative value before `Softmax`, instead of masking
-  and renormalizing the weights afterwards. A large masked logit no longer zeroes
-  the allowed weights, fully masked rows get uniform weights like JAX instead of
-  zeros, and an explicit `mask` no longer drops `local_window_size`. Output rows
-  beyond `query_seq_lengths` are zeroed. FP16 and BF16 inputs compute the
-  logits and softmax in FP32 and cast the weights back before the value
-  product.
-* **Keep FP16 scalars and weakly typed `jnp.where` literals in the input
-  dtype:** Scalar initializers retain the traced dtype, so FP16 graphs with
-  scalar constants, such as the attention scale, stay valid.
-  `jnp.where(c, x, 0)` follows JAX's weak-type promotion: BF16 `x` exports
-  instead of failing, and FP16 `x` keeps FP16 instead of becoming FP32.
-* **Reject `lax.bitcast_convert_type` below opset 26:** ONNX `BitCast` exists
-  only from opset 26, so exports at lower opsets raise a clear error instead of
-  producing an invalid model. A bitcast to the operand's own dtype lowers to
-  `Identity` at any opset.
-* **Require ONNX IR 1.0.0 or newer:** Align the declared dependency floor,
-  package metadata, developer guidance, and minimum-version CI coverage on
+* **Deploy a trained quantized classifier:** Add a reproducible
+  [MNIST example](../user_guide/quantized_mnist.md) with 8-bit weights and
+  activations (W8A8), ordinary ONNX export and independent CPU inference without
+  JAX, Flax or Qwix. On 10,000 held-out images, accuracy changes from 97.96% to
+  97.93% while the ONNX file is 73.9% smaller than the FP32 version. INT8
+  inference is slower and memory use is similar on the measured CPU. Qwix is
+  optional and needed for preparing and exporting this example. See
+  [PR #289](https://github.com/enpasos/jax2onnx/pull/289).
+* **Export 8-bit integer matrix products:** Support INT8/UINT8 operands with
+  INT32 accumulation. Floating-point conversions to 8-bit integers preserve
+  JAX's saturation at the integer limits and map NaN to zero. Linen Dense
+  preserves the configured computation for structured weights, enabling
+  prepared quantized models to use the standard export API. Integer reductions
+  and window sums retain integer arithmetic and wraparound at overflow. See
+  [PR #287](https://github.com/enpasos/jax2onnx/pull/287) for the quantization
+  foundation.
+* **Preserve JAX scalar promotion:** Keep JAX's weak typing for inputs,
+  captured values and ONNX Functions. A weak FP32 scalar can combine with an
+  FP16 value in FP16, while a strongly typed FP32 operand requests FP32
+  promotion. Scalar constants keep their traced type; `jnp.where(c, x, 0)`
+  now exports with BF16 inputs and retains FP16 for FP16 inputs.
+* **Preserve FP16 rounding and tensor types:** Keep FP16 rounding at the
+  results of addition, subtraction and multiplication, and round `rsqrt` once
+  at its result. Preserve FP16 sequence inputs in `scan` and FP16/BF16 types
+  when converting channel layouts for export, including with JAX x64 enabled.
+  See the tested CPU configurations and numerical exceptions in
+  [Known Limitations](../user_guide/known_limitations.md#fp16-arithmetic-boundaries).
+* **Improve FP64 computations:** Keep `atan2` arithmetic in FP64 and improve
+  FP64 cosine for large arguments. Selected pointwise convolutions with unit
+  strides and no padding can run in FP64, including complex128 components, on
+  ONNX Runtime CPU. Supported convolution configurations and remaining
+  numerical limits are documented in [Dependencies](dependencies.md#onnx-runtime-kernel-gaps)
+  and [Known Limitations](../user_guide/known_limitations.md#fp64-atan2-subnormal-inputs).
+* **Improve numerical stability near zero:** Use compensated formulas for
+  `log1p`, `expm1`, `jax.nn.log1mexp` and related `sinh` implementations. Avoid
+  premature `-inf` results in `jax.nn.log_sigmoid` for large negative inputs.
+  FP16/BF16 models retain their input and output types; BF16 calculations use
+  FP32 internally. `jax.nn.log1mexp` also supports FP16 inputs. See the
+  [accuracy checks and remaining limitations](../user_guide/known_limitations.md#log1p-expm1-and-related-functions).
+* **Correct `jax.nn.dot_product_attention` masking:** Combine boolean, causal,
+  local-window and sequence-length masks before softmax. Large masked logits
+  no longer zero the allowed weights; fully masked rows have uniform weights
+  as in JAX, and rows beyond `query_seq_lengths` produce zero outputs. FP16 and
+  BF16 inputs compute logits and softmax in FP32, then cast weights back before
+  multiplying by the values.
+* **Preserve arguments through functions and loops:** Keep dynamic keyword
+  arguments and runtime flags through `jit`, nested `scan`, `while_loop` and
+  `fori_loop`. Decorated functions retain explicitly supplied flags, omitted
+  defaults and the correct module instance, including inside control flow.
+* **Make ONNX Function reuse reliable:** Distinguish calls with different
+  model state, supported static configuration, weak types or local precision
+  settings. Snapshot supported mutable configuration so later changes do not
+  alter earlier calls. Preserve function names and metadata. See the
+  [ONNX Functions guide](../user_guide/onnx_functions.md) for reuse rules and
+  `vmap` behavior.
+* **Support JAX 0.12 while retaining Python 3.11–3.14:** Fix exports affected
+  by newer JAX representations, including `argwhere`, `nonzero`, `polyval` and
+  `sinc`. Test the locked JAX 0.10.2 stack on Python 3.11/3.12 and JAX 0.12 on
+  Python 3.13/3.14. See [Dependencies](dependencies.md) for the resolved versions.
+* **Improve diagnostics and plugin development:** Add typed plugin
+  registration with explicit input/output binding and checks for missing or
+  disconnected graph values. Existing `register_primitive` extensions remain
+  supported. See the [Plugin System guide](../developer_guide/plugin_system.md)
+  and [converter architecture](../developer_guide/architecture.md).
+* **Clarify export and validation:** Explain when `input_params` are fixed
+  during tracing or become ONNX graph inputs, how ONNX Functions retain local
+  precision settings, and how to configure inference explicitly.
+  Explain that `allclose` checks ONNX Runtime CPU with graph optimizations
+  disabled; BF16 tensor inputs and outputs require separate validation through
+  I/O binding. See [Validation](../user_guide/validation.md) and
+  [BF16 runtime I/O](../user_guide/known_limitations.md#bf16-runtime-io).
+* **Check bitcast compatibility:** Bit reinterpretation with `lax.bitcast_convert_type`
+  requires opset 26 and compatible ONNX validation and runtime support; lower
+  opsets now fail with a clear error. A bitcast to the same dtype remains
+  an `Identity` at any opset. See
+  [runtime compatibility](../user_guide/known_limitations.md#execution-targets).
+* **Require ONNX IR 1.0.0 or newer:** Raise the dependency minimum to
   `onnx-ir>=1.0.0`.
-
-
-## Current Version
-
-### **jax2onnx 0.17.1**
-
-* **Fix activation argument binding:** Preserve positional and keyword scalar
-  options for JAX and Flax Linen GELU, ELU, CELU, and LeakyReLU exports. This restores
-  Keras GELU export with its JAX backend and prevents positional CELU `alpha`
-  from silently falling back to the default value. See
-  [issue #270](https://github.com/enpasos/jax2onnx/issues/270).
-* **Stabilize float32 LayerNorm variance:** Equinox and slow-variance Flax NNX
-  explicit exports now accumulate the squared centered values in float64, then
-  round the variance back to float32 before epsilon, normalization, and affine
-  operations. This improves accuracy portability across runtime reduction orders
-  while preserving the existing fixed CPU accuracy limits. The two additional
-  casts apply independently of `enable_double_precision`; fast variance and
-  FP16/BF16/FP64 statistics are unchanged. See
-  [PR #272](https://github.com/enpasos/jax2onnx/pull/272).
-* **Strengthen normalization regression checks:** Assert LayerNorm reduction and
-  output dtypes for FP16, BF16, FP32, and FP64 at opsets 16 and 23. Correct the
-  vmapped Equinox GroupNorm test's tolerance for its JAX reference while continuing
-  to require exact zero exported outputs for constant groups.
-* **Update development and validation tools:** Update test integrations to
-  Torch 2.14.0, formatting to Black 26.5.1, type checking to mypy 2.3.1, and
-  browser validation to Playwright 1.63.0; align the Ruff pre-commit hook
-  with version 0.16.9. Restore strict API documentation builds with mkdocstrings
-  1.0.7's compatibility fix for pymdown-extensions 12.2.
-* **Measure FP16 deployment performance:** Extend the decoder normalization
-  benchmark with FP16 parameters and inputs, configurable embedding widths and
-  CPU threads, and a standalone RMSNorm workload. Compare static and symbolic
-  exports with JAX parity, and report session initialization, first-run, and
-  warmed inference timings separately.
-* **Expose ConvTranspose/BatchNorm fusion:** Fold eligible immutable float32 or
-  float64 channel bias Adds into an absent ConvTranspose bias input. Preserve
-  observable convolution outputs, existing biases, and required padding; the
-  resulting standard ONNX graph can use ONNX Runtime 1.31's BatchNorm fusion.
-* **Preserve FP16 intermediate output metadata:** Keep traced float16 output
-  placeholders in float16 when double-precision export is disabled. This fixes
-  invalid output declarations in FP16 LinearGeneral projections and decoder
-  exports.
-
-
-
 
 ## Past Versions
 

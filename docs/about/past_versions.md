@@ -1,31 +1,23 @@
 # Past Versions
 
-- **Unreleased**: Precision follows the prepared JAX computation through
-  `to_onnx` and `allclose`; removed `enable_double_precision`, retained caller
-  precision contexts and typed constants, and kept shape-only inputs FP32.
-  See the [migration from v0.17.1](../user_guide/api.md#migration-from-v0171).
-  Added a [trained W8A8 classifier deployment example](../user_guide/quantized_mnist.md).
-  Added explicit typed native plugin registration through
-  `register_native_primitive`, retaining `register_primitive` and raw-registry
-  legacy extensions; unified Function/control-flow child settings and typed
-  Function capture phases; fixed dynamic tensor and scalar constant keyword captures
-  and retained ONNX Function definitions created inside control-flow bodies;
-  enabled lexical variable capture for Functions in `If` branches, preserving
-  derived flags and tensor keyword arguments while keeping Loop/scan inputs explicit;
-  made dynamic Function keywords regular JAX operands so their dependencies
-  survive tracing and dead-code elimination across supported JAX versions;
-  preserved explicit flags and omitted keyword defaults inside Function bodies;
-  fixed static configuration cache collisions and explicitly carried runtime
-  flags through scan/while/fori bodies; made fori closure values regular JAX
-  operands and unified safe output allocation for native lowerings;
-  cached finalized native `ir.Function` objects directly and introduced a
-  closed native plugin context alongside the existing compatibility contract;
-  raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`;
-  preserved JAX weak scalar promotion through inputs, named functions and
-  captures; added INT8/UINT8 matrix contractions with INT32 accumulation;
-  preserved saturation and NaN handling for floating-to-8-bit conversions;
-  retained configured Linen computation for structured Dense parameters;
-  and added a separately tested optional Qwix W8A8 export example.
+- **0.17.1**: Fixed positional and keyword activation options for JAX and Flax
+  Linen GELU, ELU, CELU and LeakyReLU, restoring Keras GELU export and preserving
+  positional CELU `alpha` ([#270](https://github.com/enpasos/jax2onnx/issues/270));
+  stabilized Equinox and slow-variance Flax NNX float32 LayerNorm by accumulating
+  squared centered values in float64 and rounding variance back to float32
+  before epsilon, normalization and affine operations
+  ([#272](https://github.com/enpasos/jax2onnx/pull/272)); strengthened normalization
+  dtype checks at opsets 16 and 23, and corrected vmapped Equinox GroupNorm
+  reference tolerances while retaining exact zero outputs for constant groups;
+  added configurable FP16 decoder and standalone RMSNorm benchmarks with separate
+  initialization, first-run and warmed timings; enabled ONNX Runtime 1.31
+  ConvTranspose/BatchNorm fusion by folding eligible constant channel biases
+  while preserving outputs, existing biases and padding; preserved FP16
+  intermediate metadata in LinearGeneral and decoder exports when
+  double-precision export is disabled; and refreshed validation tools to
+  Torch 2.14.0, Black 26.5.1, mypy 2.3.1, Playwright 1.63.0 and Ruff pre-commit
+  0.16.9, restoring strict documentation builds with mkdocstrings 1.0.7 and
+  pymdown-extensions 12.2 compatibility.
 - **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
   with explicit errors for input dilation combined with non-unit
   `window_strides` and complex transposed convolutions, and rejected

@@ -1,26 +1,31 @@
 # A simpler precision architecture
 
-Status: Step 1 ([PR #287](https://github.com/enpasos/jax2onnx/pull/287)) and
-Step 2 ([PR #288](https://github.com/enpasos/jax2onnx/pull/288)) are merged.
+Status: completed and merged. Step 1 ([PR #287](https://github.com/enpasos/jax2onnx/pull/287)),
+Step 2 ([PR #288](https://github.com/enpasos/jax2onnx/pull/288)) and the trained
+classifier demonstration ([PR #289](https://github.com/enpasos/jax2onnx/pull/289))
+are on `main`. The accepted architecture, API migration and practical example
+are implemented; there is no remaining implementation work in this programme.
 [PR #277](https://github.com/enpasos/jax2onnx/pull/277) is closed without merge;
 its implementation and unresolved findings remain historical evidence.
-The precision architecture and migration work is complete. The
-trained-classifier demonstration has its own bounded
-[implementation plan and activation text](quantized_classifier_plan.md).
-The older goals, checkpoint sections and status reports below are history,
-not the current work queue; their acceptance claims retain their original scope.
+See the [completed classifier plan](quantized_classifier_plan.md) and
+[user-facing example](../../docs/user_guide/quantized_mnist.md) for its results.
+The goals, delivery plans and dated status reports below record the original
+contract and development history. They are not an active work queue; earlier
+failed or incomplete results retain their original scope. Post-merge CI and
+administrative closure of issue #276 are separate from implementation completion.
 
-The proposed replacement for [PR #277](https://github.com/enpasos/jax2onnx/pull/277)
-is one consistent precision rule in the existing exporter, demonstrated by a
+The replacement for [PR #277](https://github.com/enpasos/jax2onnx/pull/277)
+uses one consistent precision rule in the existing exporter, demonstrated by a
 small, quantized JAX model that can run independently through ONNX Runtime.
 The aim is a simpler user interface and a codebase that remains maintainable.
 A successful demonstration alone would not establish the architectural change.
 
-PR #277 and its implementation programme are frozen. Its branch, findings and
+PR #277 and its implementation programme remain frozen. Its branch, findings and
 failed or incomplete acceptance results remain historical evidence. This
-concept starts from `main`; it neither imports that implementation wholesale
-nor declares its outstanding requirements satisfied. It develops the direction
-discussed in [issue #276](https://github.com/enpasos/jax2onnx/issues/276).
+replacement started from `main` without importing that implementation wholesale.
+It does not reclassify the earlier outstanding requirements as satisfied. It
+develops the direction discussed in
+[issue #276](https://github.com/enpasos/jax2onnx/issues/276).
 
 ## Goal and user experience
 
@@ -256,7 +261,10 @@ The trained classifier, held-out task accuracy and artifact-size benefit also
 remain outstanding. Step 1 establishes useful export improvements, not the
 complete replacement architecture or the complete demonstration.
 
-## Step 2 — proposed public precision contract
+## Step 2 — completed public precision contract
+
+The following contract and delivery plan describe the work completed in #288.
+Their original implementation instructions are retained for reference.
 
 ### Purpose and user experience
 
@@ -566,7 +574,7 @@ implementation. Earlier failed attempts and runtime counterexamples remain in
 that record. The normal working branch contains this concept update; the
 experimental code lives in a separate disposable worktree.
 
-### Effort, boundaries and branch
+### Original effort estimate and implementation notes
 
 The user activated this goal on 2 November 2026. The five delivery checkpoints
 govern implementation; activation does not authorize a release or merge.
@@ -681,12 +689,11 @@ actual mismatch as `FAILED_IN_APPROVED_BOUNDARY`, not numerical qualification;
 exact agreement is also allowed. Production arithmetic and the JAX 0.8.1 /
 Flax 0.12.1 floors remain unchanged, with all four Python cohorts required.
 
-### Activated goal text
+### Completed Step 2 goal — historical contract
 
-The following full text is the contract for the goal activated on 2 November
-2026. The goal tool's 4,000-character limit requires a shorter stored entry,
-which explicitly incorporates this complete text and the plan above. Its
-completion boundary is Step 2; the later demonstration remains outstanding.
+The following text records the contract activated on 2 November 2026 and
+completed through #288. Its scope ended at Step 2. The separately accepted
+trained-model demonstration was subsequently completed through #289.
 
 ```text
 Implement Step 2 of the precision architecture in
