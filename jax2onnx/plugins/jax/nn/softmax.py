@@ -90,6 +90,12 @@ _JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
             ),
         },
         {
+            # The axis refers to each vmapped sample, not to the batched array.
+            "testcase": "softmax_vmap_positive_axis",
+            "callable": lambda x: jax.vmap(lambda y: jax.nn.softmax(y, axis=1))(x),
+            "input_shapes": [(2, 5, 7, 3)],
+        },
+        {
             "testcase": "softmax_grad_issue_batch_diff_rules",
             "callable": lambda x: jax.grad(
                 lambda y: jnp.sum(jax.nn.softmax(y, axis=1) ** 2)
@@ -319,33 +325,21 @@ def _softmax_batch_rule(
             None,
         )
 
-    rank = x.ndim
-    canon_axis = axis if axis >= 0 else axis + rank
-    if canon_axis < 0 or canon_axis >= rank:
-        raise ValueError("Invalid axis for softmax batching rule")
-
     if x_bdim is not None and x_bdim != 0:
         x = jnp.moveaxis(x, x_bdim, 0)
     if where is not None and where_bdim is not None and where_bdim != 0:
         where = jnp.moveaxis(where, where_bdim, 0)
 
-    if x_bdim is None:
-        axis_body = canon_axis
-    elif canon_axis == x_bdim:
-        axis_body = 0
-    elif canon_axis < x_bdim:
-        axis_body = canon_axis
-    else:
-        axis_body = canon_axis - 1
-
     in_axes: tuple[int | None, ...] = (0 if x_bdim is not None else None,)
     if has_where:
         in_axes = in_axes + (0 if where_bdim is not None else None,)
 
+    # Primitive params describe one unbatched sample, which is exactly what the
+    # vmapped body sees, so the axis needs no translation.
     vmapped = jax.vmap(
         lambda *vals: _JAX_SOFTMAX_ORIG(
             vals[0],
-            axis=axis_body,
+            axis=axis,
             where=(vals[1] if has_where else None),
         ),
         in_axes=in_axes,

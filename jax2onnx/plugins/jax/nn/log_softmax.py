@@ -83,6 +83,12 @@ def _axis_attr_equals(model: Any, expected: int) -> bool:
             "post_check_onnx_graph": lambda m: _axis_attr_equals(m, 2),
         },
         {
+            # The axis refers to each vmapped sample, not to the batched array.
+            "testcase": "log_softmax_vmap_positive_axis",
+            "callable": lambda x: jax.vmap(lambda y: jax.nn.log_softmax(y, axis=1))(x),
+            "input_shapes": [(2, 5, 7, 3)],
+        },
+        {
             "testcase": "log_softmax_grad_issue_batch_diff_rules",
             "callable": lambda x: jax.grad(
                 lambda y: jnp.sum(jax.nn.log_softmax(y, axis=1) ** 2)
@@ -210,23 +216,13 @@ def _log_softmax_batch_rule(
     if x_bdim is None:
         return LogSoftmaxPlugin._PRIM.bind(x, axis=axis), None
 
-    rank = x.ndim
-    canon_axis = axis if axis >= 0 else axis + rank
-    if canon_axis < 0 or canon_axis >= rank:
-        raise ValueError("Invalid axis for log_softmax batching rule")
-
     if x_bdim != 0:
         x = jnp.moveaxis(x, x_bdim, 0)
 
-    if canon_axis == x_bdim:
-        axis_body = 0
-    elif canon_axis < x_bdim:
-        axis_body = canon_axis
-    else:
-        axis_body = canon_axis - 1
-
+    # Primitive params describe one unbatched sample, which is exactly what the
+    # vmapped body sees, so the axis needs no translation.
     out = jax.vmap(
-        lambda t: _JAX_LOG_SOFTMAX_ORIG(t, axis=axis_body, where=None),
+        lambda t: _JAX_LOG_SOFTMAX_ORIG(t, axis=axis, where=None),
         in_axes=0,
     )(x)
     return out, 0
