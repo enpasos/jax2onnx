@@ -141,6 +141,10 @@ Keep these handy—most deep-dives live there instead of here.
   (`x.ndim - 1`) and shift past the batch dim, as `nn/hardmax.py` does; inside a
   `jax.vmap` body, pass them through unchanged. Getting this wrong silently
   changes values for positive axes only.
+- `expect_graph`'s documented `attrs` predicate never matches: neither ONNX
+  protobuf nor `onnx_ir` attribute containers are the `dict`/`list` that
+  `_node_has_attrs` reads. Check attributes with a custom post-check instead,
+  such as `_axis_attr_equals` in `plugins/jax/nn/log_softmax.py`.
 - ONNX Runtime kernel gaps that shape lowerings (bfloat16 `Log`, float64
   `Sinh`/`Cos`/`Erf`, `Where` and `-0.0`) are tracked in one table in
   `docs/about/dependencies.md`; update it when a lowering works around a new
