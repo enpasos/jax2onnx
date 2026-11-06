@@ -1,11 +1,16 @@
 # API Reference
 
-`jax2onnx` exposes four public entry points:
+`jax2onnx` exposes these public entry points:
 
 - `to_onnx(...)` for export
 - `@onnx_function` for reusable subgraphs
 - `allclose(...)` for JAX-vs-ONNX validation
 - `allclose_onnxruntime_web(...)` for ONNX Runtime Web/WASM parity checks
+- `ParameterMetadata`, `annotate_parameters(...)`, and
+  `read_parameter_metadata(...)` for explicit annotations on exported parameters
+
+Parameter annotations are optional and applied after export. See
+[Parameter Metadata](parameter_metadata.md) for the schema, examples, and limits.
 
 ## Common Export Flow
 

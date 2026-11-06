@@ -66,6 +66,7 @@ nav:
       - ONNX Functions: user_guide/onnx_functions.md
       - Layout Optimization: user_guide/layout_optimization.md
       - Stacktrace Metadata: user_guide/stacktrace_metadata.md
+      - Parameter Metadata: user_guide/parameter_metadata.md
       - SotA Examples:
           - GPT-OSS: user_guide/sota_examples/gpt_oss/getting_weights.md
           - MaxText: user_guide/sota_examples/maxtext.md

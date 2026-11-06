@@ -390,6 +390,11 @@ symbolic dimension may become zero at runtime, export with
 attempt to preserve JAX training loops, optimizer state, automatic
 differentiation behavior, or Python-side training control flow.
 
+[Parameter metadata](parameter_metadata.md) can record the caller's selection
+of trainable or frozen exported values for a downstream consumer. It does not
+change this scope: annotations do not restore `stop_gradient` boundaries,
+custom derivative rules, source parameter identities, or optimizer state.
+
 ## Coverage Pages
 
 For current coverage information, see:

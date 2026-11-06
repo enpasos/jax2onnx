@@ -22,6 +22,13 @@
 
 ### **jax2onnx 0.18.0**
 
+* **Annotate exported parameters explicitly:** Add optional, versioned model
+  metadata identifying caller-selected root graph inputs and initializers as
+  trainable, frozen, or unspecified, with optional source paths. The annotation
+  and reader helpers support both ONNX protobuf and IR models, validate names,
+  and preserve inference behavior. This does not recover JAX differentiation
+  semantics or add training support. See
+  [Parameter Metadata](../user_guide/parameter_metadata.md).
 * **Breaking change — configure precision in JAX:** Remove
   `enable_double_precision` from `to_onnx` and `allclose`; supplying it with any
   value, including `False` or `None`, raises `TypeError`. Export now retains the
