@@ -136,11 +136,6 @@ Keep these handy—most deep-dives live there instead of here.
   `jax.ensure_compile_time_eval()`. It must accept the operands and params
   exactly as the patch binds them (`bind(*arrays, axis=...)` for `jnp.stack`);
   under a trace only `lower` runs, so traced tests never call it.
-- Batching-rule params (`axis`, `axes`, ...) describe one unbatched sample.
-  When rebinding on the batched operand, normalize against the per-sample rank
-  (`x.ndim - 1`) and shift past the batch dim, as `nn/hardmax.py` does; inside a
-  `jax.vmap` body, pass them through unchanged. Getting this wrong silently
-  changes values for positive axes only.
 - ONNX Runtime kernel gaps that shape lowerings (bfloat16 `Log`, float64
   `Sinh`/`Cos`/`Erf`, `Where` and `-0.0`) are tracked in one table in
   `docs/about/dependencies.md`; update it when a lowering works around a new
