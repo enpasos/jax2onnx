@@ -131,6 +131,11 @@ Keep these handy—most deep-dives live there instead of here.
   conversion. Tests must look them up at call time (`lambda x: jnp.expm1(x)`);
   passing a reference captured at import traces JAX's decomposition instead and
   silently skips the plugin.
+- A patched function's primitive `def_impl` runs whenever the primitive is bound
+  to concrete values during conversion, e.g. under
+  `jax.ensure_compile_time_eval()`. It must accept the operands and params
+  exactly as the patch binds them (`bind(*arrays, axis=...)` for `jnp.stack`);
+  under a trace only `lower` runs, so traced tests never call it.
 - ONNX Runtime kernel gaps that shape lowerings (bfloat16 `Log`, float64
   `Sinh`/`Cos`/`Erf`, `Where` and `-0.0`) are tracked in one table in
   `docs/about/dependencies.md`; update it when a lowering works around a new

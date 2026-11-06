@@ -62,6 +62,12 @@ def _concat_dynamic_tile(x: jax.Array) -> jax.Array:
     return jnp.concatenate([tiled, x], axis=1)
 
 
+def _add_compile_time_concatenated_table(x: jax.Array) -> jax.Array:
+    with jax.ensure_compile_time_eval():
+        table = jnp.concatenate([jnp.arange(3.0), jnp.arange(3.0) * 2])
+    return x + table
+
+
 _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
 
 
@@ -149,6 +155,18 @@ _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
             )(x),
             "input_shapes": [(3,)],
             "run_only_f32_variant": True,
+        },
+        {
+            # Concrete operands run the primitive's eager impl during tracing,
+            # so the concatenated table is embedded as a constant.
+            "testcase": "concatenate_compile_time_eval",
+            "callable": _add_compile_time_concatenated_table,
+            "input_shapes": [(6,)],
+            "post_check_onnx_graph": EG(
+                ["Add:6"],
+                must_absent=["Concat"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
@@ -301,7 +319,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
 
 
 @JnpConcatenatePlugin._PRIM.def_impl
-def _concatenate_impl(*args: object, **kwargs: object) -> jax.Array:
+def _concatenate_impl(*arrays: object, **kwargs: object) -> jax.Array:
     try:
         orig = get_orig_impl(
             JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME
@@ -312,7 +330,7 @@ def _concatenate_impl(*args: object, **kwargs: object) -> jax.Array:
         kwargs = dict(kwargs)
         kwargs["axis"] = kwargs.pop("dimension")
     kwargs.pop("dtype", None)
-    return orig(*args, **kwargs)
+    return orig(arrays, **kwargs)
 
 
 BatchDim: TypeAlias = int | None
