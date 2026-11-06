@@ -102,7 +102,7 @@ def _normalize_axis(axis: int, rank: int) -> int:
             "callable": lambda x: jax.vmap(lambda y: jax.nn.softmax(y, axis=1))(x),
             "input_shapes": [(2, 5, 7, 3)],
             "post_check_onnx_graph": EG(
-                ["Softmax:2x5x7x3"],
+                [{"path": "Softmax:2x5x7x3", "attrs": {"Softmax": {"axis": 2}}}],
                 must_absent=["Exp", "ReduceSum"],
                 no_unused_inputs=True,
             ),

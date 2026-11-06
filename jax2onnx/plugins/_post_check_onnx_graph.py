@@ -21,6 +21,7 @@ from typing import (
 )
 from collections import deque
 import numpy as np
+import onnx_ir as ir
 
 # Optional ONNX helper (disabled; kept for API compatibility without importing onnx)
 _onnx_numpy_helper: Final[Any | None] = None
@@ -33,7 +34,8 @@ ValueKey = Tuple[str, Any]
 ProducerMap = Dict[ValueKey, Tuple[int, Any]]
 NDArrayAny = np.ndarray[Any, np.dtype[Any]]
 
-# No onnx imports here by policy — we work via duck-typing only.
+# No onnx imports here by policy: graphs are read by duck-typing, and protobuf
+# attributes are decoded through onnx_ir.serde.
 
 SpecItem = Union[
     str,  # "A[:shape] -> B[:shape] -> C[:shape]"
@@ -560,25 +562,46 @@ class _GraphView:
 # ---------- helpers for IR/ONNX without importing onnx ----------
 
 
+_MISSING: Final = object()
+
+
+def _node_attribute(node: Any, name: str) -> Any:
+    """Return the value of attribute ``name`` on ``node``, or ``_MISSING``.
+
+    ``onnx_ir`` nodes map names to ``ir.Attr`` in ``attributes``; protobuf nodes
+    keep a repeated ``attribute`` field. Only the requested attribute is
+    decoded, so subgraph attributes of control-flow nodes stay untouched.
+    """
+    attributes = getattr(node, "attributes", None)
+    if isinstance(attributes, Mapping):
+        attr = attributes.get(name)
+        return _MISSING if attr is None else attr.value
+    for proto in getattr(node, "attribute", ()):
+        if proto.name == name:
+            return ir.serde.deserialize_attribute(proto).value
+    return _MISSING
+
+
+def _attr_value_matches(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, (list, tuple)):
+        return (
+            isinstance(actual, Sequence)
+            and not isinstance(actual, str)
+            and len(actual) == len(expected)
+            and all(_attr_value_matches(a, e) for a, e in zip(actual, expected))
+        )
+    if isinstance(expected, float) or isinstance(actual, float):
+        # ONNX stores FLOAT attributes in single precision.
+        return isinstance(actual, (int, float)) and bool(
+            np.float32(actual) == np.float32(expected)
+        )
+    return bool(actual == expected)
+
+
 def _node_has_attrs(node: Any, reqs: Dict[str, Any]) -> bool:
-    attrs = getattr(node, "attributes", None)
-    if attrs is None:
-        attrs = getattr(node, "attribute", None)
-    attr_map = {}
-    if isinstance(attrs, dict):
-        attr_map = attrs
-    elif isinstance(attrs, (list, tuple)):
-        for a in attrs:
-            name = getattr(a, "name", None)
-            if name:
-                val = getattr(a, "value", None)
-                if val is None and hasattr(a, "ints"):
-                    val = tuple(getattr(a, "ints"))
-                attr_map[name] = val
-    else:
-        attr_map = getattr(node, "_attributes", {}) or {}
-    for key, expected in (reqs or {}).items():
-        if attr_map.get(key) != expected:
+    for name, expected in (reqs or {}).items():
+        actual = _node_attribute(node, name)
+        if actual is _MISSING or not _attr_value_matches(actual, expected):
             return False
     return True
 
@@ -1185,61 +1208,13 @@ def _onnx_dtype_to_np(code: int) -> np.dtype:
 
 
 def _node_attr_int(node: Any, name: str) -> Optional[int]:
-    attrs = getattr(node, "attributes", None)
-    if isinstance(attrs, dict) and name in attrs:
-        return _attr_to_int(attrs[name])
-
-    attr_list = attrs or getattr(node, "attribute", None)
-    if isinstance(attr_list, (list, tuple)):
-        for attr in attr_list:
-            if getattr(attr, "name", None) == name:
-                return _attr_to_int(attr)
-
-    extra = getattr(node, "_attributes", None)
-    if isinstance(extra, dict) and name in extra:
-        return _attr_to_int(extra[name])
-    return None
-
-
-def _attr_to_int(attr: Any) -> Optional[int]:
-    if attr is None:
-        return None
-    if isinstance(attr, (int, np.integer)):
-        return int(attr)
-    for method_name in ("as_int", "as_i"):
-        method = getattr(attr, method_name, None)
-        if callable(method):
-            try:
-                return int(method())
-            except Exception:
-                pass
-    for field in ("i", "value"):
-        value = getattr(attr, field, None)
-        if isinstance(value, (int, np.integer)):
-            return int(value)
-    try:
-        return int(attr)
-    except Exception:
-        return None
+    value = _node_attribute(node, name)
+    return int(value) if isinstance(value, (int, np.integer)) else None
 
 
 def _constant_attr_tensor(node: Any) -> Any:
-    attrs = getattr(node, "attributes", None)
-    if isinstance(attrs, dict):
-        return attrs.get("value")
-    attr_list = attrs or getattr(node, "attribute", None)
-    if isinstance(attr_list, (list, tuple)):
-        for a in attr_list:
-            if getattr(a, "name", None) == "value":
-                val = getattr(a, "value", None)
-                if val is None and hasattr(a, "t"):
-                    val = getattr(a, "t")
-                return val
-    # Some IRs expose _attributes mapping
-    extra = getattr(node, "_attributes", None)
-    if isinstance(extra, dict):
-        return extra.get("value")
-    return None
+    value = _node_attribute(node, "value")
+    return None if value is _MISSING else value
 
 
 def _find_producer_node(nodes: Sequence[Any], value: Any) -> Optional[Any]:
