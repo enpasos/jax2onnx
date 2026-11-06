@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any, Callable, ClassVar, Final, cast
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax2onnx._compat.jax import (
@@ -22,6 +21,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.lax.pow import lower_pow
 from jax2onnx.plugins.jax.numpy._common import (
+    abstract_eval_via_jax,
     get_orig_impl,
     jnp_binding_specs,
     make_jnp_primitive,
@@ -54,51 +54,14 @@ def _pow_fixture(*, dtype: Any) -> Callable[[], jax.Array]:
     return call
 
 
-def _broadcast_shape(
-    x_shape: Sequence[int | object],
-    y_shape: Sequence[int | object],
-) -> tuple[int | object, ...]:
-    x_seq = tuple(x_shape)
-    y_seq = tuple(y_shape)
-    try:
-        return tuple(
-            np.broadcast_shapes(
-                cast(tuple[int, ...], x_seq),
-                cast(tuple[int, ...], y_seq),
-            )
-        )
-    except ValueError:
-        max_rank = max(len(x_seq), len(y_seq))
-        x = (1,) * (max_rank - len(x_seq)) + x_seq
-        y = (1,) * (max_rank - len(y_seq)) + y_seq
-        dims: list[int | object] = []
-        for xs, ys in zip(x, y):
-            if xs == ys:
-                dims.append(xs)
-            elif xs == 1:
-                dims.append(ys)
-            elif ys == 1:
-                dims.append(xs)
-            elif xs == -1 or ys == -1:
-                dims.append(xs if ys == 1 or ys == -1 else ys)
-            else:
-                raise ValueError(
-                    f"Shapes {x_shape} and {y_shape} are not broadcastable."
-                )
-        # Remove any leading broadcast dims we artificially introduced when both were 1.
-        while dims and dims[0] == 1 and max(len(x_seq), len(y_seq)) > 0:
-            dims = dims[1:]
-        return tuple(dims) if dims else (1,)
-
-
 class _BaseJnpPow(PrimitiveLeafPlugin):
     _PRIM: ClassVar[Primitive]
     _FUNC_NAME: ClassVar[str]
 
-    @staticmethod
-    def abstract_eval(x: AbstractValue, y: AbstractValue) -> ShapedArray:
-        shape = _broadcast_shape(x.shape, y.shape)
-        return ShapedArray(shape, x.dtype)
+    @classmethod
+    def abstract_eval(cls, x: AbstractValue, y: AbstractValue) -> ShapedArray:
+        original = get_orig_impl(cls._PRIM, cls._FUNC_NAME)
+        return abstract_eval_via_jax(original, x, y)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_pow(ctx, eqn)
@@ -146,6 +109,17 @@ _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
                         "path": "Pow:3",
                     }
                 ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # A weakly typed int base takes the exponent's float dtype, as in JAX.
+            "testcase": "jnp_power_int_base_float_exponent",
+            "callable": lambda x: jnp.power(10000, x),
+            "input_values": [np.array([0.0, -0.25, -0.5, -0.75], dtype=np.float32)],
+            "expected_output_dtypes": [with_requested_dtype()],
+            "post_check_onnx_graph": EG(
+                [{"path": "Cast -> Pow:4", "counts": {"Cast": 1}}],
                 no_unused_inputs=True,
             ),
         },

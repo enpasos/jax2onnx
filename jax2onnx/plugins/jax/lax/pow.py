@@ -10,8 +10,9 @@ import onnx_ir as ir
 
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -26,26 +27,13 @@ def lower_pow(ctx: LoweringContextProtocol, eqn: Any) -> None:
     exp_val = ctx.get_value_for_var(exponent_var, name_hint=ctx.fresh_name("pow_exp"))
     out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pow_out"))
 
-    target_dtype: np.dtype[Any] = np.dtype(base_var.aval.dtype)
-    exp_dtype = np.dtype(exponent_var.aval.dtype)
-
-    if exp_dtype != target_dtype:
-        cast_name = ctx.fresh_name("pow_exp_cast")
-        cast_val = cast(
-            ir.Value,
-            ctx.builder.Cast(
-                exp_val,
-                _outputs=[cast_name],
-                to=int(numpy_dtype_to_ir(target_dtype).value),
-            ),
-        )
-        cast_val.shape = exp_val.shape
-        cast_val.type = ir.TensorType(numpy_dtype_to_ir(target_dtype))
-        _stamp_type_and_shape(cast_val, tuple(getattr(exponent_var.aval, "shape", ())))
-        _ensure_value_metadata(ctx, cast_val)
-        exp_input = cast_val
-    else:
-        exp_input = exp_val
+    # lax.pow keeps the base dtype; jnp.power promotes both operands.
+    target_dtype: np.dtype[Any] = np.dtype(out_var.aval.dtype)
+    target_enum = numpy_dtype_to_ir(target_dtype)
+    base_input = cast_value_to_dtype(
+        ctx, base_val, target_enum, name_hint="pow_base_cast"
+    )
+    exp_input = cast_value_to_dtype(ctx, exp_val, target_enum, name_hint="pow_exp_cast")
 
     desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("pow_out")
     producer = getattr(out_spec, "producer", lambda: None)
@@ -53,13 +41,12 @@ def lower_pow(ctx: LoweringContextProtocol, eqn: Any) -> None:
         desired_name = ctx.fresh_name("pow_out")
 
     result = cast(
-        ir.Value, ctx.builder.Pow(base_val, exp_input, _outputs=[desired_name])
+        ir.Value, ctx.builder.Pow(base_input, exp_input, _outputs=[desired_name])
     )
     if getattr(out_spec, "type", None) is not None:
         result.type = out_spec.type
     else:
-        out_dtype_enum = numpy_dtype_to_ir(target_dtype)
-        result.type = ir.TensorType(out_dtype_enum)
+        result.type = ir.TensorType(target_enum)
     if getattr(out_spec, "shape", None) is not None:
         result.shape = out_spec.shape
     else:
