@@ -6,6 +6,7 @@ from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
@@ -90,6 +91,28 @@ def _axis_attr_equals(model: Any, expected: int) -> bool:
             "post_check_onnx_graph": lambda m: _axis_attr_equals(m, 2),
         },
         {
+            # ONNX LogSoftmax takes floats only; JAX promotes integer logits.
+            # The result stays float32 under x64, so keep float32 tolerances.
+            "testcase": "log_softmax_int_input",
+            "callable": lambda x: jax.nn.log_softmax(x, axis=-1),
+            "input_values": [
+                np.array([[3, -2, 7, 0], [1, 1, 1, 1], [-5, 9, 2, 4]], dtype=np.int32)
+            ],
+            "expected_output_dtypes": [np.float32],
+            "rtol_f64": 1e-5,
+            "atol_f64": 1e-5,
+        },
+        {
+            "testcase": "log_softmax_vmap_int_input",
+            "callable": lambda x: jax.vmap(lambda y: jax.nn.log_softmax(y, axis=0))(x),
+            "input_values": [
+                np.array([[3, -2, 7, 0], [1, 1, 1, 1], [-5, 9, 2, 4]], dtype=np.int32)
+            ],
+            "expected_output_dtypes": [np.float32],
+            "rtol_f64": 1e-5,
+            "atol_f64": 1e-5,
+        },
+        {
             "testcase": "log_softmax_grad_issue_batch_diff_rules",
             "callable": lambda x: jax.grad(
                 lambda y: jnp.sum(jax.nn.log_softmax(y, axis=1) ** 2)
@@ -162,7 +185,10 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
                 axis: int | tuple[int, ...] | list[int] = -1,
                 where: ArrayLike | None = None,
             ) -> ArrayLike:
-                if where is not None:
+                # ONNX LogSoftmax takes floats only; JAX promotes other inputs.
+                if where is not None or not jnp.issubdtype(
+                    jnp.result_type(x), jnp.floating
+                ):
                     return orig(x, axis=axis, where=where)
                 if isinstance(axis, (tuple, list)):
                     if len(axis) != 1:
