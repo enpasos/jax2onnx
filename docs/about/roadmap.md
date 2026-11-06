@@ -18,6 +18,16 @@
   gaps.
 
 
+## Upcoming Version
+
+### **jax2onnx 0.18.1**
+
+* **Preserve masked softmax broadcasting under `vmap`:** Export masks that
+  expand singleton logits dimensions or add sample dimensions through JAX's
+  decomposition, preserving output shapes and reduction axes. Masks that fit
+  the logits retain the native ONNX Softmax lowering.
+
+
 ## Current Version
 
 ### **jax2onnx 0.18.0**

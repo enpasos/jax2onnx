@@ -122,6 +122,51 @@ def _normalize_axis(axis: int, rank: int) -> int:
             ),
         },
         {
+            "testcase": "softmax_vmap_where_expands_logits",
+            "callable": lambda x, m: jax.vmap(
+                lambda y, w: jax.nn.softmax(y, axis=-1, where=w)
+            )(x, m),
+            "input_values": [
+                np.array([[[1, 2, 3]], [[3, 1, 2]]], dtype=np.float32),
+                np.array(
+                    [
+                        [[True, True, True], [True, False, True]],
+                        [[False, True, True], [False, False, False]],
+                    ],
+                    dtype=np.bool_,
+                ),
+            ],
+            "expected_output_shapes": [(2, 2, 3)],
+            "post_check_onnx_graph": EG(
+                ["Div:2x2x3"],
+                must_absent=["Softmax"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # Keep JAX's axis interpretation when the mask adds a sample axis.
+            "testcase": "softmax_vmap_where_higher_rank_mask",
+            "callable": lambda x, m: jax.vmap(
+                lambda y, w: jax.nn.softmax(y, axis=0, where=w)
+            )(x, m),
+            "input_values": [
+                np.array([[1, 2, 3], [3, 1, 2]], dtype=np.float32),
+                np.array(
+                    [
+                        [[True, True, True], [True, False, True]],
+                        [[False, True, True], [True, True, False]],
+                    ],
+                    dtype=np.bool_,
+                ),
+            ],
+            "expected_output_shapes": [(2, 2, 3)],
+            "post_check_onnx_graph": EG(
+                ["Div:2x2x3"],
+                must_absent=["Softmax"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             # ONNX Softmax takes floats only; JAX promotes integer logits.
             "testcase": "softmax_int_input",
             "callable": lambda x: jax.nn.softmax(x, axis=-1),
@@ -390,15 +435,23 @@ def _softmax_batch_rule(
         # it with the batched x keeps both batch axes in front.
         where_front = batching.bdim_at_front(where, where_bdim, size)
         where_rank = where_front.ndim - 1
-        where_aligned = jax.lax.broadcast_in_dim(
-            where_front,
-            x_front.shape,
-            (0, *range(1 + sample_rank - where_rank, 1 + sample_rank)),
-        )
-        out = SoftmaxPlugin._PRIM.bind(
-            x_front, where_aligned, axis=batched_axis, has_where=True
-        )
-        return out, 0
+        # Masks that expand the logits need JAX's decomposition below, which
+        # preserves its reduction axes before and after mask broadcasting.
+        if where_rank <= sample_rank and all(
+            mask_dim == 1 or mask_dim == x_dim
+            for mask_dim, x_dim in zip(
+                where_front.shape[1:], x_front.shape[1 + sample_rank - where_rank :]
+            )
+        ):
+            where_aligned = jax.lax.broadcast_in_dim(
+                where_front,
+                x_front.shape,
+                (0, *range(1 + sample_rank - where_rank, 1 + sample_rank)),
+            )
+            out = SoftmaxPlugin._PRIM.bind(
+                x_front, where_aligned, axis=batched_axis, has_where=True
+            )
+            return out, 0
 
     if x_bdim is not None and x_bdim != 0:
         x = jnp.moveaxis(x, x_bdim, 0)
