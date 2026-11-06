@@ -58,10 +58,19 @@ def _dynamic_or_constant(
 def _value_to_numpy(val: object | None) -> np.ndarray[Any, Any] | None:
     if val is None:
         return None
+    if isinstance(val, ir.Value):
+        tensor = val.const_value
+        if tensor is not None and tensor.metadata_props:
+            # Keep an annotated source tensor in the graph. Materializing its
+            # broadcast would turn updates to one source element into updates
+            # to several independent exported elements and lose its metadata.
+            return None
     arr = const_value_to_numpy(val)
     if arr is not None:
         return cast(np.ndarray[Any, Any], arr)
     if isinstance(val, ir.Attr) and val.type == ir.AttributeType.TENSOR:
+        if val.as_tensor().metadata_props:
+            return None
         try:
             tensor_arr = tensor_to_numpy(val.as_tensor())
         except Exception:
@@ -125,6 +134,10 @@ def _materialize_constant_array(
     value: Any,
     seen: Optional[Set[object]] = None,
 ) -> np.ndarray[Any, Any] | None:
+    if isinstance(value, ir.Value):
+        tensor = value.const_value
+        if tensor is not None and tensor.metadata_props:
+            return None
     arr = _value_to_numpy(value)
     if arr is not None:
         return arr

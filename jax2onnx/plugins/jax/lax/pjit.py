@@ -103,8 +103,7 @@ class PJITPlugin(PrimitiveLeafPlugin):
 
         # Bind constants into the current context so inner equations can use them
         for var, const_val in zip(inner_jaxpr.constvars, consts):
-            np_const = np.asarray(const_val)
-            ctx.bind_const_for_var(var, np_const)
+            ctx.bind_captured_const_for_var(var, const_val)
 
         # Map outer inputs to inner invars
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):

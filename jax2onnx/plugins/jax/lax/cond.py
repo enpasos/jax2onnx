@@ -294,7 +294,7 @@ class CondPlugin(PrimitiveLeafPlugin):
 
         # Bind constants inside the branch context.
         for const_var, const_value in zip(branch_jaxpr.constvars, consts):
-            branch_ctx.bind_const_for_var(const_var, np.asarray(const_value))
+            branch_ctx.bind_captured_const_for_var(const_var, const_value)
 
         builder = getattr(branch_ctx, "builder", None)
         if builder is None:

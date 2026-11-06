@@ -430,6 +430,7 @@ if TYPE_CHECKING:
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
         normalization_mode: NormalizationMode = ...,
+        initializer_metadata: Callable[[object], Mapping[str, str] | None] | None = ...,
     ) -> onnx.ModelProto: ...
 
     @overload
@@ -449,6 +450,7 @@ if TYPE_CHECKING:
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
         normalization_mode: NormalizationMode = ...,
+        initializer_metadata: Callable[[object], Mapping[str, str] | None] | None = ...,
     ) -> ir.Model: ...
 
     @overload
@@ -468,6 +470,7 @@ if TYPE_CHECKING:
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
         normalization_mode: NormalizationMode = ...,
+        initializer_metadata: Callable[[object], Mapping[str, str] | None] | None = ...,
     ) -> str: ...
 
 
@@ -487,6 +490,7 @@ def to_onnx(
     output_names: Optional[Sequence[str]] = None,
     export_mode: ExportMode = "standard",
     normalization_mode: NormalizationMode = "auto",
+    initializer_metadata: Callable[[object], Mapping[str, str] | None] | None = None,
     **removed_options: Never,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """
@@ -554,6 +558,14 @@ def to_onnx(
             LayerNorm with use_fast_variance=False traces JAX in every mode.
             `"force_decomposed"` selects the explicit graph. Runtime graph optimization is separate from
             the exported representation. See the user guide for tested limits.
+        initializer_metadata: Optional callback for captured source constants.
+            Receives the source object before NumPy conversion and returns
+            opaque string metadata for its ONNX tensor, or None. Keys must be
+            nonempty strings. The returned mapping is copied. The callback may
+            run more than once for the same object in nested scopes; tracing
+            and plugin transformations can change which source objects survive.
+            Generated shape constants and literals do not invoke it. No
+            trainability or parameter-path information is inferred.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -564,6 +576,8 @@ def to_onnx(
         ValueError: If `return_mode` is "file" but `output_path` is not provided.
         ValueError: If `return_mode` is invalid.
         TypeError: If `input_params` keys are not strings.
+        TypeError: If `initializer_metadata` is not callable or returns an invalid mapping.
+        ValueError: If `initializer_metadata` returns an empty metadata key.
 
     Example:
         ```python
@@ -599,6 +613,8 @@ def to_onnx(
     if removed_options:
         unexpected = next(iter(removed_options))
         raise TypeError(f"to_onnx() got an unexpected keyword argument {unexpected!r}")
+    if initializer_metadata is not None and not callable(initializer_metadata):
+        raise TypeError("initializer_metadata must be callable or None")
 
     _LOGGER.info(
         f"Converting JAX function to ONNX model with parameters: "
@@ -679,6 +695,7 @@ def to_onnx(
             input_names=normalized_input_names,
             output_names=normalized_output_names,
             normalization_mode=normalized_normalization_mode,
+            initializer_metadata=initializer_metadata,
         )
         postprocess_ir_model(result)
 

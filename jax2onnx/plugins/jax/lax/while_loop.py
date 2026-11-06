@@ -44,7 +44,7 @@ def _bind_closed_jaxpr_consts(
     ctx: LoweringContextProtocol, jaxpr: Any, consts: Iterable[object]
 ) -> None:
     for var, const in zip(getattr(jaxpr, "constvars", ()), consts):
-        ctx.bind_const_for_var(var, np.asarray(const))
+        ctx.bind_captured_const_for_var(var, const)
 
 
 def _while_loop_multi_state(x: jax.Array) -> jax.Array:

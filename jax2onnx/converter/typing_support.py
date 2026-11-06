@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from .ir_constants import ConstantFolder
 
 ResolverFn = Callable[[object], object | None]
+InitializerMetadata: TypeAlias = Callable[[object], Mapping[str, str] | None]
 
 
 @dataclass(frozen=True)
@@ -245,6 +246,8 @@ class NativeLoweringContext(SymbolicDimTracker, Protocol):
         var: object,
         np_array: np.ndarray[Any, np.dtype[Any]],
     ) -> ir.Value: ...
+
+    def bind_captured_const_for_var(self, var: object, source: object) -> ir.Value: ...
 
     def try_evaluate_const(
         self, var: object

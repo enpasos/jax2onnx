@@ -17,7 +17,7 @@ from typing import (
     Literal,
 )
 from typing import overload
-from collections.abc import MutableSequence
+from collections.abc import Mapping, MutableSequence
 import os
 import numpy as np
 import onnx_ir as ir
@@ -30,7 +30,7 @@ from jax2onnx.ir_utils import (
 from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
-from .typing_support import ConverterContext, SymbolicDimOrigin
+from .typing_support import ConverterContext, InitializerMetadata, SymbolicDimOrigin
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
@@ -178,6 +178,7 @@ class IRContext:
         normalization_mode: str = "auto",
         input_specs: Sequence[Any] | None = None,
         stacktrace_metadata: Optional[bool] = None,
+        initializer_metadata: InitializerMetadata | None = None,
     ):
         if stacktrace_metadata is None:
             env_flag = os.getenv(_STACKTRACE_METADATA_ENV)
@@ -196,6 +197,7 @@ class IRContext:
         )
         self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
         self._normalization_mode = normalization_mode
+        self._initializer_metadata = initializer_metadata
         if self._stacktrace_metadata_enabled:
             detail_mode = (
                 os.getenv("JAX2ONNX_STACKTRACE_DETAIL", "minimal").strip().lower()
@@ -301,6 +303,7 @@ class IRContext:
             normalization_mode=self.normalization_mode,
             input_specs=[],
             stacktrace_metadata=self.builder.stacktrace_metadata_enabled,
+            initializer_metadata=self._initializer_metadata,
         )
         child.record_primitive_calls_file = self.record_primitive_calls_file
         child._lowering_record_owner = self._lowering_record_owner
@@ -523,6 +526,44 @@ class IRContext:
             )
         )
         return out
+
+    def bind_captured_const_for_var(self, var: object, source: object) -> ir.Value:
+        """Bind a captured source constant and copy its caller-provided metadata.
+
+        Invoke the callback before converting the source to NumPy. Ordinary
+        literals and lowering-generated constants use ``bind_const_for_var``
+        directly and never invoke the callback.
+        """
+        metadata: dict[str, str] = {}
+        if self._initializer_metadata is not None:
+            result = self._initializer_metadata(source)
+            if result is not None:
+                if not isinstance(result, Mapping):
+                    raise TypeError(
+                        "initializer_metadata must return a Mapping[str, str] or None; "
+                        f"received {type(result).__name__}"
+                    )
+                for key, value in result.items():
+                    if not isinstance(key, str):
+                        raise TypeError(
+                            "initializer_metadata keys must be nonempty strings; "
+                            f"received {type(key).__name__}"
+                        )
+                    if not key:
+                        raise ValueError(
+                            "initializer_metadata keys must be nonempty strings"
+                        )
+                    if not isinstance(value, str):
+                        raise TypeError(
+                            f"initializer_metadata value for {key!r} must be a string; "
+                            f"received {type(value).__name__}"
+                        )
+                    metadata[key] = value
+        bound = self.bind_const_for_var(var, np.asarray(source))
+        if metadata:
+            assert bound.const_value is not None
+            bound.const_value.metadata_props.update(metadata)
+        return bound
 
     def bind_const_for_var(self, var: Any, np_array: np.ndarray) -> ir.Value:
         array = (

@@ -2560,7 +2560,21 @@ def _run_name_fix_pass(model: ir.Model) -> None:
 
 
 def _run_common_subexpression_elimination_pass(model: ir.Model) -> None:
-    common_passes.CommonSubexpressionEliminationPass()(model)
+    # Upstream CSE compares tensor contents, not their metadata or source
+    # identity. Equal captured parameters must remain independently addressable.
+    # Its public size limit lets us preserve tensor constants in annotated
+    # graphs while still eliminating ordinary repeated computations.
+    annotated_tensors = any(
+        attribute.type == ir.AttributeType.TENSOR
+        and not attribute.is_ref()
+        and bool(attribute.as_tensor().metadata_props)
+        for node in model.graph
+        for attribute in node.attributes.values()
+    )
+    if annotated_tensors:
+        common_passes.CommonSubexpressionEliminationPass(size_limit=-1)(model)
+    else:
+        common_passes.CommonSubexpressionEliminationPass()(model)
 
 
 def _run_lift_constants_to_initializers_pass(model: ir.Model) -> None:
