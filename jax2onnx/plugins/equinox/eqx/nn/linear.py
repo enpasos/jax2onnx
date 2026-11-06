@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
 import equinox as eqx
 import jax
@@ -25,7 +25,7 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.ir_utils import const_value_to_numpy
-from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -49,106 +49,41 @@ def _ensure_static_int(dim: int | str | None) -> int:
 def _inline_scalar_bias(
     ctx: LoweringContextProtocol, bias_val: ir.Value, out_features: int
 ) -> ir.Value:
-    expand_node = getattr(bias_val, "producer", None)
-    if callable(expand_node):
-        try:
-            expand_node = expand_node()
-        except Exception:
-            expand_node = None
-    if expand_node is None or getattr(expand_node, "op_type", "") != "Expand":
+    expand_node = bias_val.producer()
+    if (
+        expand_node is None
+        or expand_node.graph is not ctx.builder.graph
+        or expand_node.op_type != "Expand"
+        or expand_node.domain != ""
+        or expand_node.overload
+        or not expand_node.inputs
+    ):
         return bias_val
-
-    expand_inputs = list(
-        getattr(expand_node, "inputs", getattr(expand_node, "input", []))
-    )
-    if not expand_inputs:
+    const_input = expand_node.inputs[0]
+    if const_input is None or const_input.is_graph_input():
         return bias_val
-
-    const_input = expand_inputs[0]
     arr = const_value_to_numpy(const_input)
-    if arr is None:
-        for init in getattr(ctx.builder, "initializers", []):
-            if getattr(init, "name", None) == getattr(const_input, "name", None):
-                arr = const_value_to_numpy(init)
-                if arr is not None:
-                    break
     if arr is None:
         return bias_val
 
     arr_value = np.asarray(arr)
-
-    if arr_value.size == 1:
-        broadcast = np.broadcast_to(arr_value.reshape(()), (out_features,))
-    elif arr_value.size == out_features:
-        broadcast = arr_value.reshape((out_features,))
-    else:
+    if arr_value.size == out_features:
+        reshaped = inline_reshape_initializer(
+            ctx, const_input, (out_features,), "linear_bias_inline"
+        )
+        return bias_val if reshaped is const_input else reshaped
+    if arr_value.size != 1:
         return bias_val
-    bias_type = getattr(bias_val, "type", None)
-    if isinstance(bias_type, ir.TensorType):
-        new_type: Any = ir.TensorType(bias_type.dtype)
-    else:
-        new_type = bias_type
-
-    # Route through builder so function-mode + duplicate policy apply.
+    tensor = const_input.const_value
+    if const_input.metadata_props or (tensor is not None and tensor.metadata_props):
+        # Repeating a tagged scalar would create independent parameter elements.
+        return bias_val
+    broadcast = np.broadcast_to(arr_value.reshape(()), (out_features,))
     new_val: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name("linear_bias_inline"), array=np.asarray(broadcast)
     )
-    # Preserve the desired dtype metadata if available
-    if new_type is not None:
-        new_val.type = new_type
-
-    try:
-        mapping = getattr(ctx.builder, "_var2val", None)
-        if isinstance(mapping, dict):
-            for var, val in list(mapping.items()):
-                if val is bias_val:
-                    mapping[var] = new_val
-    except Exception:
-        pass
-
-    try:
-        nodes = getattr(ctx.builder, "nodes", None)
-        if isinstance(nodes, list):
-            if expand_node in nodes:
-                nodes.remove(expand_node)
-            if len(expand_inputs) > 1:
-                shape_val = expand_inputs[1]
-                shape_producer = getattr(shape_val, "producer", None)
-                if callable(shape_producer):
-                    try:
-                        shape_producer = shape_producer()
-                    except Exception:
-                        shape_producer = None
-                if shape_producer and getattr(shape_producer, "op_type", "") in {
-                    "Concat",
-                    "Reshape",
-                }:
-                    output_names = {
-                        getattr(v, "name", None)
-                        for v in getattr(
-                            shape_producer,
-                            "outputs",
-                            getattr(shape_producer, "output", []),
-                        )
-                    }
-                    if output_names:
-                        still_used = False
-                        for node in nodes:
-                            if node is shape_producer:
-                                continue
-                            for iv in getattr(
-                                node, "inputs", getattr(node, "input", [])
-                            ):
-                                if getattr(iv, "name", None) in output_names:
-                                    still_used = True
-                                    break
-                            if still_used:
-                                break
-                        if not still_used and shape_producer in nodes:
-                            nodes.remove(shape_producer)
-    except Exception:
-        pass
-
+    if bias_val.dtype is not None:
+        new_val.dtype = bias_val.dtype
     return new_val
 
 

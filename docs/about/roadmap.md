@@ -18,10 +18,19 @@
   gaps.
 
 
-## Current Version
 
-### **jax2onnx 0.18.0**
+## Upcoming Version
 
+### **jax2onnx 0.18.1**
+
+* **Carry framework metadata through export:** Add
+  `to_onnx(..., initializer_metadata=callback)` for opaque tensor properties
+  attached to captured source objects, including nested tracing scopes. Preserve
+  annotations through supported initializer reshapes and keep repeated views
+  of one source shared without merging distinct equal-valued parameters. This
+  supports framework-owned parameter discovery and training-policy restoration;
+  it does not introduce an importer or preserve general JAX gradient semantics.
+  See [Parameter Metadata](../user_guide/parameter_metadata.md).
 * **Annotate exported parameters explicitly:** Add optional, versioned model
   metadata identifying caller-selected root graph inputs and initializers as
   trainable, frozen, or unspecified, with optional source paths. The annotation
@@ -29,6 +38,12 @@
   and preserve inference behavior. This does not recover JAX differentiation
   semantics or add training support. See
   [Parameter Metadata](../user_guide/parameter_metadata.md).
+
+
+## Current Version
+
+### **jax2onnx 0.18.0**
+
 * **Breaking change — configure precision in JAX:** Remove
   `enable_double_precision` from `to_onnx` and `allclose`; supplying it with any
   value, including `False` or `None`, raises `TypeError`. Export now retains the

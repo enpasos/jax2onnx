@@ -174,6 +174,20 @@ the corresponding value/metadata contract when transforming an existing graph.
 
 ## Dtypes and Local Work Values
 
+Captured JAXPR constants use `ctx.bind_captured_const_for_var(var, source)` so
+the export's optional `initializer_metadata` callback sees the source object
+before NumPy conversion. Literals and lowering-generated constants continue to
+use `bind_const_for_var` or the named builder helpers. Callback properties live
+on the constant tensor's `metadata_props`, including tensor attributes of
+Function-local `Constant` nodes. Child contexts inherit the callback.
+
+`inline_reshape_initializer` caches derived tensors on the current builder by
+source value identity and target shape. The cache is not graph metadata and
+does not survive export or graph cloning. Preserve tensor properties for a
+one-to-one reshape; a materialized scalar broadcast is not one-to-one and
+should remain a graph operation when the source carries annotations. Never
+infer shared parameter identity from equal tensor contents.
+
 Bind constants and inputs in their source dtype. The builder preserves their
 payload and type; it does not apply a global floating-point promotion policy.
 Stamping metadata is not a conversion. If an operator requires another dtype,

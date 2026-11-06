@@ -1,12 +1,133 @@
 # Parameter Metadata
 
-Use `annotate_parameters` to record which exported values a downstream consumer
-should treat as trainable or frozen. This is an optional convention between the
-exporter and a consumer; ONNX runtimes do not interpret it automatically.
+Use `to_onnx(..., initializer_metadata=callback)` to attach framework-owned
+metadata to captured parameter tensors during conversion. The callback can
+associate captured array objects with source paths and an explicit training
+policy, without depending on generated ONNX names. ONNX runtimes do not
+interpret these properties automatically.
+
+For manual annotation of an already exported artifact, the optional
+`annotate_parameters` helper provides a separate, typed model-level convention
+described [below](#annotate-and-read-an-export).
+
+## Capture Source Metadata During Export
+
+The callback receives each captured source object before conversion to NumPy.
+Return a mapping of string keys to string values, or `None` to leave that tensor
+unannotated. Keys must be nonempty. The mapping is copied, and callback errors
+fail the export. The exporter does not interpret keys or infer parameter paths,
+trainability, or which framework leaves are buffers.
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import jax
+import jax.numpy as jnp
+import onnx
+
+from jax2onnx import to_onnx
+
+
+weight = jnp.arange(6, dtype=jnp.float32).reshape(3, 2)
+bias = jnp.zeros((2,), dtype=jnp.float32)
+properties = {
+    id(weight): {"pkg.myapp.path": "weight", "pkg.myapp.trainable": "true"},
+    id(bias): {"pkg.myapp.path": "bias", "pkg.myapp.trainable": "false"},
+}
+
+
+def model_fn(x):
+    return x @ weight + bias
+
+
+def initializer_metadata(source):
+    return properties.get(id(source))
+
+
+model = to_onnx(
+    model_fn,
+    [jax.ShapeDtypeStruct((1, 3), jnp.float32)],
+    initializer_metadata=initializer_metadata,
+)
+with TemporaryDirectory() as directory:
+    path = Path(directory) / "annotated.onnx"
+    onnx.save_model(model, path)
+    restored = onnx.load_model(path)
+
+annotations = {
+    tensor.name: {entry.key: entry.value for entry in tensor.metadata_props}
+    for tensor in restored.graph.initializer
+    if tensor.metadata_props
+}
+assert {info["pkg.myapp.path"] for info in annotations.values()} == {"weight", "bias"}
+onnx.checker.check_model(restored, full_check=True)
+```
+
+Array identity distinguishes independent parameters whose current values happen
+to be equal. Keep the source model and its leaves alive during export. If two
+framework paths refer to the same array, the callback sees that one object;
+the framework must define its alias policy rather than choose a path silently.
+
+The callback is also available with `return_mode="ir"` or `"file"`. For IR
+initializers, properties live on `value.const_value.metadata_props`, which
+serializes to `TensorProto.metadata_props`. This is different from
+`value.metadata_props`, which belongs to ONNX value information.
+
+### Captures, Scopes, and Transformations
+
+Captured constants in `jit`, ONNX Functions, and supported control-flow bodies
+use the same callback. Child graphs inherit the callback but keep their own IR
+values. Functions cannot contain initializers, so their annotations live on
+the tensor attributes of `Constant` nodes. Consumers handling these models must
+inspect the relevant scopes, not only `model.graph.initializer`.
+
+The callback may run more than once for the same source object. It should be
+deterministic and should not mutate arrays. Generated shape constants and
+literal operands do not invoke it. Arrays copied or transformed before capture
+may no longer be the original model leaves. JAX may also wrap NumPy arrays in
+new literal objects, so Python identity is not guaranteed for NumPy source
+arrays. Unused leaves may not be exported. Validate the expected source paths
+in the completed artifact when completeness matters.
+
+Constant reshape lowering caches views by source IR value and target shape
+within one graph, preserving metadata on the reshaped tensor. Independent
+equal-valued tensors remain independent. Eqx Conv biases and ConvTranspose bias
+folding preserve the source annotation when reshaping a single bias. An
+annotated broadcast remains a graph operation so updating one source element
+continues to affect all its uses. Tensor constants carrying metadata are
+protected from content-based common-subexpression elimination.
+
+Annotations identify a source association, not necessarily an unchanged storage
+shape or dtype. A consumer that reconstructs a source module must validate the
+representation and any reshape it applies. One source can still have multiple
+exported views or appear in multiple scopes; the callback does not supply a
+general alias or view-transformation schema. This hook does not guarantee
+metadata preservation through arbitrary downstream optimizers.
+
+### Framework-Owned Training Policy
+
+For an Equimo-style workflow, the framework can construct the callback from its
+parameter paths and explicit fine-tuning mask, write `pkg.equimo.path` and
+`pkg.equimo.trainable`, then interpret those keys in its importer. Excluding a
+buffer from the optimizer also prevents AdamW weight decay from updating it;
+merely obtaining a zero gradient does not establish that policy.
+
+The regression suite checks a small RoPE attention example with serialization,
+ONNX Runtime forward parity, source-module restoration, and selective AdamW
+updates. The broader ONNX-to-JAX importer remains outside this package. These
+checks do not establish arbitrary JAX gradient preservation; see
+[Training Semantics](#training-semantics).
+
+## Annotate an Existing Artifact
 
 Annotations apply to the final artifact after `to_onnx` has completed lowering,
 optimization, and input/output renaming. They leave the computation unchanged.
 The helpers accept both `onnx.ModelProto` and `onnx_ir.Model`.
+
+These helpers use the model-level `pkg.jax2onnx.parameter_metadata` manifest.
+They neither read nor write the framework-owned tensor properties produced by
+`initializer_metadata`; the two conventions can coexist independently.
 
 ## Annotate and Read an Export
 

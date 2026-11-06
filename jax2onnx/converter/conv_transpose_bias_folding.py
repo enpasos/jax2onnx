@@ -114,11 +114,16 @@ def _bias_vector(
     # A local Constant works in graph bodies and ONNX Functions alike. It also
     # keeps a shared shaped initializer unchanged for its other consumers.
     tensor = ir.tensor(array.reshape(-1))
+    if source.const_value is not None:
+        tensor.metadata_props.update(source.const_value.metadata_props)
+        tensor.doc_string = source.const_value.doc_string
     tape = Tape()
     vector = tape.op("Constant", [], attributes={"value": tensor})
     vector.const_value = tensor
     vector.dtype = tensor.dtype
     vector.shape = ir.Shape((array.size,))
+    vector.metadata_props.update(source.metadata_props)
+    vector.doc_string = source.doc_string
     graph.insert_before(before, tape.nodes)
     return vector
 

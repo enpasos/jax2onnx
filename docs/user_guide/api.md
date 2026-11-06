@@ -9,7 +9,9 @@
 - `ParameterMetadata`, `annotate_parameters(...)`, and
   `read_parameter_metadata(...)` for explicit annotations on exported parameters
 
-Parameter annotations are optional and applied after export. See
+`to_onnx(..., initializer_metadata=callback)` attaches caller-owned tensor
+properties while captured parameters are bound. The annotation helpers provide
+a separate, optional convention applied after export. See
 [Parameter Metadata](parameter_metadata.md) for the schema, examples, and limits.
 
 ## Common Export Flow
@@ -68,6 +70,10 @@ single self-contained `.onnx` file instead of spilling large initializers into a
   accuracy limits.
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
+- `initializer_metadata`: Callback receiving captured source objects before
+  NumPy conversion and returning `Mapping[str, str] | None`. The copied strings
+  become tensor metadata; jax2onnx does not interpret their meaning. See
+  [Parameter Metadata](parameter_metadata.md#capture-source-metadata-during-export).
 
 ## Dtypes and Precision
 
