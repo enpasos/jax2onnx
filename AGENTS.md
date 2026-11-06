@@ -1,165 +1,172 @@
 # AGENTS.md
 
-This page is the quick briefing for automated agents (or humans) dropping into the repo. It highlights what matters immediately and points to the longer-form docs when you need depth.
+Quick briefing for work in this repository. Keep this file focused on durable
+rules and working commands; put implementation details in the linked guides.
+Dependency requirements live in `pyproject.toml`, resolved versions in
+`poetry.lock` / `package-lock.json`, hook versions in `.pre-commit-config.yaml`,
+and the test matrix in `.github/workflows/ci.yml`.
 
----
+## Project Map
 
-## Project Snapshot
+`jax2onnx` traces JAX, Flax NNX/Linen, and Equinox callables into JAXPR, lowers
+them to `onnx_ir`, and serializes ONNX at the public API boundary.
 
-- **Pipeline:** Everything runs through the IR-only converter. `converter/` builds `onnx_ir` graphs; `plugins/` land primitive-specific lowering; `tests/` cover both policy and regression cases.
-- **Docs map:** Start with `docs/developer_guide/architecture.md` for the architecture overview. Technical playbooks live under `docs/developer_guide/advanced_topics/` (builder etiquette, expect_graph usage, control-flow wiring, IR optimizer, reflection guardrails, etc.). Release history lives under `docs/about/`; coverage pages and examples live under `docs/user_guide/`.
-- **Tooling:** Python 3.11+, Poetry, Ruff, Black, mypy, pytest. Supported runtime stack is **JAX ≥0.8.1** and **Flax/NNX ≥0.12.1**.
-- **Recent heads-up (2025-10-02):**
-  - NNX examples construct RNGs via `with_rng_seed(...)`; avoid inline lambdas so callables stay hashable under current JAX releases.
-  - `jax.nn.dot_product_attention` follows JAX's reference: masked logits get JAX's finite large negative before `Softmax` (fully masked rows are uniform, never NaN), and FP16/BF16 logits and softmax run in FP32. The Linen plugin still renormalises masked weights after `Softmax`.
+- `jax2onnx/user_interface.py`: public API, validation, and serialization.
+- `jax2onnx/converter/`: tracing, dispatch, value ownership, graph/function
+  scopes, optimization, and export preparation.
+- `jax2onnx/plugins/`: primitive-specific semantics, tracing-time patches,
+  lowerings, and testcase/example metadata.
+- `jax2onnx/_compat/jax.py`: version-sensitive JAX APIs.
+- `tests/extra_tests/`: maintained regression and policy tests.
+  `tests/primitives/` and `tests/examples/` are generated and git-ignored;
+  change plugin/example metadata or `tests/t_generator.py` instead.
 
----
+Read the relevant guide before editing a subsystem:
 
-## Where to Read Next
+| Area | Guide |
+| --- | --- |
+| Architecture and plugin contracts | [Architecture](docs/developer_guide/architecture.md), [Plugin system](docs/developer_guide/plugin_system.md) |
+| Node emission and value ownership | [IR builder](docs/developer_guide/advanced_topics/onnx_ir_builder.md) |
+| Structural assertions | [expect_graph](docs/developer_guide/advanced_topics/expect_graph_reference.md) |
+| Functions and control flow | [Subgraph inputs](docs/developer_guide/advanced_topics/subgraph_input_handling.md) |
+| Graph rewrites and typed APIs | [IR optimizer](docs/developer_guide/advanced_topics/ir_optimizer.md), [Reflection guardrails](docs/developer_guide/advanced_topics/ir_reflection_guidelines.md) |
+| Precision and runtime support | [API](docs/user_guide/api.md), [Known limitations](docs/user_guide/known_limitations.md), [Dependencies and kernel gaps](docs/about/dependencies.md) |
+| Generated coverage and optional models | [Coverage generation](docs/developer_guide/maintainer/coverage_generation.md), [SotA maintenance](docs/developer_guide/maintainer/sota_example_maintenance.md) |
 
-- Architecture: `docs/developer_guide/architecture.md`
-- IR builder rules: `docs/developer_guide/advanced_topics/onnx_ir_builder.md`
-- Structural tests (`expect_graph`): `docs/developer_guide/advanced_topics/expect_graph_reference.md`
-- Control-flow body wiring: `docs/developer_guide/advanced_topics/subgraph_input_handling.md`
-- IR optimizer passes: `docs/developer_guide/advanced_topics/ir_optimizer.md`
-- Coverage matrices & history: `docs/user_guide/supported_components.md`, `docs/about/past_versions.md`
+## Setup and Compatibility
 
-Keep these handy—most deep-dives live there instead of here.
+- Use Python 3.11+ and Poetry 2.x. CI covers Python 3.11–3.14.
+  `poetry install` installs base and development dependencies;
+  `poetry run pre-commit install` installs hooks. Add optional groups such as
+  `--with test`, `--with maxtext`, or `--with maxdiffusion` only when needed.
+- The lockfile resolves two JAX stacks: Python 3.11/3.12 uses JAX 0.10.2;
+  Python 3.13/3.14 uses JAX 0.12.x. Compatibility changes need coverage on both.
+  Declared minimum versions remain a separate CI gate; a passing locked-stack
+  run does not establish minimum-version support.
+- Route version-sensitive JAX APIs through `jax2onnx/_compat/jax.py`. Use
+  `scan_arity(...)` for scan parameters and guard JAXPR unwrapping against
+  `.jaxpr is self`. Keep compatibility handling centralized.
+- Format with the Black hook pinned in `.pre-commit-config.yaml`:
+  `poetry run pre-commit run black --files path/to/changed.py`.
+  The Poetry environment can contain a newer Black that rewrites unrelated
+  code. Ruff's hook version is also pinned separately from the Poetry version.
+- Keep Python file path markers and typing conventions intact. Pre-commit
+  enforces them alongside reflection and IR-builder policies. Mypy's Python
+  target is 3.12 for dependency stubs; the package still supports Python 3.11.
 
----
+## Core Rules
 
-## Toolchain & Compatibility
+- **Keep conversion IR-only.** Do not import `onnx` or any of its submodules
+  inside `converter/` or `plugins/`; use public `onnx_ir` APIs only.
+  Primitive-specific lowering policy belongs in plugins; the converter owns
+  graph assembly and structural optimization.
+- **Use the native lowering contract for new primitive plugins.** Register with
+  `@register_native_primitive(...)`, implement
+  `lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None`, and explicitly
+  require inputs, allocate outputs, and bind every non-drop result to a value
+  owned by the current graph. A matching name on a detached value is not enough.
+- **Emit through the typed builder.** Prefer `ctx.builder.op(..., output=...)`
+  and `op_multi_out(..., outputs=...)`. Existing dynamic shorthand takes
+  `_outputs=[...]`, never a bare string. Reuse allocated output values when
+  emitting into them; graph rewrites must preserve metadata, graph outputs,
+  and Function signatures. Use public graph mutation APIs and shared helpers.
+  Bind constants with `ctx.bind_const_for_var(...)` or builder initializer
+  helpers with `name=` so Function scopes emit `Constant` nodes.
+- **Precision follows the source JAX program.** Model configuration, typed
+  inputs, constants, explicit conversions, and local precision settings define
+  computation types. Preserve weak scalar promotion and the caller's effective
+  precision settings, including delayed Function tracing. Shape-only inputs
+  default to FP32 even with x64 enabled.
+  Prepare FP64 models and inputs in an effective `jax.enable_x64()` context and
+  validate with `allclose` under the same settings. The removed
+  `enable_double_precision` keyword is rejected whenever supplied.
+- **Keep canonical values intact.** Constants retain their traced dtype and
+  payload. When an operator needs a work dtype, emit consumer-local casts and
+  restore the source result boundary; do not mutate shared initializers or
+  canonical bindings. Preserve integer arithmetic and overflow semantics.
+  Check low-precision changes with caller-owned x64 both disabled and enabled.
+- **Construct fixtures deterministically.** Use constructor arguments such as
+  `construct_and_call(MyModule, dtype=with_requested_dtype(), rngs=with_rng_seed(0))`.
+  Each dtype variant must configure the callable. Keep fixed
+  `expected_output_dtypes` fixed; use `with_requested_dtype()` only for results
+  that vary with the prepared dtype. Use `with_prng_key(...)` for JAX key
+  arguments; do not construct random module state at import, and split keys
+  before separate consumers. Primitive parameters must be hashable.
+- **Keep metadata and validation aligned.** Put `expect_graph` assertions beside
+  testcase metadata and update them when lowering changes. Add numeric,
+  structural, and dtype checks appropriate to the change. Numeric-validation
+  skips are policy-allowlisted; a successful export alone does not prove the
+  runtime can load or execute it.
+- **Respect runtime floors.** Select operators by target opset and source
+  semantics, not the ONNX Runtime installed on the export machine. Record new
+  runtime workarounds in the dependency guide; remove them only when the
+  supported minimum includes the fix.
+- **Keep artifacts out of git.** Do not commit `.onnx`, `.onnx.data`, generated
+  test files, checkpoints, or local validation reports. Public API changes need
+  docs, tests, and release notes in `docs/about/roadmap.md` (current version) or
+  `docs/about/past_versions.md` (release archive).
 
-- Install: `poetry install -E all`
-- Preferred checks:
-  - `poetry run ruff check .`
-  - `poetry run black .`
-  - `./scripts/check_typing.sh`
-  - `poetry run pytest -q`
-  - `poetry run mkdocs build --strict` for doc changes
-- Debug flags exist for the IR optimizer (`JAX2ONNX_*_DEBUG`); see the optimizer dev guide for the full matrix.
-- Format with the Black pinned in `.pre-commit-config.yaml` (25.1.0). The Black 26
-  in `poetry.lock` also rewrites untouched files (e.g. drops the blank line after
-  imports), so it is not the formatter the tree follows.
-- JAX 0.8+ specifics:
-  - No `jax_dynamic_shapes` auto-toggle.
-  - Primitive parameters must be hashable; `construct_and_call(...).with_dtype(...)` constructs modules once per dtype.
-  - Flax NNX requires attributes that hold arrays to be wrapped in `nnx.List` / `nnx.data`.
-- **Two supported stacks.** `poetry.lock` resolves Python 3.11 and 3.12 to the
-  older `jax 0.10.2` / `numpy 2.4` / `scipy 1.17` stack and Python 3.13+ to
-  `jax 0.12.x` (CI's 3.13/3.14 jobs assert this), so testing on 3.12 does not
-  exercise JAX 0.12. Both must keep working — route version-sensitive APIs
-  through `jax2onnx/_compat/jax.py` instead of importing them directly.
-  (`[tool.mypy] python_version` is 3.12 because numpy's stubs need PEP 695 parsing.)
-- JAX 0.11 specifics:
-  - `ClosedJaxpr` **is** `Jaxpr`, and `Jaxpr.jaxpr` returns `self`. Recursive
-    "unwrap while it has `.jaxpr`" helpers must guard with `inner is not obj`
-    or they spin until `RecursionError`.
-  - `scan` replaced `num_consts`/`num_carry` with the `ft_in`/`ft_out` flat-tree
-    descriptors. Use `_compat.jax.scan_arity(params, len(jaxpr.invars))`; note
-    `ft_in` iterates over *leaves*, so the `(consts, carry, xs)` grouping is on
-    `.elts`. `while`/`cond` are unchanged; `fori_loop` lowers through `scan`.
-  - Removed from `jax.core` (use `jax.extend.core` / `jax.errors`):
-    `concrete_or_error`, `new_jaxpr_eqn`, `Literal`, `ClosedJaxpr`, `JaxprEqn`,
-    `AbstractToken`, `InconclusiveDimensionOperation`.
-  - `lax.gather_p` no longer registers a transpose rule.
-  - `jnp.empty` lowers via a new `empty` primitive rather than a zero
-    `broadcast_in_dim`.
-- Flax 0.12.8: `Linear`/`LinearGeneral`/`Conv`/`Einsum.__call__` take an
-  `out_sharding` kwarg. Monkey-patches must accept and ignore it — sharding is a
-  placement hint with no ONNX equivalent.
+## Working Checks
 
----
+Generate tests on a fresh checkout, after metadata, registration, or optional
+integration changes, and before a full-suite run:
 
-## Core Rules (Do Not Break)
+```bash
+poetry run python scripts/generate_tests.py
+poetry run pytest -q tests/path/test_file.py::TestClass::test_case
+```
 
-- **IR-only** inside `converter/` and `plugins/`. Importing ONNX protobuf types here fails CI (`tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py`).
-- **Precision follows JAX:** model configuration and typed inputs determine computation dtypes. Shape-only specs default to FP32 even under JAX x64. Prepare FP64 in an effective `jax.enable_x64()` context and use the same context for `allclose`. The removed `enable_double_precision` keyword is rejected whenever present.
-- **Deterministic module construction:** never seed at import. Use `construct_and_call(...).with_requested_dtype()` and `with_rng_seed(...)` helpers so tests can rebuild deterministically for both f32/f64 variants.
-- **Single-use PRNG keys:** split before handing keys to separate consumers. Turn on `jax.config.update("jax_debug_key_reuse", True)` while developing if you suspect violations.
-- **Metadata parity:** tests expect `expect_graph` specs to mirror real lowering. Keep structural expectations beside metadata entries and regenerate via `scripts/emit_expect_graph.py` when behaviour changes.
-- **Follow the dev guides:** IR builder, subgraph wiring, optimizer, and plugin guardrails are enforced by policy tests—read the relevant guide before editing those areas.
-- **Do not commit ONNX artifacts:** `.onnx` / `.onnx.data` files (including under `docs/onnx/`) must not land in git. Keep generated models local; they bloat the repo.
+Run the focused regression first, then the full suite before shipping code.
+The convenience runner fixes path markers across the working tree (including
+untracked Python files), runs pre-commit, generates tests, then runs pytest
+(parallel when pytest-xdist is installed):
 
----
+```bash
+./scripts/run_all_checks.sh
+```
 
-## Working Rhythm
+Hooks can edit files: Ruff uses `--fix --unsafe-fixes`. A hook failure stops the
+runner before tests; review changes and rerun until hooks and pytest complete.
+Individual checks are also available:
 
-1. Sync dependencies (`poetry install -E all`).
-2. Make the change.
-3. Run the focused test (e.g. `poetry run pytest -q tests/path/test_file.py::TestClass::test_case`).
-4. Run the full suite before shipping.
-5. Apply formatting/lints/mypy; they’re fast.
+```bash
+poetry run pre-commit run --all-files
+./scripts/check_typing.sh
+poetry run pytest -q
+```
 
-> ✅ Rule of thumb: if tests aren’t green locally, you’re not done.
+`check_typing.sh` runs mypy and prints the registered RNG factories. For prose
+and link edits, check the changed content and links, then build the docs without
+regenerating tests or models. Generated coverage pages use the workflow below.
+The docs build is separate from the runner; use a unique temporary destination
+to avoid rewriting tracked `site/` files or another session's build:
 
----
+```bash
+poetry run mkdocs build --strict --site-dir "$(mktemp -d)"
+```
 
-## Policy & Checklist
+Optional SotA and [Web-runtime checks](docs/user_guide/browser_wasm.md) require
+additional setup. A default local run does not cover every CI job. Report the
+checks actually completed, failures, and any untested stacks or integrations.
 
-- Respect repo conventions (see quick bullet list above); when in doubt, consult the dev guide for that subsystem.
-- Don’t ship public API changes without updating docs, tests, and changelog.
-- Prefer deleting obsolete assets in small, focused diffs.
-- Before requesting review:
-  - [ ] `poetry run pytest -q`
-  - [ ] Added/updated tests
-  - [ ] `poetry run ruff check .` & `poetry run black .`
-  - [ ] `./scripts/check_typing.sh`
-  - [ ] Docs/notes updated if behaviour changed
+## Generated Docs and Debugging
 
----
-
-## Handy Commands
-
-- Focused pytest: `poetry run pytest -q tests/path/test_file.py::TestClass::test_case`
-- Format touched Python files: `git diff --name-only -- '*.py' | xargs -r poetry run black`
-- Emit expect_graph snippets: `poetry run python scripts/emit_expect_graph.py <testcase>`
-- Regenerate coverage tables: `./scripts/generate_readme.sh` — use the wrapper,
-  not `scripts/generate_readme.py` directly. The wrapper prepares the optional
-  MaxText/MaxDiffusion checkouts; without them those components never register
-  and their rows would drop out of the tables. The script now refuses to write
-  in that case (override with `--allow-removals` only for real deletions).
-
----
-
-## When You’re Stuck
-
-- Capture minimal reproductions under `tests/extra_tests/framework/`.
-- Enable the relevant `JAX2ONNX_*_DEBUG` env while running the failing test.
-- Verify mutations persist across graph mirrors (`graph.nodes`, `_nodes`, etc.) if you’re editing IR.
-- Plugins patch APIs such as `jnp.expm1` and `jax.nn.log1mexp` only during
-  conversion. Tests must look them up at call time (`lambda x: jnp.expm1(x)`);
-  passing a reference captured at import traces JAX's decomposition instead and
-  silently skips the plugin.
-- ONNX Runtime kernel gaps that shape lowerings (bfloat16 `Log`, float64
-  `Sinh`/`Cos`/`Erf`, `Where` and `-0.0`) are tracked in one table in
-  `docs/about/dependencies.md`; update it when a lowering works around a new
-  gap or when the locked or minimum ONNX Runtime changes. Graphs that hit a gap
-  fail at session creation. ONNX Runtime's NumPy binding also rejects bfloat16
-  arrays: feed raw `uint16` bits through
-  `OrtValue.ortvalue_from_numpy_with_onnx_type` and IO binding, as in
-  `tests/extra_tests/test_log1p_expm1_precision.py`.
-- Constants retain their traced dtype and payload. If an operator needs a work
-  dtype, emit consumer-local casts without changing canonical bindings or shared
-  initializers, then restore the source result boundary. FP16 Add/Sub/Mul use
-  FLOAT work followed by a half result cast; FP16 Rsqrt keeps Sqrt and Div in
-  FLOAT with a single final half cast. Check half models in caller-owned JAX
-  x64-disabled and x64-enabled contexts; enabling x64 must not widen them.
-- `examples.maxtext` testcases skip numeric validation, so an export ONNX
-  Runtime cannot load still passes; check the written model with
-  `onnx.checker.check_model(..., full_check=True)` when a lowering change may
-  reach them. They trace parameter initializers, so
-  `_patch_random_initializers` in `maxtext_models.py` replaces random
-  normals/uniforms with constants to keep `erf_inv` and `BitCast` (opset 26+)
-  out of the graph.
-- Revisit the dev guide for the subsystem you’re touching—chances are the guardrail is documented there.
-
----
-
-## Glossary
-
-- **IR:** The `onnx_ir` intermediate representation used during conversion.
-- **Missing input:** Empty-name (`""`) placeholder meaning “optional input not provided” in ONNX.
-- **Live list:** Container that reflects the graph state directly; mutating it changes the graph.
-
-Welcome aboard, and thanks for keeping conversions robust across `onnx_ir` variants. When in doubt, favour clarity, tests, and abiding by the dev guides.
+- Do not hand-edit sections between `AUTOGENERATED` markers. Update metadata
+  and use the appropriate generator from the coverage guide.
+- Refresh component/example tables with `./scripts/generate_readme.sh`. The
+  wrapper prepares optional MaxText/MaxDiffusion checkouts and runs generation
+  and tests. Missing optional integrations must not silently remove coverage
+  rows; follow the coverage guide for intentional removals and review the diff.
+- Refresh structural snippets with
+  `poetry run python scripts/emit_expect_graph.py <testcase>`.
+  For stacktrace fixtures, set `JAX2ONNX_ENABLE_STACKTRACE_METADATA=1`.
+- Capture minimal reproductions in the relevant `tests/extra_tests/` area.
+  Optimizer debug flags are documented in the optimizer guide.
+- Patched APIs must be looked up at call time in tests, for example
+  `lambda x: jnp.expm1(x)`. A function reference captured before conversion can
+  bypass the plugin and silently test JAX's decomposition instead.
+- For dtype/kernel failures, consult the dependency gap table and known
+  limitations, including BF16 runtime I/O. For examples that skip numeric
+  validation, check the serialized model with
+  `onnx.checker.check_model(..., full_check=True)` and test runtime loading when
+  the change can affect it.
