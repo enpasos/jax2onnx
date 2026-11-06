@@ -34,6 +34,13 @@ _SOFTMAX_PRIM.multiple_results = False
 _JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
 
 
+def _normalize_axis(axis: int, rank: int) -> int:
+    axis_int = axis + rank if axis < 0 else axis
+    if axis_int < 0 or axis_int >= rank:
+        raise ValueError(f"softmax axis={axis} is out of bounds for rank {rank}")
+    return axis_int
+
+
 @register_native_primitive(
     jaxpr_primitive=_SOFTMAX_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softmax.html",
@@ -88,6 +95,48 @@ _JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            # The axis refers to each vmapped sample, not to the batched array.
+            "testcase": "softmax_vmap_positive_axis",
+            "callable": lambda x: jax.vmap(lambda y: jax.nn.softmax(y, axis=1))(x),
+            "input_shapes": [(2, 5, 7, 3)],
+            "post_check_onnx_graph": EG(
+                [{"path": "Softmax:2x5x7x3", "attrs": {"Softmax": {"axis": 2}}}],
+                must_absent=["Exp", "ReduceSum"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # Each sample's (7, 3) mask broadcasts against its (5, 7, 3) logits.
+            "testcase": "softmax_vmap_where_lower_rank_mask",
+            "callable": lambda x, m: jax.vmap(
+                lambda y, w: jax.nn.softmax(y, axis=1, where=w)
+            )(x, m),
+            "input_shapes": [(2, 5, 7, 3), (2, 7, 3)],
+            "input_dtypes": [jnp.float32, np.bool_],
+            "post_check_onnx_graph": EG(
+                [{"path": "Softmax:2x5x7x3", "counts": {"Softmax": 1}}],
+                must_absent=["Exp", "ReduceSum"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # ONNX Softmax takes floats only; JAX promotes integer logits.
+            "testcase": "softmax_int_input",
+            "callable": lambda x: jax.nn.softmax(x, axis=-1),
+            "input_values": [
+                np.array([[3, -2, 7, 0], [1, 1, 1, 1], [-5, 9, 2, 4]], dtype=np.int32)
+            ],
+            "expected_output_dtypes": [np.float32],
+        },
+        {
+            "testcase": "softmax_vmap_int_input",
+            "callable": lambda x: jax.vmap(lambda y: jax.nn.softmax(y, axis=0))(x),
+            "input_values": [
+                np.array([[3, -2, 7, 0], [1, 1, 1, 1], [-5, 9, 2, 4]], dtype=np.int32)
+            ],
+            "expected_output_dtypes": [np.float32],
         },
         {
             "testcase": "softmax_grad_issue_batch_diff_rules",
@@ -258,6 +307,10 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
             def _patched(
                 x: ArrayLike, axis: int = -1, where: ArrayLike | None = None
             ) -> ArrayLike:
+                # ONNX Softmax takes floats only. JAX promotes other inputs,
+                # to a dtype that also depends on `where`, so let it compute.
+                if not jnp.issubdtype(jnp.result_type(x), jnp.floating):
+                    return orig(x, axis=axis, where=where)
                 if where is None:
                     return cls._PRIM.bind(x, axis=axis, has_where=False)
                 where_arr = jnp.asarray(where)
@@ -304,7 +357,7 @@ def _softmax_batch_rule(
     batched_args: tuple[jax.Array, ...],
     batch_dims: tuple[int | None, ...],
     *,
-    axis: int = -1,
+    axis: int | tuple[int, ...] | None = -1,
     has_where: bool = False,
 ) -> tuple[jax.Array, int | None]:
     x = batched_args[0]
@@ -319,33 +372,49 @@ def _softmax_batch_rule(
             None,
         )
 
-    rank = x.ndim
-    canon_axis = axis if axis >= 0 else axis + rank
-    if canon_axis < 0 or canon_axis >= rank:
-        raise ValueError("Invalid axis for softmax batching rule")
+    # ONNX Softmax normalizes over one axis; other axis specs keep JAX's
+    # decomposition through the vmap below.
+    if isinstance(axis, (int, np.integer)):
+        size = next(
+            arg.shape[bdim]
+            for arg, bdim in zip(batched_args, batch_dims)
+            if bdim is not None
+        )
+        x_front = batching.bdim_at_front(x, x_bdim, size)
+        sample_rank = x_front.ndim - 1
+        batched_axis = _normalize_axis(int(axis), sample_rank) + 1
+        if not has_where:
+            out = SoftmaxPlugin._PRIM.bind(x_front, axis=batched_axis, has_where=False)
+            return out, 0
+        # Per sample the mask broadcasts against x from the right; aligning
+        # it with the batched x keeps both batch axes in front.
+        where_front = batching.bdim_at_front(where, where_bdim, size)
+        where_rank = where_front.ndim - 1
+        where_aligned = jax.lax.broadcast_in_dim(
+            where_front,
+            x_front.shape,
+            (0, *range(1 + sample_rank - where_rank, 1 + sample_rank)),
+        )
+        out = SoftmaxPlugin._PRIM.bind(
+            x_front, where_aligned, axis=batched_axis, has_where=True
+        )
+        return out, 0
 
     if x_bdim is not None and x_bdim != 0:
         x = jnp.moveaxis(x, x_bdim, 0)
     if where is not None and where_bdim is not None and where_bdim != 0:
         where = jnp.moveaxis(where, where_bdim, 0)
 
-    if x_bdim is None:
-        axis_body = canon_axis
-    elif canon_axis == x_bdim:
-        axis_body = 0
-    elif canon_axis < x_bdim:
-        axis_body = canon_axis
-    else:
-        axis_body = canon_axis - 1
-
     in_axes: tuple[int | None, ...] = (0 if x_bdim is not None else None,)
     if has_where:
         in_axes = in_axes + (0 if where_bdim is not None else None,)
 
+    # Primitive params describe one unbatched sample, which is exactly what the
+    # vmapped body sees, so the axis needs no translation.
     vmapped = jax.vmap(
         lambda *vals: _JAX_SOFTMAX_ORIG(
             vals[0],
-            axis=axis_body,
+            axis=axis,
             where=(vals[1] if has_where else None),
         ),
         in_axes=in_axes,

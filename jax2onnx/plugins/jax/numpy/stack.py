@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, ClassVar, Final, TypeAlias
 
 import jax
@@ -49,6 +49,18 @@ def _stack_arrays(
         return jnp.stack(values, axis=axis)
 
     return call
+
+
+def _add_compile_time_stacked_table(x: jax.Array) -> jax.Array:
+    with jax.ensure_compile_time_eval():
+        table = jnp.stack([jnp.arange(3.0), jnp.arange(3.0) * 2])
+    return x + table
+
+
+def _add_compile_time_stacked_array(x: jax.Array) -> jax.Array:
+    with jax.ensure_compile_time_eval():
+        row = jnp.stack(jnp.arange(3.0))
+    return x + row
 
 
 @register_native_primitive(
@@ -170,6 +182,41 @@ def _stack_arrays(
             "input_shapes": [(3,)],
             "run_only_f32_variant": True,
         },
+        {
+            # Concrete operands run the primitive's eager impl during tracing,
+            # so the stacked table is embedded as a constant.
+            "testcase": "stack_compile_time_eval",
+            "callable": _add_compile_time_stacked_table,
+            "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": EG(
+                ["Add:2x3"],
+                must_absent=["Concat", "Unsqueeze"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # A single array is a sequence of its rows along the leading axis.
+            "testcase": "stack_compile_time_eval_array",
+            "callable": _add_compile_time_stacked_array,
+            "input_shapes": [(3,)],
+            "expected_output_shapes": [(3,)],
+            "post_check_onnx_graph": EG(
+                ["Add:3"],
+                must_absent=["Concat", "Unsqueeze"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "jnp_stack_array_input",
+            "callable": lambda x: jnp.stack(x, axis=1),
+            "input_shapes": [(2, 3)],
+            "expected_output_shapes": [(3, 2)],
+            "post_check_onnx_graph": EG(
+                ["Transpose:3x2"],
+                must_absent=["Concat", "Unsqueeze"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class JnpStackPlugin(PrimitiveLeafPlugin):
@@ -281,6 +328,10 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
                 setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(arrays: object, axis: int = 0) -> jax.Array:
+                # As in JAX, a single array (tracers included) stacks its rows
+                # along the leading axis.
+                if isinstance(arrays, (np.ndarray, jax.Array)):
+                    return jnp.moveaxis(arrays, 0, axis)
                 flat, _ = tree_util.tree_flatten(arrays)
                 if not flat:
                     raise ValueError("jnp.stack expects a non-empty sequence")
@@ -341,7 +392,7 @@ def _stack_batch_rule(
 
 
 @JnpStackPlugin._PRIM.def_impl
-def _stack_impl(arrays: Iterable[ArrayLike], *, axis: int = 0) -> jax.Array:
+def _stack_impl(*arrays: ArrayLike, axis: int = 0) -> jax.Array:
     orig = get_orig_impl(JnpStackPlugin._PRIM, JnpStackPlugin._FUNC_NAME)
     return orig(arrays, axis=axis)
 

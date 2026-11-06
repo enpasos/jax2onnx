@@ -17,6 +17,11 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
+def _invert_permutation(perm: jax.Array) -> jax.Array:
+    positions = jnp.arange(perm.shape[0], dtype=perm.dtype)
+    return jnp.zeros_like(perm).at[perm].set(positions, unique_indices=True)
+
+
 @register_native_primitive(
     jaxpr_primitive=jax.lax.scatter_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scatter.html",
@@ -337,6 +342,64 @@ from jax2onnx.plugins.plugin_system import (
             "run_only_f32_variant": True,
             # not an option: "skip_numeric_validation": True,
             "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
+        },
+        {
+            # vmap adds operand/indices batching dims to the scatter.
+            "testcase": "scatter_vmap_batching_dims",
+            "callable": lambda perm: jax.vmap(_invert_permutation)(perm),
+            "input_values": [
+                np.array(
+                    [[3, 0, 4, 1, 2], [1, 2, 0, 4, 3]],
+                    dtype=np.int32,
+                )
+            ],
+            "post_check_onnx_graph": EG(["ScatterND:2x5"], no_unused_inputs=True),
+        },
+        {
+            # Each column of updates is one window: rows 1 and 2 must become
+            # [1, 3, 5] and [2, 4, 6], not [1, 2, 3] and [4, 5, 6].
+            "testcase": "scatter_leading_update_window_dim",
+            "callable": lambda operand, updates: jax.lax.scatter(
+                operand,
+                jnp.array([[1], [2]], dtype=jnp.int32),
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(0,),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+            ),
+            "input_values": [
+                np.zeros((4, 3), dtype=np.float32),
+                np.array([[1, 2], [3, 4], [5, 6]], dtype=np.float32),
+            ],
+            "post_check_onnx_graph": EG(
+                ["Transpose:2x3 -> Reshape -> ScatterND:4x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # CLIP clamps out-of-range rows -2 and 7 to the first and last row.
+            "testcase": "scatter_clip_rows_out_of_bounds",
+            "callable": lambda operand, updates: jax.lax.scatter(
+                operand,
+                jnp.array([[-2], [7]], dtype=jnp.int32),
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(1,),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+                mode=jax.lax.GatherScatterMode.CLIP,
+            ),
+            "input_values": [
+                np.zeros((4, 3), dtype=np.float32),
+                np.arange(1, 7, dtype=np.float32).reshape(2, 3),
+            ],
+            "post_check_onnx_graph": EG(
+                ["Max -> Min -> ScatterND:4x3"],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )

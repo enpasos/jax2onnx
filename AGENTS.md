@@ -165,6 +165,12 @@ checks actually completed, failures, and any untested stacks or integrations.
 - Patched APIs must be looked up at call time in tests, for example
   `lambda x: jnp.expm1(x)`. A function reference captured before conversion can
   bypass the plugin and silently test JAX's decomposition instead.
+- A patched function's primitive `def_impl` runs whenever the primitive is bound
+  to concrete values during conversion, for example under
+  `jax.ensure_compile_time_eval()`. It must accept the operands and parameters
+  exactly as the patch binds them (`bind(*arrays, axis=...)` for `jnp.stack`).
+  Traced testcases only run `lower`, so add a testcase that calls the patched
+  API under `jax.ensure_compile_time_eval()` to cover eager execution.
 - For dtype/kernel failures, consult the dependency gap table and known
   limitations, including BF16 runtime I/O. For examples that skip numeric
   validation, check the serialized model with
