@@ -17,6 +17,11 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
+def _invert_permutation(perm: jax.Array) -> jax.Array:
+    positions = jnp.arange(perm.shape[0], dtype=perm.dtype)
+    return jnp.zeros_like(perm).at[perm].set(positions, unique_indices=True)
+
+
 @register_native_primitive(
     jaxpr_primitive=jax.lax.scatter_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scatter.html",
@@ -337,6 +342,18 @@ from jax2onnx.plugins.plugin_system import (
             "run_only_f32_variant": True,
             # not an option: "skip_numeric_validation": True,
             "post_check_onnx_graph": EG(["ScatterND"], no_unused_inputs=True),
+        },
+        {
+            # vmap adds operand/indices batching dims to the scatter.
+            "testcase": "scatter_vmap_batching_dims",
+            "callable": lambda perm: jax.vmap(_invert_permutation)(perm),
+            "input_values": [
+                np.array(
+                    [[3, 0, 4, 1, 2], [1, 2, 0, 4, 3]],
+                    dtype=np.int32,
+                )
+            ],
+            "post_check_onnx_graph": EG(["ScatterND:2x5"], no_unused_inputs=True),
         },
     ],
 )

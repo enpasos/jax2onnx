@@ -7,6 +7,8 @@ The lowering keeps a few key invariants in sync with the ONNX backend:
 * guard `Where`/`If` emission so all inputs share an explicit broadcast shape;
 * support element-wise scatter (index rank == operand rank) and a prefix-slice
   variant where the remaining axes form a contiguous window;
+* rewrite batching dims (from ``vmap``) as leading index columns first, so the
+  variants above never see them;
 * harmonize float dtypes (updates follow operand) to avoid ORT type drift.
 """
 
@@ -97,6 +99,8 @@ class ScatterSpec:
     update_window_dims: Tuple[int, ...]
     inserted_window_dims: Tuple[int, ...]
     scatter_dims_to_operand_dims: Tuple[int, ...]
+    operand_batching_dims: Tuple[int, ...] = ()
+    scatter_indices_batching_dims: Tuple[int, ...] = ()
 
 
 def _normalize_dimension_numbers(dnums_like: Any) -> ScatterSpec:
@@ -118,6 +122,8 @@ def _normalize_dimension_numbers(dnums_like: Any) -> ScatterSpec:
         update_window_dims=_get("update_window_dims"),
         inserted_window_dims=_get("inserted_window_dims"),
         scatter_dims_to_operand_dims=_get("scatter_dims_to_operand_dims"),
+        operand_batching_dims=_get("operand_batching_dims"),
+        scatter_indices_batching_dims=_get("scatter_indices_batching_dims"),
     )
 
 
@@ -1542,6 +1548,124 @@ def ensure_supported_mode(mode: Any) -> None:
     raise NotImplementedError(f"scatter mode '{mode}' not supported in plugins yet")
 
 
+def _fold_batching_dims_into_indices(
+    ctx: Any,
+    indices_val: ir.Value,
+    indices_shape: Tuple[Any, ...],
+    spec: ScatterSpec,
+) -> tuple[ir.Value, Tuple[Any, ...], ScatterSpec]:
+    """Rewrite batching dims (added by ``vmap``) as ordinary scatter axes.
+
+    Each indices batching dim contributes a leading index column holding the
+    position along that dim, and the paired operand batching dim becomes an
+    inserted, scattered axis. The rewritten scatter addresses the same elements
+    without batching dims, so the remaining lowering can ignore them. The new
+    columns go first so that leading operand batching dims keep the scatter
+    axes a prefix.
+    """
+
+    if not spec.operand_batching_dims:
+        return indices_val, indices_shape, spec
+
+    rank = len(indices_shape)
+    indices_i64 = _cast_to_i64(ctx, indices_val, "scatter_indices_i64")
+    indices_shape_val = _shape_of(ctx, indices_val, "scatter_batch_idx_shape")
+    leading_shape = _builder_op(
+        ctx,
+        "Slice",
+        [
+            indices_shape_val,
+            _const_i64(ctx, np.asarray([0], dtype=np.int64), "scatter_batch_starts"),
+            _const_i64(
+                ctx, np.asarray([rank - 1], dtype=np.int64), "scatter_batch_ends"
+            ),
+        ],
+        name_hint="scatter_batch_leading_shape",
+        dtype=ir.DataType.INT64,
+        shape=(rank - 1,),
+    )
+    column_shape = _builder_op(
+        ctx,
+        "Concat",
+        [
+            leading_shape,
+            _const_i64(ctx, np.asarray([1], dtype=np.int64), "scatter_batch_one"),
+        ],
+        name_hint="scatter_batch_column_shape",
+        dtype=ir.DataType.INT64,
+        shape=(rank,),
+        attributes={"axis": 0},
+    )
+    column_dims = tuple(indices_shape[:-1]) + (1,)
+
+    columns: list[ir.Value] = []
+    for indices_dim in spec.scatter_indices_batching_dims:
+        extent = _gather_int_scalar(
+            ctx, indices_shape_val, indices_dim, "scatter_batch_extent"
+        )
+        positions = _builder_op(
+            ctx,
+            "Range",
+            [
+                _scalar_i64(ctx, 0, "scatter_batch_start"),
+                extent,
+                _scalar_i64(ctx, 1, "scatter_batch_step"),
+            ],
+            name_hint="scatter_batch_positions",
+            dtype=ir.DataType.INT64,
+            shape=(indices_shape[indices_dim],),
+        )
+        other_axes = [axis for axis in range(rank) if axis != indices_dim]
+        positions_nd = _builder_op(
+            ctx,
+            "Unsqueeze",
+            [
+                positions,
+                _const_i64(
+                    ctx, np.asarray(other_axes, dtype=np.int64), "scatter_batch_axes"
+                ),
+            ],
+            name_hint="scatter_batch_positions_nd",
+            dtype=ir.DataType.INT64,
+            shape=tuple(
+                indices_shape[axis] if axis == indices_dim else 1
+                for axis in range(rank)
+            ),
+        )
+        columns.append(
+            _builder_op(
+                ctx,
+                "Expand",
+                [positions_nd, column_shape],
+                name_hint="scatter_batch_column",
+                dtype=ir.DataType.INT64,
+                shape=column_dims,
+            )
+        )
+
+    index_depth = len(spec.scatter_dims_to_operand_dims) + len(columns)
+    folded_shape = tuple(indices_shape[:-1]) + (index_depth,)
+    folded_indices = _builder_op(
+        ctx,
+        "Concat",
+        [*columns, indices_i64],
+        name_hint="scatter_indices_with_batch",
+        dtype=ir.DataType.INT64,
+        shape=folded_shape,
+        attributes={"axis": rank - 1},
+    )
+    folded_spec = ScatterSpec(
+        update_window_dims=spec.update_window_dims,
+        inserted_window_dims=tuple(
+            sorted(spec.inserted_window_dims + spec.operand_batching_dims)
+        ),
+        scatter_dims_to_operand_dims=(
+            spec.operand_batching_dims + spec.scatter_dims_to_operand_dims
+        ),
+    )
+    return folded_indices, folded_shape, folded_spec
+
+
 def lower_scatter_common(
     ctx: LoweringContextProtocol,
     eqn: JaxprEqn,
@@ -1577,6 +1701,9 @@ def lower_scatter_common(
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     indices_shape = tuple(getattr(indices_var.aval, "shape", ()))
     updates_shape = tuple(getattr(updates_var.aval, "shape", ()))
+    indices_val, indices_shape, spec = _fold_batching_dims_into_indices(
+        ctx, indices_val, indices_shape, spec
+    )
 
     try:
         lower_scatter_elementwise(

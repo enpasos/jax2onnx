@@ -319,6 +319,30 @@ from jax2onnx.plugins.plugin_system import (
                 no_unused_inputs=True,
             ),
         },
+        {
+            # vmap adds operand/indices batching dims; rows keep a window dim.
+            "testcase": "scatter_add_vmap_batching_dims_window",
+            "callable": lambda x, idx, upd: jax.vmap(lambda x, i, u: x.at[i].add(u))(
+                x, idx, upd
+            ),
+            "input_shapes": [("B", 6, 4), ("B", 3), ("B", 3, 4)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:Bx6x4"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # Nested vmaps produce two batching dims on the same scatter.
+            "testcase": "scatter_add_nested_vmap_batching_dims",
+            "callable": lambda x, idx, upd: jax.vmap(
+                jax.vmap(lambda x, i, u: x.at[i].add(u))
+            )(x, idx, upd),
+            "input_shapes": [(2, 3, 6), (2, 3, 4), (2, 3, 4)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(["ScatterND:2x3x6"], no_unused_inputs=True),
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):
