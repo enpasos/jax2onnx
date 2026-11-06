@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import operator
 from typing import Any, Callable, ClassVar, Final
 
 import jax
@@ -68,10 +70,37 @@ class _BaseJnpPow(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
-            cls._PRIM, cls._FUNC_NAME
-        )
-        return specs
+        return [
+            (
+                _index_concrete_exponent(spec)
+                if isinstance(spec, MonkeyPatchSpec)
+                else spec
+            )
+            for spec in jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+        ]
+
+
+def _index_concrete_exponent(spec: MonkeyPatchSpec) -> MonkeyPatchSpec:
+    """Bind a concrete integer exponent as a Python int, as ``jnp.power`` does.
+
+    JAX lowers such exponents with ``lax.integer_pow``, which keeps the base
+    dtype. Binding a typed scalar such as ``np.int64(2)`` instead would promote
+    an int32 base to int64 under x64.
+    """
+
+    def make_value(orig: Any) -> Callable[[ArrayLike, ArrayLike], Any]:
+        bound = spec.make_value(orig)
+
+        def patched(x1: ArrayLike, x2: ArrayLike) -> Any:
+            try:
+                x2 = operator.index(x2)
+            except TypeError:
+                pass
+            return bound(x1, x2)
+
+        return patched
+
+    return dataclasses.replace(spec, make_value=make_value)
 
 
 _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
@@ -120,6 +149,18 @@ _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
             "expected_output_dtypes": [with_requested_dtype()],
             "post_check_onnx_graph": EG(
                 [{"path": "Cast -> Pow:4", "counts": {"Cast": 1}}],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # A concrete integer exponent keeps the base dtype, as in JAX, even
+            # when x64 makes np.int64 wider than the base.
+            "testcase": "jnp_power_int32_base_concrete_int64_exponent",
+            "callable": lambda x: jnp.power(x, np.int64(2)),
+            "input_values": [np.array([3, -2, 7], dtype=np.int32)],
+            "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                ["Pow:3"],
                 no_unused_inputs=True,
             ),
         },
