@@ -932,6 +932,61 @@ def _filter_fill_or_drop_elementwise_updates(
     return indices_filtered, updates_filtered
 
 
+def _clip_elementwise_indices(
+    ctx: Any,
+    indices_2d: ir.Value,
+    *,
+    index_depth: int,
+    operand_shape_val: ir.Value,
+) -> ir.Value:
+    """Clamp ``(N, index_depth)`` indices into the operand, as CLIP mode does.
+
+    Column ``k`` addresses operand axis ``k`` with a window extent of 1, so it
+    is clamped to ``[0, dim_k - 1]``.
+    """
+    leading_dims = _builder_op(
+        ctx,
+        "Slice",
+        [
+            operand_shape_val,
+            _const_i64(ctx, np.asarray([0], dtype=np.int64), "scatter_clip_start"),
+            _const_i64(
+                ctx, np.asarray([index_depth], dtype=np.int64), "scatter_clip_end"
+            ),
+        ],
+        name_hint="scatter_clip_dims",
+        dtype=ir.DataType.INT64,
+        shape=(index_depth,),
+    )
+    upper = _builder_op(
+        ctx,
+        "Sub",
+        [
+            leading_dims,
+            _const_i64(ctx, np.asarray([1], dtype=np.int64), "scatter_clip_one"),
+        ],
+        name_hint="scatter_clip_upper",
+        dtype=ir.DataType.INT64,
+        shape=(index_depth,),
+    )
+    nonneg = _builder_op(
+        ctx,
+        "Max",
+        [indices_2d, _scalar_i64(ctx, 0, "scatter_clip_lower")],
+        name_hint="scatter_clip_nonneg",
+        dtype=ir.DataType.INT64,
+        shape=(None, index_depth),
+    )
+    return _builder_op(
+        ctx,
+        "Min",
+        [nonneg, upper],
+        name_hint="scatter_indices_clipped",
+        dtype=ir.DataType.INT64,
+        shape=(None, index_depth),
+    )
+
+
 def _create_zero_column(
     ctx: Any, num_updates_vec: ir.Value, name_hint: str
 ) -> tuple[ir.Value, ir.Value]:
@@ -1433,6 +1488,15 @@ def lower_scatter_elementwise(
         index_depth=index_depth,
     )
     mode_name = getattr(mode, "name", str(mode)).upper() if mode is not None else ""
+    if "CLIP" in mode_name and not _static_elementwise_indices_in_bounds(
+        indices_val, operand_shape, scatter_axes
+    ):
+        indices_ordered = _clip_elementwise_indices(
+            ctx,
+            indices_ordered,
+            index_depth=index_depth,
+            operand_shape_val=_shape_of(ctx, operand_val, "scatter_operand_shape"),
+        )
     if "FILL_OR_DROP" in mode_name and not _static_elementwise_indices_in_bounds(
         indices_val, operand_shape, scatter_axes
     ):

@@ -368,6 +368,21 @@ from jax2onnx.plugins.plugin_system import (
                 no_unused_inputs=True,
             ),
         },
+        {
+            # Elementwise CLIP: index 9 clamps to the last element, and -7
+            # (still negative after wrapping) to the first.
+            "testcase": "scatter_add_clip_elementwise_out_of_bounds",
+            "callable": lambda x, idx, upd: x.at[idx].add(upd, mode="clip"),
+            "input_values": [
+                np.zeros((5,), dtype=np.float32),
+                np.array([-7, 9, 2], dtype=np.int32),
+                np.array([1.0, 2.0, 4.0], dtype=np.float32),
+            ],
+            "post_check_onnx_graph": EG(
+                ["Max -> Min -> ScatterND:5"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):

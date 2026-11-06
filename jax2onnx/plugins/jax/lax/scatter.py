@@ -378,6 +378,29 @@ def _invert_permutation(perm: jax.Array) -> jax.Array:
                 no_unused_inputs=True,
             ),
         },
+        {
+            # CLIP clamps out-of-range rows -2 and 7 to the first and last row.
+            "testcase": "scatter_clip_rows_out_of_bounds",
+            "callable": lambda operand, updates: jax.lax.scatter(
+                operand,
+                jnp.array([[-2], [7]], dtype=jnp.int32),
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(1,),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+                mode=jax.lax.GatherScatterMode.CLIP,
+            ),
+            "input_values": [
+                np.zeros((4, 3), dtype=np.float32),
+                np.arange(1, 7, dtype=np.float32).reshape(2, 3),
+            ],
+            "post_check_onnx_graph": EG(
+                ["Max -> Min -> ScatterND:4x3"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class ScatterPlugin(PrimitiveLeafPlugin):
