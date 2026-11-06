@@ -343,6 +343,31 @@ from jax2onnx.plugins.plugin_system import (
             "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
             "post_check_onnx_graph": EG(["ScatterND:2x3x6"], no_unused_inputs=True),
         },
+        {
+            # Batching dims folded into the indices must keep the leading
+            # window dim of updates apart from the batch and scatter dims.
+            "testcase": "scatter_add_batching_dims_leading_window_dim",
+            "callable": lambda operand, updates: jax.lax.scatter_add(
+                operand,
+                jnp.array([[[1], [2]], [[2], [1]]], dtype=jnp.int32),
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(0,),
+                    inserted_window_dims=(1,),
+                    scatter_dims_to_operand_dims=(1,),
+                    operand_batching_dims=(0,),
+                    scatter_indices_batching_dims=(0,),
+                ),
+            ),
+            "input_values": [
+                np.zeros((2, 4, 3), dtype=np.float32),
+                np.arange(1, 13, dtype=np.float32).reshape(3, 2, 2),
+            ],
+            "post_check_onnx_graph": EG(
+                ["Transpose:2x2x3 -> Reshape -> Gather -> ScatterND:2x4x3"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):

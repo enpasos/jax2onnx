@@ -1406,6 +1406,23 @@ def lower_scatter_elementwise(
                 "slice-window scatter requires expanded-index lowering"
             )
 
+        # ScatterND reads each update window from the trailing dims, so move
+        # the window dims of updates behind their scatter dims.
+        window_dims = tuple(int(dim) for dim in spec.update_window_dims)
+        updates_rank = len(updates_shape)
+        if window_dims != tuple(range(updates_rank - len(window_dims), updates_rank)):
+            scatter_dims = [d for d in range(updates_rank) if d not in window_dims]
+            perm = [*scatter_dims, *window_dims]
+            updates_val = _builder_op(
+                ctx,
+                "Transpose",
+                [updates_val],
+                name_hint="scatter_updates_window_last",
+                dtype=_value_dtype(updates_val),
+                shape=tuple(updates_shape[d] for d in perm),
+                attributes={"perm": perm},
+            )
+
     updates_prepared = _prepare_updates_for_scatternd(
         ctx,
         updates_val,
