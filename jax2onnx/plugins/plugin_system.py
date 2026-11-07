@@ -37,7 +37,11 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
-from jax2onnx.plugins._function_keys import snapshot_static_value, static_value_key
+from jax2onnx.plugins._function_keys import (
+    identity_value_key,
+    snapshot_static_value,
+    static_value_key,
+)
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx._compat.jax import (
     NOT_MAPPED,
@@ -53,6 +57,7 @@ from jax2onnx._compat.jax import (
     explicit_x64_dtypes,
 )
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter.initializer_metadata import active_registry
 from jax2onnx.converter.optimizer_graph_utils import consumers_in_graph
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
@@ -947,10 +952,103 @@ class FunctionPlugin(PrimitivePlugin):
         invars, params = _unpack_function_arguments(eqn.invars, params)
         eqn = eqn.replace(invars=list(invars), params=params)
         callee = self._resolve_lowering_callee(params)
-        captures = self._capture_arguments(ctx, callee, params)
+        metadata_registry = active_registry()
+        metadata_enabled = (
+            metadata_registry is not None and metadata_registry.callback is not None
+        )
+        captures = self._capture_arguments(
+            ctx, callee, params, defer_static_keys=metadata_enabled
+        )
         registry = ctx.get_function_registry()
         if registry is None:
             raise RuntimeError("[onnx_function] Function registry missing")
+        if metadata_enabled:
+            assert metadata_registry is not None
+            # A content-based lookup cannot decide whether equal arrays belong
+            # to independent annotated sources. Trace the actual capture
+            # boundary first; nested Functions are examined by building a
+            # candidate before content reuse is considered.
+            with _restore_function_trace_context(trace_context):
+                closed = self._trace_function_body(callee, eqn, captures)
+            records = [metadata_registry.observe(source) for source in closed.consts]
+            input_signature = tuple(
+                (tuple(aval.shape), str(aval.dtype), aval.weak_type)
+                for aval in self._input_avals(eqn)
+            )
+            identity_key = FunctionKey(
+                self.name,
+                input_signature,
+                (
+                    "initializer_scope",
+                    identity_value_key(callee),
+                    tuple(id(record.source) for record in records),
+                    captures.signature,
+                ),
+                (
+                    trace_context.x64,
+                    trace_context.matmul_precision,
+                    trace_context.explicit_x64,
+                    trace_context.dtype_promotion,
+                ),
+            )
+            definition = registry.get(identity_key)
+            if definition is None:
+                checkpoint = registry.checkpoint()
+                function_count = len(ctx.ir_functions)
+                counters = dict(ctx._func_name_counters)
+                capture_count = len(metadata_registry.captures)
+                with _restore_function_trace_context(trace_context):
+                    candidate = self._build_function(
+                        ctx, callee, eqn, captures, closed=closed
+                    )
+                accepted = any(
+                    capture.source.snapshot
+                    for capture in metadata_registry.captures[capture_count:]
+                ) or any(
+                    metadata_registry.dependencies(output)
+                    for output in candidate.graph.outputs
+                )
+                base_key = None
+                if not accepted:
+                    # Array fingerprints are now safe: every actual capture,
+                    # including nested Function captures, has been observed.
+                    content_captures = FunctionCaptures(
+                        captures.dynamic,
+                        captures.static_kwargs,
+                        tuple(
+                            (
+                                name,
+                                (
+                                    self._static_capture_signature(
+                                        captures.static_kwargs[name]
+                                    )
+                                    if name in captures.static_kwargs
+                                    else signature
+                                ),
+                            )
+                            for name, signature in captures.signature
+                        ),
+                    )
+                    base_key = self._function_key(
+                        callee, eqn, content_captures, trace_context
+                    )
+                reusable = registry.get(base_key) if base_key is not None else None
+                if reusable is not None:
+                    # All candidate captures skipped annotation. Preserve the
+                    # ordinary content cache and remove its transient nested
+                    # definitions before they can affect later lookups.
+                    del ctx.ir_functions[function_count:]
+                    registry.restore(checkpoint)
+                    ctx._func_name_counters.clear()
+                    ctx._func_name_counters.update(counters)
+                    definition = reusable
+                else:
+                    definition = candidate
+                    if base_key is not None:
+                        registry.put(base_key, definition)
+                registry.put(identity_key, definition)
+            self._emit_function_call(ctx, eqn, definition, captures)
+            return
         key = self._function_key(callee, eqn, captures, trace_context)
         definition = registry.get(key)
         if definition is None:
@@ -1013,6 +1111,8 @@ class FunctionPlugin(PrimitivePlugin):
         ctx: ConverterContext,
         callee: Callable[..., object],
         params: Mapping[str, object],
+        *,
+        defer_static_keys: bool = False,
     ) -> FunctionCaptures:
         dynamic: list[DynamicCapture] = []
         static: dict[str, object] = {}
@@ -1046,7 +1146,16 @@ class FunctionPlugin(PrimitivePlugin):
                     )
                 )
             else:
-                signature.append((name, self._static_capture_signature(value)))
+                signature.append(
+                    (
+                        name,
+                        (
+                            identity_value_key(value)
+                            if defer_static_keys
+                            else self._static_capture_signature(value)
+                        ),
+                    )
+                )
                 static[name] = value
 
         handled = set(static) | {capture.name for capture in dynamic}
@@ -1173,6 +1282,8 @@ class FunctionPlugin(PrimitivePlugin):
         callee: Callable[..., object],
         eqn: JaxprEqn,
         captures: FunctionCaptures,
+        *,
+        closed: ClosedJaxpr | None = None,
     ) -> ir.Function:
         name, domain = self._allocate_friendly_name(ctx)
         scope = FunctionScope(ctx, name=name, domain=domain)
@@ -1185,10 +1296,11 @@ class FunctionPlugin(PrimitivePlugin):
             (capture.name, value)
             for capture, value in zip(captures.dynamic, child_captures)
         )
-        closed = self._trace_function_body(callee, eqn, captures)
+        if closed is None:
+            closed = self._trace_function_body(callee, eqn, captures)
         body = closed.jaxpr
         for var, value in zip(body.constvars, closed.consts):
-            scope.ctx.bind_const_for_var(var, np.asarray(value))
+            scope.ctx.bind_captured_const_for_var(var, value)
         for var, value in zip(body.invars, child_values):
             scope.ctx.bind_value_for_var(var, value)
         lower_jaxpr_with_plugins(

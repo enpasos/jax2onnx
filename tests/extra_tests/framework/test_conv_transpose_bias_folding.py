@@ -200,6 +200,59 @@ def test_fold_supports_constant_nodes_and_optional_missing_bias(
     onnx.checker.check_model(ir.to_proto(fixture.model), full_check=True)
 
 
+@pytest.mark.parametrize("bias_source", ["constant", "initializer"])
+@pytest.mark.parametrize("full_optimizer", [False, True])
+def test_shaped_bias_metadata_survives_local_constant_and_serialization(
+    bias_source: str, full_optimizer: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    fixture = _fixture(bias_source=bias_source)
+    source = fixture.bias
+    source_tensor = source.const_value
+    source_tensor.metadata_props.update(
+        {"trainable": "true", "source_path": "decoder.bias"}
+    )
+    source_tensor.doc_string = "Caller bias tensor"
+    source.metadata_props["application.owner"] = "caller"
+    source.doc_string = "Caller bias value"
+    baseline = ir.to_proto(fixture.model)
+    original_array = source_tensor.numpy().copy()
+
+    if full_optimizer:
+        optimize_graph(fixture.model)
+    else:
+        fold_conv_transpose_constant_bias(fixture.model.graph)
+
+    conv = fixture.output.producer()
+    vector = conv.inputs[2]
+    tensor = vector.const_value
+    assert vector is not source and tensor is not source_tensor
+    assert tensor.metadata_props == source_tensor.metadata_props
+    assert tensor.doc_string == "Caller bias tensor"
+    assert vector.metadata_props == source.metadata_props
+    if not full_optimizer or bias_source != "constant":
+        # Upstream Constant lifting does not retain the source Value doc string.
+        assert vector.doc_string == "Caller bias value"
+    np.testing.assert_array_equal(source_tensor.numpy(), original_array)
+    assert source_tensor.shape == ir.Shape((6, 1, 1))
+    assert not any("merg" in message.lower() for message in caplog.messages)
+    proto = ir.to_proto(fixture.model)
+    if vector.is_initializer():
+        serialized = next(t for t in proto.graph.initializer if t.name == vector.name)
+    else:
+        constant = next(
+            node
+            for node in proto.graph.node
+            if node.op_type == "Constant" and node.output[0] == vector.name
+        )
+        serialized = next(a.t for a in constant.attribute if a.name == "value")
+    assert {p.key: p.value for p in serialized.metadata_props} == {
+        "trainable": "true",
+        "source_path": "decoder.bias",
+    }
+    x = np.random.default_rng(3).normal(size=(2, 4, 3, 3)).astype(np.float32)
+    np.testing.assert_allclose(_run(proto, x), _run(baseline, x), rtol=1e-6, atol=1e-6)
+
+
 @pytest.mark.parametrize(
     "options",
     [

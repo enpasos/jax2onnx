@@ -66,6 +66,9 @@ nav:
       - ONNX Functions: user_guide/onnx_functions.md
       - Layout Optimization: user_guide/layout_optimization.md
       - Stacktrace Metadata: user_guide/stacktrace_metadata.md
+      - Parameter Metadata Walkthrough: user_guide/parameter_metadata_walkthrough.md
+      - Parameter Metadata: user_guide/parameter_metadata.md
+      - Initializer Metadata Contract: user_guide/initializer_metadata_contract.md
       - SotA Examples:
           - GPT-OSS: user_guide/sota_examples/gpt_oss/getting_weights.md
           - MaxText: user_guide/sota_examples/maxtext.md
@@ -89,6 +92,7 @@ nav:
           - Complex Numbers: developer_guide/advanced_topics/complex_numbers.md
           - Expected Graph Reference: developer_guide/advanced_topics/expect_graph_reference.md
           - IR Optimizer: developer_guide/advanced_topics/ir_optimizer.md
+          - Initializer Metadata Validation: developer_guide/advanced_topics/initializer_metadata_validation.md
           - IR Reflection: developer_guide/advanced_topics/ir_reflection_guidelines.md
           - ONNX IR Builder: developer_guide/advanced_topics/onnx_ir_builder.md
           - ONNX IR Typing: developer_guide/advanced_topics/onnx_ir_typing_how_to.md

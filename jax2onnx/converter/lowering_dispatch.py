@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import inspect
 from contextlib import contextmanager
+from pathlib import Path
 from collections.abc import Mapping
-from typing import Iterator, TypeVar
+from typing import Final, Iterator, TypeVar
 
 from jax2onnx._compat.jax import Jaxpr, JaxprEqn, Literal, ShapedArray, Var
 
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog, save_primitive_calls_log
 
+from .initializer_metadata import active_registry
 from .output_binding import (
     assert_eqn_inputs_bound,
     assert_eqn_outputs_bound,
@@ -30,6 +32,32 @@ from .lowering_registry import (
 )
 
 _PluginT = TypeVar("_PluginT")
+_AUDITED_PLUGIN_ROOT: Final[Path] = Path(__file__).resolve().parents[1] / "plugins"
+_LEGACY_ADAPTER_SOURCE: Final[Path] = (
+    Path(__file__).resolve().with_name("lowering_registry.py")
+)
+
+
+def _audited_lowering(entry: RegisteredLowering) -> bool:
+    """Admit packaged implementations whose materialization paths are audited.
+
+    User callables traced by the packaged FunctionPlugin remain supported;
+    arbitrary third-party Python lowerers have no provenance evidence contract.
+    """
+    try:
+        plugin_source = inspect.getsourcefile(type(entry.plugin))
+        implementation_source = inspect.getsourcefile(entry.lower)
+    except (TypeError, OSError):
+        return False
+    if plugin_source is None or implementation_source is None:
+        return False
+    if not Path(plugin_source).resolve().is_relative_to(_AUDITED_PLUGIN_ROOT):
+        return False
+    implementation_path = Path(implementation_source).resolve()
+    return (
+        implementation_path.is_relative_to(_AUDITED_PLUGIN_ROOT)
+        or implementation_path == _LEGACY_ADAPTER_SOURCE
+    )
 
 
 def get_registered_lowering_plugin(
@@ -283,6 +311,14 @@ def _lower_registered_equation(
             primitive_name=primitive_name,
             eqn_index=eqn_index,
         )
+        metadata_registry = active_registry()
+        if metadata_registry is not None and metadata_registry.callback is not None:
+            metadata_registry.admit_lowering(audited=_audited_lowering(entry))
+        metadata_inputs = (
+            metadata_registry.equation_inputs(ctx, eqn)
+            if metadata_registry is not None
+            else frozenset()
+        )
         entry.lower(ctx, eqn)
         assert_eqn_outputs_bound(
             ctx,
@@ -290,6 +326,8 @@ def _lower_registered_equation(
             primitive_name=primitive_name,
             eqn_index=eqn_index,
         )
+        if metadata_registry is not None:
+            metadata_registry.equation_outputs(ctx, eqn, metadata_inputs)
         _append_primitive_call_record(
             ctx,
             eqn,
@@ -326,3 +364,6 @@ def lower_jaxpr_with_plugins(
                 primitive_name=primitive_name,
                 eqn_index=eqn_index,
             )
+        metadata_registry = active_registry()
+        if metadata_registry is not None:
+            metadata_registry.prove_scope_outputs(ctx, jaxpr)

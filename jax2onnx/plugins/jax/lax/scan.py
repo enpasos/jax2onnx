@@ -11,6 +11,7 @@ import numpy as np
 import onnx_ir as ir
 from jax import lax
 from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.converter.initializer_metadata import register_graph_clone
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -783,11 +784,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         has_scatter = _jaxpr_contains_scatter(jaxpr)
 
         for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
-            np_c = np.asarray(cval)
-            aval = getattr(cv, "aval", None)
-            if aval is not None:
-                np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
-            loop_ctx.bind_const_for_var(cv, np_c)
+            loop_ctx.bind_captured_const_for_var(cv, cval)
 
         iter_in, cond_in = create_loop_header_inputs(
             loop_ctx,
@@ -936,6 +933,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         loop_ctx.builder.outputs = call_parameters.body_outputs(body_outputs)
 
         body_graph = loop_ctx.builder.graph.clone(allow_outer_scope_values=True)
+        register_graph_clone(loop_ctx.builder.graph, body_graph)
         body_graph.name = ctx.fresh_name("scan_loop_body")
         opset_imports = dict(body_graph.opset_imports)
         opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))
@@ -1229,11 +1227,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         call_parameters = LoopCallParameters(ctx, loop_ctx)
 
         for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
-            np_c = np.asarray(cval)
-            aval = getattr(cv, "aval", None)
-            if aval is not None:
-                np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
-            loop_ctx.bind_const_for_var(cv, np_c)
+            loop_ctx.bind_captured_const_for_var(cv, cval)
 
         iter_in, cond_in = create_loop_header_inputs(
             loop_ctx,
@@ -1482,6 +1476,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         loop_ctx.builder.outputs = call_parameters.body_outputs(body_outputs)
 
         body_graph = loop_ctx.builder.graph.clone(allow_outer_scope_values=True)
+        register_graph_clone(loop_ctx.builder.graph, body_graph)
         body_graph.name = ctx.fresh_name("scan_loop_body")
         opset_imports = dict(body_graph.opset_imports)
         opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))

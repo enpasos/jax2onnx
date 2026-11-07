@@ -32,6 +32,7 @@ from jax2onnx.ir_utils import (
     tensor_attr,
 )
 
+from .initializer_metadata import register_graph_clone
 from .typing_support import SymbolicDimOrigin
 
 STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
@@ -309,6 +310,9 @@ class IRBuilder:
         # Intermediate ValueInfo entries (propagated to ir.Graph)
         self._function_mode: bool = False
         self._var2val: dict[Any, ir.Value] = {}
+        self._reshaped_initializers: dict[
+            tuple[ir.Value, tuple[int, ...]], ir.Value
+        ] = {}
         self._counters: dict[str, int] = {}
         self._name_prefix: str = ""
         # optional: symbolic dim origins used by some plugins
@@ -356,6 +360,11 @@ class IRBuilder:
     @initializers.setter
     def initializers(self, values: Iterable[ir.Value]) -> None:
         self._initializers.replace(values)
+
+    @property
+    def reshaped_initializers(self) -> dict[tuple[ir.Value, tuple[int, ...]], ir.Value]:
+        """Constant views scoped to this builder, excluded from exported graphs."""
+        return self._reshaped_initializers
 
     @property
     def stacktrace_metadata_enabled(self) -> bool:
@@ -841,6 +850,8 @@ class IRBuilder:
             if protective_clone
             else self.graph
         )
+        if protective_clone:
+            register_graph_clone(self.graph, graph)
         if name:
             graph.name = name
         return ir.Model(

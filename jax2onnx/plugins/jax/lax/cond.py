@@ -8,6 +8,7 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 import onnx_ir as ir
+from jax2onnx.converter.initializer_metadata import register_graph_clone
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -294,7 +295,7 @@ class CondPlugin(PrimitiveLeafPlugin):
 
         # Bind constants inside the branch context.
         for const_var, const_value in zip(branch_jaxpr.constvars, consts):
-            branch_ctx.bind_const_for_var(const_var, np.asarray(const_value))
+            branch_ctx.bind_captured_const_for_var(const_var, const_value)
 
         builder = getattr(branch_ctx, "builder", None)
         if builder is None:
@@ -337,6 +338,7 @@ class CondPlugin(PrimitiveLeafPlugin):
         branch_ctx.builder.outputs = branch_outputs
 
         branch_graph = branch_ctx.builder.graph.clone(allow_outer_scope_values=True)
+        register_graph_clone(branch_ctx.builder.graph, branch_graph)
         branch_graph.name = ctx.fresh_name(prefix)
         branch_graph.inputs.clear()
         opset_imports = dict(branch_graph.opset_imports)

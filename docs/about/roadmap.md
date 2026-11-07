@@ -20,8 +20,30 @@
 
 ## Upcoming Version
 
-### **jax2onnx 0.18.1**
+### **jax2onnx 0.19.0**
 
+* **Carry framework metadata through verified export:** Add
+  `to_onnx(..., initializer_metadata=callback)` against the
+  [Initializer Metadata Contract](../user_guide/initializer_metadata_contract.md):
+  accepted annotations must survive on the correct source representations or
+  export must fail with `InitializerMetadataError`. Track source identity across
+  nested scopes, guarded reshapes, graph clones, and reused Functions; validate
+  final IR and serialized artifacts before publishing files. Enforce callback
+  consistency, exact source storage, and independent equal-valued parameters.
+  The [release gate](../developer_guide/advanced_topics/initializer_metadata_validation.md#release-decision)
+  covers mandatory successes and injected preservation failures on both locked
+  JAX stacks and the minimum dependencies.
+  Framework parameter discovery, importers, and training semantics remain
+  separate responsibilities. A
+  [first-export walkthrough](../user_guide/parameter_metadata_walkthrough.md)
+  covers preparation, a shared Flax NNX layer, reading saved labels, and Netron.
+* **Annotate exported parameters explicitly:** Add optional, versioned model
+  metadata identifying caller-selected root graph inputs and initializers as
+  trainable, frozen, or unspecified, with optional source paths. The annotation
+  and reader helpers support both ONNX protobuf and IR models, validate names,
+  and preserve inference behavior. This does not recover JAX differentiation
+  semantics or add training support. See
+  [Parameter Metadata](../user_guide/parameter_metadata.md).
 * **Preserve masked softmax broadcasting under `vmap`:** Export masks that
   expand singleton logits dimensions or add sample dimensions through JAX's
   decomposition, preserving output shapes and reduction axes. Masks that fit

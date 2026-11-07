@@ -159,6 +159,9 @@ class JnpFullPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("full_out")
 
+        # The guarded reader declines annotated sources. Expand then consumes
+        # their original scalar storage, including when another live use of
+        # that scalar would otherwise hide a folded, untracked fill copy.
         fill_const = const_value_to_numpy(fill_cast)
         if fill_const is not None and fill_const.size == 1:
             scalar = np.asarray([fill_const.reshape(())], dtype=out_np_dtype)

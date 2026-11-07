@@ -19,6 +19,26 @@ class _OpaqueValue:
 
 
 @dataclass(frozen=True, eq=False)
+class _IdentityValue:
+    """Retain an object for a payload-free, export-local cache lookup."""
+
+    value: object = field(repr=False)
+
+    def __hash__(self) -> int:
+        return id(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _IdentityValue):
+            return NotImplemented
+        return self.value is other.value
+
+
+def identity_value_key(value: object) -> tuple[object, ...]:
+    """Distinguish independent objects without inspecting their array data."""
+    return ("identity", _IdentityValue(value))
+
+
+@dataclass(frozen=True, eq=False)
 class _ArrayContents:
     """Hash cheaply while verifying exact contents of matching candidates.
 

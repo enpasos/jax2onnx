@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-import numpy as np
 import jax
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -60,7 +59,7 @@ class CustomJvpCallPlugin(PrimitiveLeafPlugin):
         consts = getattr(closed, "consts", eqn.params.get("consts", ()))
 
         for const_var, const_val in zip(inner_jaxpr.constvars, consts):
-            ctx.bind_const_for_var(const_var, np.asarray(const_val))
+            ctx.bind_captured_const_for_var(const_var, const_val)
 
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))

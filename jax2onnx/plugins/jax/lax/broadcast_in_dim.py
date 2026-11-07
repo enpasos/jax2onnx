@@ -9,6 +9,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx._compat.jax import fresh_var_like, new_jaxpr_eqn
+from jax2onnx.converter.initializer_metadata import is_annotated
 
 # from onnx_ir import Attribute as IRAttr
 from jax2onnx.converter.typing_support import (
@@ -58,10 +59,21 @@ def _dynamic_or_constant(
 def _value_to_numpy(val: object | None) -> np.ndarray[Any, Any] | None:
     if val is None:
         return None
+    if is_annotated(val):
+        return None
+    if isinstance(val, ir.Value):
+        tensor = val.const_value
+        if tensor is not None and tensor.metadata_props:
+            # Keep an annotated source tensor in the graph. Materializing its
+            # broadcast would turn updates to one source element into updates
+            # to several independent exported elements and lose its metadata.
+            return None
     arr = const_value_to_numpy(val)
     if arr is not None:
         return cast(np.ndarray[Any, Any], arr)
     if isinstance(val, ir.Attr) and val.type == ir.AttributeType.TENSOR:
+        if is_annotated(val.as_tensor()) or val.as_tensor().metadata_props:
+            return None
         try:
             tensor_arr = tensor_to_numpy(val.as_tensor())
         except Exception:
@@ -87,6 +99,8 @@ def _node_constant_array(
     target_value: Any,
     seen: Set[object],
 ) -> np.ndarray[Any, Any] | None:
+    if is_annotated(target_value):
+        return None
     op_type = getattr(node, "op_type", "")
     inputs = _iro_node_inputs(node)
     if op_type == "Cast" and inputs:
@@ -125,29 +139,15 @@ def _materialize_constant_array(
     value: Any,
     seen: Optional[Set[object]] = None,
 ) -> np.ndarray[Any, Any] | None:
+    if is_annotated(value):
+        return None
+    if isinstance(value, ir.Value):
+        tensor = value.const_value
+        if tensor is not None and tensor.metadata_props:
+            return None
     arr = _value_to_numpy(value)
     if arr is not None:
         return arr
-    name = getattr(value, "name", None)
-    if name:
-        inits = []
-        for attr in ("initializers", "_initializers"):
-            seq = getattr(ctx.builder, attr, None)
-            if seq is None:
-                continue
-            try:
-                inits.extend(list(seq))
-            except Exception:
-                try:
-                    inits.extend(iter(seq))
-                except Exception:
-                    pass
-        for init in inits:
-            if getattr(init, "name", None) == name:
-                arr = _value_to_numpy(init)
-                if arr is not None:
-                    return arr
-
     producer_fn = getattr(value, "producer", None)
     node = None
     if callable(producer_fn):

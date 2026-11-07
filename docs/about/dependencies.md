@@ -45,6 +45,7 @@ measurements do not substitute for it.
 | BF16 `Clip` and `Where` kernels are unavailable | CPU 1.31.0 | BF16 conversion to INT8/UINT8 | Widen exactly to FP32 for NaN handling and saturation, then cast to the requested integer type. FP16, FP32 and FP64 retain their actual computation type. Minimum-runtime qualification is separate. |
 | Half-kernel adaptations can remove FP16 rounding boundaries | CPU 1.24.1, 1.31.0, 1.31.1 | FP16 `Add`, `Sub`, `Mul`, `rsqrt` | Local FLOAT work with an explicit FP16 result cast. `rsqrt` keeps both `Sqrt` and `Div` in FLOAT before its single half boundary. |
 | Integer `ReduceSum` can saturate instead of wrapping | CPU 1.24.1, 1.31.0, 1.31.1 | Integer reductions and window sums | Integer `CumSum` and index selection preserve exact source-width wrapping, including values above `2**53`; no floating-point intermediate. |
+| Optimizing some empty-tensor graphs fails an internal `RemoveNode` invariant during session creation | CPU 1.24.1; the same metadata fixtures pass with default optimization on 1.31.1 | Empty captured arrays with reshape/arithmetic, including nested Functions | Metadata contract tests retain full ONNX checking and exact storage checks, and run empty-input inference with `ORT_DISABLE_ALL`. Other cases retain default runtime optimization. This is an external runtime optimizer limitation, not an exception to metadata preservation. |
 
 Focused FP16 `Add`/`Sub`/`Mul` and integer reduction/window checks also pass on
 the minimum stack: JAX 0.8.1, Flax 0.12.1 and CPU ONNX Runtime 1.24.1. This is

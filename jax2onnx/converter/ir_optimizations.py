@@ -2560,7 +2560,21 @@ def _run_name_fix_pass(model: ir.Model) -> None:
 
 
 def _run_common_subexpression_elimination_pass(model: ir.Model) -> None:
-    common_passes.CommonSubexpressionEliminationPass()(model)
+    # Upstream CSE compares tensor contents, not their metadata or source
+    # identity. Equal captured parameters must remain independently addressable.
+    # Its public size limit lets us preserve tensor constants in annotated
+    # graphs while still eliminating ordinary repeated computations.
+    annotated_tensors = any(
+        attribute.type == ir.AttributeType.TENSOR
+        and not attribute.is_ref()
+        and bool(attribute.as_tensor().metadata_props)
+        for node in model.graph
+        for attribute in node.attributes.values()
+    )
+    if annotated_tensors:
+        common_passes.CommonSubexpressionEliminationPass(size_limit=-1)(model)
+    else:
+        common_passes.CommonSubexpressionEliminationPass()(model)
 
 
 def _run_lift_constants_to_initializers_pass(model: ir.Model) -> None:
@@ -2646,6 +2660,17 @@ def _run_function_optimizer_pass(opt_pass: _OptimizerPass, graph: ir.Graph) -> N
 
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
+    # Existing passes do not register storage/use rewrites. Keep the original
+    # graph when annotation obligations exist, until each pass can supply that
+    # evidence. Skipped callbacks retain the ordinary optimization pipeline.
+    from .initializer_metadata import active_registry
+
+    registry = active_registry()
+    if registry is not None and registry.has_annotations:
+        # Removing structurally dead storage preserves every live edge. The
+        # independent capture inventory still rejects lost final carriers.
+        remove_dead_nodes_ir(ir_model)
+        return ir_model
     for opt_pass in _OPTIMIZER_PASSES:
         _run_top_level_optimizer_pass(opt_pass, ir_model)
 

@@ -54,6 +54,14 @@ Current order:
 18. `remove_orphan_transposes`
 19. `prune_unused_graph_inputs`
 
+When root-graph tensor attributes carry metadata, common-subexpression
+elimination retains tensor constants rather than merging them by content. The
+upstream pass does not include metadata or parameter identity in its equality
+test. Repeated computations can still be eliminated; independent annotated
+parameters must remain independently addressable. Constant lifting retains
+tensor metadata, and ConvTranspose bias folding copies it when creating a
+reshaped bias tensor.
+
 Only graph-scoped passes with `function_bodies=True` run inside imported ONNX
 Function bodies. Model-wide passes (`name_fix`, CSE, constant lifting,
 dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
