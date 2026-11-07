@@ -117,7 +117,10 @@ def test_broadcast_keeps_one_annotated_scalar_and_update_affects_every_element(
 
 
 def test_eqx_conv_bias_reshape_keeps_source_metadata_and_updates() -> None:
-    module = eqx.nn.Conv2d(2, 3, 3, padding=1, key=jax.random.key(37))
+    # Exercise a pure FP32 reshape even when the caller enables JAX x64.
+    module = eqx.nn.Conv2d(
+        2, 3, 3, padding=1, dtype=jnp.float32, key=jax.random.key(37)
+    )
     assert module.bias is not None
     source_bias = np.asarray(module.bias)
     assert source_bias.shape == (3, 1, 1)
