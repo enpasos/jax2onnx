@@ -464,6 +464,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         reshape_val = ctx.builder.Reshape(
             x_val,
             shape_tensor,
+            allowzero=int(all_const and 0 in const_accum),
             _outputs=[desired_name],
         )
         output_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)

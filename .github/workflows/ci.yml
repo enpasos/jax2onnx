@@ -96,6 +96,9 @@ jobs:
           tests/extra_tests/framework/test_jax_compat.py \
           tests/extra_tests/framework/test_minimum_dependency_installer.py \
           tests/extra_tests/framework/test_onnx_ir_surface.py \
+          tests/extra_tests/framework/test_initializer_metadata*.py \
+          tests/extra_tests/framework/test_initializer_reshape_metadata.py \
+          tests/extra_tests/framework/test_conv_transpose_bias_folding.py \
           tests/extra_tests/converter/test_onnx_function_if_captures.py \
           tests/extra_tests/converter/test_onnx_function_transformed_captures.py \
           tests/extra_tests/converter/test_onnx_function_static_captures.py \

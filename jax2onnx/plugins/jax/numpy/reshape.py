@@ -21,6 +21,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.ir_utils import const_value_to_numpy
+from jax2onnx.plugins._utils import inline_reshape_initializer
 from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
 )
@@ -558,32 +559,36 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                 _ensure_value_metadata(ctx, shape_tensor)
 
         reshape_out = None
-        arr_const = (
-            const_value_to_numpy(arr_val) if arr_val.const_value is not None else None
-        )
         shape_const = (
             const_value_to_numpy(shape_tensor)
             if shape_tensor.const_value is not None
             else None
         )
         inline_allowed = getattr(ctx, "_inside_function_scope", False)
-        if inline_allowed and arr_const is not None and shape_const is not None:
+        if inline_allowed and shape_const is not None:
             try:
-                reshaped_array = np.asarray(arr_const).reshape(
-                    tuple(np.asarray(shape_const, dtype=np.int64).tolist())
+                constant_shape = tuple(
+                    int(dim) for dim in np.asarray(shape_const).reshape(-1)
                 )
-                reshape_out = builder.add_initializer_from_array(
-                    name=getattr(out_spec, "name", None) or ctx.fresh_name("Reshape"),
-                    array=reshaped_array,
+            except (TypeError, ValueError):
+                constant_shape = None
+            if constant_shape is not None:
+                candidate = inline_reshape_initializer(
+                    ctx, arr_val, constant_shape, "Reshape"
                 )
-            except Exception:
-                reshape_out = None
+                if candidate is not arr_val:
+                    reshape_out = candidate
 
         if reshape_out is None:
             reshape_out = builder.Reshape(
                 arr_val,
                 shape_tensor,
-                allowzero=0,
+                allowzero=int(
+                    any(
+                        isinstance(dim, (int, np.integer)) and int(dim) == 0
+                        for dim in target_shape
+                    )
+                ),
                 _outputs=[getattr(out_spec, "name", None) or ctx.fresh_name("Reshape")],
             )
         spec_type = getattr(out_spec, "type", None)

@@ -85,6 +85,10 @@ from jax2onnx.converter.conversion_api import (
     to_onnx as to_onnx_impl,
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
+from jax2onnx.initializer_metadata import (
+    InitializerMetadataError,
+    initializer_metadata_session,
+)
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 
@@ -411,6 +415,112 @@ def _apply_custom_io_names_on_ir(
     ir.convenience.rename_values(rename_values, target_names)
 
 
+def _save_model_proto(
+    model_proto: onnx.ModelProto,
+    dest: str,
+    *,
+    mode: ExportMode,
+    external_threshold: int = 1_048_576,
+) -> str:
+    dest_dir = os.path.dirname(dest)
+    if dest_dir:
+        os.makedirs(dest_dir, exist_ok=True)
+    data_location = os.path.basename(dest) + ".data"
+    data_path = os.path.join(dest_dir or ".", data_location)
+
+    if mode == "web":
+        onnx.save_model(model_proto, dest, save_as_external_data=False)
+        try:
+            if os.path.exists(data_path):
+                os.remove(data_path)
+        except OSError:
+            pass
+        return dest
+
+    onnx.save_model(
+        model_proto,
+        dest,
+        save_as_external_data=True,
+        all_tensors_to_one_file=True,
+        location=data_location,
+        size_threshold=external_threshold,
+        convert_attribute=False,
+    )
+    if not any(init.external_data for init in model_proto.graph.initializer):
+        try:
+            if os.path.exists(data_path) and os.path.getsize(data_path) == 0:
+                os.remove(data_path)
+        except OSError:
+            pass
+    return dest
+
+
+def _save_verified_model_proto(
+    model_proto: onnx.ModelProto,
+    dest: str,
+    *,
+    mode: ExportMode,
+    verify: Callable[[onnx.ModelProto], None],
+) -> str:
+    """Validate staged bytes before publishing a metadata-bearing export.
+
+    Contract failures leave existing model and sidecar files intact. Publishing
+    several files is not a transaction against filesystem failures or crashes.
+    """
+    destination = Path(dest)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".jax2onnx-export-", dir=destination.parent
+    ) as staging_dir:
+        staged_model = Path(staging_dir) / destination.name
+        _save_model_proto(model_proto, str(staged_model), mode=mode)
+        verify(onnx.load(staged_model, load_external_data=True))
+
+        staged_data = Path(str(staged_model) + ".data")
+        destination_data = Path(str(destination) + ".data")
+        if staged_data.exists():
+            os.replace(staged_data, destination_data)
+        os.replace(staged_model, destination)
+        if mode == "web":
+            try:
+                destination_data.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return dest
+
+
+def _validate_serialized_tensor_properties(model: onnx.ModelProto) -> None:
+    """Reject ambiguous protobuf maps before IR deserialization can collapse them."""
+    tensors = list(model.graph.initializer)
+    nodes = list(model.graph.node)
+    for function in model.functions:
+        nodes.extend(function.node)
+    while nodes:
+        node = nodes.pop()
+        for attribute in node.attribute:
+            if attribute.type == onnx.AttributeProto.TENSOR:
+                tensors.append(attribute.t)
+            elif attribute.type == onnx.AttributeProto.TENSORS:
+                tensors.extend(attribute.tensors)
+            elif attribute.type == onnx.AttributeProto.GRAPH:
+                tensors.extend(attribute.g.initializer)
+                nodes.extend(attribute.g.node)
+            elif attribute.type == onnx.AttributeProto.GRAPHS:
+                for graph in attribute.graphs:
+                    tensors.extend(graph.initializer)
+                    nodes.extend(graph.node)
+    for index, tensor in enumerate(tensors):
+        keys: set[str] = set()
+        for entry in tensor.metadata_props:
+            if entry.key in keys:
+                raise InitializerMetadataError(
+                    "preservation_failed",
+                    "Initializer metadata contains duplicate tensor keys; "
+                    f"stage=serialization, source=tensor-{index}",
+                )
+            keys.add(entry.key)
+
+
 if TYPE_CHECKING:
 
     @overload
@@ -560,12 +670,16 @@ def to_onnx(
             the exported representation. See the user guide for tested limits.
         initializer_metadata: Optional callback for captured source constants.
             Receives the source object before NumPy conversion and returns
-            opaque string metadata for its ONNX tensor, or None. Keys must be
-            nonempty strings. The returned mapping is copied. The callback may
-            run more than once for the same object in nested scopes; tracing
-            and plugin transformations can change which source objects survive.
+            opaque string metadata for its ONNX tensor, or None/empty to skip.
+            Keys must be nonempty strings; keys and values must encode as UTF-8.
+            The mapping is copied. Repeated results for one source must agree.
+            Accepted annotations, traced dtype, element payload, and source
+            associations are verified in the final artifact; unverifiable
+            preservation fails the export. Stored pure reshapes are allowed.
+            JAX tracing can change which source objects reach the callback.
             Generated shape constants and literals do not invoke it. No
-            trainability or parameter-path information is inferred.
+            trainability or parameter-path information is inferred. See the
+            Initializer Metadata Contract in the user guide for exact scope.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -577,7 +691,9 @@ def to_onnx(
         ValueError: If `return_mode` is invalid.
         TypeError: If `input_params` keys are not strings.
         TypeError: If `initializer_metadata` is not callable or returns an invalid mapping.
-        ValueError: If `initializer_metadata` returns an empty metadata key.
+        ValueError: If `initializer_metadata` returns an empty key or non-UTF-8 text.
+        InitializerMetadataError: If callback results disagree, an annotated
+            representation is unsupported, or preservation cannot be verified.
 
     Example:
         ```python
@@ -681,81 +797,60 @@ def to_onnx(
                 f"output_names collide with names reserved by input_params: {names}."
             )
 
-    with preserve_precision_globals():
-        result = to_onnx_impl(
-            fn=fn,
-            inputs=normalized_inputs,
-            input_params=param_map,
-            model_name=model_name,
-            opset=opset,
-            record_primitive_calls_file=record_primitive_calls_file,
-            protective_clone=(normalized_mode == "ir"),
-            inputs_as_nchw=inputs_as_nchw,
-            outputs_as_nchw=outputs_as_nchw,
+    with initializer_metadata_session(initializer_metadata) as metadata_session:
+        with preserve_precision_globals():
+            result = to_onnx_impl(
+                fn=fn,
+                inputs=normalized_inputs,
+                input_params=param_map,
+                model_name=model_name,
+                opset=opset,
+                record_primitive_calls_file=record_primitive_calls_file,
+                protective_clone=(normalized_mode == "ir"),
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
+                input_names=normalized_input_names,
+                output_names=normalized_output_names,
+                normalization_mode=normalized_normalization_mode,
+                initializer_metadata=initializer_metadata,
+            )
+            postprocess_ir_model(result)
+
+        _materialize_input_params_on_ir(result, param_map)
+        _apply_custom_io_names_on_ir(
+            result,
             input_names=normalized_input_names,
             output_names=normalized_output_names,
-            normalization_mode=normalized_normalization_mode,
-            initializer_metadata=initializer_metadata,
+            positional_input_count=len(normalized_inputs),
         )
-        postprocess_ir_model(result)
+        metadata_session.validate_ir(result, stage="public IR return boundary")
+        if normalized_mode == "ir":
+            return result
 
-    def _save_model_proto(
-        model_proto: onnx.ModelProto,
-        dest: str,
-        *,
-        mode: ExportMode,
-        external_threshold: int = 1_048_576,  # 1 MB default before spilling to .data
-    ) -> str:
-        dest_dir = os.path.dirname(dest)
-        if dest_dir:
-            os.makedirs(dest_dir, exist_ok=True)
-        data_location = os.path.basename(dest) + ".data"
-        data_path = os.path.join(dest_dir or ".", data_location)
+        snapshot = metadata_session.snapshot_ir(result)
+        model_proto = ir.to_proto(result)
 
-        if mode == "web":
-            onnx.save_model(model_proto, dest, save_as_external_data=False)
-            # A previous standard export to the same path may have left a sidecar.
-            try:
-                if os.path.exists(data_path):
-                    os.remove(data_path)
-            except OSError:
-                pass
-            return dest
+        def verify_serialization(proto: onnx.ModelProto) -> None:
+            if metadata_session.has_annotations:
+                _validate_serialized_tensor_properties(proto)
+                metadata_session.validate_serialized_ir(
+                    ir.from_proto(proto), snapshot, stage="serialized return boundary"
+                )
 
-        onnx.save_model(
-            model_proto,
-            dest,
-            save_as_external_data=True,
-            all_tensors_to_one_file=True,
-            location=data_location,
-            size_threshold=external_threshold,
-            convert_attribute=False,
-        )
-        # Only keep the .data sidecar if the export actually referenced external data.
-        if not any(init.external_data for init in model_proto.graph.initializer):
-            # No external payloads; remove an empty sidecar if one was produced.
-            try:
-                if os.path.exists(data_path) and os.path.getsize(data_path) == 0:
-                    os.remove(data_path)
-            except OSError:
-                pass
-        return dest
-
-    _materialize_input_params_on_ir(result, param_map)
-    _apply_custom_io_names_on_ir(
-        result,
-        input_names=normalized_input_names,
-        output_names=normalized_output_names,
-        positional_input_count=len(normalized_inputs),
-    )
-    if normalized_mode == "ir":
-        return result
-
-    model_proto = ir.to_proto(result)
-    if normalized_mode == "file":
-        assert file_path is not None
-        return _save_model_proto(model_proto, file_path, mode=normalized_export_mode)
-    return model_proto
+        verify_serialization(model_proto)
+        if normalized_mode == "file":
+            assert file_path is not None
+            if metadata_session.has_annotations:
+                return _save_verified_model_proto(
+                    model_proto,
+                    file_path,
+                    mode=normalized_export_mode,
+                    verify=verify_serialization,
+                )
+            return _save_model_proto(
+                model_proto, file_path, mode=normalized_export_mode
+            )
+        return model_proto
 
 
 @overload

@@ -2660,6 +2660,17 @@ def _run_function_optimizer_pass(opt_pass: _OptimizerPass, graph: ir.Graph) -> N
 
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
+    # Existing passes do not register storage/use rewrites. Keep the original
+    # graph when annotation obligations exist, until each pass can supply that
+    # evidence. Skipped callbacks retain the ordinary optimization pipeline.
+    from .initializer_metadata import active_registry
+
+    registry = active_registry()
+    if registry is not None and registry.has_annotations:
+        # Removing structurally dead storage preserves every live edge. The
+        # independent capture inventory still rejects lost final carriers.
+        remove_dead_nodes_ir(ir_model)
+        return ir_model
     for opt_pass in _OPTIMIZER_PASSES:
         _run_top_level_optimizer_pass(opt_pass, ir_model)
 

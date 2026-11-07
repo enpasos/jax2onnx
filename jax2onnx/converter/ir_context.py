@@ -17,7 +17,7 @@ from typing import (
     Literal,
 )
 from typing import overload
-from collections.abc import Mapping, MutableSequence
+from collections.abc import MutableSequence
 import os
 import numpy as np
 import onnx_ir as ir
@@ -29,6 +29,7 @@ from jax2onnx.ir_utils import (
 )
 from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
+from .initializer_metadata import active_registry
 from .lower_dimexpr import LowerDimExpr
 from .typing_support import ConverterContext, InitializerMetadata, SymbolicDimOrigin
 from jax2onnx._compat.jax import JaxprEqn
@@ -198,6 +199,7 @@ class IRContext:
         self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
         self._normalization_mode = normalization_mode
         self._initializer_metadata = initializer_metadata
+        self._metadata_registry = active_registry()
         if self._stacktrace_metadata_enabled:
             detail_mode = (
                 os.getenv("JAX2ONNX_STACKTRACE_DETAIL", "minimal").strip().lower()
@@ -263,6 +265,13 @@ class IRContext:
         self._const_folder.register_handler(prim_name, handler)
 
     def try_evaluate_const(self, var: Any) -> Optional[NDArray[np.generic]]:
+        registry = active_registry()
+        if (
+            registry is not None
+            and registry.has_annotations
+            and registry.variable_dependencies(self, var)
+        ):
+            return None
         return self._const_folder.try_evaluate(var)
 
     @property
@@ -305,6 +314,7 @@ class IRContext:
             stacktrace_metadata=self.builder.stacktrace_metadata_enabled,
             initializer_metadata=self._initializer_metadata,
         )
+        child._metadata_registry = self._metadata_registry
         child.record_primitive_calls_file = self.record_primitive_calls_file
         child._lowering_record_owner = self._lowering_record_owner
         child._primitive_call_records = (
@@ -534,35 +544,35 @@ class IRContext:
         literals and lowering-generated constants use ``bind_const_for_var``
         directly and never invoke the callback.
         """
-        metadata: dict[str, str] = {}
-        if self._initializer_metadata is not None:
-            result = self._initializer_metadata(source)
-            if result is not None:
-                if not isinstance(result, Mapping):
-                    raise TypeError(
-                        "initializer_metadata must return a Mapping[str, str] or None; "
-                        f"received {type(result).__name__}"
-                    )
-                for key, value in result.items():
-                    if not isinstance(key, str):
-                        raise TypeError(
-                            "initializer_metadata keys must be nonempty strings; "
-                            f"received {type(key).__name__}"
-                        )
-                    if not key:
-                        raise ValueError(
-                            "initializer_metadata keys must be nonempty strings"
-                        )
-                    if not isinstance(value, str):
-                        raise TypeError(
-                            f"initializer_metadata value for {key!r} must be a string; "
-                            f"received {type(value).__name__}"
-                        )
-                    metadata[key] = value
-        bound = self.bind_const_for_var(var, np.asarray(source))
-        if metadata:
-            assert bound.const_value is not None
-            bound.const_value.metadata_props.update(metadata)
+        registry = active_registry()
+        if registry is None and self._initializer_metadata is not None:
+            # Direct converter/context consumers get the same rules as the
+            # public export. Child contexts share this registry explicitly.
+            from .initializer_metadata import InitializerMetadataRegistry
+
+            registry = self._metadata_registry
+            if registry is None:
+                registry = InitializerMetadataRegistry(self._initializer_metadata)
+                self._metadata_registry = registry
+        record = (
+            registry.observe(source)
+            if registry is not None and registry.callback is not None
+            else None
+        )
+        array = np.asarray(source)
+        aval = _maybe_aval(var)
+        traced_dtype = _maybe_dtype(aval) if aval is not None else array.dtype
+        if traced_dtype is None:
+            raise TypeError("Constant has no traced dtype")
+        if record is not None:
+            assert registry is not None
+            registry.check_supported(record, traced_dtype)
+        if array.dtype != traced_dtype:
+            array = array.astype(traced_dtype)
+        bound = self.bind_const_for_var(var, array)
+        if record is not None:
+            assert registry is not None
+            registry.capture(record, bound, array)
         return bound
 
     def bind_const_for_var(self, var: Any, np_array: np.ndarray) -> ir.Value:

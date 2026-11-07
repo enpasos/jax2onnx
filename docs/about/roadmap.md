@@ -22,14 +22,21 @@
 
 ### **jax2onnx 0.19.0**
 
-* **Carry framework metadata through export:** Add
-  `to_onnx(..., initializer_metadata=callback)` for opaque tensor properties
-  attached to captured source objects, including nested tracing scopes. Preserve
-  annotations through supported initializer reshapes and keep repeated views
-  of one source shared without merging distinct equal-valued parameters. This
-  supports framework-owned parameter discovery and training-policy restoration;
-  it does not introduce an importer or preserve general JAX gradient semantics.
-  See [Parameter Metadata](../user_guide/parameter_metadata.md).
+* **Carry framework metadata through verified export:** Add
+  `to_onnx(..., initializer_metadata=callback)` against the
+  [Initializer Metadata Contract](../user_guide/initializer_metadata_contract.md):
+  accepted annotations must survive on the correct source representations or
+  export must fail with `InitializerMetadataError`. Track source identity across
+  nested scopes, guarded reshapes, graph clones, and reused Functions; validate
+  final IR and serialized artifacts before publishing files. Enforce callback
+  consistency, exact source storage, and independent equal-valued parameters.
+  The [release gate](../developer_guide/advanced_topics/initializer_metadata_validation.md#release-decision)
+  covers mandatory successes and injected preservation failures on both locked
+  JAX stacks and the minimum dependencies.
+  Framework parameter discovery, importers, and training semantics remain
+  separate responsibilities. A
+  [first-export walkthrough](../user_guide/parameter_metadata_walkthrough.md)
+  covers preparation, a shared Flax NNX layer, reading saved labels, and Netron.
 * **Annotate exported parameters explicitly:** Add optional, versioned model
   metadata identifying caller-selected root graph inputs and initializers as
   trainable, frozen, or unspecified, with optional source paths. The annotation

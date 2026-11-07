@@ -11,6 +11,7 @@ from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
     NativeLoweringContext,
 )
+from jax2onnx.converter.initializer_metadata import register_reshape
 from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy
 from jax2onnx.plugins._loop_extent_meta import propagate_axis0_override
 
@@ -103,7 +104,9 @@ def inline_reshape_initializer(
     if cached is not None and cached.graph is graph and not cached.is_graph_input():
         return cached
 
-    arr = const_value_to_numpy(val)
+    # This is the sole plugin path permitted to materialize annotated data:
+    # a C-order reshape keeps dtype, element order, and exact payload intact.
+    arr = const_value_to_numpy(val, allow_annotated=True)
     if arr is None:
         return val
 
@@ -123,6 +126,7 @@ def inline_reshape_initializer(
         tensor.doc_string = val.const_value.doc_string
     initializer.metadata_props.update(val.metadata_props)
     initializer.doc_string = val.doc_string
+    register_reshape(val, initializer)
     cache[key] = initializer
     return initializer
 

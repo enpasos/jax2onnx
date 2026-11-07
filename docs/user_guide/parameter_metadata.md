@@ -1,5 +1,15 @@
 # Parameter Metadata
 
+For a step-by-step introduction with a complete example, saved-file checks,
+and Netron instructions, start with
+[Parameter Metadata: A First Export](parameter_metadata_walkthrough.md).
+
+The callback follows the
+[Initializer Metadata Contract](initializer_metadata_contract.md): successful
+exports preserve accepted annotations on the correct source representations;
+unverifiable preservation raises `InitializerMetadataError`. The separate
+post-export `annotate_parameters` API is described later on this page.
+
 Use `to_onnx(..., initializer_metadata=callback)` to attach framework-owned
 metadata to captured parameter tensors during conversion. The callback can
 associate captured array objects with source paths and an explicit training
@@ -87,23 +97,37 @@ deterministic and should not mutate arrays. Generated shape constants and
 literal operands do not invoke it. Arrays copied or transformed before capture
 may no longer be the original model leaves. JAX may also wrap NumPy arrays in
 new literal objects, so Python identity is not guaranteed for NumPy source
-arrays. Unused leaves may not be exported. Validate the expected source paths
-in the completed artifact when completeness matters.
+arrays. Leaves removed by JAX before capture may not be exported. Once an
+annotation is accepted, losing its last live representation fails the export.
+Validate the expected source paths in the completed artifact when model-leaf
+completeness matters.
 
-Constant reshape lowering caches views by source IR value and target shape
-within one graph, preserving metadata on the reshaped tensor. Independent
-equal-valued tensors remain independent. Eqx Conv biases and ConvTranspose bias
-folding preserve the source annotation when reshaping a single bias. An
-annotated broadcast remains a graph operation so updating one source element
-continues to affect all its uses. Tensor constants carrying metadata are
-protected from content-based common-subexpression elimination.
+The shared `inline_reshape_initializer` helper caches views by source IR value
+and target shape within one graph, preserves their metadata, and registers the
+source relationship. Function-local reshapes use the same protected path.
+Annotated scalar fills and broadcasts remain graph computations consuming the
+source. Equal values do not make independent sources interchangeable, including
+inside reused ONNX Functions.
 
-Annotations identify a source association, not necessarily an unchanged storage
-shape or dtype. A consumer that reconstructs a source module must validate the
-representation and any reshape it applies. One source can still have multiple
-exported views or appear in multiple scopes; the callback does not supply a
-general alias or view-transformation schema. This hook does not guarantee
-metadata preservation through arbitrary downstream optimizers.
+Stored representations retain traced dtype and C-order element payload;
+pure reshapes are allowed. The exporter validates every accepted capture and
+its source associations after lowering and serialization. Missing or changed
+entries, unregistered storage replacements, inconsistent callback results, and
+unsupported annotated storage fail the call. See
+[reference storage](initializer_metadata_contract.md#im-04-reference-storage).
+One source may still have several exported representations or appear in several
+scopes. Consumers reconstructing a source module must handle those separately;
+there is no general alias/update protocol. External transformations performed
+after export remain outside the contract.
+
+With accepted annotations, the current optimizer profile removes unused nodes
+but skips the ordinary rewrite sweep. This keeps verified source relationships
+intact and may produce a larger graph. Exact source and serialization snapshots
+also require temporary memory during export; the returned model retains no
+provenance registry. Omitted callbacks and callbacks returning
+only `None`/empty mappings retain the ordinary export behavior. See the
+[enforcement guide](../developer_guide/advanced_topics/initializer_metadata_validation.md)
+for supported transformations and extension requirements.
 
 ### Framework-Owned Training Policy
 

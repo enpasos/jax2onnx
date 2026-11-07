@@ -9,7 +9,13 @@ import numpy as np
 import onnx_ir as ir
 
 
-def tensor_to_numpy(tensor: object) -> np.ndarray[Any, np.dtype[Any]] | None:
+def tensor_to_numpy(
+    tensor: object, *, allow_annotated: bool = False
+) -> np.ndarray[Any, np.dtype[Any]] | None:
+    from jax2onnx.converter.initializer_metadata import is_annotated
+
+    if not allow_annotated and is_annotated(tensor):
+        return None
     if tensor is None:
         return None
     if isinstance(tensor, np.ndarray):
@@ -31,13 +37,19 @@ def tensor_to_numpy(tensor: object) -> np.ndarray[Any, np.dtype[Any]] | None:
         return None
 
 
-def const_value_to_numpy(value: object) -> np.ndarray[Any, np.dtype[Any]] | None:
+def const_value_to_numpy(
+    value: object, *, allow_annotated: bool = False
+) -> np.ndarray[Any, np.dtype[Any]] | None:
+    from jax2onnx.converter.initializer_metadata import is_annotated
+
+    if not allow_annotated and is_annotated(value):
+        return None
     if not isinstance(value, ir.Value):
         return None
     tensor = ir.convenience.get_const_tensor(value)
     if tensor is None:
         return None
-    return tensor_to_numpy(tensor)
+    return tensor_to_numpy(tensor, allow_annotated=allow_annotated)
 
 
 def tensor_attr(name: str, tensor: object) -> ir.Attr:

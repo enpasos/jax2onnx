@@ -6,6 +6,7 @@ from typing import Literal
 import onnx_ir as ir
 
 from .typing_support import ConverterContext
+from .initializer_metadata import active_registry, register_graph_clone
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,14 @@ class FunctionRegistry:
 
     def all(self) -> list[ir.Function]:
         return list(self._defs.values())
+
+    def checkpoint(self) -> dict[FunctionKey, ir.Function]:
+        """Snapshot definitions before speculatively building a candidate."""
+        return dict(self._defs)
+
+    def restore(self, checkpoint: dict[FunctionKey, ir.Function]) -> None:
+        """Discard candidate definitions that never entered the exported model."""
+        self._defs = dict(checkpoint)
 
 
 class FunctionScope:
@@ -77,7 +86,11 @@ class FunctionScope:
             raise RuntimeError("FunctionScope.begin() must be called before end().")
         self.ctx.builder.outputs.clear()
         self.ctx.builder.outputs.extend(outputs)
+        metadata_registry = active_registry()
+        if metadata_registry is not None:
+            metadata_registry.prepare_graph(self.ctx.builder.graph)
         body_graph = self.ctx.builder.graph.clone(allow_outer_scope_values=True)
+        register_graph_clone(self.ctx.builder.graph, body_graph)
         body_graph.name = self.name
         body_opset = int(self.ctx.builder.opset)
         fn_domain = (self.domain or "").strip()
@@ -95,5 +108,8 @@ class FunctionScope:
             attributes=[],
         )
         setattr(function, "_attr_overrides", dict(self.ctx.attr_overrides))
+        if metadata_registry is not None:
+            metadata_registry.verify_assembled_graph(body_graph)
+            metadata_registry.register_function(function)
         self._state = "sealed"
         return function

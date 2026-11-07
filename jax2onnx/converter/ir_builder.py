@@ -32,6 +32,7 @@ from jax2onnx.ir_utils import (
     tensor_attr,
 )
 
+from .initializer_metadata import register_graph_clone
 from .typing_support import SymbolicDimOrigin
 
 STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
@@ -849,6 +850,8 @@ class IRBuilder:
             if protective_clone
             else self.graph
         )
+        if protective_clone:
+            register_graph_clone(self.graph, graph)
         if name:
             graph.name = name
         return ir.Model(

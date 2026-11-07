@@ -27,6 +27,7 @@ import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir.traversal import RecursiveGraphIterator
 
+from jax2onnx.initializer_metadata import InitializerMetadataError
 from jax2onnx.ir_utils import (
     ir_shape_from_dims,
     iter_ir_functions,
@@ -111,6 +112,8 @@ def _convert_ir_attr(name: str, value: object) -> Optional[Attr]:
 
     try:
         return ir.convenience.convert_attribute(name, cast(Any, attr_value), attr_type)
+    except InitializerMetadataError:
+        raise
     except (TypeError, ValueError):
         pass
 
@@ -123,6 +126,8 @@ def _convert_ir_attr(name: str, value: object) -> Optional[Attr]:
         return ir.convenience.convert_attribute(
             name, cast(Any, tensor_value), AttributeType.TENSOR
         )
+    except InitializerMetadataError:
+        raise
     except Exception:
         return None
 
@@ -239,6 +244,8 @@ def _optimize_graph_with_failure_policy(
     try:
         optimize_graph(model)
     except Exception as exc:
+        if isinstance(exc, InitializerMetadataError):
+            raise
         if _resolve_strict_optimizer_failures(strict_optimizer_failures):
             raise
         _log_nonfatal_stage_failure("optimize_graph", exc)
@@ -402,6 +409,8 @@ def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
                 fn_overrides = {}
             _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
             _fix_concat_axis_in_graph(graph_obj)
+        except InitializerMetadataError:
+            raise
         except Exception as exc:
             fn_name = getattr(fn, "name", "<unnamed function>")
             _log_nonfatal_stage_failure(f"function postprocess for {fn_name}", exc)
@@ -412,6 +421,8 @@ def _consume_onnx_function_hits() -> None:
         ps2._consume_onnx_function_hits()
     except AttributeError:
         pass
+    except InitializerMetadataError:
+        raise
     except Exception:
         pass
 
@@ -423,13 +434,22 @@ def _build_and_finalize_ir_model(
     protective_clone: bool,
     strict_optimizer_failures: Optional[bool] = None,
 ) -> ir.Model:
+    from .initializer_metadata import active_registry
+
+    metadata_registry = active_registry()
+    if metadata_registry is not None:
+        metadata_registry.prepare_graph(ctx.builder.graph)
     ir_model = ctx.builder.to_ir_model(
         name=model_name,
         ir_version=_ORT_SAFE_IR_VERSION,
         protective_clone=protective_clone,
     )
 
+    if metadata_registry is not None:
+        metadata_registry.verify_assembled_graph(ir_model.graph)
     _attach_ir_functions(ir_model, ctx)
+    if metadata_registry is not None:
+        metadata_registry.seal_ir(ir_model)
 
     _optimize_graph_with_failure_policy(
         ir_model,
@@ -441,6 +461,8 @@ def _build_and_finalize_ir_model(
 
     try:
         _finalize_model_value_shapes(ir_model)
+    except InitializerMetadataError:
+        raise
     except Exception as exc:
         _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
 
