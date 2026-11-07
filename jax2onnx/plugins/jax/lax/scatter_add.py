@@ -319,6 +319,70 @@ from jax2onnx.plugins.plugin_system import (
                 no_unused_inputs=True,
             ),
         },
+        {
+            # vmap adds operand/indices batching dims; rows keep a window dim.
+            "testcase": "scatter_add_vmap_batching_dims_window",
+            "callable": lambda x, idx, upd: jax.vmap(lambda x, i, u: x.at[i].add(u))(
+                x, idx, upd
+            ),
+            "input_shapes": [("B", 6, 4), ("B", 3), ("B", 3, 4)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(
+                ["ScatterND:Bx6x4"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # Nested vmaps produce two batching dims on the same scatter.
+            "testcase": "scatter_add_nested_vmap_batching_dims",
+            "callable": lambda x, idx, upd: jax.vmap(
+                jax.vmap(lambda x, i, u: x.at[i].add(u))
+            )(x, idx, upd),
+            "input_shapes": [(2, 3, 6), (2, 3, 4), (2, 3, 4)],
+            "input_dtypes": [jnp.float32, jnp.int32, jnp.float32],
+            "post_check_onnx_graph": EG(["ScatterND:2x3x6"], no_unused_inputs=True),
+        },
+        {
+            # Batching dims folded into the indices must keep the leading
+            # window dim of updates apart from the batch and scatter dims.
+            "testcase": "scatter_add_batching_dims_leading_window_dim",
+            "callable": lambda operand, updates: jax.lax.scatter_add(
+                operand,
+                jnp.array([[[1], [2]], [[2], [1]]], dtype=jnp.int32),
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(0,),
+                    inserted_window_dims=(1,),
+                    scatter_dims_to_operand_dims=(1,),
+                    operand_batching_dims=(0,),
+                    scatter_indices_batching_dims=(0,),
+                ),
+            ),
+            "input_values": [
+                np.zeros((2, 4, 3), dtype=np.float32),
+                np.arange(1, 13, dtype=np.float32).reshape(3, 2, 2),
+            ],
+            "post_check_onnx_graph": EG(
+                ["Transpose:2x2x3 -> Reshape -> Gather -> ScatterND:2x4x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # Elementwise CLIP: index 9 clamps to the last element, and -7
+            # (still negative after wrapping) to the first.
+            "testcase": "scatter_add_clip_elementwise_out_of_bounds",
+            "callable": lambda x, idx, upd: x.at[idx].add(upd, mode="clip"),
+            "input_values": [
+                np.zeros((5,), dtype=np.float32),
+                np.array([-7, 9, 2], dtype=np.int32),
+                np.array([1.0, 2.0, 4.0], dtype=np.float32),
+            ],
+            "post_check_onnx_graph": EG(
+                ["Max -> Min -> ScatterND:5"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class ScatterAddPlugin(PrimitiveLeafPlugin):

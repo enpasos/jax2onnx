@@ -18,10 +18,9 @@
   gaps.
 
 
-
 ## Upcoming Version
 
-### **jax2onnx 0.18.1**
+### **jax2onnx 0.19.0**
 
 * **Carry framework metadata through export:** Add
   `to_onnx(..., initializer_metadata=callback)` for opaque tensor properties
@@ -38,6 +37,10 @@
   and preserve inference behavior. This does not recover JAX differentiation
   semantics or add training support. See
   [Parameter Metadata](../user_guide/parameter_metadata.md).
+* **Preserve masked softmax broadcasting under `vmap`:** Export masks that
+  expand singleton logits dimensions or add sample dimensions through JAX's
+  decomposition, preserving output shapes and reduction axes. Masks that fit
+  the logits retain the native ONNX Softmax lowering.
 
 
 ## Current Version

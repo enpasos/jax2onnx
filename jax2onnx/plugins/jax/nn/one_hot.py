@@ -66,6 +66,38 @@ _JAX_ONE_HOT_ORIG: Final = jax.nn.one_hot
                 no_unused_inputs=True,
             ),
         },
+        {
+            # The axis refers to each vmapped sample, not to the batched array.
+            "testcase": "jaxnn_one_hot_vmap_positive_axis",
+            "callable": lambda x: jax.vmap(
+                lambda i: jax.nn.one_hot(i, num_classes=4, axis=1)
+            )(x),
+            "input_values": [
+                np.array(
+                    [[[0, 3, 1, 2, 2], [1, 1, 0, 3, 0], [2, 0, 3, 1, 1]]] * 2,
+                    dtype=np.int32,
+                )
+            ],
+            "expected_output_shapes": [(2, 3, 4, 5)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["OneHot:2x3x4x5"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "jaxnn_one_hot_vmap_trailing_batch_negative_axis",
+            "callable": lambda x: jax.vmap(
+                lambda i: jax.nn.one_hot(i, num_classes=4, axis=-2), in_axes=1
+            )(x),
+            "input_values": [np.array([[0, 3], [2, 1], [1, 1]], dtype=np.int32)],
+            "expected_output_shapes": [(2, 4, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Transpose:2x3 -> OneHot:2x4x3"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class OneHotPlugin(PrimitiveLeafPlugin):
@@ -231,21 +263,19 @@ def _one_hot_batch_rule(
     (x,) = batched_args
     (bd,) = batch_dims
 
-    out = OneHotPlugin._PRIM.bind(
-        x,
-        num_classes=num_classes,
-        dtype=dtype,
-        axis=axis,
-    )
     if bd is None:
+        out = OneHotPlugin._PRIM.bind(
+            x, num_classes=num_classes, dtype=dtype, axis=axis
+        )
         return out, None
 
-    out_rank = x.ndim + 1
-    axis_int = int(axis)
-    if axis_int < 0:
-        axis_int += out_rank
-    out_bd = bd + 1 if axis_int <= bd else bd
-    return out, out_bd
+    # `axis` indexes one sample's output, whose rank equals the batched input's.
+    x_front = batching.bdim_at_front(x, bd, x.shape[bd])
+    sample_axis = axis + x_front.ndim if axis < 0 else axis
+    out = OneHotPlugin._PRIM.bind(
+        x_front, num_classes=num_classes, dtype=dtype, axis=sample_axis + 1
+    )
+    return out, 0
 
 
 batching.primitive_batchers[OneHotPlugin._PRIM] = _one_hot_batch_rule

@@ -85,6 +85,9 @@ Use these in the options dictionary of a `(pattern, options)` tuple, or directly
 inside a mapping spec with a `path` key:
 
 - `attrs`: Map of operator name to required attribute values (e.g. `{"Softmax": {"axis": -1}}`).
+  Every node of that operator must set each listed attribute explicitly; an
+  attribute left at its ONNX default does not match. Lists and tuples compare
+  alike, and floats compare in single precision.
 - `counts`: map of op type to the exact number of occurrences expected.
 - `graph`: graph/function selector. Use `"top"` for the top graph, a function
   name/domain selector, or the `fn:<selector>` prefix when `search_functions=True`.

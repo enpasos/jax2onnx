@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -32,6 +33,7 @@ from jax2onnx.plugins.plugin_system import (
     _import_tree,
     _pack_function_arguments,
     apply_monkey_patches,
+    import_all_plugins,
     onnx_function,
 )
 from jax2onnx.user_interface import _is_floating_dtype, _run_allclose, _to_numpy_input
@@ -268,6 +270,28 @@ def test_import_tree_retries_failed_module_in_second_pass(
         for mod in list(sys.modules):
             if mod == "retry_pkg" or mod.startswith("retry_pkg."):
                 sys.modules.pop(mod, None)
+
+
+def test_plugin_discovery_imports_every_plugin_module() -> None:
+    # Discovery only logs modules that fail to import, so a broken plugin would
+    # otherwise drop its lowering and its generated tests without any failure.
+    import_all_plugins()
+    plugins_dir = Path(jax2onnx.plugins.__file__).parent
+    missing: dict[str, str] = {}
+    for path in sorted(plugins_dir.rglob("*.py")):
+        if path.name in {"__init__.py", "plugin_system.py"}:
+            continue
+        rel = path.relative_to(plugins_dir).with_suffix("")
+        modname = ".".join(("jax2onnx.plugins", *rel.parts))
+        if modname in sys.modules:
+            continue
+        try:
+            importlib.import_module(modname)
+        except Exception as exc:
+            missing[modname] = repr(exc)
+        else:
+            missing[modname] = "imported only when retried after discovery"
+    assert not missing, missing
 
 
 def test_contextvar_defaults_are_immutable_frozensets() -> None:

@@ -6,6 +6,7 @@ import json
 
 import numpy as np
 import onnx_ir as ir
+import pytest
 
 from jax2onnx.plugins._post_check_onnx_graph import (
     expect_graph as EG,
@@ -211,6 +212,85 @@ def build_dropout_like_graph(ratio=0.5, training=False, use_expand=True):
     return model
 
 
+def build_attributed_chain(model_format: str) -> ir.Model | object:
+    """Transpose -> LeakyRelu -> Pow -> Mul -> Softmax with typed attributes.
+
+    Pow takes 2.7 through a Constant node and a narrowing Cast to INT64, and Mul
+    takes 0.5 from a Constant node. ``model_format="protobuf"`` returns the
+    serialized ``ModelProto``, which is what the test harness checks.
+    """
+    x = V("x", ir.DataType.FLOAT, (3, 4))
+    transposed = V("transposed", ir.DataType.FLOAT, (4, 3))
+    activated = V("activated", ir.DataType.FLOAT, (4, 3))
+    exponent_raw = V("exponent_raw", ir.DataType.DOUBLE, ())
+    exponent = V("exponent", ir.DataType.INT64, ())
+    powered = V("powered", ir.DataType.FLOAT, (4, 3))
+    scale = V("scale", ir.DataType.FLOAT, ())
+    scaled = V("scaled", ir.DataType.FLOAT, (4, 3))
+    y = V("y", ir.DataType.FLOAT, (4, 3))
+
+    def constant(value: np.ndarray, output: ir.Value, name: str) -> ir.Node:
+        return ir.Node(
+            "",
+            "Constant",
+            inputs=[],
+            outputs=[output],
+            name=name,
+            attributes=[ir.Attr("value", ir.AttributeType.TENSOR, ir.tensor(value))],
+        )
+
+    nodes = [
+        ir.Node(
+            "",
+            "Transpose",
+            inputs=[x],
+            outputs=[transposed],
+            name="T",
+            attributes=[ir.Attr("perm", ir.AttributeType.INTS, [1, 0])],
+        ),
+        ir.Node(
+            "",
+            "LeakyRelu",
+            inputs=[transposed],
+            outputs=[activated],
+            name="L",
+            attributes=[ir.Attr("alpha", ir.AttributeType.FLOAT, 0.2)],
+        ),
+        constant(np.asarray(2.7, dtype=np.float64), exponent_raw, "C_exp"),
+        ir.Node(
+            "",
+            "Cast",
+            inputs=[exponent_raw],
+            outputs=[exponent],
+            name="Cast_exp",
+            attributes=[
+                ir.Attr("to", ir.AttributeType.INT, int(ir.DataType.INT64.value))
+            ],
+        ),
+        ir.Node("", "Pow", inputs=[activated, exponent], outputs=[powered], name="P"),
+        constant(np.asarray(0.5, dtype=np.float32), scale, "C_scale"),
+        ir.Node("", "Mul", inputs=[powered, scale], outputs=[scaled], name="M"),
+        ir.Node(
+            "",
+            "Softmax",
+            inputs=[scaled],
+            outputs=[y],
+            name="S",
+            attributes=[ir.Attr("axis", ir.AttributeType.INT, 1)],
+        ),
+    ]
+    graph = ir.Graph(
+        name="top", inputs=[x], outputs=[y], nodes=nodes, opset_imports={"": 21}
+    )
+    model = ir.Model(graph=graph, ir_version=10)
+    if model_format == "protobuf":
+        return ir.serde.serialize_model(model)
+    return model
+
+
+MODEL_FORMATS = pytest.mark.parametrize("model_format", ["onnx_ir", "protobuf"])
+
+
 def test_static_path_with_shapes_and_symbols_and_no_unused():
     m = build_static_chain(B=3)
     check = EG(
@@ -307,6 +387,47 @@ def test_inputs_predicate_const_mismatch():
         ]
     )
     assert not check(m)
+
+
+@MODEL_FORMATS
+@pytest.mark.parametrize(
+    ("attrs", "matches"),
+    [
+        ({"Softmax": {"axis": 1}}, True),
+        ({"Softmax": {"axis": 0}}, False),
+        ({"Transpose": {"perm": [1, 0]}}, True),
+        ({"Transpose": {"perm": (0, 1)}}, False),
+        # FLOAT attributes hold single precision, so 0.2 must still match.
+        ({"LeakyRelu": {"alpha": 0.2}}, True),
+        ({"LeakyRelu": {"alpha": 0.3}}, False),
+        # Attributes left at their ONNX default are not set on the node.
+        ({"Softmax": {"epsilon": 1}}, False),
+    ],
+)
+def test_attrs_predicate_reads_node_attributes(model_format, attrs, matches):
+    check = EG(
+        [{"path": "Transpose -> LeakyRelu", "attrs": attrs}], explain_on_fail=False
+    )
+    assert check(build_attributed_chain(model_format)) == matches
+
+
+@MODEL_FORMATS
+def test_const_predicate_reads_constant_node_payload(model_format):
+    model = build_attributed_chain(model_format)
+    assert EG([{"path": "Mul", "inputs": {1: {"const": 0.5}}}])(model)
+    assert not EG(
+        [{"path": "Mul", "inputs": {1: {"const": 0.25}}}], explain_on_fail=False
+    )(model)
+
+
+@MODEL_FORMATS
+def test_const_predicate_applies_cast_target_dtype(model_format):
+    model = build_attributed_chain(model_format)
+    # 2.7 cast to INT64 is 2, so only the cast value matches.
+    assert EG([{"path": "Pow", "inputs": {1: {"const": 2}}}])(model)
+    assert not EG(
+        [{"path": "Pow", "inputs": {1: {"const": 2.7}}}], explain_on_fail=False
+    )(model)
 
 
 def test_auto_expect_graph_spec_roundtrip_static():
