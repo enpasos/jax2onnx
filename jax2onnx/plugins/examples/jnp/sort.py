@@ -29,8 +29,21 @@ register_example(
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
-                    "Slice:5 -> IsNaN:5 -> Where:5 -> TopK:5 -> GatherElements:5 -> Identity:5 -> Mul:5"
+                    (
+                        "Slice:5 -> IsNaN:5 -> Where:5 -> TopK:5 -> GatherElements:5 -> Mul:5",
+                        {
+                            "counts": {
+                                "Slice": 2,
+                                "IsNaN": 2,
+                                "Where": 2,
+                                "TopK": 2,
+                                "GatherElements": 2,
+                                "Mul": 1,
+                            }
+                        },
+                    )
                 ],
+                must_absent=["Identity"],
                 no_unused_inputs=True,
             ),
         },

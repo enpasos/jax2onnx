@@ -54,6 +54,11 @@ Current order:
 18. `remove_orphan_transposes`
 19. `prune_unused_graph_inputs`
 
+After the ordinary root and Function pass sweep, all graphs receive the shared
+`verified_rewrites.simplify_graph` cleanup and a final unused-node removal pass.
+This also removes eligible identities or repeated computations exposed by the
+earlier passes. Omitted and all-skip initializer callbacks use this same pipeline.
+
 When root-graph tensor attributes carry metadata, common-subexpression
 elimination retains tensor constants rather than merging them by content. The
 upstream pass does not include metadata or parameter identity in its equality
@@ -65,6 +70,31 @@ reshaped bias tensor.
 Only graph-scoped passes with `function_bodies=True` run inside imported ONNX
 Function bodies. Model-wide passes (`name_fix`, CSE, constant lifting,
 dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
+
+### Shared verified rewrites and initializer annotations
+
+`verified_rewrites.simplify_graph` is shared by ordinary and annotated exports.
+It performs locally proved substitutions: same-dtype casts, identity operations,
+static identity/inverse reshape patterns, and allowlisted pure repeated
+computations with identical ordered input **objects**, operator versions, and
+attributes. No initializer or tensor-valued attribute is coalesced by content.
+Lossy cast round trips and reshape chains with annotated controls are not
+eliminated as identities. Exact same-input CSE can still share repeated Cast or
+Reshape computations while preserving their control dependencies. General
+algebraic rewrites and custom or stateful operations are outside these rules.
+
+Ordinary exports repeat the semantic proof before rewiring and safely removing
+each node. Annotated exports additionally route each substitution through the
+metadata registry: it checks the current topology seal, repeats the proof,
+predicts the exact graph change before mutation, and verifies that only that
+change occurred. They skip the other passes in the registry above until those
+passes have equivalent preservation evidence. The ordinary sweep cannot simply
+be enabled and the result resealed. Public output boundaries are retained,
+including Function signatures. Maintained fixtures compare computation structure
+across callback choices without promising equal node counts for every model.
+See the
+[validation guide](initializer_metadata_validation.md#controlled-transformations)
+for the preservation evidence and required fault-injection tests.
 
 ## Graph Scope and Value Ownership
 

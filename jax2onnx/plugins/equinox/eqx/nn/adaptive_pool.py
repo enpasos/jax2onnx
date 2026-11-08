@@ -177,8 +177,21 @@ def _adaptive_pool_forward(
             "run_only_f32_variant": True,
             "post_check_onnx_graph": expect_graph(
                 [
-                    "Unsqueeze -> Slice -> ReduceMean -> Unsqueeze -> Concat -> Reshape -> Squeeze"
+                    (
+                        "Unsqueeze:1x4x64 -> Slice:1x4x8 -> ReduceMean:1x4 -> "
+                        "Unsqueeze:1x4x1 -> Concat:1x4x9 -> Squeeze:4x9",
+                        {
+                            "counts": {
+                                "Unsqueeze": 10,
+                                "Slice": 9,
+                                "ReduceMean": 9,
+                                "Concat": 1,
+                                "Squeeze": 1,
+                            }
+                        },
+                    )
                 ],
+                must_absent=["Reshape"],
                 no_unused_inputs=True,
             ),
         },

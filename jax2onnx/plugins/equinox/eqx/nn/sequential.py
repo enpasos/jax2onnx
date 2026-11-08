@@ -144,7 +144,8 @@ def _layer_ignores_key(layer: Any) -> bool:
             "callable": _EQX_SEQ_IDENTITY_SIGMOID,
             "input_shapes": [(2, 6)],
             "post_check_onnx_graph": EG(
-                ["Identity:2x6 -> Sigmoid:2x6"],
+                [("Sigmoid:2x6", {"counts": {"Sigmoid": 1}})],
+                must_absent=["Identity"],
                 no_unused_inputs=True,
             ),
         },

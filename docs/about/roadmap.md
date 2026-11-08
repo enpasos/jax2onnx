@@ -39,8 +39,14 @@
   covers preparation, a shared Flax NNX layer, reading saved labels, and Netron.
   Annotated singleton-axis broadcasts use registered stored reshapes when they
   preserve dtype and C-order payload; broadcasts that repeat elements retain
-  graph operations that consume the source. The conservative optimizer profile is
-  unchanged. The
+  graph operations that consume the source. Both ordinary and annotated exports
+  share proved identity and same-input computation cleanup through
+  `verified_rewrites.simplify_graph`; ordinary exports run it after the existing
+  passes, followed by unused-node removal. Annotations add verification of each
+  substitution's exact source/use topology change; equal-valued independent
+  parameters remain separate. Other optimizer passes stay disabled for annotated
+  exports until they have equivalent preservation evidence. Maintained fixtures
+  compare computation structure across callback choices. The
   [validation guide](../developer_guide/advanced_topics/initializer_metadata_validation.md#optional-optimization-measurements)
   describes optional graph-size and runtime measurements alongside source
   preservation checks.

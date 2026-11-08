@@ -1831,7 +1831,9 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
             ir.convenience.replace_all_uses_with(
                 old_out, new_src, replace_graph_outputs=True
             )
-            graph.remove([T1, T2])
+            # Detach shape-operand uses so final dead-code removal can discard
+            # their initializers instead of retaining users outside the graph.
+            graph.remove([T1, T2], safe=True)
             changed = True
             break
     return
@@ -1893,7 +1895,8 @@ def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
             ir.convenience.replace_all_uses_with(
                 dst_val, data_val, replace_graph_outputs=True
             )
-            graph.remove(node)
+            # A removed identity reshape must stop retaining its shape tensor.
+            graph.remove(node, safe=True)
             changed = True
             break
     return
@@ -2660,16 +2663,18 @@ def _run_function_optimizer_pass(opt_pass: _OptimizerPass, graph: ir.Graph) -> N
 
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
-    # Existing passes do not register storage/use rewrites. Keep the original
-    # graph when annotation obligations exist, until each pass can supply that
-    # evidence. Skipped callbacks retain the ordinary optimization pipeline.
+    # The annotated profile proves and registers each local substitution.
+    # Unreviewed ordinary passes cannot update its source/use evidence.
     from .initializer_metadata import active_registry
+    from .verified_rewrites import simplify_graph
 
     registry = active_registry()
     if registry is not None and registry.has_annotations:
+        simplify_graph(ir_model, registry)
         # Removing structurally dead storage preserves every live edge. The
         # independent capture inventory still rejects lost final carriers.
         remove_dead_nodes_ir(ir_model)
+        registry.validate_ir(ir_model, stage="annotated optimization")
         return ir_model
     for opt_pass in _OPTIMIZER_PASSES:
         _run_top_level_optimizer_pass(opt_pass, ir_model)
@@ -2685,4 +2690,8 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         for opt_pass in _OPTIMIZER_PASSES:
             _run_function_optimizer_pass(opt_pass, fgr)
 
+    # The same proved cleanup is available without accepted annotations. Run
+    # after ordinary passes so it also sees identities they leave or expose.
+    simplify_graph(ir_model)
+    remove_dead_nodes_ir(ir_model)
     return ir_model

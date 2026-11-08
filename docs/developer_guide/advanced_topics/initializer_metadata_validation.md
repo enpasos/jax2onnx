@@ -107,8 +107,7 @@ must agree with that proof. A vector reshaped to `(1, N)` or `(N, 1, 1)` retains
 its C-order payload and uses the existing reshape registration and final
 validators. A broadcast that repeats elements retains graph operations
 consuming the protected source. This lowering optimization does not add a
-general constant-folding permission or change the conservative optimizer
-profile.
+general constant-folding permission.
 
 Every lowering and optimizer that can read/materialize constant payloads must
 be audited or routed through a protected materialization interface. Add policy
@@ -137,11 +136,35 @@ provenance. A final live-graph identity record rejects later unregistered
 replacements. This closes the case where one correct tagged branch masks a
 lost second branch, including a replacement before final model assembly.
 
-Accepted annotations select a conservative optimizer profile: only unused-node
-removal runs. The ordinary rewrite sweep remains enabled when no annotation is
-accepted. Additional optimization passes require explicit preservation evidence
-and tests before joining the annotated profile; the current profile can produce
-larger graphs.
+Both optimizer profiles use `verified_rewrites.simplify_graph` for narrowly
+proved substitutions: same-dtype casts, identity operations, static
+identity/inverse reshapes, and allowlisted pure common subexpressions with the
+exact same ordered input value objects and attributes. Ordinary exports run this
+shared cleanup after the existing root and Function rewrite sweep, then remove
+unused nodes. Omitted and all-skip callbacks use the same ordinary pipeline.
+Annotated exports use the shared cleanup and unused-node removal, with the
+additional registry checks below; other rewrites remain disabled until audited.
+
+The shared rules never merge stored tensors by content. Unknown operations and
+tensor-bearing nodes do not qualify. Identity and inverse-reshape rules cannot
+remove dtype changes or bypass annotation-dependent reshape controls; exact
+same-input CSE can share such computations while retaining their inputs. Public
+graph outputs retain their names and Function signatures.
+
+`replace_uses_with_verified_value` first verifies the existing live-topology
+seal and independently repeats the local semantic proof. Before mutating the
+graph, it projects the exact permitted substitution onto the existing topology,
+including nested uses and graph outputs. After rewiring, the actual topology
+must match that prediction. Only this proved delta advances the seal; accepting
+whatever graph a general pass happens to produce is prohibited. A prior
+corruption or an unrelated edge change during an approved rewrite must fail.
+The final validators still verify storage, annotations, capture liveness, and
+recorded source dependencies.
+
+Further optimizations require explicit preservation evidence and tests before
+joining the annotated profile. Maintained parity fixtures compare computation
+structure with omitted, all-skip, and accepted callbacks; they do not establish
+equal graph size for every model.
 
 Function reuse also participates in source tracking. Candidate captured sources
 are inspected before content-based reuse can discard their identities. Functions
@@ -213,6 +236,10 @@ Existing maintained tests are under `tests/extra_tests/framework/`:
 views, the graph-operation fallback for genuine expansion, exact payloads in
 nested Functions, shared-source reuse, and independently editable source uses
 with equal-valued annotated or unannotated neighbors.
+`test_initializer_metadata_optimizer.py` covers the shared verified computation
+rewrites, parity fixtures for ordinary and annotated exports, independent source
+edits, nested scopes, and injected changes before or during an approved rewrite.
+Unsupported rewrite candidates must remain unchanged.
 `test_parameter_metadata.py` covers the separate model manifest and must not be
 counted as proof of the callback's final provenance. In particular, its
 external-data-reference test does not establish callback file-mode coverage.

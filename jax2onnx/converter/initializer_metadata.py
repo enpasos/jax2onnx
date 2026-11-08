@@ -672,7 +672,9 @@ class InitializerMetadataRegistry:
             self._fail("accepted entries changed or disappeared", stage, capture)
 
     def _live(
-        self, model: ir.Model
+        self,
+        model: ir.Model,
+        substitutions: Mapping[ir.Value, ir.Value] | None = None,
     ) -> tuple[set[ir.Value], set[ir.Node], set[ir.Graph]]:
         self._functions.update(model.functions)
         values: set[ir.Value] = set()
@@ -690,6 +692,8 @@ class InitializerMetadataRegistry:
             if not pending_values:
                 continue
             value = pending_values.pop()
+            if substitutions is not None:
+                value = substitutions.get(value, value)
             if value in values:
                 continue
             values.add(value)
@@ -704,8 +708,20 @@ class InitializerMetadataRegistry:
                 pending_graphs.append(function.graph)
         return values, nodes, graphs
 
-    def _topology(self, model: ir.Model) -> object:
-        values, nodes, graphs = self._live(model)
+    def _topology(
+        self,
+        model: ir.Model,
+        substitutions: Mapping[ir.Value, ir.Value] | None = None,
+    ) -> object:
+        values, nodes, graphs = self._live(model, substitutions)
+
+        def value_id(value: ir.Value | None) -> int | None:
+            if value is None:
+                return None
+            if substitutions is not None:
+                value = substitutions.get(value, value)
+            return id(value)
+
         node_items = []
         for node in nodes:
             tensors: list[object] = []
@@ -724,10 +740,7 @@ class InitializerMetadataRegistry:
                     node.domain,
                     node.op_type,
                     node.overload,
-                    tuple(
-                        id(value) if value is not None else None
-                        for value in node.inputs
-                    ),
+                    tuple(value_id(value) for value in node.inputs),
                     tuple(id(value) for value in node.outputs),
                     tuple(tensors),
                     tuple(id(graph) for graph in _subgraphs(node)),
@@ -737,7 +750,7 @@ class InitializerMetadataRegistry:
             sorted(
                 (
                     id(graph),
-                    tuple(id(value) for value in graph.outputs),
+                    tuple(value_id(value) for value in graph.outputs),
                     tuple(
                         (id(value), id(value.const_value))
                         for value in graph.initializers.values()
@@ -748,6 +761,49 @@ class InitializerMetadataRegistry:
             )
         )
         return (tuple(sorted(node_items)), graph_items)
+
+    def replace_uses_with_verified_value(
+        self, model: ir.Model, node: ir.Node, replacement: ir.Value
+    ) -> bool:
+        """Execute one proved substitution, checking its exact live-graph delta.
+
+        This is not permission to accept an arbitrary optimizer's result. The
+        semantic proof is repeated here, and the expected topology is computed
+        from the unchanged graph *before* mutation. Unrelated changes cannot be
+        legitimized by updating the seal to whatever graph a pass produced.
+        """
+        from .verified_rewrites import can_replace_node
+
+        if not self.has_annotations:
+            return False
+        if (
+            self._sealed_topology is None
+            or self._topology(model) != self._sealed_topology
+        ):
+            self._fail("unregistered transformation before rewrite", "optimizer")
+        graph = node.graph
+        _, live_nodes, _ = self._live(model)
+        if graph is None or node not in live_nodes or len(node.outputs) != 1:
+            return False
+        output = node.outputs[0]
+        # Stored captures and registered views are never computation aliases,
+        # including captures with skipped annotations next to protected ones.
+        if output in self._values or output.const_value is not None:
+            return False
+        if not can_replace_node(node, replacement):
+            return False
+
+        expected = self._topology(model, {output: replacement})
+        ir.convenience.replace_all_uses_with(
+            output, replacement, replace_graph_outputs=True
+        )
+        # Safe removal also detaches the eliminated node's input uses. Stale
+        # users would otherwise obstruct later proofs and dead-node removal.
+        graph.remove(node, safe=True)
+        if self._topology(model) != expected:
+            self._fail("rewrite exceeded its proved source/use delta", "optimizer")
+        self._sealed_topology = expected
+        return True
 
     def seal_ir(self, model: ir.Model) -> None:
         if self.has_annotations:

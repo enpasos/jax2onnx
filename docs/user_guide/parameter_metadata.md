@@ -124,12 +124,19 @@ scopes. Consumers reconstructing a source module must handle those separately;
 there is no general alias/update protocol. External transformations performed
 after export remain outside the contract.
 
-With accepted annotations, the current optimizer profile removes unused nodes
-but skips the ordinary rewrite sweep. This keeps verified source relationships
-intact and may produce a larger graph. Exact source and serialization snapshots
-also require temporary memory during export; the returned model retains no
-provenance registry. Omitted callbacks and callbacks returning
-only `None`/empty mappings retain the ordinary export behavior. See the
+All exports share verified cleanup rules for casts without a dtype change,
+redundant identity/reshape operations, and repeated pure computations with the
+exact same input objects and attributes. Ordinary exports run this cleanup
+after the existing rewrite sweep, followed by unused-node removal. Omitted
+callbacks and callbacks returning only `None`/empty mappings use that same
+pipeline.
+
+Accepted annotations add checks that every replacement preserves the recorded
+source relationships; equal parameter contents do not make two inputs
+interchangeable. These exports use the shared cleanup and unused-node removal,
+while other rewrites remain disabled until they have equivalent preservation
+evidence. Exact source and serialization snapshots also require temporary memory
+during export; the returned model retains no provenance registry. See the
 [enforcement guide](../developer_guide/advanced_topics/initializer_metadata_validation.md)
 for supported transformations and extension requirements.
 
@@ -141,9 +148,11 @@ same model state, inputs, precision, opset, and dependency versions for all
 three. Compare node counts across all scopes, stored tensor payload bytes, and
 serialized model size separately: metadata text adds file size, while a graph
 operation or another stored representation has a different cost. The skipped
-callback retains the ordinary optimizer profile; accepted annotations retain
-the conservative profile described above. Counts depend on the traced model
-and export settings, so there is no universal node-count target.
+callback uses the ordinary optimizer profile; accepted annotations add source
+checks to the shared cleanup and skip other unverified rewrites. Maintained
+fixtures compare computation structure across these callback choices. Counts
+for other models depend on the trace and export settings; annotations do not
+promise equal node counts for every model.
 
 Save and reload the original exports, run `onnx.checker.check_model(...,
 full_check=True)`, and verify runtime outputs against the same JAX reference.
