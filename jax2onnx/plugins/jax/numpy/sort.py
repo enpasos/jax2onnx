@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final, TypeAlias
+from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
 from jax2onnx._compat.jax import (
@@ -22,8 +22,9 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins.jax.lax._sort_utils import (
-    gather_original_by_sort_indices,
+    _as_dim_tuple,
     make_nan_last_sort_key,
 )
 from jax2onnx.plugins.plugin_system import (
@@ -39,6 +40,109 @@ def _sort_eval(x: AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
     orig = getattr(_SORT_PRIM, "__orig_impl__sort", jnp.sort)
     spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
     result = jax.eval_shape(lambda arr: orig(arr, axis=axis), spec)
+    return result
+
+
+def _overwrite_nan_tail(
+    ctx: LoweringContextProtocol,
+    original: ir.Value,
+    sorted_values: ir.Value,
+    *,
+    arr_shape: tuple[object, ...],
+    axis: int,
+    shape: tuple[object, ...],
+) -> ir.Value:
+    builder = ctx.builder
+    rank = max(len(arr_shape), 1)
+    axis_size = int(arr_shape[axis]) if arr_shape else 1
+    dtype = original.type.dtype if getattr(original, "type", None) else None
+    np_dtype = ir_dtype_to_numpy(dtype, default=np.float32)
+
+    is_nan = cast(
+        ir.Value,
+        builder.IsNaN(original, _outputs=[ctx.fresh_name("sort_orig_is_nan")]),
+    )
+    is_nan.type = ir.TensorType(ir.DataType.BOOL)
+    is_nan.dtype = ir.DataType.BOOL
+    _stamp_type_and_shape(is_nan, _as_dim_tuple(arr_shape))
+    _ensure_value_metadata(ctx, is_nan)
+
+    is_real = cast(
+        ir.Value,
+        builder.Not(is_nan, _outputs=[ctx.fresh_name("sort_orig_is_real")]),
+    )
+    is_real.type = ir.TensorType(ir.DataType.BOOL)
+    is_real.dtype = ir.DataType.BOOL
+    _stamp_type_and_shape(is_real, _as_dim_tuple(arr_shape))
+    _ensure_value_metadata(ctx, is_real)
+
+    real_int = cast(
+        ir.Value,
+        builder.Cast(
+            is_real, to=ir.DataType.INT64, _outputs=[ctx.fresh_name("sort_real_i64")]
+        ),
+    )
+    real_int.type = ir.TensorType(ir.DataType.INT64)
+    real_int.dtype = ir.DataType.INT64
+    _stamp_type_and_shape(real_int, _as_dim_tuple(arr_shape))
+    _ensure_value_metadata(ctx, real_int)
+
+    reduce_axes = _const_i64(
+        ctx, np.asarray([axis], dtype=np.int64), "sort_nan_tail_axes"
+    )
+    n_real = cast(
+        ir.Value,
+        builder.ReduceSum(
+            real_int,
+            reduce_axes,
+            keepdims=1,
+            _outputs=[ctx.fresh_name("sort_n_real")],
+        ),
+    )
+    n_real.type = ir.TensorType(ir.DataType.INT64)
+    n_real.dtype = ir.DataType.INT64
+    reduced_shape = tuple(1 if i == axis else d for i, d in enumerate(arr_shape))
+    _stamp_type_and_shape(n_real, _as_dim_tuple(reduced_shape))
+    _ensure_value_metadata(ctx, n_real)
+
+    positions = _const_i64(
+        ctx,
+        np.arange(axis_size, dtype=np.int64).reshape(
+            tuple(axis_size if i == axis else 1 for i in range(rank))
+        ),
+        "sort_positions",
+    )
+    keep_real = cast(
+        ir.Value,
+        builder.Less(positions, n_real, _outputs=[ctx.fresh_name("sort_keep_real")]),
+    )
+    keep_real.type = ir.TensorType(ir.DataType.BOOL)
+    keep_real.dtype = ir.DataType.BOOL
+    _stamp_type_and_shape(keep_real, _as_dim_tuple(shape))
+    _ensure_value_metadata(ctx, keep_real)
+
+    nan_const = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name("sort_nan"),
+        array=np.asarray(np.nan, dtype=np_dtype),
+    )
+    nan_const.type = ir.TensorType(dtype) if dtype is not None else None
+    nan_const.dtype = dtype
+    _stamp_type_and_shape(nan_const, ())
+    _ensure_value_metadata(ctx, nan_const)
+
+    result = cast(
+        ir.Value,
+        builder.Where(
+            keep_real,
+            sorted_values,
+            nan_const,
+            _outputs=[ctx.fresh_name("sort_nan_tail")],
+        ),
+    )
+    result.type = ir.TensorType(dtype) if dtype is not None else None
+    result.dtype = dtype
+    _stamp_type_and_shape(result, _as_dim_tuple(shape))
+    _ensure_value_metadata(ctx, result)
     return result
 
 
@@ -166,17 +270,17 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, values)
 
         if key_was_sanitized:
-            indices.type = ir.TensorType(ir.DataType.INT64)
-            indices.dtype = ir.DataType.INT64
-            _stamp_type_and_shape(indices, target_shape)
-            _ensure_value_metadata(ctx, indices)
-            values = gather_original_by_sort_indices(
+            # NaN shares the +Inf sort key, so ties between NaN and real +Inf
+            # may come back in either order. Non-NaN values fill the first
+            # `n - n_nan` positions regardless of tie order, so the tail is
+            # overwritten with NaN instead of gathering by index.
+            values = _overwrite_nan_tail(
                 ctx,
                 arr_val,
-                indices,
+                values,
+                arr_shape=arr_shape,
                 axis=int(axis),
                 shape=target_shape,
-                name_hint="sort_original_values",
             )
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
