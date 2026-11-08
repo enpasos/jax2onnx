@@ -15,6 +15,7 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._sort_utils import (
     gather_original_by_sort_indices,
     make_nan_last_sort_key,
+    stabilize_nan_last_sort_indices,
 )
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -41,7 +42,13 @@ from jax2onnx.plugins.plugin_system import (
             "callable": lambda x: jax.lax.sort(x),
             "input_shapes": [(3,)],
             "post_check_onnx_graph": EG(
-                ["IsNaN:3 -> Where:3 -> TopK:3 -> GatherElements:3 -> Identity:3"],
+                [
+                    (
+                        "IsNaN:3 -> Where:3 -> TopK:3 -> GatherElements:3 -> Cast:3"
+                        " -> TopK:3 -> GatherElements:3 -> GatherElements:3 -> Identity:3",
+                        {"counts": {"TopK": 2, "GatherElements": 3}},
+                    )
+                ],
                 no_unused_inputs=True,
             ),
         },
@@ -51,7 +58,12 @@ from jax2onnx.plugins.plugin_system import (
             "input_shapes": [(3, 4)],
             "post_check_onnx_graph": EG(
                 [
-                    "IsNaN:3x4 -> Where:3x4 -> TopK:3x4 -> GatherElements:3x4 -> Identity:3x4"
+                    (
+                        "IsNaN:3x4 -> Where:3x4 -> TopK:3x4 -> GatherElements:3x4"
+                        " -> Cast:3x4 -> TopK:3x4 -> GatherElements:3x4"
+                        " -> GatherElements:3x4 -> Identity:3x4",
+                        {"counts": {"TopK": 2, "GatherElements": 3}},
+                    )
                 ],
                 no_unused_inputs=True,
             ),
@@ -143,7 +155,7 @@ class SortPlugin(PrimitiveLeafPlugin):
                 _stamp_type_and_shape(key_input, key_shape)
                 _ensure_value_metadata(ctx, key_input)
 
-            key_input, key_was_sanitized = make_nan_last_sort_key(
+            key_input, is_nan = make_nan_last_sort_key(
                 ctx,
                 key_input,
                 key_shape,
@@ -164,7 +176,7 @@ class SortPlugin(PrimitiveLeafPlugin):
                 ),
             )
 
-            if key_was_sanitized:
+            if is_nan is not None:
                 if getattr(key_input, "type", None) is not None:
                     values.type = key_input.type
                     key_dtype = getattr(key_input.type, "dtype", None)
@@ -195,7 +207,16 @@ class SortPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(indices, key_shape)
             _ensure_value_metadata(ctx, indices)
 
-            if key_was_sanitized:
+            if is_nan is not None:
+                indices = stabilize_nan_last_sort_indices(
+                    ctx,
+                    indices,
+                    is_nan,
+                    k_val,
+                    axis=int(axis),
+                    shape=key_shape,
+                    name_hint="sort_nan_last",
+                )
                 current_values[key_idx] = gather_original_by_sort_indices(
                     ctx,
                     current_values[key_idx],

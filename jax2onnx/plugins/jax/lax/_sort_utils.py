@@ -39,18 +39,20 @@ def make_nan_last_sort_key(
     shape: tuple[object, ...],
     *,
     name_hint: str,
-) -> tuple[ir.Value, bool]:
+) -> tuple[ir.Value, ir.Value | None]:
+    """Return a numeric key and the original NaN classification, if needed."""
     dtype = _value_dtype(value)
     if dtype is None or not _is_floating_dtype(dtype):
-        return value, False
+        return value, None
 
     np_dtype = ir_dtype_to_numpy(dtype, default=None)
     if np_dtype is None:
-        return value, False
+        return value, None
 
-    is_nan = cast(
-        ir.Value,
-        ctx.builder.IsNaN(value, _outputs=[ctx.fresh_name(f"{name_hint}_is_nan")]),
+    is_nan = ctx.builder.op(
+        "IsNaN",
+        [value],
+        output=ir.Value(name=ctx.fresh_name(f"{name_hint}_is_nan")),
     )
     is_nan.type = ir.TensorType(ir.DataType.BOOL)
     is_nan.dtype = ir.DataType.BOOL
@@ -66,20 +68,16 @@ def make_nan_last_sort_key(
     _stamp_type_and_shape(pos_inf, ())
     _ensure_value_metadata(ctx, pos_inf)
 
-    key = cast(
-        ir.Value,
-        ctx.builder.Where(
-            is_nan,
-            pos_inf,
-            value,
-            _outputs=[ctx.fresh_name(f"{name_hint}_key")],
-        ),
+    key = ctx.builder.op(
+        "Where",
+        [is_nan, pos_inf, value],
+        output=ir.Value(name=ctx.fresh_name(f"{name_hint}_key")),
     )
     key.type = ir.TensorType(dtype)
     key.dtype = dtype
     _stamp_type_and_shape(key, _as_dim_tuple(shape))
     _ensure_value_metadata(ctx, key)
-    return key, True
+    return key, is_nan
 
 
 def gather_original_by_sort_indices(
@@ -91,14 +89,11 @@ def gather_original_by_sort_indices(
     shape: tuple[object, ...],
     name_hint: str,
 ) -> ir.Value:
-    gathered = cast(
-        ir.Value,
-        ctx.builder.GatherElements(
-            value,
-            indices,
-            axis=int(axis),
-            _outputs=[ctx.fresh_name(name_hint)],
-        ),
+    gathered = ctx.builder.op(
+        "GatherElements",
+        [value, indices],
+        {"axis": int(axis)},
+        output=ir.Value(name=ctx.fresh_name(name_hint)),
     )
     value_dtype = _value_dtype(value)
     if value_dtype is not None:
@@ -107,3 +102,68 @@ def gather_original_by_sort_indices(
     _stamp_type_and_shape(gathered, _as_dim_tuple(shape))
     _ensure_value_metadata(ctx, gathered)
     return gathered
+
+
+def stabilize_nan_last_sort_indices(
+    ctx: LoweringContextProtocol,
+    indices: ir.Value,
+    is_nan: ir.Value,
+    k: ir.Value,
+    *,
+    axis: int,
+    shape: tuple[object, ...],
+    name_hint: str,
+) -> ir.Value:
+    """Stably partition numeric-sort indices into non-NaNs followed by NaNs.
+
+    The numeric key maps NaNs to +Inf, so those two groups can tie. Sorted TopK
+    breaks ties by lower input index; a second TopK on the original NaN mask
+    therefore separates the groups without changing either group's order.
+    Compose the permutations, leaving callers to gather untouched source data.
+    """
+    sorted_is_nan = gather_original_by_sort_indices(
+        ctx,
+        is_nan,
+        indices,
+        axis=axis,
+        shape=shape,
+        name_hint=f"{name_hint}_sorted_is_nan",
+    )
+    partition_key = ctx.builder.op(
+        "Cast",
+        [sorted_is_nan],
+        {"to": int(ir.DataType.INT32)},
+        output=ir.Value(
+            name=ctx.fresh_name(f"{name_hint}_partition_key"),
+            type=ir.TensorType(ir.DataType.INT32),
+        ),
+    )
+    _stamp_type_and_shape(partition_key, _as_dim_tuple(shape))
+    _ensure_value_metadata(ctx, partition_key)
+
+    partition_values = ir.Value(
+        name=ctx.fresh_name(f"{name_hint}_partition_values"),
+        type=ir.TensorType(ir.DataType.INT32),
+    )
+    partition_indices = ir.Value(
+        name=ctx.fresh_name(f"{name_hint}_partition_indices"),
+        type=ir.TensorType(ir.DataType.INT64),
+    )
+    ctx.builder.op_multi_out(
+        "TopK",
+        [partition_key, k],
+        {"axis": int(axis), "largest": 0, "sorted": 1},
+        outputs=[partition_values, partition_indices],
+    )
+    for output in (partition_values, partition_indices):
+        _stamp_type_and_shape(output, _as_dim_tuple(shape))
+        _ensure_value_metadata(ctx, output)
+
+    return gather_original_by_sort_indices(
+        ctx,
+        indices,
+        partition_indices,
+        axis=axis,
+        shape=shape,
+        name_hint=f"{name_hint}_indices",
+    )

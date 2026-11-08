@@ -22,6 +22,13 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Sort NaNs after positive infinity:** Preserve JAX's stable ordering in
+  `jnp.sort` and `lax.sort`, including associated payloads and multiple sort
+  keys. Select original values by their sort indices to retain signed zeros
+  and NaN representations. Thanks to
+  [jay23606's initial fix proposal](https://github.com/enpasos/jax2onnx/pull/295)
+  for contributing to the resolution of
+  [issue #294](https://github.com/enpasos/jax2onnx/issues/294).
 * **Preserve masked softmax broadcasting under `vmap`:** Export masks that
   expand singleton logits dimensions or add sample dimensions through JAX's
   decomposition, preserving output shapes and reduction axes. Masks that fit
