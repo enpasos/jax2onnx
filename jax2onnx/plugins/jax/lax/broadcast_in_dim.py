@@ -33,6 +33,7 @@ from jax2onnx.plugins._complex_utils import (
     _base_dtype_for_complex,
     ensure_packed_real_pair,
 )
+from jax2onnx.plugins._utils import inline_reshape_initializer
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
@@ -173,6 +174,55 @@ def _materialize_constant_array(
     return None
 
 
+def _maybe_inline_annotated_reshape(
+    ctx: LoweringContextProtocol,
+    out_var: Any,
+    x_val: ir.Value,
+    shape: tuple[Any, ...],
+    bdims: tuple[int, ...],
+    op_shape: tuple[Any, ...],
+) -> bool:
+    """Store singleton-axis insertion as a registered, source-preserving reshape."""
+    tensor = x_val.const_value
+    if tensor is None or not is_annotated(x_val):
+        return False
+
+    target_shape = _static_shape_tuple(shape)
+    source_shape = _static_shape_tuple(op_shape)
+    if target_shape is None or source_shape is None:
+        return False
+    if any(dim < 0 for dim in target_shape + source_shape):
+        return False
+    if tuple(tensor.shape) != source_shape or not (
+        tensor.dtype == x_val.dtype == numpy_dtype_to_ir(out_var.aval.dtype)
+    ):
+        return False
+    if len(bdims) != len(source_shape) or any(
+        not isinstance(axis, (int, np.integer)) or axis < 0 or axis >= len(target_shape)
+        for axis in bdims
+    ):
+        return False
+    if any(left >= right for left, right in zip(bdims, bdims[1:])):
+        return False
+
+    reshape_shape = [1] * len(target_shape)
+    for source_axis, target_axis in enumerate(bdims):
+        reshape_shape[target_axis] = source_shape[source_axis]
+    if tuple(reshape_shape) != target_shape:
+        return False
+
+    # This exact shape relation preserves C-order elements, including empty
+    # tensors. Genuine expansion must keep consuming the original source at
+    # runtime; equal element counts alone do not establish this relation.
+    reshaped = inline_reshape_initializer(
+        ctx, x_val, target_shape, name_hint="bcast_pure_reshape"
+    )
+    if reshaped is x_val:
+        return False
+    ctx.bind_value_for_var(out_var, reshaped)
+    return True
+
+
 def _maybe_inline_constant_broadcast(
     ctx: Any,
     out_var: Any,
@@ -181,6 +231,8 @@ def _maybe_inline_constant_broadcast(
     bdims: tuple[int, ...],
     op_shape: tuple[Any, ...],
 ) -> bool:
+    if _maybe_inline_annotated_reshape(ctx, out_var, x_val, shape, bdims, op_shape):
+        return True
     const_arr = ctx.try_evaluate_const(x_val)
     if const_arr is None:
         const_arr = _materialize_constant_array(ctx, x_val)

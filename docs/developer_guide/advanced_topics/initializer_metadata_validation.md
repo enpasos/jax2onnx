@@ -99,6 +99,17 @@ equal-valued tensor after the fact. Coalescing its stored representation with
 an independent unannotated or generated tensor, or materializing their combined
 value as a constant, is prohibited. Runtime graph operations may consume both.
 
+The `broadcast_in_dim` lowering uses the existing
+`inline_reshape_initializer` helper for an annotated constant when static,
+nonnegative shapes and a valid increasing axis mapping prove that the operation
+only inserts singleton axes. The source tensor shape and source/result dtypes
+must agree with that proof. A vector reshaped to `(1, N)` or `(N, 1, 1)` retains
+its C-order payload and uses the existing reshape registration and final
+validators. A broadcast that repeats elements retains graph operations
+consuming the protected source. This lowering optimization does not add a
+general constant-folding permission or change the conservative optimizer
+profile.
+
 Every lowering and optimizer that can read/materialize constant payloads must
 be audited or routed through a protected materialization interface. Add policy
 checks where needed to prevent future paths from bypassing that interface.
@@ -187,7 +198,7 @@ below live under `tests/extra_tests/framework/`.
 | IM-02 | Copied UTF-8/empty values; invalid results/text and callback exceptions. | `test_initializer_metadata_contract.py`, existing callback validation tests |
 | IM-03 | `{}`/`None` equivalence; inconsistent results in both directions; failed-then-clean and nested exports. | `test_initializer_metadata_contract.py`, `test_initializer_metadata_function_identity.py` |
 | IM-04 | Every promised dtype, scalar/empty/dense storage, exact signed zeros/NaNs, annotated complex rejection. | `test_initializer_metadata_contract.py` |
-| IM-05 | Registered reshapes/clones; separate equal-valued/equal-tag sources, unannotated/generated neighbors, independent edited outputs. | `test_initializer_metadata_materialization.py`, `test_initializer_metadata_function_identity.py`, existing reshape/optimization tests |
+| IM-05 | Registered reshapes/clones; separate equal-valued/equal-tag sources, unannotated/generated neighbors, independent edited outputs. | `test_initializer_metadata_materialization.py`, `test_initializer_metadata_function_identity.py`, `test_initializer_metadata_broadcast.py`, existing reshape/optimization tests |
 | IM-06 | Complete scope inventory; swapped, replaced, merged, pruned, or orphan storage; one valid branch cannot mask another lost use. | `test_initializer_metadata_scopes.py`, `test_initializer_metadata_faults.py`, assembly/clone regressions |
 | IM-07 | IR/proto/file, external-data reload, serializer corruption, duplicate keys, untouched destinations on failure. | `test_initializer_metadata_serialization.py`, existing return-mode tests |
 | IM-08 | Exception reasons/context; permissive optimizer policy cannot bypass errors; diagnostics omit payloads/property values. | `test_initializer_metadata_faults.py`, callback and serialization failure tests |
@@ -198,6 +209,10 @@ Existing maintained tests are under `tests/extra_tests/framework/`:
 `test_initializer_metadata.py`, `test_initializer_reshape_metadata.py`,
 `test_initializer_metadata_optimizations.py`,
 `test_initializer_metadata_rope.py`, and `test_conv_transpose_bias_folding.py`.
+`test_initializer_metadata_broadcast.py` covers stored singleton-only reshape
+views, the graph-operation fallback for genuine expansion, exact payloads in
+nested Functions, shared-source reuse, and independently editable source uses
+with equal-valued annotated or unannotated neighbors.
 `test_parameter_metadata.py` covers the separate model manifest and must not be
 counted as proof of the callback's final provenance. In particular, its
 external-data-reference test does not establish callback file-mode coverage.
@@ -270,6 +285,42 @@ reshapes with graph operations. They exercise valid cases that must succeed and
 single-fault mutations that must fail. Persist each discovered counterexample
 as a small named regression. Large model demonstrations supplement these tests;
 they cannot replace the invariant tests.
+
+## Optional optimization measurements
+
+Use representative framework models as an opt-in diagnostic alongside the
+maintained regressions. Keep checkpoints, ONNX files, and measurement reports
+outside git. Record the source revision, dependency versions, model
+configuration, seeds, prepared parameter values, precision settings, input
+shapes, opset, and runtime settings. Adapter examples should include nonzero
+adapter scales so output parity exercises their contribution.
+
+Compare exports without a callback, with an all-skip callback, and with accepted
+annotations. For a controlled local diagnosis, a separate run that applies only
+unused-node removal to an unannotated export can distinguish lowering overhead
+from the ordinary optimizer sweep; do not change the production optimizer
+policy to obtain that comparison. Count nodes across root and nested graphs
+and Functions, and report payload bytes separately from serialized bytes and
+tensor metadata bytes. Universal count or size thresholds are inappropriate
+for different traces and dependency versions.
+
+For each original saved artifact, run the full ONNX checker after save/reload,
+compare runtime outputs with the prepared JAX model, and inventory actual
+annotations across every tensor-bearing scope. Check the expected captured
+source set and every stored representation's dtype and flat C-order payload,
+including aliases and reshaped carriers. Checking only labels or counts cannot
+detect merged independent parameters. Retain independent-source edit tests as
+described above, including equal-valued sources with identical annotations and
+an unannotated equal-valued neighbor.
+
+Measure runtime optimization separately, with the optimization level and
+runtime version recorded. If ONNX Runtime writes an optimized model, compare
+its node counts, numerical outputs, metadata, and source associations against
+the original artifact rather than assuming inference parity proves metadata
+preservation. Runtime serialization and optimization fall outside IM-07;
+retention or loss in a particular runtime version does not redefine the public
+contract. The original serialized jax2onnx export remains the authoritative
+annotated artifact.
 
 ## Release decision
 

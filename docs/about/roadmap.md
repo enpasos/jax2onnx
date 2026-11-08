@@ -37,6 +37,13 @@
   separate responsibilities. A
   [first-export walkthrough](../user_guide/parameter_metadata_walkthrough.md)
   covers preparation, a shared Flax NNX layer, reading saved labels, and Netron.
+  Annotated singleton-axis broadcasts use registered stored reshapes when they
+  preserve dtype and C-order payload; broadcasts that repeat elements retain
+  graph operations that consume the source. The conservative optimizer profile is
+  unchanged. The
+  [validation guide](../developer_guide/advanced_topics/initializer_metadata_validation.md#optional-optimization-measurements)
+  describes optional graph-size and runtime measurements alongside source
+  preservation checks.
 * **Annotate exported parameters explicitly:** Add optional, versioned model
   metadata identifying caller-selected root graph inputs and initializers as
   trainable, frozen, or unspecified, with optional source paths. The annotation

@@ -105,9 +105,13 @@ completeness matters.
 The shared `inline_reshape_initializer` helper caches views by source IR value
 and target shape within one graph, preserves their metadata, and registers the
 source relationship. Function-local reshapes use the same protected path.
-Annotated scalar fills and broadcasts remain graph computations consuming the
-source. Equal values do not make independent sources interchangeable, including
-inside reused ONNX Functions.
+Annotated broadcasts that only insert singleton axes also use this registered
+reshape path when the static shape, axis mapping, and dtype establish an
+unchanged C-order payload. For example, `(8,)` to `(8, 1, 1)` can use a stored
+reshape; `(8,)` to `(4, 8)` repeats elements and remains a graph computation
+consuming the source. Annotated scalar fills likewise remain graph
+computations when they replicate the scalar. Equal values do not make
+independent sources interchangeable, including inside reused ONNX Functions.
 
 Stored representations retain traced dtype and C-order element payload;
 pure reshapes are allowed. The exporter validates every accepted capture and
@@ -128,6 +132,35 @@ provenance registry. Omitted callbacks and callbacks returning
 only `None`/empty mappings retain the ordinary export behavior. See the
 [enforcement guide](../developer_guide/advanced_topics/initializer_metadata_validation.md)
 for supported transformations and extension requirements.
+
+### Check Graph Size and Runtime Optimization
+
+To assess annotation overhead for a prepared model, export it with no callback,
+with a callback returning only `None`, and with its actual annotations. Use the
+same model state, inputs, precision, opset, and dependency versions for all
+three. Compare node counts across all scopes, stored tensor payload bytes, and
+serialized model size separately: metadata text adds file size, while a graph
+operation or another stored representation has a different cost. The skipped
+callback retains the ordinary optimizer profile; accepted annotations retain
+the conservative profile described above. Counts depend on the traced model
+and export settings, so there is no universal node-count target.
+
+Save and reload the original exports, run `onnx.checker.check_model(...,
+full_check=True)`, and verify runtime outputs against the same JAX reference.
+Also inspect the expected metadata entries, dtypes, and flattened source
+payloads across every relevant scope. A successful inference run or a smaller
+graph does not establish source preservation. For independent parameters with
+equal current values, test that editing one stored source changes only its
+corresponding computation; see the
+[validation guide](../developer_guide/advanced_topics/initializer_metadata_validation.md#optional-optimization-measurements).
+
+ONNX Runtime can optimize a model when creating an inference session. If you
+request an optimized file with `SessionOptions.optimized_model_filepath`,
+inspect that file separately: its tensors and metadata are outside the
+exporter's preservation guarantee, even when inference outputs agree. Keep the
+original saved jax2onnx export as the authoritative annotated artifact. Runtime
+optimization behavior and metadata retention depend on the runtime version,
+optimization level, and model.
 
 ### Framework-Owned Training Policy
 
