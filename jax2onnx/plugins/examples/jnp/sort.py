@@ -30,14 +30,17 @@ register_example(
             "post_check_onnx_graph": EG(
                 [
                     (
-                        "Slice:5 -> IsNaN:5 -> Where:5 -> TopK:5 -> GatherElements:5 -> Mul:5",
+                        "Slice:5 -> IsNaN:5 -> Where:5 -> TopK:5 -> GatherElements:5"
+                        " -> Cast:5 -> TopK:5 -> GatherElements:5"
+                        " -> GatherElements:5 -> Mul:5",
                         {
                             "counts": {
                                 "Slice": 2,
                                 "IsNaN": 2,
                                 "Where": 2,
-                                "TopK": 2,
-                                "GatherElements": 2,
+                                "TopK": 4,
+                                "GatherElements": 6,
+                                "Cast": 2,
                                 "Mul": 1,
                             }
                         },

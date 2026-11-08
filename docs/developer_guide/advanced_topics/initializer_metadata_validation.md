@@ -240,6 +240,9 @@ with equal-valued annotated or unannotated neighbors.
 rewrites, parity fixtures for ordinary and annotated exports, independent source
 edits, nested scopes, and injected changes before or during an approved rewrite.
 Unsupported rewrite candidates must remain unchanged.
+`test_initializer_metadata_sort.py` checks ordinary/annotated sort parity,
+exact captured-source storage and labels, and runtime results after editing
+the annotated initializer.
 `test_parameter_metadata.py` covers the separate model manifest and must not be
 counted as proof of the callback's final provenance. In particular, its
 external-data-reference test does not establish callback file-mode coverage.
