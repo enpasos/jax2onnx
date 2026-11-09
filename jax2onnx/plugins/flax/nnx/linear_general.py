@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 import numpy as np
 import jax
+import jax.numpy as jnp
 from flax import nnx
 import onnx_ir as ir
 
@@ -205,6 +206,54 @@ EXPECT_DYNAMIC_RGR: Final = EG(
         "Gemm -> Reshape",
     ]
 )
+# Rank-2 input: Gemm reads it directly and only its result is reshaped.
+EXPECT_GEMM_RESHAPE: Final = EG(
+    [("Gemm -> Reshape:3x4x8", {"counts": {"Gemm": 1, "Reshape": 1}})],
+    no_unused_inputs=True,
+)
+EXPECT_DYNAMIC_GEMM_RESHAPE: Final = EG(
+    [
+        ("Gemm -> Reshape:Bx4x8", {"counts": {"Gemm": 1, "Reshape": 1}}),
+        "Shape -> Slice -> Concat -> Reshape",
+    ],
+    no_unused_inputs=True,
+)
+
+
+def _expect_flattened_gemm(output_shape: str) -> Callable[[Any], bool]:
+    """Inputs without a single batch axis are flattened to (1, K) for Gemm."""
+    return EG(
+        [
+            (
+                f"Reshape -> Gemm -> Reshape:{output_shape}",
+                {"counts": {"Gemm": 1, "Reshape": 2}},
+            )
+        ],
+        no_unused_inputs=True,
+    )
+
+
+def _expect_gemm_without_bias(model: Any) -> bool:
+    return EXPECT_RGR(model) and len(_first_node(model, "Gemm").input) == 2
+
+
+class _CompileTimeLinearGeneral(nnx.Module):
+    """Evaluate LinearGeneral eagerly while tracing, as when building a table."""
+
+    def __init__(self, *, use_bias: bool, dtype: Any, rngs: nnx.Rngs) -> None:
+        self.layer = nnx.LinearGeneral(
+            16,
+            (4, 8),
+            use_bias=use_bias,
+            dtype=dtype,
+            param_dtype=dtype,
+            rngs=rngs,
+        )
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        with jax.ensure_compile_time_eval():
+            table = self.layer(jnp.ones((2, 16), dtype=x.dtype))
+        return x + table
 
 
 # ------------------------------------------------------------------
@@ -397,6 +446,114 @@ EXPECT_DYNAMIC_RGR: Final = EG(
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
         },
+        {
+            "testcase": "linear_general_rank2_input_multi_out",
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
+                in_features=16,
+                out_features=(4, 8),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(3, 16)],
+            "expected_output_shapes": [(3, 4, 8)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_GEMM_RESHAPE,
+        },
+        {
+            "testcase": "linear_general_rank2_input_symbolic_batch",
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
+                in_features=16,
+                out_features=(4, 8),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 16)],
+            "expected_output_shapes": [("B", 4, 8)],
+            "run_only_dynamic": True,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_DYNAMIC_GEMM_RESHAPE,
+        },
+        {
+            "testcase": "linear_general_rank1_input",
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
+                in_features=16,
+                out_features=(4, 8),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(16,)],
+            "expected_output_shapes": [(4, 8)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": _expect_flattened_gemm("4x8"),
+        },
+        {
+            "testcase": "linear_general_contract_all_axes",
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
+                in_features=(4, 8),
+                out_features=16,
+                axis=(-2, -1),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(4, 8)],
+            "expected_output_shapes": [(16,)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": _expect_flattened_gemm("16"),
+        },
+        {
+            "testcase": "linear_general_no_bias",
+            "callable": construct_and_call(
+                nnx.LinearGeneral,
+                in_features=16,
+                out_features=(4, 8),
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 3, 16)],
+            "expected_output_shapes": [(2, 3, 4, 8)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": _expect_gemm_without_bias,
+        },
+        {
+            "testcase": "linear_general_compile_time_eval",
+            "callable": construct_and_call(
+                _CompileTimeLinearGeneral,
+                use_bias=True,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 4, 8)],
+            "expected_output_shapes": [(2, 4, 8)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [("Add", {"counts": {"Add": 1}})], must_absent=["Gemm"]
+            ),
+        },
+        {
+            "testcase": "linear_general_compile_time_eval_no_bias",
+            "callable": construct_and_call(
+                _CompileTimeLinearGeneral,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 4, 8)],
+            "expected_output_shapes": [(2, 4, 8)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [("Add", {"counts": {"Add": 1}})], must_absent=["Gemm"]
+            ),
+        },
     ],
 )
 class LinearGeneralPlugin(PrimitiveLeafPlugin):
@@ -487,7 +644,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
     # ---------- lowering (IR) ----------
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
-        x_var, k_var, b_var = eqn.invars[:3]
+        x_var, k_var = eqn.invars[:2]
+        # Layers without a bias bind only the input and the kernel.
+        b_var = eqn.invars[2] if len(eqn.invars) > 2 else None
         y_var = eqn.outvars[0]
         ((lhs_contract, rhs_contract), _) = eqn.params["dimension_numbers"]
 
@@ -555,13 +714,16 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         # IMPORTANT: cast *after* shaping so the Gemm input has the final dtype
         k2d = cast_param_like(ctx, k2d, x_val, "kernel_cast")
 
-        # --- INPUT (A) flatten remains unchanged ...
-        # (keep producing 'input_reshape' for tests)
+        # --- INPUT (A) and OUTPUT layouts ---
+        # Gemm multiplies an (M, K) input and returns (M, Cout). Flatten every
+        # other input layout (keeping the 'input_reshape' name for tests), and
+        # restore the traced output layout unless Gemm already produces it.
         x_batch_idx = [i for i in range(len(x_shape)) if i not in lhs_contract]
-        need_flatten = len(x_shape) > 2
+        need_input_reshape = len(x_shape) != 2 or len(x_batch_idx) != 1
+        need_output_reshape = need_input_reshape or len(k_out_dims) != 1
 
         gemm_in: ir.Value = x_val
-        if need_flatten:
+        if need_input_reshape:
             x2d_shape_c = builder.add_initializer_from_array(
                 name=ctx.fresh_name("x2d_shape"),
                 array=np.asarray([-1, int(K)], dtype=np.int64),
@@ -613,7 +775,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             b2d = None
 
         # Gemm
-        gemm_output_name = ctx.fresh_name("gemm_output") if need_flatten else out_name
+        gemm_output_name = (
+            ctx.fresh_name("gemm_output") if need_output_reshape else out_name
+        )
         if use_bias and b2d is not None:
             gemm_out: ir.Value = builder.Gemm(
                 gemm_in,
@@ -637,7 +801,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             )
         if getattr(x_val, "type", None) is not None:
             gemm_out.type = x_val.type
-        if need_flatten:
+        if need_output_reshape:
             _stamp_type_and_shape(gemm_out, (None, int(Cout)))
             _ensure_value_metadata(ctx, gemm_out)
         else:
@@ -654,10 +818,10 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, gemm_out)
             ctx.bind_value_for_var(y_var, gemm_out)
 
-        if not need_flatten:
+        if not need_output_reshape:
             return
 
-        # Reshape back if needed
+        # Reshape back to the traced output layout
         x_batch_idx = [i for i in range(len(x_shape)) if i not in lhs_contract]
         batch_dim_vals = [x_shape[i] for i in x_batch_idx]
         all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
@@ -750,16 +914,23 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(final_val, y_meta)
         _ensure_value_metadata(ctx, final_val)
         ctx.bind_value_for_var(y_var, final_val)
-        # When no flatten was needed, Gemm already wrote directly to y_val, so no extra Reshape.
 
     # ---------- explicit binding helper for a testcase ----------
+    @staticmethod
+    def _bind(
+        prim: Primitive, x: Any, kernel: Any, bias: Any, dimension_numbers: Any
+    ) -> Any:
+        # JAX operands cannot be None, so a layer without bias binds two operands.
+        operands = (x, kernel) if bias is None else (x, kernel, bias)
+        return prim.bind(*operands, dimension_numbers=dimension_numbers)
+
     @staticmethod
     def _linear_general(
         x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any
     ) -> Any:
         """Direct bind for tests that want to call the primitive without nnx module."""
-        return LinearGeneralPlugin._PRIM.bind(
-            x, kernel, bias, dimension_numbers=dimension_numbers
+        return LinearGeneralPlugin._bind(
+            LinearGeneralPlugin._PRIM, x, kernel, bias, dimension_numbers
         )
 
     # ---------- monkey-patch & binding specs ----------
@@ -797,7 +968,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             kernel = self.kernel[...]
             bias = self.bias[...] if self.bias is not None else None
             x, kernel, bias = self.promote_dtype((x, kernel, bias), dtype=self.dtype)
-            return prim.bind(x, kernel, bias, dimension_numbers=dn)
+            return LinearGeneralPlugin._bind(prim, x, kernel, bias, dn)
 
         return patched
 
@@ -821,8 +992,11 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
     def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
-                lambda x, kernel, bias, dimension_numbers=None: cls.abstract_eval(
-                    x, kernel, bias, dimension_numbers=dimension_numbers
+                lambda x, kernel, *bias, dimension_numbers=None: cls.abstract_eval(
+                    x,
+                    kernel,
+                    bias[0] if bias else None,
+                    dimension_numbers=dimension_numbers,
                 )
             )
             cls._ABSTRACT_EVAL_BOUND = True
@@ -830,8 +1004,8 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
 # ---------- concrete impl for eager execution ----------
 @LinearGeneralPlugin._PRIM.def_impl
-def _impl(x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any) -> Any:
+def _impl(x: Any, kernel: Any, *bias: Any, dimension_numbers: Any) -> Any:
     y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
-    if bias is not None:
-        y = y + bias
+    if bias:
+        y = y + bias[0]
     return y
