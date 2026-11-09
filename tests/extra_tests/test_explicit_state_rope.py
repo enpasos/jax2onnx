@@ -14,6 +14,7 @@ import onnx
 import onnx_ir as ir
 import pytest
 
+from jax2onnx import to_onnx
 from scripts import explicit_state_rope as example
 from scripts.explicit_state_export import StateSlot, export_with_state
 
@@ -125,6 +126,45 @@ def test_defaults_inventory_and_shared_function_edges(exported):
     assert len(calls) == 2
     assert all(node.input[1] == "shared_weight" for node in calls)
     assert any(function.input[1] in n.input for n in function.node)
+
+
+def _op_types(proto):
+    types = Counter(node.op_type for node in proto.graph.node)
+    for function in proto.functions:
+        types.update(f"{function.name}.{node.op_type}" for node in function.node)
+    return types
+
+
+def _float_weights(proto):
+    return Counter(
+        _tensor_signature(tensor)
+        for tensor in proto.graph.initializer
+        if tensor.data_type == onnx.TensorProto.FLOAT
+        and onnx.numpy_helper.to_array(tensor).size > 1
+    )
+
+
+def test_explicit_export_keeps_the_ordinary_computation(exported):
+    # The user guide states that only the weight interface differs.
+    model, x, _, _, proto, session = exported
+    ordinary = ir.to_proto(
+        to_onnx(
+            model,
+            inputs=[jax.ShapeDtypeStruct(x.shape, x.dtype)],
+            input_names=["x"],
+            return_mode="ir",
+        )
+    )
+    assert [value.name for value in ordinary.graph.input] == ["x"]
+    assert not set(example.SLOT_NAMES) & {t.name for t in ordinary.graph.initializer}
+    assert _op_types(ordinary) == _op_types(proto)
+    assert _float_weights(ordinary) == _float_weights(proto)
+    np.testing.assert_allclose(
+        example.runtime(ordinary).run(None, {"x": np.asarray(x)})[0],
+        session.run(None, {"x": np.asarray(x)})[0],
+        rtol=1e-6,
+        atol=1e-7,
+    )
 
 
 @pytest.mark.parametrize("selected", [*example.SLOT_NAMES, "all"])

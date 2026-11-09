@@ -83,6 +83,33 @@ Metadata does not make an input trainable or frozen. The example's Python
 consumer interprets its own `pkg.example.trainable` property. The exporter and
 ONNX Runtime do not interpret that property.
 
+### What changes in the ONNX file
+
+The recipe does not rewrite the computation. For this example, both exports
+contain the same operators and the same four weight tensors, and ONNX Runtime
+returns the same outputs. Only the way the weights enter the graph differs:
+
+| Ordinary closed-model export | This explicit-state recipe |
+| --- | --- |
+| Initializer with a generated name, for example `const_0: float[4, 4]` | Graph input `shared_weight: float[4, 4]` with a same-named initializer default |
+| No tensor properties | `pkg.example.path=shared_weight`, `pkg.example.trainable=true` |
+| Consumers read the constant, for example `project(x, const_0)` | Consumers read the input, for example `project(x, shared_weight)` |
+
+Other models can need a few extra shape operations where the ordinary export
+uses a constant view and the explicit export computes that view from the shared
+input. A regression test compares both exports of this example.
+
+### Why not annotate the ordinary export afterwards?
+
+An ordinary export does not record which model field each weight initializer
+came from; its names are generated. Values cannot reliably identify the field
+either. Here, `shared_weight` and `independent_weight` start with identical
+values, and freshly initialized models typically contain identical LayerNorm
+scales. Some patterns are also stored in a derived form, for example a weight
+expanded by `jnp.broadcast_to` to a fixed shape. Naming the state at the export
+interface records the mapping by construction, without provenance tracking in
+the converter.
+
 ## Walkthrough: prepare, export and run the model
 
 The following Python blocks form one sequential session. Run them from the
@@ -252,6 +279,13 @@ An override affects this inference call. It does not edit the ONNX file, mutate
 the Python source model, or become the default for later calls. Running again
 with only `feed` uses the saved defaults again.
 
+`runtime` lowers the ONNX Runtime log level. With default logging, ONNX Runtime
+warns for each state input that the initializer "appears in graph inputs and
+will not be treated as constant value/weight". This is expected for overridable
+defaults and reflects the constant-folding trade-off described at the end of
+this page. Do not remove the inputs to silence the warning; that removes the
+override interface.
+
 ### 6. Inspect metadata and reconstruct the known Python model
 
 ```python
@@ -380,8 +414,9 @@ closure can instead silently become a constant. This helper does not discover
 or repair those patterns.
 
 The recipe introduces no closure conversion, automatic alias detection or
-provenance registry. Its suitability for Clément's actual model and a general
-ONNX-to-JAX training importer still needs separate validation. Other runtimes
+provenance registry. Its suitability for the motivating models in discussion
+#290 and for a general ONNX-to-JAX training importer still needs separate
+validation. Other runtimes
 and external optimizer outputs need their own compatibility checks.
 
 Keeping state dynamic can reduce constant folding and precomputation. Use the
