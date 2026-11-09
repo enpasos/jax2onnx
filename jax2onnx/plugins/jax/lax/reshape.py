@@ -24,7 +24,6 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
-    _gather_int_scalar,
     _shape_of,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -291,13 +290,16 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             return value
 
         def unsqueeze_to_len1(src: ir.Value) -> ir.Value:
-            axes = const_i64_vec(np.array([0], dtype=np.int64))
-            unsqueezed = ctx.builder.Unsqueeze(
-                src, axes, _outputs=[ctx.fresh_name("unsq")]
-            )
+            if ctx.opset >= 13:
+                axes = const_i64_vec(np.array([0], dtype=np.int64))
+                unsqueezed = ctx.builder.op("Unsqueeze", [src, axes])
+            else:
+                unsqueezed = ctx.builder.op(
+                    "Unsqueeze", [src], {"axes": ir.AttrInt64s("axes", [0])}
+                )
             _stamp_type_and_shape(unsqueezed, (1,))
             _ensure_value_metadata(ctx, unsqueezed)
-            return cast(ir.Value, unsqueezed)
+            return unsqueezed
 
         # Build pieces of the shape tensor.
         # We keep two views:
@@ -419,10 +421,12 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     if len(x_shape):
                         _stamp_type_and_shape(shape_of_x, (len(x_shape),))
                     _ensure_value_metadata(ctx, shape_of_x)
-                gathered_scalar = _gather_int_scalar(
-                    ctx, shape_of_x, axis_idx, "reshape_dim"
-                )
-                shape_parts.append(unsqueeze_to_len1(gathered_scalar))
+                axis = const_i64_vec(np.array([axis_idx], dtype=np.int64))
+                gathered = ctx.builder.op("Gather", [shape_of_x, axis], {"axis": 0})
+                gathered.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(gathered, (1,))
+                _ensure_value_metadata(ctx, gathered)
+                shape_parts.append(gathered)
                 if debug:
                     print("    dynamic gather from input axis", axis_idx)
             elif hasattr(dim, "dtype") and np.issubdtype(
@@ -452,19 +456,29 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     axis=0,
                     _outputs=[ctx.fresh_name("reshape_shape_tensor")],
                 )
+                shape_tensor.type = ir.TensorType(ir.DataType.INT64)
                 _stamp_type_and_shape(shape_tensor, (len(shape_parts),))
                 _ensure_value_metadata(ctx, shape_tensor)
 
         # --------- emit the single Reshape node ----------
-        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("reshape_out"))
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Reshape")
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("Reshape")
-        reshape_val = ctx.builder.Reshape(
-            x_val,
-            shape_tensor,
-            _outputs=[desired_name],
+        if ctx.opset < 14 and any(
+            dim_expr_constant_value(dim) == 0
+            and (i >= len(x_shape) or dim_expr_constant_value(x_shape[i]) != 0)
+            for i, dim in enumerate(new_sizes)
+        ):
+            raise NotImplementedError(
+                "Reshape with literal zero dimensions at different input axes "
+                "requires opset >= 14."
+            )
+        # JAX sizes are literal dimensions. Before opset 14, zero instead means
+        # copy the corresponding input axis. A fallback -1 must keep that mode:
+        # ONNX forbids combining literal zeros with an inferred dimension.
+        attributes = {"allowzero": int(not inserted_neg1)} if ctx.opset >= 14 else {}
+        out_spec = ctx.allocate_value_for_var(
+            y_var, name_hint=ctx.fresh_name("reshape_out")
+        )
+        reshape_val = ctx.builder.op(
+            "Reshape", [x_val, shape_tensor], attributes, output=out_spec
         )
         output_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
         if output_dtype is None:

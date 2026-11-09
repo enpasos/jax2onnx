@@ -22,6 +22,10 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Respect Reshape opset and zero dimensions:** Omit `allowzero` before
+  opset 14, retain inferred dimensions, and preserve literal zero dimensions
+  from opset 14, including mixed symbolic shapes. Older opsets reject literal
+  zero placements that would copy a different input dimension.
 * **Sort NaNs after positive infinity:** Preserve JAX's stable ordering in
   `jnp.sort` and `lax.sort`, including associated payloads and multiple sort
   keys. Select original values by their sort indices to retain signed zeros

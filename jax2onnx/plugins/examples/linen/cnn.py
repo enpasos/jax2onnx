@@ -107,7 +107,7 @@ register_example(
                                 "Gemm": 2,
                                 "Shape": 1,
                                 "Gather": 1,
-                                "Unsqueeze": 1,
+                                "Unsqueeze": 0,
                                 "Concat": 1,
                             }
                         },
