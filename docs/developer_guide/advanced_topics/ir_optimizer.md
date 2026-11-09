@@ -228,6 +228,9 @@ The composed permutation of the Transpose nodes equals identity.
 Elementwise operators that do not reorder elements, including:
 `Relu`, `Gelu`, `Elu`, `Sigmoid`, `Tanh`, `LeakyRelu`, `Cast`, `CastLike`, `Identity`, `Not`, etc.
 
+`Max` and `Min` require the traversal that proves every operand's layout; the
+fallback that follows only the first input does not cross them.
+
 **Not folded**
 Anything that crosses non-elementwise operators such as `AveragePool`, `Conv`, or similar layout-sensitive ops.
 
@@ -290,6 +293,8 @@ The Cast node(s) are removed and consumers are rewired to the original input `x`
 **Condition**
 - The allowed elementwise ops are the same as in Transpose folding (shape-preserving).
 - The input shape of the first Reshape matches the output shape of the second Reshape.
+- `Max` and `Min` are excluded: reshaping only one operand can change the
+  broadcast mapping of the others even when the resulting shapes are valid.
 
 **Effect**
 Both Reshape nodes are removed. The elementwise ops are rewired to consume `A` directly, and the consumers of `B` are rewired to the output of the last elementwise op. This eliminates redundant flatten/unflatten pairs often emitted by high-level frameworks.
