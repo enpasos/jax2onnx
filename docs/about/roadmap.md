@@ -22,6 +22,13 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Export every `nnx.LinearGeneral` input layout:** Restore multi-dimensional
+  `out_features` after `Gemm` for rank-2 inputs, including symbolic batch
+  sizes, and flatten rank-1 inputs and inputs whose axes are all contracted.
+  Layers without a bias now export, also when evaluated during tracing. Flax
+  Linen `DenseGeneral` receives the same output-layout fix. Thanks to Clément
+  Poiret for reporting the rank-2 case in
+  [discussion #290](https://github.com/enpasos/jax2onnx/discussions/290).
 * **Preserve exported reshape intermediates:** Keep reshape pairs when the
   first reshape or a middle elementwise result is also a graph output, retaining
   its public shape, dtype, name and output position.

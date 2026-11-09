@@ -39,7 +39,25 @@ def _expect_linen_rgr(*, dynamic: bool = False) -> Callable[[Any], bool]:
         ],
         no_unused_inputs=True,
     )
+    return _check_by_input_dtype(float32_check, float64_check)
 
+
+def _expect_linen_gemm_reshape() -> Callable[[Any], bool]:
+    """Rank-2 inputs feed Gemm directly; only its result is reshaped."""
+
+    def graph_check(cast_count: int, *extra: str) -> Callable[[Any], bool]:
+        counts = {"Gemm": 1, "Reshape": 1, "CastLike": cast_count}
+        return EG(
+            [("Gemm -> Reshape:3x8x32", {"counts": counts}), *extra],
+            no_unused_inputs=True,
+        )
+
+    return _check_by_input_dtype(graph_check(0), graph_check(2, "CastLike -> Gemm"))
+
+
+def _check_by_input_dtype(
+    float32_check: Callable[[Any], bool], float64_check: Callable[[Any], bool]
+) -> Callable[[Any], bool]:
     def check(model: Any) -> bool:
         if len(model.graph.input) != 1:
             return False
@@ -119,6 +137,22 @@ def _is_trailing_axes(axis: Sequence[int], ndim: int) -> bool:
             "input_shapes": [(2, 4, 256)],
             "expected_output_shapes": [(2, 4, 8, 32)],
             "post_check_onnx_graph": _expect_linen_rgr(),
+        },
+        {
+            "testcase": "dense_general_rank2_input_multi_out",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.DenseGeneral,
+                input_shape=(1, 256),
+                features=(8, 32),
+                axis=-1,
+                dtype=with_requested_dtype(),
+                bias_init=nn.initializers.normal(stddev=1.0),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(3, 256)],
+            "expected_output_shapes": [(3, 8, 32)],
+            "post_check_onnx_graph": _expect_linen_gemm_reshape(),
         },
         {
             "testcase": "dense_general_contract_last_two",
