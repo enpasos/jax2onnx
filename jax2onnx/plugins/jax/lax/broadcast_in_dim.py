@@ -13,6 +13,7 @@ from jax2onnx._compat.jax import fresh_var_like, new_jaxpr_eqn
 # from onnx_ir import Attribute as IRAttr
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
+    NativeLoweringContext,
     SymbolicDimOrigin,
 )
 from jax2onnx.plugins.plugin_system import (
@@ -230,6 +231,92 @@ def _maybe_inline_constant_broadcast(
     return True
 
 
+def _maybe_unsqueeze_constant(
+    ctx: NativeLoweringContext,
+    out_var: Any,
+    x_val: ir.Value,
+    shape: tuple[Any, ...],
+    bdims: tuple[int, ...],
+    op_shape: tuple[Any, ...],
+) -> bool:
+    """Keep a stored constant shared when broadcasting only inserts unit axes."""
+    tensor = x_val.const_value
+    if ctx.opset < 13 or tensor is None or x_val.is_graph_input():
+        return False
+    # Keep integer indices and other types available to constant-folding users.
+    if tensor.dtype not in (
+        ir.DataType.FLOAT16,
+        ir.DataType.FLOAT,
+        ir.DataType.DOUBLE,
+        ir.DataType.BFLOAT16,
+    ):
+        return False
+    producer = x_val.producer()
+    if producer is None:
+        if x_val.graph is not ctx.builder.graph or not x_val.is_initializer():
+            return False
+    else:
+        if (
+            producer.graph is not ctx.builder.graph
+            or producer.op_type != "Constant"
+            or producer.domain != ""
+            or producer.overload
+            or producer.inputs
+        ):
+            return False
+        value_attr = producer.attributes.get("value")
+        if (
+            value_attr is None
+            or value_attr.is_ref()
+            or value_attr.type != ir.AttributeType.TENSOR
+            or value_attr.as_tensor() is not tensor
+        ):
+            return False
+
+    source_shape = _static_shape_tuple(op_shape)
+    target_shape = _static_shape_tuple(shape)
+    if source_shape is None or target_shape is None:
+        return False
+    if any(dim < 0 for dim in source_shape + target_shape):
+        return False
+    if tuple(tensor.shape) != source_shape:
+        return False
+    if tensor.dtype != x_val.dtype:
+        return False
+    if len(bdims) != len(source_shape) or bdims != tuple(sorted(set(bdims))):
+        return False
+    if any(axis < 0 or axis >= len(target_shape) for axis in bdims):
+        return False
+    axes = tuple(axis for axis in range(len(target_shape)) if axis not in bdims)
+    if any(target_shape[axis] != source_shape[i] for i, axis in enumerate(bdims)):
+        return False
+    if any(target_shape[axis] != 1 for axis in axes):
+        return False
+    if x_val.dtype != numpy_dtype_to_ir(out_var.aval.dtype):
+        return False
+
+    output = ctx.allocate_value_for_var(out_var, name_hint=ctx.fresh_name("bcast_out"))
+    if axes:
+        axes_val = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("bcast_axes"), array=np.asarray(axes, dtype=np.int64)
+        )
+        result = ctx.builder.op("Unsqueeze", [x_val, axes_val], output=output)
+    else:
+        # A distinct output value keeps graph and Function output names intact.
+        result = ctx.builder.op("Identity", [x_val], output=output)
+    ctx.bind_value_for_var(out_var, result)
+    return True
+
+
+def _constant_singleton_views() -> tuple[Any, ...]:
+    weight: np.ndarray[Any, Any] = np.asarray([1.0, 2.0], dtype=np.float32)
+    return (
+        weight,
+        lax.broadcast_in_dim(weight, (1, 2), (1,)),
+        lax.broadcast_in_dim(weight, (2, 1), (0,)),
+    )
+
+
 @register_native_primitive(
     jaxpr_primitive=jax.lax.broadcast_in_dim_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/jax-primitives.html",
@@ -241,6 +328,10 @@ def _maybe_inline_constant_broadcast(
         {
             "component": "Expand",
             "doc": "https://onnx.ai/onnx/operators/onnx__Expand.html",
+        },
+        {
+            "component": "Unsqueeze",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Unsqueeze.html",
         },
         {  # Added Identity for completeness
             "component": "Identity",
@@ -287,6 +378,20 @@ def _maybe_inline_constant_broadcast(
             ),
         },
         {
+            "testcase": "broadcast_in_dim_constant_singleton_views",
+            "callable": _constant_singleton_views,
+            "input_shapes": [],
+            "expected_output_shapes": [(2,), (1, 2), (2, 1)],
+            "expected_output_dtypes": [np.float32, np.float32, np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    ("Unsqueeze:1x2", {"counts": {"Unsqueeze": 2}}),
+                    "Unsqueeze:2x1",
+                ],
+                must_absent=["Reshape", "Expand"],
+            ),
+        },
+        {
             # ------------------------------------------------------------------
             # Re‑creates the "broadcast (1,1,D) → (B,1,D)" pattern that broke
             # when `shape` contained the symbolic batch dimension  B.
@@ -327,9 +432,8 @@ def _maybe_inline_constant_broadcast(
 )
 class BroadcastInDimPlugin(PrimitiveLeafPlugin):
     """
-    Lower jax.lax.broadcast_in_dim(x, shape, broadcast_dimensions) to:
-        (optional) Reshape(x, reshape_shape) -> Expand(…, target_shape)
-    where reshape_shape inserts 1s in the non-mapped result axes.
+    Use Unsqueeze for stored constants that only gain singleton axes at opset 13+.
+    Other broadcasts use constant folding or optional Reshape followed by Expand.
     """
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
@@ -449,6 +553,9 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         for i, r_axis in enumerate(bdims):
             dim = op_shape[i] if i < len(op_shape) else 1
             reshape_dims[r_axis] = dim
+
+        if _maybe_unsqueeze_constant(ctx, out_var, x_val, shape, bdims, op_shape):
+            return
 
         if _maybe_inline_constant_broadcast(
             ctx, out_var, x_val, shape, bdims, op_shape

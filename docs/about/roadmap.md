@@ -22,6 +22,11 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Share stored floating weights across singleton broadcast views:** At opset
+  13 and newer, insert singleton axes with `Unsqueeze` so direct consumers and
+  views retain the same FP16, BF16, FP32 or FP64 parameter. Integer and boolean
+  constants, broadcasts that expand dimensions and older opsets retain their
+  existing lowering.
 * **Reuse constant parameter reshapes:** Repeated uses of one parameter at the
   same shape share a graph-local constant view, avoiding duplicate kernels for
   reused Flax NNX `LinearGeneral` layers while preserving dtype and metadata.
