@@ -92,6 +92,15 @@ validator that contains the `BitCast` schema, and a runtime kernel. The minimum
 ONNX package, 1.20.1, contains schemas only through opset 25; these opset-26
 workflows therefore require a newer ONNX environment.
 
+Reshapes that place a literal zero at an axis without a corresponding known
+zero input dimension require opset 14 or newer. Earlier opsets interpret zero
+as copying the input dimension at the same axis; these incompatible literal
+zero placements are rejected. Aligned zero dimensions and explicit `-1` entries
+retained in the emitted shape tensor keep ONNX's copy/inference semantics. If
+JAX resolves an inferred size to zero before lowering, the same literal-zero
+restriction applies. Use opset 14 or newer when symbolic reshape dimensions
+may become zero at runtime.
+
 ## Numerical Differences
 
 Small numerical differences can occur across JAX and ONNX Runtime because of

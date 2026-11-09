@@ -456,7 +456,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         def gather_axis(idx: int) -> ir.Value:
             shape_val = ensure_shape_value()
             axis_const = _const_i64(
-                ctx, np.asarray(idx, dtype=np.int64), "reshape_axis"
+                ctx, np.asarray([idx], dtype=np.int64), "reshape_axis"
             )
             gather_val = cast(
                 ir.Value,
@@ -468,23 +468,9 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                 ),
             )
             gather_val.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(gather_val, ())
+            _stamp_type_and_shape(gather_val, (1,))
             _ensure_value_metadata(ctx, gather_val)
-            axes_const = _const_i64(
-                ctx, np.asarray([0], dtype=np.int64), "reshape_unsq_axes"
-            )
-            unsqueezed = cast(
-                ir.Value,
-                builder.Unsqueeze(
-                    gather_val,
-                    axes_const,
-                    _outputs=[ctx.fresh_name("reshape_dim_unsq")],
-                ),
-            )
-            unsqueezed.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(unsqueezed, (1,))
-            _ensure_value_metadata(ctx, unsqueezed)
-            return unsqueezed
+            return gather_val
 
         for idx, dim in enumerate(newshape_elems):
             if isinstance(dim, (int, np.integer)):
@@ -580,11 +566,25 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                 reshape_out = None
 
         if reshape_out is None:
-            reshape_out = builder.Reshape(
-                arr_val,
-                shape_tensor,
-                allowzero=0,
-                _outputs=[getattr(out_spec, "name", None) or ctx.fresh_name("Reshape")],
+            if ctx.opset < 14 and any(
+                dim_expr_constant_value(dim) == 0
+                and (
+                    i >= len(input_shape)
+                    or dim_expr_constant_value(input_shape[i]) != 0
+                )
+                for i, dim in enumerate(newshape_elems)
+            ):
+                raise NotImplementedError(
+                    "Reshape with literal zero dimensions at different input axes "
+                    "requires opset >= 14."
+                )
+            inferred = any(dim_expr_constant_value(dim) == -1 for dim in newshape_elems)
+            attributes = {"allowzero": int(not inferred)} if ctx.opset >= 14 else {}
+            out_spec = ctx.allocate_value_for_var(
+                out_var, name_hint=ctx.fresh_name("reshape_out")
+            )
+            reshape_out = builder.op(
+                "Reshape", [arr_val, shape_tensor], attributes, output=out_spec
             )
         spec_type = getattr(out_spec, "type", None)
         if spec_type is not None:
