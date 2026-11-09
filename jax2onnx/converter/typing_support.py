@@ -106,6 +106,11 @@ class IRBuilderAPI(Protocol):
     def initializers(self) -> Sequence[ir.Value]: ...
 
     @property
+    def reshaped_initializers(
+        self,
+    ) -> dict[tuple[ir.Value, tuple[int, ...]], ir.Value]: ...
+
+    @property
     def nodes(self) -> Sequence[ir.Node]: ...
 
     @property
