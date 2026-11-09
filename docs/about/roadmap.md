@@ -22,6 +22,9 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Preserve Max/Min broadcasts during layout optimization:** Retain reshape
+  and transpose boundaries when other operands lack a matching layout proof,
+  preventing invalid broadcasts and silent changes in elementwise results.
 * **Share stored floating weights across singleton broadcast views:** At opset
   13 and newer, insert singleton axes with `Unsqueeze` so direct consumers and
   views retain the same FP16, BF16, FP32 or FP64 parameter. Integer and boolean

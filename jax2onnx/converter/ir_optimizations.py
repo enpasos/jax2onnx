@@ -58,6 +58,8 @@ ALLOWED_ELEMENTWISE_OPS: Set[str] = {
     "clip",
 }
 
+# First-input layout walks cannot prove Max/Min's other operand mappings.
+# The all-operand transpose collectors use separate allowlists below.
 ALLOWED_ELEMWISE: Set[str] = {
     "Elu",
     "Gelu",
@@ -70,8 +72,6 @@ ALLOWED_ELEMWISE: Set[str] = {
     "Cast",
     "CastLike",
     "Not",
-    "Max",
-    "Min",
     "Clip",
 }
 
