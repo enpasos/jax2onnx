@@ -370,13 +370,14 @@ def test_decorated_stateful_module_fails_without_closure_fallback(
     state = np.array([2.0, 3.0], dtype=np.float32)
     np.testing.assert_array_equal(forward(jnp.ones(2), jnp.asarray(state)), state)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises((jax.errors.TracerArrayConversionError, RuntimeError)):
+    with pytest.raises((jax.errors.TracerArrayConversionError, RuntimeError)) as error:
         export_with_state(
             forward,
             [jax.ShapeDtypeStruct((2,), np.float32)],
             [StateSlot("state", state, {})],
             data_input_names=["x"],
         )
+    assert "failed final default validation" not in str(error.value)
     assert not list(tmp_path.iterdir())
 
 

@@ -159,6 +159,13 @@ follow_imports = "normal"
 
 [[tool.mypy.overrides]]
 module = [
+    "onnxruntime",
+    "optax",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
     "tests.*",
     "jax2onnx.sandbox.*",
 ]

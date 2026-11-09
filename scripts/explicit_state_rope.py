@@ -26,8 +26,8 @@ import jax.numpy as jnp
 import numpy as np
 import onnx
 import onnx_ir as ir
-import onnxruntime as ort  # type: ignore[import-untyped]
-import optax  # type: ignore[import-untyped]
+import onnxruntime as ort
+import optax
 
 from jax2onnx import onnx_function
 from scripts.explicit_state_export import StateSlot, export_with_state
@@ -207,10 +207,10 @@ def reconstruct(model: SmallAttention, state: Sequence[StateSlot]) -> SmallAtten
             m.k_projection.matrix,
         ),
     }
-    for slot in state:
-        path = slot.metadata.get("pkg.example.path", "")
-        if path not in selectors:
-            raise ValueError(f"unknown path for this example: {path!r}")
+    paths = [slot.metadata.get("pkg.example.path", "") for slot in state]
+    if sorted(paths) != sorted(selectors):
+        raise ValueError("state must provide each known path exactly once")
+    for slot, path in zip(state, paths):
         selector = selectors[path]
         model = eqx.tree_at(
             selector,
@@ -357,7 +357,7 @@ def run_demo(output_dir: Path, *, external_data: bool = False) -> dict[str, obje
             name: version(name)
             for name in ("jax", "equinox", "optax", "onnx", "onnx-ir", "onnxruntime")
         },
-        "opset": 23,
+        "opset": exported.graph.opset_imports[""],
         "x64_enabled": jax.config.jax_enable_x64,
         "ort_optimization": "ORT_ENABLE_ALL",
         "slot_count": len(slots),

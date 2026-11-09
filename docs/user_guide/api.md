@@ -28,6 +28,11 @@ For direct file export, set `return_mode="file"` and provide `output_path`.
 For a full export validation checklist, see
 [Validation & Deployment Readiness](validation.md).
 
+To expose selected weights and buffers as named ONNX inputs with saved defaults,
+see the [explicit model-state walkthrough](explicit_state_export.md). It shows
+the export-wrapper and runtime-feed changes using repository-local helpers;
+the public `to_onnx` signature stays unchanged.
+
 For browser deployment with [`onnxruntime-web`](https://onnxruntime.ai/docs/tutorials/web/), use the Web export profile:
 
 ```python

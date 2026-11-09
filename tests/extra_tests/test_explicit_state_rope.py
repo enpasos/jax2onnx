@@ -289,11 +289,45 @@ def test_reconstruction_resolves_imported_labels_for_observable_overrides(export
         )
 
 
+@pytest.mark.parametrize(
+    "invalid", ["missing_slot", "duplicate", "unknown", "missing_path"]
+)
+@pytest.mark.parametrize("consumer", ["reconstruct", "adamw"])
+def test_reconstruction_requires_a_complete_path_bijection(exported, invalid, consumer):
+    model, x, slots, _, _, _ = exported
+    if invalid == "missing_slot":
+        state = slots[:-1]
+    else:
+        metadata = dict(slots[-1].metadata)
+        if invalid == "missing_path":
+            del metadata["pkg.example.path"]
+        else:
+            metadata["pkg.example.path"] = (
+                slots[0].metadata["pkg.example.path"]
+                if invalid == "duplicate"
+                else "unknown.path"
+            )
+        state = (*slots[:-1], StateSlot(slots[-1].name, slots[-1].value, metadata))
+    with pytest.raises(ValueError, match="each known path exactly once"):
+        if consumer == "reconstruct":
+            example.reconstruct(model, state)
+        else:
+            example.adamw_step(model, state, x, jnp.zeros_like(x))
+
+
+@pytest.mark.parametrize("opset", [17, 23])
 @pytest.mark.parametrize("external_data", [False, True])
 def test_demo_checks_serialized_policy_and_independent_reference(
-    tmp_path, external_data
+    tmp_path, monkeypatch, external_data, opset
 ):
+    original_export = example.export_with_state
+
+    def export_at_selected_opset(*args, **kwargs):
+        return original_export(*args, **kwargs, opset=opset)
+
+    monkeypatch.setattr(example, "export_with_state", export_at_selected_opset)
     report = example.run_demo(tmp_path, external_data=external_data)
+    assert report["opset"] == opset
     assert report["frozen_slots_unchanged"] is True
     assert report["override_max_absolute_error"] < 2e-6
     assert (tmp_path / "report.json").exists()

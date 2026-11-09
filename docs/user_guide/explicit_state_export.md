@@ -1,210 +1,389 @@
-# Export explicit model state
+# Export and use explicit model state
 
-This experimental example exports selected weights and buffers as named ONNX
-inputs, then adds their default values and tensor metadata. It uses the ordinary
-`to_onnx` pipeline. The adapter lives in `scripts/`; it is not a new jax2onnx
-API or an automatic adapter for arbitrary models.
+Suppose you want an ONNX model that contains its weights but also lets a caller
+replace selected weights or buffers. This example makes those values named
+inputs with saved defaults. A caller can run inference with the defaults or
+supply replacement arrays by name.
 
-The example addresses the parameter-sharing and freeze-policy questions in
-[discussion #290](https://github.com/enpasos/jax2onnx/discussions/290). It uses a
-small Equinox attention model with rotary position embeddings (RoPE). It is a
-demonstration of the export convention, not an adapter for Clément's complete
-Equimo, ViT or DINO models.
+This is an experimental recipe in the repository's `scripts/` directory. The
+public `jax2onnx.to_onnx` API stays unchanged. The recipe adds an example-local
+export helper and changes the interface of the ONNX model you choose to export.
+The helpers are not public imports from the installed `jax2onnx` package.
 
-## What the model exports
+The walkthrough uses a small Equinox attention model with rotary position
+embeddings (RoPE). It illustrates the sharing and freeze-policy questions in
+[discussion #290](https://github.com/enpasos/jax2onnx/discussions/290); it is not
+an automatic adapter for arbitrary Equimo, ViT or DINO models.
 
-A parameter can feed several operations while retaining one explicit input:
+## Try the complete example first
 
-```text
-shared_weight + its initializer default
-    -> direct projection
-    -> reshape/broadcast -> another use
-    -> ONNX Function argument -> projection inside the Function
-```
-
-The model has four declared state slots:
-
-| Slot | Purpose | Training policy in this example |
-| --- | --- | --- |
-| `shared_weight` | A weight used directly, through views and through explicit Function arguments | Trainable |
-| `independent_weight` | A separate weight with the same initial values | Trainable, independently |
-| `rope_rotations` | The RoPE buffer used through traced JAX operations | Frozen |
-| `shared_frozen` | One matrix deliberately shared by two projection branches | Frozen |
-
-The framework adapter defines this sharing. It reconstructs the two known
-frozen branch fields from the same slot. Equal values or equal array identities
-do not cause the helper to combine slots. The two initially equal trainable
-weights remain separate inputs and separate defaults.
-
-## Run the example
-
-From the repository root, use the normal Poetry environment:
+Use a checkout containing this example. From its repository root, prepare the
+normal development environment and run:
 
 ```bash
+poetry install
 poetry run python -m scripts.explicit_state_rope \
   --output-dir /tmp/explicit-state-rope
 ```
 
-The command exports the model, saves and reloads it, compares ONNX Runtime with
-JAX, exercises changed state against a separately reconstructed Python model,
-and checks that the saved paths and training policy match this architecture.
-Both frozen buffers must remain unchanged through an AdamW step.
-It prints the artifact location and validation results. Generated models stay
-outside git.
+The output directory contains:
 
-To exercise the supported External Data save path:
+| File | What it contains |
+| --- | --- |
+| `attention.onnx` | The inference graph, four named state inputs, their default arrays and tensor metadata |
+| `report.json` | Versions, the actual opset, numerical comparisons and the result of the freezing check |
+
+The command saves and reloads the model, compares ONNX Runtime with JAX, checks
+all four replacement arrays against a separately reconstructed Python model,
+and performs one AdamW step. Both buffers declared frozen must remain unchanged.
+
+To store tensor payloads in a separate file, use a fresh output directory:
 
 ```bash
 poetry run python -m scripts.explicit_state_rope \
   --output-dir /tmp/explicit-state-rope-external --external-data
 ```
 
-Both paths serialize a fresh `ir.to_proto(model)` with `onnx.save_model`, then
-reload and check the result. The example avoids `ir.save` with External Data:
-the reviewed ONNX IR 1.1.0 path loses tensor metadata. There is no promise of
-atomic publication across model and data files after filesystem failures.
-The save check writes to the requested directory before validating the files.
-If it raises, those files are not validated output; retry in a fresh directory.
+This also writes `attention.onnx.data`. Keep that file beside `attention.onnx`
+when copying or opening the model. Generated artifacts stay outside git.
 
-## What the caller prepares
+## Exactly which interface changes?
 
-The model is exported as a function with explicit state arguments. In this
-example, Equinox partitioning separates model structure from array values, and
-the adapter reconstructs the known model using those arguments.
+The Python model still runs as `source(x)`. For export, an adapter supplies a
+second callable whose state is explicit:
 
-The example-local helper accepts records like this:
+```text
+Original model:  source(x)
+Export wrapper:  forward(x, shared_weight, independent_weight,
+                        rope_rotations, shared_frozen)
+```
+
+The helper passes typed specifications for **data first, then state in slot
+order** to the ordinary `to_onnx` function. After conversion, it attaches each
+state array as the default of its corresponding ONNX input.
+
+| Interface | Ordinary closed-model export | This explicit-state recipe |
+| --- | --- | --- |
+| Python model call | `source(x)` | `source(x)` |
+| Callable passed to conversion | The model captures its state | A wrapper receives each selected state slot as an argument |
+| Public `to_onnx` signature | Existing API | Existing API; no new keyword |
+| Recipe entry point | Not needed | `export_with_state(forward, data_specs, slots, data_input_names=...)` returns an IR model |
+| ONNX data input | `x`, required | `x`, required |
+| Selected state in ONNX | Stored constants | Named inputs with same-named initializer defaults |
+| ONNX Runtime feed for default inference | `{"x": x_array}` | `{"x": x_array}` |
+| Replace one selected weight for a run | No declared override interface | Add `"shared_weight": replacement` to the feed |
+| Path and training labels | Not supplied by this recipe | String properties on the state initializer tensors |
+
+The wrapper's Python state arguments are required during tracing. In the saved
+ONNX model, these state inputs have defaults, so inference callers may omit
+them. An omitted slot uses its saved default. A supplied slot uses the caller's
+array for that run.
+
+Metadata does not make an input trainable or frozen. The example's Python
+consumer interprets its own `pkg.example.trainable` property. The exporter and
+ONNX Runtime do not interpret that property.
+
+## Walkthrough: prepare, export and run the model
+
+The following Python blocks form one sequential session. Run them from the
+repository root in `poetry run python` or a script using that environment.
+
+### 1. Prepare the original model and data
 
 ```python
-from scripts.explicit_state_export import StateSlot, export_with_state
+from pathlib import Path
 
-slot = StateSlot(
-    name="shared_weight",
-    value=weight,
-    metadata={
-        "pkg.example.path": "shared_weight",
-        "pkg.example.trainable": "true",
-    },
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from jax2onnx import to_onnx
+from scripts.explicit_state_export import StateSlot, export_with_state
+from scripts.explicit_state_rope import (
+    SmallAttention,
+    adamw_step,
+    explicit_forward,
+    read_slots,
+    reconstruct,
+    runtime,
+    save_reload,
+    state_slots,
 )
 
-model = export_with_state(
-    forward,  # forward(features, shared_weight)
-    [features_spec],
-    [slot],
-    data_input_names=["features"],
-    opset=23,
+source = SmallAttention(key=jax.random.key(0))
+x = jnp.linspace(-0.8, 0.9, 12, dtype=jnp.float32).reshape(3, 4)
+data_specs = [jax.ShapeDtypeStruct(x.shape, x.dtype)]
+
+# The ordinary export has just the data input.
+closed = to_onnx(
+    source,
+    inputs=data_specs,
+    input_names=["x"],
+    return_mode="ir",
+)
+print([value.name for value in closed.graph.inputs])  # ['x']
+```
+
+`x` contains three tokens with four features each. The example constructs its
+weights and buffers as FP32 arrays before export.
+
+### 2. Declare which values form the state interface
+
+```python
+slots = state_slots(source)
+for slot in slots:
+    print(slot.name, slot.value.shape, dict(slot.metadata))
+```
+
+A **slot** is one array you deliberately expose as one changeable value. This
+model-specific function declares four slots:
+
+| Slot name | Fields in the Python model | Shape | Training policy |
+| --- | --- | --- | --- |
+| `shared_weight` | `shared_weight` | `(4, 4)` | Trainable |
+| `independent_weight` | `independent_weight` | `(4, 4)` | Trainable |
+| `rope_rotations` | `rope.rotations` | `(3, 2, 2)` | Frozen |
+| `shared_frozen` | Both `q_projection.matrix` and `k_projection.matrix` | `(4, 4)` | Frozen |
+
+For your own adapter, construct these records with `StateSlot`. This is how
+the example declares the RoPE buffer:
+
+```python
+rope_slot = StateSlot(
+    name="rope_rotations",
+    value=source.rope.rotations,
+    metadata={
+        "pkg.example.path": "rope.rotations",
+        "pkg.example.trainable": "false",
+    },
 )
 ```
 
-`StateSlot` and `export_with_state` belong to the example script. They are not
-exports from `jax2onnx`. The helper builds each state specification from its
-source shape, dtype and `weak_type`; weak scalar promotion can otherwise change
-the computation's dtype.
+`state_slots(source)` already includes this record in its four-element result;
+do not append it again. Slot order must match the wrapper's positional state
+arguments.
 
-For each declared slot, the helper checks its target input and installs an
-owned tensor snapshot on the same IR value as an initializer. It keeps that
-value in `model.graph.inputs`. An input and same-named initializer represent an
-input with a default in ONNX; the example checks default and override behavior
-with ONNX Runtime. Other runtimes need their own compatibility checks.
+The two trainable weights initially have equal values, but remain independent
+slots. Both frozen projection fields deliberately share one slot. Neither
+array identity nor equal contents cause the export helper to infer sharing.
+The combined path label for that shared slot is this example's own convention:
+`q_projection.matrix;k_projection.matrix`.
 
-Keep model configuration and source values stable while exporting. Subsequent
-changes to the original arrays or metadata dictionaries do not alter the
-accepted snapshots. The returned IR model is itself mutable.
+### 3. Give the export wrapper all selected state explicitly
 
-## The bounded helper contract
+```python
+forward = explicit_forward(source)
 
-The first example supports nonempty dense native-endian FP32 state with static shapes,
-including a tested rank-zero weak scalar. Noncontiguous arrays are copied in
-C order. Other state dtypes and empty tensors are rejected; they are not
-silently converted. Data-input types remain subject to ordinary exporter
-support, including the tested FP16-activation case.
+exported = export_with_state(
+    forward,
+    data_specs,
+    slots,
+    data_input_names=["x"],
+    opset=23,
+)
+print([value.name for value in exported.graph.inputs])
+# ['x', 'shared_weight', 'independent_weight', 'rope_rotations', 'shared_frozen']
+```
 
-The helper enforces these rules:
+`explicit_forward` is an adapter for **this architecture**. It partitions the
+Equinox model into array values and static structure, replaces all five selected
+array fields from the four arguments, and evaluates the rebuilt model. The
+`shared_frozen` argument fills both frozen projection fields.
 
-- State names are unique C90-style identifiers and do not collide with data
-  names. Framework paths belong in properties, not automatically joined names.
-- Every declared state input must exist with exactly the expected shape and
-  dtype. Graph inputs must retain the declared data-then-state order. Existing
-  initializer conflicts and missing targets are errors.
-- Each slot gets one same-named root initializer on its input value. Different
-  slots remain different values, even if their source arrays are identical.
-- Payload snapshots retain exact FP32 bits, including signed zero and NaN
-  payloads. Properties are copied strings with nonempty UTF-8 keys and UTF-8
-  values; the helper does not interpret their meaning.
-- Unused slots are errors unless their record explicitly sets
-  `allow_unused=True`. A direct graph output counts as a use. This is a local
-  connection check, not a liveness or gradient analysis.
-- Records and all target inputs are checked before attachment. The helper owns
-  the fresh IR until it completes and writes no files itself. Ordinary export
-  failures propagate; there is no fallback to captured constant state.
+Every use of a selected value must use the corresponding argument. In this
+example, `shared_weight` reaches direct operations, reshaped views and two
+calls to a free ONNX Function. That Function also receives the weight explicitly.
 
-These are checks on declared slots. They do not prove that an arbitrary wrapper
-uses its arguments everywhere. A wrapper can still accidentally capture an
-old concrete array. The example tests forwarding separately by overriding all
-slots and comparing with a reconstructed JAX reference, and by comparing the
-non-slot tensor inventory across exports with changed state. Negative controls
-demonstrate the difference between these tests and the helper's local checks.
-Those comparisons are regression tests, not additional export requirements
-executed for every user model.
+For your own model, you must write the slot declaration and the wrapper that
+replaces its selected fields. The helper does not discover model leaves or
+rewrite a closure automatically. Test replacements against an independently
+reconstructed source model: a wrapper can otherwise accidentally keep using an
+old captured array in part of the computation.
 
-## Read and use the state
+The complete `partition` / `tree_at` / `combine` implementation is in
+`explicit_forward` in `scripts/explicit_state_rope.py`. `StateSlot` and
+`export_with_state` provide the reusable export mechanism within the supported
+scope. The slot declaration, `read_slots`, `reconstruct`, `save_reload` and
+`adamw_step` know this model's four slots; adapt those parts for your own model.
 
-Properties live on initializer tensors as `TensorProto.metadata_props`. Inspect
-the saved model directly:
+### 4. Save and reload the artifact
+
+```python
+output_dir = Path("/tmp/explicit-state-walkthrough")
+output_dir.mkdir(parents=True, exist_ok=True)
+path = output_dir / "attention.onnx"
+
+proto = save_reload(exported, slots, path, external_data=False)
+```
+
+`save_reload` is also specific to this four-slot example. It serializes a fresh
+`onnx_ir.to_proto(exported)` with `onnx.save_model`, reloads it, runs the ONNX
+checker and verifies exact state values and properties. Use this serializer
+path when adapting the recipe; the reviewed ONNX IR 1.1.0 `ir.save` path with
+External Data loses tensor metadata.
+
+The save check writes to the requested directory before validation. If it
+raises, those files are not validated output; retry in a fresh directory.
+There is no atomic publication guarantee across the model and data files.
+
+### 5. Run inference with the defaults, then replace one weight
+
+```python
+session = runtime(proto)
+feed = {"x": np.asarray(x)}
+
+default_output = session.run(None, feed)[0]
+np.testing.assert_allclose(default_output, source(x), rtol=2e-5, atol=2e-6)
+
+print([item.name for item in session.get_inputs()])  # ['x']
+print([item.name for item in session.get_overridable_initializers()])
+# ['shared_weight', 'independent_weight', 'rope_rotations', 'shared_frozen']
+
+replacement = np.asarray(source.shared_weight) + np.float32(0.2)
+changed_output = session.run(None, {**feed, "shared_weight": replacement})[0]
+assert not np.allclose(changed_output, default_output)
+```
+
+Supply replacement arrays with the slot's declared shape and dtype. The other
+three slots retain their defaults. Replacing `shared_weight` changes all its
+uses, including the two Function calls; it does not change `independent_weight`.
+
+An override affects this inference call. It does not edit the ONNX file, mutate
+the Python source model, or become the default for later calls. Running again
+with only `feed` uses the saved defaults again.
+
+### 6. Inspect metadata and reconstruct the known Python model
+
+```python
+loaded_slots = read_slots(proto)
+for slot in loaded_slots:
+    print(slot.name, dict(slot.metadata))
+
+rebuilt = reconstruct(source, loaded_slots)
+np.testing.assert_allclose(rebuilt(x), source(x), rtol=2e-5, atol=2e-6)
+```
+
+`read_slots` reads the intersection of ONNX graph inputs and initializers.
+The properties are stored on each initializer as `TensorProto.metadata_props`.
+For example, the RoPE initializer carries `pkg.example.path=rope.rotations`
+and `pkg.example.trainable=false`.
+
+`reconstruct` uses the four known path labels to replace fields in the supplied
+Python model structure. Every example path must appear exactly once; missing,
+duplicate or unknown labels raise an error rather than retaining source values.
+For this example, the combined frozen path assigns the same slot to both branches.
+
+The original Python architecture is still required. The file provides state
+and an inference graph; this reader is not a general ONNX-to-JAX importer.
+
+### 7. Take a training step and save new defaults
+
+```python
+updated_slots, loss = adamw_step(source, loaded_slots, x, jnp.zeros_like(x))
+trained = reconstruct(source, updated_slots)
+print(loss)
+
+trained_slots = state_slots(trained)
+trained_export = export_with_state(
+    explicit_forward(trained),
+    data_specs,
+    trained_slots,
+    data_input_names=["x"],
+    opset=23,
+)
+trained_proto = save_reload(
+    trained_export, trained_slots, output_dir / "attention-trained.onnx",
+    external_data=False,
+)
+trained_session = runtime(trained_proto)
+np.testing.assert_allclose(
+    trained_session.run(None, feed)[0], trained(x), rtol=2e-5, atol=2e-6,
+)
+```
+
+Training runs on the **original Python model code with the loaded arrays**.
+The example reads its trainability labels and gives AdamW only the two trainable
+arrays. Both frozen buffers stay outside the optimizer state, so weight decay
+cannot update them. Re-exporting the trained model writes new default values
+to a separate artifact. Create a fresh runtime session to use that artifact.
+
+Being an ONNX graph input does not imply trainability. Forward parity also does
+not establish preservation of arbitrary `stop_gradient`, custom JVP/VJP,
+optimizer state or training modes through a general importer. The example does
+not recover gradient rules from ONNX or model Dropout/BatchNorm training modes.
+
+## Open the result in Netron
+
+Open `/tmp/explicit-state-walkthrough/attention.onnx` in Netron. Find
+`shared_weight` and follow its connections to the operations and Function calls
+that consume it. The same saved default supplies the shared uses. The separate
+`independent_weight` slot remains a different value despite initially equal data.
+
+For tensor properties, select the initializer/input details if your Netron
+version displays them. Viewer support varies; inspect the saved properties
+directly when they are not shown:
 
 ```python
 import onnx
 
-model = onnx.load("/tmp/explicit-state-rope/attention.onnx")
-input_names = {value.name for value in model.graph.input}
-for tensor in model.graph.initializer:
-    if tensor.name in input_names:
+saved = onnx.load(path)
+state_names = {value.name for value in saved.graph.input}
+for tensor in saved.graph.initializer:
+    if tensor.name in state_names:
         print(tensor.name, {p.key: p.value for p in tensor.metadata_props})
 ```
 
-ONNX Runtime lists these defaults under `get_overridable_initializers()`,
-separately from `get_inputs()`. Keep their graph-input entries: removing an
-entry loses the override convention and can let runtime optimization create
-separate stored views again. The saved original model is the artifact checked
-by this example; external optimizer output needs separate validation.
+Netron displays the artifact on disk. It does not display a previous runtime
+feed override; open `attention-trained.onnx` to inspect the newly saved defaults.
 
-In Netron, follow the shared input/default to its consumers and view
-operations. Tensor-metadata display depends on the viewer version; the Python
-inspection above provides a direct check of the actual saved properties.
+## Helper contract and model requirements
 
-The example's reader reconstructs the **known example architecture** from the
-saved state and its path labels. Training runs on the original Python model
-code using the loaded arrays, not on an imported ONNX graph. The example does
-not implement a general ONNX-to-JAX importer or recover gradient rules from
-ONNX. Its AdamW demonstration puts only the metadata-selected trainable arrays
-into the optimizer state. Both frozen buffers are excluded, so weight decay
-cannot update them.
+The example-local `StateSlot` and `export_with_state` enforce these rules:
 
-Being a graph input does not mean being trainable. The example interprets
-`pkg.example.trainable` in its own reader; jax2onnx and the export helper do not.
-Forward parity also does not establish arbitrary `stop_gradient`, custom
-JVP/VJP, optimizer-state or training-mode preservation. The small example has
-no training/inference-dependent Dropout or BatchNorm behavior.
+- State is nonempty dense native-endian FP32 with static shapes. Scalars and
+  noncontiguous arrays are supported; other state dtypes and empty arrays are
+  rejected. Data types remain subject to ordinary exporter support.
+- State names are unique C90-style identifiers and do not collide with data
+  names. Framework paths belong in properties. Inputs retain data-then-state
+  order and every slot must have the expected shape and dtype.
+- Each slot gets one same-named root initializer on its input value. Distinct
+  slots remain distinct even when their source arrays are identical. Keep these
+  entries in `model.graph.inputs` to retain the override convention.
+- The helper derives typed specifications including `weak_type` from the source.
+  Snapshots preserve exact FP32 bits, including signed zero and NaN payloads,
+  without casting. Later changes to source arrays or metadata dictionaries do
+  not change the copied defaults. The returned IR model is mutable.
+- Properties are copied strings: nonempty UTF-8 keys and UTF-8 values. The
+  helper does not interpret their meaning.
+- Unused slots are errors unless explicitly declared with `allow_unused=True`.
+  A direct graph output counts as a use. This checks local connections, not
+  gradient behavior or liveness.
+- Records and all exported targets are checked before defaults are attached.
+  The helper owns the fresh IR until it completes and writes no files itself.
+  Ordinary conversion failures propagate.
 
-## Model requirements and remaining questions
+These checks do not prove that a wrapper forwards its arguments everywhere.
+The example separately tests individual and simultaneous overrides against a
+reconstructed JAX reference and compares non-slot tensor inventories across
+exports with changed state. An intentional partial closure leak demonstrates
+the boundary. Those are regression tests, not extra export requirements for
+every user model.
 
-Selected state must remain in traced JAX computations. Converting a state
-tracer with NumPy during the forward pass is unsupported. This is different
-from creating an initial buffer before export.
+Selected state must remain in traced JAX computations. Host evaluation such as
+converting a state tracer to NumPy during the forward pass is unsupported.
+Constructing an initial buffer before tracing is different and supported here.
 
-The example's Equinox classes are not decorated with `@onnx_function`. Only a
-free function is decorated, and it receives selected state explicitly. Current
-stateful decorated classes and captured state tracers can fail during Function
-lowering. A concrete-array closure can instead silently become a local
-constant. The helper does not promise to discover or repair either pattern.
+The Equinox module classes in this example are undecorated. Only a free function
+uses `@onnx_function`, with state passed explicitly. Stateful decorated classes
+and captured state tracers can fail during Function lowering; a concrete-array
+closure can instead silently become a constant. This helper does not discover
+or repair those patterns.
 
-Supporting those model patterns would be a separate converter decision. This
-example introduces no closure conversion, automatic alias detection, provenance
-registry or special optimizer path. Its suitability for Clément's actual
-export path remains to be checked with a concrete model.
-In particular, this recipe does not establish that a general ONNX-to-JAX
-importer can train his model; that is a separate integration question.
+The recipe introduces no closure conversion, automatic alias detection or
+provenance registry. Its suitability for Clément's actual model and a general
+ONNX-to-JAX training importer still needs separate validation. Other runtimes
+and external optimizer outputs need their own compatibility checks.
 
-Keeping weights dynamic can reduce constant-folding and precomputation
-opportunities. Use the usual closed-model export when a fixed inference
-artifact is the desired result. No runtime speed or peak-memory improvement is
-promised by this example.
+Keeping state dynamic can reduce constant folding and precomputation. Use the
+ordinary closed-model export for a fixed inference artifact. This example
+promises no runtime-speed or peak-memory improvement.
