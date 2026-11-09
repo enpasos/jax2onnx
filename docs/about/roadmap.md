@@ -22,6 +22,9 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Preserve exported reshape intermediates:** Keep reshape pairs when the
+  first reshape or a middle elementwise result is also a graph output, retaining
+  its public shape, dtype, name and output position.
 * **Preserve Max/Min broadcasts during layout optimization:** Retain reshape
   and transpose boundaries when other operands lack a matching layout proof,
   preventing invalid broadcasts and silent changes in elementwise results.

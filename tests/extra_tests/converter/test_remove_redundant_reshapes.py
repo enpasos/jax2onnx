@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import jax
+import jax.numpy as jnp
 import numpy as np
+import onnx
 import onnx_ir as ir
+import onnxruntime as ort
 import pytest
 from onnx_ir import serde
 
+from jax2onnx import to_onnx
 from jax2onnx.converter.ir_optimizations import (
     optimize_graph,
     propagate_unary_shapes_ir,
@@ -305,3 +310,134 @@ def test_custom_domain_castlike_shape_is_not_reinterpreted() -> None:
     remaining = _node_list(model.graph)
     assert [node.name for node in remaining] == ["reshape1", "castlike"]
     assert tuple(castlike_out.shape) == (1, 1, 3)
+
+
+def _observable_reshape_model(
+    observed: str | None, intermediate_first: bool
+) -> ir.Model:
+    x = _tensor_value("input", (2, 3))
+    flat = _tensor_value("flat", (6,))
+    early = _tensor_value("early", (6,))
+    late = _tensor_value("late", (6,))
+    final = _tensor_value("final", (2, 3))
+    shape1 = _initializer("shape1", np.asarray([6], dtype=np.int64))
+    shape2 = _initializer("shape2", np.asarray([2, 3], dtype=np.int64))
+    outputs = [final]
+    if observed is not None:
+        outputs.append({"flat": flat, "early": early}[observed])
+    if intermediate_first:
+        outputs.reverse()
+    graph = ir.Graph(
+        inputs=[x],
+        outputs=outputs,
+        nodes=[
+            ir.Node("", "Reshape", [x, shape1], outputs=[flat]),
+            ir.Node("", "Tanh", [flat], outputs=[early]),
+            ir.Node("", "Tanh", [early], outputs=[late]),
+            ir.Node("", "Reshape", [late, shape2], outputs=[final]),
+        ],
+        initializers=[shape1, shape2],
+        name="observable_reshape",
+        opset_imports={"": 18},
+    )
+    return ir.Model(graph=graph, ir_version=10)
+
+
+def _expected_reshape_outputs(
+    x: np.ndarray, observed: str, intermediate_first: bool
+) -> dict[str, np.ndarray]:
+    expected = {
+        "final": np.tanh(np.tanh(x)),
+        observed: x.reshape(6) if observed == "flat" else np.tanh(x).reshape(6),
+    }
+    return dict(reversed(expected.items())) if intermediate_first else expected
+
+
+def _assert_output_contract(
+    model: onnx.ModelProto, x: np.ndarray, expected: dict[str, np.ndarray]
+) -> None:
+    onnx.checker.check_model(model, full_check=True)
+    for value, wanted in zip(model.graph.output, expected.values()):
+        tensor_type = value.type.tensor_type
+        assert tensor_type.elem_type == onnx.TensorProto.FLOAT
+        assert tuple(dim.dim_value for dim in tensor_type.shape.dim) == wanted.shape
+    assert [value.name for value in model.graph.output] == list(expected)
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 1
+    options.inter_op_num_threads = 1
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    session = ort.InferenceSession(
+        model.SerializeToString(), options, providers=["CPUExecutionProvider"]
+    )
+    assert [value.name for value in session.get_outputs()] == list(expected)
+    for actual, wanted in zip(session.run(None, {"input": x}), expected.values()):
+        assert actual.shape == wanted.shape
+        assert actual.dtype == wanted.dtype
+        np.testing.assert_allclose(actual, wanted, rtol=1e-6, atol=1e-7)
+
+
+@pytest.mark.parametrize("observed", ["flat", "early"])
+@pytest.mark.parametrize("intermediate_first", [False, True])
+@pytest.mark.parametrize("whole_optimizer", [False, True], ids=["pass", "optimizer"])
+def test_reshape_folding_preserves_observable_intermediates(
+    observed, intermediate_first, whole_optimizer
+) -> None:
+    x = np.linspace(-2, 2, 6, dtype=np.float32).reshape(2, 3)
+    model = _observable_reshape_model(observed, intermediate_first)
+    expected = _expected_reshape_outputs(x, observed, intermediate_first)
+    _assert_output_contract(ir.to_proto(model), x, expected)
+
+    if whole_optimizer:
+        model = optimize_graph(model)
+    else:
+        remove_redundant_reshape_pairs_ir(model.graph)
+
+    _assert_output_contract(ir.to_proto(model), x, expected)
+    assert [node.op_type for node in model.graph] == [
+        "Reshape",
+        "Tanh",
+        "Tanh",
+        "Reshape",
+    ]
+
+
+@pytest.mark.parametrize("whole_optimizer", [False, True], ids=["pass", "optimizer"])
+def test_reshape_folding_still_accepts_only_the_final_graph_output(
+    whole_optimizer,
+) -> None:
+    x = np.linspace(-2, 2, 6, dtype=np.float32).reshape(2, 3)
+    model = _observable_reshape_model(None, False)
+
+    if whole_optimizer:
+        model = optimize_graph(model)
+    else:
+        remove_redundant_reshape_pairs_ir(model.graph)
+
+    assert [node.op_type for node in model.graph] == ["Tanh", "Tanh"]
+    _assert_output_contract(ir.to_proto(model), x, {"late": np.tanh(np.tanh(x))})
+
+
+@pytest.mark.parametrize("observed", ["flat", "early"])
+@pytest.mark.parametrize("intermediate_first", [False, True])
+def test_public_export_preserves_observable_reshape_outputs(
+    observed, intermediate_first
+) -> None:
+    def target(x):
+        flat = jnp.reshape(x, (6,))
+        early = jnp.tanh(flat)
+        final = jnp.reshape(jnp.tanh(early), (2, 3))
+        visible = flat if observed == "flat" else early
+        return (visible, final) if intermediate_first else (final, visible)
+
+    x = np.linspace(-2, 2, 6, dtype=np.float32).reshape(2, 3)
+    expected = _expected_reshape_outputs(x, observed, intermediate_first)
+    model = to_onnx(
+        target,
+        [jax.ShapeDtypeStruct(x.shape, jnp.float32)],
+        input_names=["input"],
+        output_names=list(expected),
+        opset=18,
+    )
+
+    _assert_output_contract(model, x, expected)
+    assert sum(node.op_type == "Reshape" for node in model.graph.node) == 2
