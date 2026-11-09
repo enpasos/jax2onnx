@@ -22,6 +22,10 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Explore explicit model-state exports:** Add an experimental Equinox RoPE
+  example that exports named state inputs, attaches initializer defaults and
+  tensor metadata, and checks shared state and frozen buffers without adding
+  a converter callback or a new public API.
 * **Preserve exported reshape intermediates:** Keep reshape pairs when the
   first reshape or a middle elementwise result is also a graph output, retaining
   its public shape, dtype, name and output position.
