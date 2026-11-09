@@ -69,6 +69,23 @@ def cast_param_like(
     return out
 
 
+def _is_stored_constant(value: ir.Value) -> bool:
+    """Exclude overridable inputs and inferred constants on runtime nodes."""
+    if value.const_value is None or value.is_graph_input() or value.graph is None:
+        return False
+    producer = value.producer()
+    if producer is None:
+        return value.is_initializer()
+    return (
+        producer.graph is value.graph
+        and producer.op_type == "Constant"
+        and producer.domain == ""
+        and not producer.overload
+        and not producer.inputs
+        and not any(attribute.is_ref() for attribute in producer.attributes.values())
+    )
+
+
 def inline_reshape_initializer(
     ctx: LoweringContextProtocol,
     val: ir.Value,
@@ -76,11 +93,21 @@ def inline_reshape_initializer(
     name_hint: str,
 ) -> ir.Value:
     """
-    If `val` is a constant initializer, create a new initializer with the data
-    reshaped to `new_shape` and return it. Otherwise, return `val` unchanged.
+    Return a graph-local constant view, reusing the same source/shape pair.
+
+    Returning ``val`` signals that the caller must emit a runtime Reshape. Even
+    an unchanged constant shape therefore gets a distinct derived value on its
+    first use. Equal payloads from different source values remain independent.
     """
-    if val.const_value is None:
+    if not _is_stored_constant(val):
         return val  # not a constant → caller must insert a Reshape node
+
+    graph = ctx.builder.graph
+    cache = ctx.builder.reshaped_initializers
+    key = (val, new_shape)
+    cached = cache.get(key)
+    if cached is not None and cached.graph is graph and _is_stored_constant(cached):
+        return cached
 
     arr = const_value_to_numpy(val)
     if arr is None:
@@ -96,6 +123,13 @@ def inline_reshape_initializer(
     initializer: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint), array=np_arr
     )
+    tensor = initializer.const_value
+    if tensor is not None and val.const_value is not None:
+        tensor.metadata_props.update(val.const_value.metadata_props)
+        tensor.doc_string = val.const_value.doc_string
+    initializer.metadata_props.update(val.metadata_props)
+    initializer.doc_string = val.doc_string
+    cache[key] = initializer
     return initializer
 
 

@@ -22,6 +22,9 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Reuse constant parameter reshapes:** Repeated uses of one parameter at the
+  same shape share a graph-local constant view, avoiding duplicate kernels for
+  reused Flax NNX `LinearGeneral` layers while preserving dtype and metadata.
 * **Respect Reshape opset and zero dimensions:** Omit `allowzero` before
   opset 14, retain inferred dimensions, and preserve literal zero dimensions
   from opset 14, including mixed symbolic shapes. Older opsets reject literal
