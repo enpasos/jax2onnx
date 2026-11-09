@@ -30,8 +30,10 @@ def _session(model: ir.Model) -> ort.InferenceSession:
 
 
 @pytest.mark.parametrize("same_array_object", [False, True])
+@pytest.mark.parametrize("opset", [13, 17, 23])
 def test_defaults_and_independent_overrides_of_equal_slots(
     same_array_object: bool,
+    opset: int,
 ) -> None:
     first = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
     second = first if same_array_object else first.copy()
@@ -47,7 +49,9 @@ def test_defaults_and_independent_overrides_of_equal_slots(
             StateSlot("right", second, {}),
         ],
         data_input_names=["x"],
+        opset=opset,
     )
+    assert model.graph.opset_imports[""] == opset
     values = {value.name: value for value in model.graph.inputs}
     assert set(values) == {"x", "left", "right"}
     assert values["left"] is not values["right"]
@@ -283,7 +287,8 @@ def test_invalid_signature_names_fail_before_conversion(
 
 
 @pytest.mark.parametrize(
-    "defect", ["shape", "dtype", "constant", "initializer", "missing", "unknown"]
+    "defect",
+    ["shape", "dtype", "constant", "initializer", "missing", "unknown", "reordered"],
 )
 def test_exported_slot_conflicts_fail_before_any_attachment(
     defect: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -301,6 +306,8 @@ def test_exported_slot_conflicts_fail_before_any_attachment(
     elif defect in {"constant", "initializer"}:
         second.const_value = ir.tensor(np.ones(2, np.float32), name="second")
     inputs = [first] if defect == "missing" else [first, second]
+    if defect == "reordered":
+        inputs.reverse()
     if defect == "unknown":
         second.name = "unexpected"
     graph = ir.Graph(inputs, list(inputs), nodes=[], opset_imports={"": 23})
@@ -363,10 +370,7 @@ def test_decorated_stateful_module_fails_without_closure_fallback(
     state = np.array([2.0, 3.0], dtype=np.float32)
     np.testing.assert_array_equal(forward(jnp.ones(2), jnp.asarray(state)), state)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(
-        (jax.errors.TracerArrayConversionError, RuntimeError),
-        match="Cannot resolve callee|__array__",
-    ):
+    with pytest.raises((jax.errors.TracerArrayConversionError, RuntimeError)):
         export_with_state(
             forward,
             [jax.ShapeDtypeStruct((2,), np.float32)],

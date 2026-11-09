@@ -112,7 +112,7 @@ def export_with_state(
     if len(set(names)) != len(names):
         raise ValueError("Data input and state slot names must be unique")
     all_specs = specs + [slot.spec for slot in prepared]
-    model = to_onnx(
+    model: ir.Model = to_onnx(
         forward,
         inputs=all_specs,
         input_names=names,
@@ -124,7 +124,7 @@ def export_with_state(
     actual_names = [value.name for value in actual_inputs]
     if len(set(actual_names)) != len(actual_names):
         raise ValueError("Export produced duplicate graph input names")
-    if set(actual_names) != set(names):
+    if actual_names != names:
         raise ValueError(
             f"Exported graph input names differ: expected {names!r}, got {actual_names!r}"
         )
@@ -161,16 +161,16 @@ def export_with_state(
 
     for slot in prepared:
         value = inputs[slot.name]
-        tensor = value.const_value
+        default = value.const_value
         if (
             not value.is_graph_input()
             or model.graph.initializers.get(slot.name) is not value
-            or tensor is None
-            or tensor.name != slot.name
-            or tensor.shape != slot.snapshot.shape
-            or tensor.dtype != ir.DataType.FLOAT
-            or tensor.numpy().tobytes(order="C") != slot.snapshot.tobytes(order="C")
-            or dict(tensor.metadata_props) != slot.metadata
+            or default is None
+            or default.name != slot.name
+            or default.shape != slot.snapshot.shape
+            or default.dtype != ir.DataType.FLOAT
+            or default.numpy().tobytes(order="C") != slot.snapshot.tobytes(order="C")
+            or dict(default.metadata_props) != slot.metadata
         ):
             raise RuntimeError(
                 f"State slot {slot.name!r} failed final default validation"

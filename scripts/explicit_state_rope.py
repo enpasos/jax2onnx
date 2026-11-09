@@ -26,8 +26,8 @@ import jax.numpy as jnp
 import numpy as np
 import onnx
 import onnx_ir as ir
-import onnxruntime as ort
-import optax
+import onnxruntime as ort  # type: ignore[import-untyped]
+import optax  # type: ignore[import-untyped]
 
 from jax2onnx import onnx_function
 from scripts.explicit_state_export import StateSlot, export_with_state
@@ -74,7 +74,7 @@ class SmallAttention(eqx.Module):
     q_projection: FrozenProjection
     k_projection: FrozenProjection
 
-    def __init__(self, *, key: jax.Array, tokens: int = 3, width: int = 4):
+    def __init__(self, *, key: jax.Array, tokens: int = 3, width: int = 4) -> None:
         if width % 2:
             raise ValueError("RoPE requires an even width")
         weight_key, frozen_key = jax.random.split(key)
@@ -136,7 +136,13 @@ def explicit_forward(model: SmallAttention) -> Callable[..., jax.Array]:
     """Partition once and replace every selected leaf from the four arguments."""
     arrays, static = eqx.partition(model, eqx.is_array)
 
-    def forward(x, shared_weight, independent_weight, rope_rotations, shared_frozen):
+    def forward(
+        x: jax.Array,
+        shared_weight: jax.Array,
+        independent_weight: jax.Array,
+        rope_rotations: jax.Array,
+        shared_frozen: jax.Array,
+    ) -> jax.Array:
         replaced = eqx.tree_at(
             lambda m: (
                 m.shared_weight,
@@ -160,12 +166,13 @@ def explicit_forward(model: SmallAttention) -> Callable[..., jax.Array]:
 
 
 def export_model(model: SmallAttention, x: jax.Array) -> ir.Model:
-    return export_with_state(
+    exported: ir.Model = export_with_state(
         explicit_forward(model),
         [jax.ShapeDtypeStruct(x.shape, x.dtype)],
         state_slots(model),
         data_input_names=["x"],
     )
+    return exported
 
 
 def read_slots(proto: onnx.ModelProto) -> tuple[StateSlot, ...]:
@@ -182,6 +189,35 @@ def read_slots(proto: onnx.ModelProto) -> tuple[StateSlot, ...]:
         )
         for name in SLOT_NAMES
     )
+
+
+def reconstruct(model: SmallAttention, state: Sequence[StateSlot]) -> SmallAttention:
+    """Apply imported path labels to this known Python architecture.
+
+    These selectors are independent of the export closure. The semicolon path
+    explicitly denotes this example's shared projection branches; it is not a
+    general framework path or alias discovery mechanism.
+    """
+    selectors: dict[str, Callable[[SmallAttention], tuple[jax.Array, ...]]] = {
+        "shared_weight": lambda m: (m.shared_weight,),
+        "independent_weight": lambda m: (m.independent_weight,),
+        "rope.rotations": lambda m: (m.rope.rotations,),
+        "q_projection.matrix;k_projection.matrix": lambda m: (
+            m.q_projection.matrix,
+            m.k_projection.matrix,
+        ),
+    }
+    for slot in state:
+        path = slot.metadata.get("pkg.example.path", "")
+        if path not in selectors:
+            raise ValueError(f"unknown path for this example: {path!r}")
+        selector = selectors[path]
+        model = eqx.tree_at(
+            selector,
+            model,
+            replace=tuple(jnp.asarray(slot.value) for _ in selector(model)),
+        )
+    return model
 
 
 def save_reload(
@@ -244,13 +280,16 @@ def adamw_step(
         for slot in slots
         if slot.metadata[TRAINABLE] == "false"
     }
-    forward = explicit_forward(model)
 
-    def loss(parameters):
+    def loss(parameters: dict[str, jax.Array]) -> jax.Array:
         state = {**frozen, **parameters}
-        return jnp.mean(
-            (forward(x, *(state[name] for name in SLOT_NAMES)) - target) ** 2
+        rebuilt = reconstruct(
+            model,
+            tuple(
+                StateSlot(slot.name, state[slot.name], slot.metadata) for slot in slots
+            ),
         )
+        return jnp.mean((rebuilt(x) - target) ** 2)
 
     loss_value, gradients = jax.value_and_grad(loss)(trainable)
     optimizer = optax.adamw(learning_rate=0.01, weight_decay=0.1)
@@ -265,7 +304,7 @@ def adamw_step(
     )
 
 
-def run_demo(output_dir: Path, *, external_data: bool = False) -> dict:
+def run_demo(output_dir: Path, *, external_data: bool = False) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     model = SmallAttention(key=jax.random.key(0))
     x = jnp.linspace(-0.8, 0.9, 12, dtype=jnp.float32).reshape(3, 4)
@@ -273,24 +312,45 @@ def run_demo(output_dir: Path, *, external_data: bool = False) -> dict:
     exported = export_model(model, x)
     path = output_dir / "attention.onnx"
     proto = save_reload(exported, slots, path, external_data=external_data)
+    imported = read_slots(proto)
+    expected_policy = {
+        "shared_weight": ("shared_weight", "true"),
+        "independent_weight": ("independent_weight", "true"),
+        "rope_rotations": ("rope.rotations", "false"),
+        "shared_frozen": ("q_projection.matrix;k_projection.matrix", "false"),
+    }
+    actual_policy = {
+        slot.name: (
+            slot.metadata.get("pkg.example.path"),
+            slot.metadata.get(TRAINABLE),
+        )
+        for slot in imported
+    }
+    if actual_policy != expected_policy:
+        raise AssertionError("serialized state policy differs from this architecture")
     session = runtime(proto)
     actual = session.run(None, {"x": np.asarray(x)})[0]
     np.testing.assert_allclose(actual, model(x), rtol=2e-5, atol=2e-6)
     overrides = {
         slot.name: np.asarray(slot.value) * np.float32(0.7 + index * 0.1)
         + np.float32(0.2 * (index + 1))
-        for index, slot in enumerate(slots)
+        for index, slot in enumerate(imported)
     }
     overridden = session.run(None, {"x": np.asarray(x), **overrides})[0]
-    reference = explicit_forward(model)(x, *(overrides[name] for name in SLOT_NAMES))
+    reference = reconstruct(
+        model,
+        tuple(
+            StateSlot(slot.name, overrides[slot.name], slot.metadata)
+            for slot in imported
+        ),
+    )(x)
     np.testing.assert_allclose(overridden, reference, rtol=2e-5, atol=2e-6)
-    imported = read_slots(proto)
     updated, loss = adamw_step(model, imported, x, jnp.zeros_like(x))
     for before, after in zip(imported, updated):
         changed = (
             np.asarray(before.value).tobytes() != np.asarray(after.value).tobytes()
         )
-        if changed != (before.metadata[TRAINABLE] == "true"):
+        if changed != (before.name in {"shared_weight", "independent_weight"}):
             raise AssertionError(f"unexpected optimizer update: {before.name}")
     report = {
         "versions": {

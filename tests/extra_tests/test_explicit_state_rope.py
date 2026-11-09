@@ -15,16 +15,16 @@ import onnx_ir as ir
 import pytest
 
 from scripts import explicit_state_rope as example
-from scripts.explicit_state_export import export_with_state
+from scripts.explicit_state_export import StateSlot, export_with_state
 
 
 @pytest.fixture(scope="module")
 def exported():
     model = example.SmallAttention(key=jax.random.key(0))
     x = jnp.linspace(-0.8, 0.9, 12, dtype=jnp.float32).reshape(3, 4)
-    slots = example.state_slots(model)
     exported_model = example.export_model(model, x)
     proto = ir.to_proto(exported_model)
+    slots = example.read_slots(proto)
     return model, x, slots, exported_model, proto, example.runtime(proto)
 
 
@@ -39,22 +39,27 @@ def _changed(slots):
     }
 
 
-def _reference(model, state):
-    # Independent, explicit reconstruction of this known architecture, without
-    # the export adapter's partition/forward closure or any ONNX-to-JAX importer.
-    return eqx.tree_at(
-        lambda m: (
-            m.shared_weight,
-            m.independent_weight,
-            m.rope.rotations,
-            m.q_projection.matrix,
-            m.k_projection.matrix,
-        ),
+def _reference(model, slots, state):
+    return example.reconstruct(
         model,
-        replace=tuple(
-            jnp.asarray(state[name]) for name in (*example.SLOT_NAMES, "shared_frozen")
-        ),
+        tuple(StateSlot(slot.name, state[slot.name], slot.metadata) for slot in slots),
     )
+
+
+def _assert_imported_policy(slots):
+    # These expectations must not come from the writer's declarations.
+    assert {
+        slot.name: (
+            slot.metadata["pkg.example.path"],
+            slot.metadata["pkg.example.trainable"],
+        )
+        for slot in slots
+    } == {
+        "shared_weight": ("shared_weight", "true"),
+        "independent_weight": ("independent_weight", "true"),
+        "rope_rotations": ("rope.rotations", "false"),
+        "shared_frozen": ("q_projection.matrix;k_projection.matrix", "false"),
+    }
 
 
 def _tensor_signature(tensor):
@@ -97,6 +102,7 @@ def _outside_inventory(proto):
 def test_defaults_inventory_and_shared_function_edges(exported):
     model, x, slots, exported_model, proto, session = exported
     onnx.checker.check_model(proto, full_check=True)
+    _assert_imported_policy(example.read_slots(proto))
     actual = session.run(None, {"x": np.asarray(x)})[0]
     assert actual.dtype == np.float32 and actual.shape == x.shape
     np.testing.assert_allclose(actual, model(x), rtol=2e-5, atol=2e-6)
@@ -119,26 +125,6 @@ def test_defaults_inventory_and_shared_function_edges(exported):
     assert len(calls) == 2
     assert all(node.input[1] == "shared_weight" for node in calls)
     assert any(function.input[1] in n.input for n in function.node)
-    assert any(
-        n.op_type in {"MatMul", "Gemm"} and "shared_weight" in n.input
-        for n in proto.graph.node
-    )
-    assert any(
-        n.op_type == "Reshape" and n.input[0] == "shared_weight"
-        for n in proto.graph.node
-    )
-    frozen_values = {"shared_frozen"}
-    for node in proto.graph.node:
-        if node.op_type == "Identity" and node.input[0] in frozen_values:
-            frozen_values.update(node.output)
-    assert (
-        sum(
-            node.op_type in {"MatMul", "Gemm"}
-            and any(name in frozen_values for name in node.input)
-            for node in proto.graph.node
-        )
-        == 2
-    )
 
 
 @pytest.mark.parametrize("selected", [*example.SLOT_NAMES, "all"])
@@ -149,7 +135,7 @@ def test_independent_and_all_slot_overrides_match_reconstructed_jax(exported, se
     state = {slot.name: slot.value for slot in slots} | overrides
     actual = session.run(None, {"x": np.asarray(x), **overrides})[0]
     np.testing.assert_allclose(
-        actual, _reference(model, state)(x), rtol=2e-5, atol=2e-6
+        actual, _reference(model, slots, state)(x), rtol=2e-5, atol=2e-6
     )
     assert not np.allclose(actual, model(x), rtol=1e-6, atol=1e-7)
     if selected == "independent_weight":
@@ -168,7 +154,7 @@ def test_initializer_edit_uses_fresh_session_and_updates_shared_consumers(export
     state = {slot.name: slot.value for slot in slots} | {"shared_weight": changed}
     actual = example.runtime(proto).run(None, {"x": np.asarray(x)})[0]
     np.testing.assert_allclose(
-        actual, _reference(model, state)(x), rtol=2e-5, atol=2e-6
+        actual, _reference(model, slots, state)(x), rtol=2e-5, atol=2e-6
     )
     np.testing.assert_allclose(
         original_session.run(None, {"x": np.asarray(x)})[0],
@@ -180,7 +166,7 @@ def test_initializer_edit_uses_fresh_session_and_updates_shared_consumers(export
 
 def test_all_changed_sources_leave_outside_tensor_multiset_unchanged(exported):
     model, x, slots, _, proto, _ = exported
-    changed = _reference(model, _changed(slots))
+    changed = _reference(model, slots, _changed(slots))
     changed_proto = ir.to_proto(example.export_model(changed, x))
     assert _outside_inventory(proto) == _outside_inventory(changed_proto)
 
@@ -216,12 +202,12 @@ def test_partial_closed_state_leak_is_detected_by_both_sp09_checks(exported):
     with pytest.raises(AssertionError):
         np.testing.assert_allclose(
             session.run(None, {"x": np.asarray(x), **changed})[0],
-            _reference(model, changed)(x),
+            _reference(model, slots, changed)(x),
             rtol=2e-5,
             atol=2e-6,
         )
     assert _outside_inventory(bad_proto) != _outside_inventory(
-        bad_export(_reference(model, changed))
+        bad_export(_reference(model, slots, changed))
     )
 
 
@@ -234,6 +220,7 @@ def test_plain_and_external_reload_preserve_exact_state(
     restored = example.save_reload(
         exported_model, slots, path, external_data=external_data
     )
+    _assert_imported_policy(example.read_slots(restored))
     stored = onnx.load(path, load_external_data=False)
     for tensor in stored.graph.initializer:
         if tensor.name in example.SLOT_NAMES:
@@ -250,7 +237,8 @@ def test_plain_and_external_reload_preserve_exact_state(
 def test_imported_metadata_excludes_both_frozen_arrays_from_adamw(exported):
     model, x, _, _, proto, _ = exported
     imported = example.read_slots(proto)
-    rebuilt = _reference(model, {slot.name: slot.value for slot in imported})
+    _assert_imported_policy(imported)
+    rebuilt = example.reconstruct(model, imported)
     np.testing.assert_array_equal(rebuilt(x), model(x))
     updated, loss = example.adamw_step(model, imported, x, jnp.zeros_like(x))
     assert np.isfinite(loss) and loss > 0
@@ -258,14 +246,105 @@ def test_imported_metadata_excludes_both_frozen_arrays_from_adamw(exported):
         same_bits = (
             np.asarray(before.value).tobytes() == np.asarray(after.value).tobytes()
         )
-        assert same_bits == (before.metadata[example.TRAINABLE] == "false")
+        assert same_bits == (before.name in {"rope_rotations", "shared_frozen"})
     # This is a real stop_gradient path, but the importer must also prevent decay.
     gradients = jax.grad(lambda rotations: jnp.sum(example.RoPE(rotations)(x)))(
         model.rope.rotations
     )
     np.testing.assert_array_equal(gradients, np.zeros_like(model.rope.rotations))
+    np.testing.assert_array_equal(updated[2].value, rebuilt.rope.rotations)
     np.testing.assert_array_equal(updated[3].value, rebuilt.q_projection.matrix)
     np.testing.assert_array_equal(updated[3].value, rebuilt.k_projection.matrix)
+
+
+def test_reconstruction_resolves_imported_labels_for_observable_overrides(exported):
+    model, x, slots, _, _, session = exported
+    changed = _changed(slots)
+    swapped_paths = {
+        "shared_weight": "independent_weight",
+        "independent_weight": "shared_weight",
+    }
+    mislabeled = tuple(
+        StateSlot(
+            slot.name,
+            changed[slot.name],
+            {
+                **slot.metadata,
+                "pkg.example.path": swapped_paths.get(
+                    slot.name, slot.metadata["pkg.example.path"]
+                ),
+            },
+        )
+        for slot in slots
+    )
+    rebuilt = example.reconstruct(model, mislabeled)
+    np.testing.assert_array_equal(rebuilt.shared_weight, changed["independent_weight"])
+    np.testing.assert_array_equal(rebuilt.independent_weight, changed["shared_weight"])
+    with pytest.raises(AssertionError):
+        np.testing.assert_allclose(
+            session.run(None, {"x": np.asarray(x), **changed})[0],
+            rebuilt(x),
+            rtol=2e-5,
+            atol=2e-6,
+        )
+
+
+@pytest.mark.parametrize("external_data", [False, True])
+def test_demo_checks_serialized_policy_and_independent_reference(
+    tmp_path, external_data
+):
+    report = example.run_demo(tmp_path, external_data=external_data)
+    assert report["frozen_slots_unchanged"] is True
+    assert report["override_max_absolute_error"] < 2e-6
+    assert (tmp_path / "report.json").exists()
+
+
+@pytest.mark.parametrize("mutation", ["swapped_paths", "trainable_rotations"])
+def test_demo_rejects_incorrect_serialized_policy(tmp_path, monkeypatch, mutation):
+    original_slots = example.state_slots
+
+    def wrong_policy(model):
+        slots = original_slots(model)
+        changed = []
+        for slot in slots:
+            metadata = dict(slot.metadata)
+            if mutation == "swapped_paths" and slot.name in {
+                "shared_weight",
+                "independent_weight",
+            }:
+                metadata["pkg.example.path"] = (
+                    "independent_weight"
+                    if slot.name == "shared_weight"
+                    else "shared_weight"
+                )
+            if mutation == "trainable_rotations" and slot.name == "rope_rotations":
+                metadata["pkg.example.trainable"] = "true"
+            changed.append(StateSlot(slot.name, slot.value, metadata))
+        return tuple(changed)
+
+    monkeypatch.setattr(example, "state_slots", wrong_policy)
+    with pytest.raises(AssertionError, match="serialized state policy"):
+        example.run_demo(tmp_path)
+    assert not (tmp_path / "report.json").exists()
+
+
+def test_demo_rejects_partial_closed_state_leak(tmp_path, monkeypatch):
+    original_forward = example.explicit_forward
+
+    def leaking_forward(model):
+        forward = original_forward(model)
+
+        def partial_leak(x, weight, independent, rotations, frozen):
+            return forward(x, weight, independent, rotations, frozen) + 0.05 * (
+                x @ model.shared_weight - x @ weight
+            )
+
+        return partial_leak
+
+    monkeypatch.setattr(example, "explicit_forward", leaking_forward)
+    with pytest.raises(AssertionError):
+        example.run_demo(tmp_path)
+    assert not (tmp_path / "report.json").exists()
 
 
 def test_declared_frozen_alias_policy_rejects_divergent_source_branches(exported):

@@ -134,10 +134,12 @@ warn_unreachable = true
 incremental = false
 files = [
     "jax2onnx",
+    "scripts/explicit_state_export.py",
+    "scripts/explicit_state_rope.py",
 ]
 # Optional SOTA example integrations depend on external checkouts and large
 # untyped third-party surfaces; sandbox scripts are exploratory repros. Keep
-# the first-party package typed.
+# the first-party package and the explicit-state recipe typed.
 exclude = [
     "^jax2onnx/plugins/examples/(maxtext|maxdiffusion)/",
     "^jax2onnx/sandbox/",

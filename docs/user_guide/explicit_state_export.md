@@ -46,7 +46,9 @@ poetry run python -m scripts.explicit_state_rope \
 ```
 
 The command exports the model, saves and reloads it, compares ONNX Runtime with
-JAX, exercises changed state, and checks the example's buffer-freezing policy.
+JAX, exercises changed state against a separately reconstructed Python model,
+and checks that the saved paths and training policy match this architecture.
+Both frozen buffers must remain unchanged through an AdamW step.
 It prints the artifact location and validation results. Generated models stay
 outside git.
 
@@ -61,6 +63,8 @@ Both paths serialize a fresh `ir.to_proto(model)` with `onnx.save_model`, then
 reload and check the result. The example avoids `ir.save` with External Data:
 the reviewed ONNX IR 1.1.0 path loses tensor metadata. There is no promise of
 atomic publication across model and data files after filesystem failures.
+The save check writes to the requested directory before validating the files.
+If it raises, those files are not validated output; retry in a fresh directory.
 
 ## What the caller prepares
 
@@ -119,7 +123,8 @@ The helper enforces these rules:
 - State names are unique C90-style identifiers and do not collide with data
   names. Framework paths belong in properties, not automatically joined names.
 - Every declared state input must exist with exactly the expected shape and
-  dtype. Existing initializer conflicts and missing targets are errors.
+  dtype. Graph inputs must retain the declared data-then-state order. Existing
+  initializer conflicts and missing targets are errors.
 - Each slot gets one same-named root initializer on its input value. Different
   slots remain different values, even if their source arrays are identical.
 - Payload snapshots retain exact FP32 bits, including signed zero and NaN
@@ -167,9 +172,12 @@ operations. Tensor-metadata display depends on the viewer version; the Python
 inspection above provides a direct check of the actual saved properties.
 
 The example's reader reconstructs the **known example architecture** from the
-saved state. It is not a general ONNX-to-JAX importer. Its AdamW demonstration
-puts only the metadata-selected trainable arrays into the optimizer state.
-Both frozen buffers are excluded, so weight decay cannot update them.
+saved state and its path labels. Training runs on the original Python model
+code using the loaded arrays, not on an imported ONNX graph. The example does
+not implement a general ONNX-to-JAX importer or recover gradient rules from
+ONNX. Its AdamW demonstration puts only the metadata-selected trainable arrays
+into the optimizer state. Both frozen buffers are excluded, so weight decay
+cannot update them.
 
 Being a graph input does not mean being trainable. The example interprets
 `pkg.example.trainable` in its own reader; jax2onnx and the export helper do not.
@@ -193,6 +201,8 @@ Supporting those model patterns would be a separate converter decision. This
 example introduces no closure conversion, automatic alias detection, provenance
 registry or special optimizer path. Its suitability for Clément's actual
 export path remains to be checked with a concrete model.
+In particular, this recipe does not establish that a general ONNX-to-JAX
+importer can train his model; that is a separate integration question.
 
 Keeping weights dynamic can reduce constant-folding and precomputation
 opportunities. Use the usual closed-model export when a fixed inference
