@@ -293,6 +293,9 @@ The Cast node(s) are removed and consumers are rewired to the original input `x`
 **Condition**
 - The allowed elementwise ops are the same as in Transpose folding (shape-preserving).
 - The input shape of the first Reshape matches the output shape of the second Reshape.
+- The first Reshape output and every middle elementwise output are neither
+  graph outputs nor inputs to consumers outside the chain. The final Reshape
+  may be a graph output.
 - `Max` and `Min` are excluded: reshaping only one operand can change the
   broadcast mapping of the others even when the resulting shapes are valid.
 

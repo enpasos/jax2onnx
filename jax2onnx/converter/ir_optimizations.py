@@ -1770,7 +1770,8 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
             allowed_fwd = list(reversed(allowed_nodes))
             chain_nodes: Set[ir.Node] = set(allowed_fwd)
 
-            # Safety gate: only fold reshape pairs when the chain is isolated.
+            # Safety gate: only fold isolated chains whose intermediate shapes
+            # are not observable through graph outputs.
             # If any intermediate elementwise output also feeds non-chain
             # consumers (notably Shape/Slice/Concat shape-reconstruction paths),
             # removing the pair can change rank assumptions downstream.
@@ -1778,6 +1779,9 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
 
             t1_out = _node_output(T1)
             if t1_out is not None:
+                if t1_out.is_graph_output():
+                    i += 1
+                    continue
                 for consumer in consumers_in_graph(graph, t1_out):
                     if consumer in chain_nodes or consumer is T2:
                         continue
@@ -1789,6 +1793,9 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                     out = _node_output(node)
                     if out is None:
                         continue
+                    if out.is_graph_output():
+                        safe_chain = False
+                        break
                     for consumer in consumers_in_graph(graph, out):
                         if consumer in chain_nodes or consumer is T2:
                             continue
