@@ -71,7 +71,10 @@ Read the relevant guide before editing a subsystem:
   emitting into them; graph rewrites must preserve metadata, graph outputs,
   and Function signatures. Use public graph mutation APIs and shared helpers.
   Bind constants with `ctx.bind_const_for_var(...)` or builder initializer
-  helpers with `name=` so Function scopes emit `Constant` nodes.
+  helpers with `name=` so Function scopes emit `Constant` nodes. Bind a traced
+  JAXPR's `consts` with `ctx.bind_captured_arrays(...)`; a policy test rejects
+  other binding loops, because state declared through `to_onnx(state=...)`
+  must not enter the graph as a constant.
 - **Precision follows the source JAX program.** Model configuration, typed
   inputs, constants, explicit conversions, and local precision settings define
   computation types. Preserve weak scalar promotion and the caller's effective

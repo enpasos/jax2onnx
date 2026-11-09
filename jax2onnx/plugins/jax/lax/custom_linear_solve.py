@@ -125,8 +125,7 @@ class CustomLinearSolvePlugin(PrimitiveLeafPlugin):
         inner_jaxpr = fresh_closed.jaxpr
         consts = fresh_closed.consts
 
-        for cvar, cval in zip(inner_jaxpr.constvars, consts):
-            ctx.bind_const_for_var(cvar, np.asarray(cval))
+        ctx.bind_captured_arrays(inner_jaxpr.constvars, consts)
 
         if len(solve_inputs) != len(inner_jaxpr.invars):
             raise ValueError(

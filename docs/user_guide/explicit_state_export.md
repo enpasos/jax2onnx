@@ -5,10 +5,13 @@ replace selected weights or buffers. This example makes those values named
 inputs with saved defaults. A caller can run inference with the defaults or
 supply replacement arrays by name.
 
-This is an experimental recipe in the repository's `scripts/` directory. The
-public `jax2onnx.to_onnx` API stays unchanged. The recipe adds an example-local
-export helper and changes the interface of the ONNX model you choose to export.
-The helpers are not public imports from the installed `jax2onnx` package.
+For your own models, use `to_onnx(..., state=...)` as described in
+[Model State as Inputs](state_inputs.md). This page builds the same file by
+hand with helpers from the repository's `scripts/` directory, to show what
+that option does, and then continues with saving, reloading and an optimizer
+step. The helpers are not public imports from the installed `jax2onnx`
+package. A test checks that `state=` reproduces this walkthrough's file byte
+for byte.
 
 The walkthrough uses a small Equinox attention model with rotary position
 embeddings (RoPE). It illustrates the sharing and freeze-policy questions in

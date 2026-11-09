@@ -14,7 +14,7 @@ import onnx
 import onnx_ir as ir
 import pytest
 
-from jax2onnx import to_onnx
+from jax2onnx import StateInput, to_onnx
 from scripts import explicit_state_rope as example
 from scripts.explicit_state_export import StateSlot, export_with_state
 
@@ -445,3 +445,21 @@ def test_saving_rejects_incomplete_state_references_before_writing(
             model, references, tmp_path / "invalid.onnx", external_data=True
         )
     assert not list(tmp_path.iterdir())
+
+
+def test_to_onnx_state_reproduces_the_recipe_file(exported):
+    # The public API automates this recipe: the same file, byte for byte.
+    model, x, _, _, proto, _ = exported
+    state = [
+        StateInput(slot.value, slot.name, slot.metadata)
+        for slot in example.state_slots(model)
+    ]
+    api = to_onnx(
+        model,
+        inputs=[jax.ShapeDtypeStruct(x.shape, x.dtype)],
+        input_names=["x"],
+        state=state,
+    )
+    assert api.SerializeToString(deterministic=True) == proto.SerializeToString(
+        deterministic=True
+    )

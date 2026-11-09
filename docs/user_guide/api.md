@@ -28,10 +28,9 @@ For direct file export, set `return_mode="file"` and provide `output_path`.
 For a full export validation checklist, see
 [Validation & Deployment Readiness](validation.md).
 
-To expose selected weights and buffers as named ONNX inputs with saved defaults,
-see the experimental [explicit model-state walkthrough](explicit_state_export.md). It shows
-the export-wrapper and runtime-feed changes using repository-local helpers;
-the public `to_onnx` signature stays unchanged.
+To expose selected weights and buffers as named ONNX inputs with saved defaults
+and tensor metadata, pass `state=` to `to_onnx`; see
+[Model State as Inputs](state_inputs.md).
 
 For browser deployment with [`onnxruntime-web`](https://onnxruntime.ai/docs/tutorials/web/), use the Web export profile:
 
@@ -68,6 +67,9 @@ single self-contained `.onnx` file instead of spilling large initializers into a
   accuracy limits.
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
+- `state` / `allow_unused_state`: Export chosen arrays of the model as named inputs
+  with saved defaults instead of anonymous constants. See
+  [Model State as Inputs](state_inputs.md).
 
 ## Dtypes and Precision
 

@@ -64,7 +64,8 @@ nav:
       - Browser/WASM Deployment: user_guide/browser_wasm.md
       - API Reference: user_guide/api.md
       - ONNX Functions: user_guide/onnx_functions.md
-      - Explicit Model State (Experimental): user_guide/explicit_state_export.md
+      - Model State as Inputs: user_guide/state_inputs.md
+      - Explicit State Walkthrough: user_guide/explicit_state_export.md
       - Layout Optimization: user_guide/layout_optimization.md
       - Stacktrace Metadata: user_guide/stacktrace_metadata.md
       - SotA Examples:
