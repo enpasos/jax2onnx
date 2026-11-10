@@ -67,8 +67,7 @@ class ShardMapPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         inner_jaxpr, consts = _extract_inner_jaxpr(eqn.params)
 
-        for var, const_val in zip(inner_jaxpr.constvars, consts):
-            ctx.bind_const_for_var(var, np.asarray(const_val))
+        ctx.bind_captured_arrays(inner_jaxpr.constvars, consts)
 
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))

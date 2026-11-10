@@ -22,6 +22,20 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Export model state as named inputs:** Add `to_onnx(..., state=...)` and
+  `StateInput` to export chosen weights and buffers as named graph inputs with
+  saved defaults and tensor metadata instead of anonymous constants. Declared
+  arrays are traced as inputs, so each is stored once, every use reads that
+  tensor, and no value derived from it is baked into the file.
+  `overridable=False` keeps name and metadata on an ordinary initializer for
+  fixed inference files. The guarantees are documented as a tested contract in
+  [Model State as Inputs](../user_guide/state_inputs.md), and a
+  [walkthrough](../user_guide/state_inputs_walkthrough.md) follows an Equinox
+  RoPE model through saving, reloading and an optimizer step. Thanks to
+  Clément Poiret, who proposed `state=`, `StateInput`, `overridable` and the
+  single binding point for captured constants in
+  [discussion #290](https://github.com/enpasos/jax2onnx/discussions/290) and
+  tested the result on Equimo.
 * **Export every `nnx.LinearGeneral` input layout:** Restore multi-dimensional
   `out_features` after `Gemm` for rank-2 inputs, including symbolic batch
   sizes, and flatten rank-1 inputs and inputs whose axes are all contracted.

@@ -101,8 +101,7 @@ class Remat2Plugin(PrimitiveLeafPlugin):
             raise ValueError("remat2 lowering requires 'jaxpr' in params")
         inner_jaxpr, consts = _unwrap_closed_jaxpr(jaxpr_like)
 
-        for const_var, const_value in zip(inner_jaxpr.constvars, consts):
-            ctx.bind_const_for_var(const_var, np.asarray(const_value))
+        ctx.bind_captured_arrays(inner_jaxpr.constvars, consts)
 
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))

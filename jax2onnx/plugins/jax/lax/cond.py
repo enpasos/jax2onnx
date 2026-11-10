@@ -293,8 +293,7 @@ class CondPlugin(PrimitiveLeafPlugin):
         branch_ctx = make_subgraph_context(ctx, prefix=prefix, implicit_captures=True)
 
         # Bind constants inside the branch context.
-        for const_var, const_value in zip(branch_jaxpr.constvars, consts):
-            branch_ctx.bind_const_for_var(const_var, np.asarray(const_value))
+        branch_ctx.bind_captured_arrays(branch_jaxpr.constvars, consts)
 
         builder = getattr(branch_ctx, "builder", None)
         if builder is None:

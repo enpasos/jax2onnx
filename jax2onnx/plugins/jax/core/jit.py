@@ -5,7 +5,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
-import numpy as np
 
 import jax
 
@@ -115,8 +114,7 @@ class JitPlugin(PrimitiveLeafPlugin):
         inner_jaxpr = fresh_closed.jaxpr
         consts = fresh_closed.consts
 
-        for const_var, const_val in zip(inner_jaxpr.constvars, consts):
-            ctx.bind_const_for_var(const_var, np.asarray(const_val))
+        ctx.bind_captured_arrays(inner_jaxpr.constvars, consts)
 
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.require_value_for_var(outer_var))

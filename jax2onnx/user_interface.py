@@ -51,7 +51,9 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+from contextlib import contextmanager
 from typing import (
+    Iterator,
     TYPE_CHECKING,
     Any,
     Callable,
@@ -85,6 +87,7 @@ from jax2onnx.converter.conversion_api import (
     to_onnx as to_onnx_impl,
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
+from jax2onnx.converter.state_inputs import StateInput, prepare_state_inputs
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 
@@ -271,6 +274,30 @@ def _materialize_input_params_on_ir(
 _POSITIONAL_INPUT_NAME_RE = re.compile(r"^in_(\d+)(?:_nchw)?$")
 
 
+_STATE_VALUE_ERRORS: tuple[type[Exception], ...] = (
+    jax.errors.ConcretizationTypeError,
+    jax.errors.TracerArrayConversionError,
+    jax.errors.TracerBoolConversionError,
+    jax.errors.TracerIntegerConversionError,
+)
+_STATE_VALUE_NOTE = (
+    "Arrays declared through `state=` are traced as inputs, so the export cannot "
+    "read their values. If this error involves such an array, compute with JAX "
+    "operations, or leave the array undeclared so that it stays a constant."
+)
+
+
+@contextmanager
+def _explain_state_value_errors(active: bool) -> Iterator[None]:
+    """Add a hint when tracing fails on the value of an array declared as state."""
+    try:
+        yield
+    except _STATE_VALUE_ERRORS as exc:
+        if active:
+            exc.add_note(_STATE_VALUE_NOTE)
+        raise
+
+
 def _normalize_io_names(
     names: Optional[Sequence[str]], *, kind: str
 ) -> Optional[List[str]]:
@@ -430,6 +457,8 @@ if TYPE_CHECKING:
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
         normalization_mode: NormalizationMode = ...,
+        state: Optional[Sequence[StateInput]] = ...,
+        allow_unused_state: bool = ...,
     ) -> onnx.ModelProto: ...
 
     @overload
@@ -449,6 +478,8 @@ if TYPE_CHECKING:
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
         normalization_mode: NormalizationMode = ...,
+        state: Optional[Sequence[StateInput]] = ...,
+        allow_unused_state: bool = ...,
     ) -> ir.Model: ...
 
     @overload
@@ -468,6 +499,8 @@ if TYPE_CHECKING:
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
         normalization_mode: NormalizationMode = ...,
+        state: Optional[Sequence[StateInput]] = ...,
+        allow_unused_state: bool = ...,
     ) -> str: ...
 
 
@@ -487,6 +520,8 @@ def to_onnx(
     output_names: Optional[Sequence[str]] = None,
     export_mode: ExportMode = "standard",
     normalization_mode: NormalizationMode = "auto",
+    state: Optional[Sequence[StateInput]] = None,
+    allow_unused_state: bool = False,
     **removed_options: Never,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """
@@ -554,6 +589,13 @@ def to_onnx(
             LayerNorm with use_fast_variance=False traces JAX in every mode.
             `"force_decomposed"` selects the explicit graph. Runtime graph optimization is separate from
             the exported representation. See the user guide for tested limits.
+        state: Optional sequence of `StateInput` entries. Each names one array
+            that is a pytree leaf of `fn` and exports it as a graph input with
+            the array as its saved default, instead of an anonymous constant.
+            Declared arrays are traced as inputs, so the export cannot read
+            their values. See the user guide page on model state inputs.
+        allow_unused_state: Leave declared arrays that the exported computation
+            does not read out of the model instead of raising.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -665,10 +707,42 @@ def to_onnx(
                 f"output_names collide with names reserved by input_params: {names}."
             )
 
-    with preserve_precision_globals():
+    reserved_state_names = set(param_map)
+    reserved_state_names.update(
+        normalized_input_names
+        if normalized_input_names is not None
+        else (f"in_{index}" for index in range(len(normalized_inputs)))
+    )
+    reserved_state_names.update(normalized_output_names or ())
+    state_inputs = prepare_state_inputs(
+        fn,
+        state,
+        data_input_count=len(normalized_inputs),
+        reserved_names=reserved_state_names,
+        allow_unused=allow_unused_state,
+    )
+    export_fn: Callable[..., Any] = fn
+    export_inputs: List[InputSpec] = normalized_inputs
+    export_input_names = normalized_input_names
+    if state_inputs is not None:
+        if inputs_as_nchw is not None and any(
+            isinstance(index, (int, np.integer)) and index >= len(normalized_inputs)
+            for index in inputs_as_nchw
+        ):
+            raise ValueError("inputs_as_nchw can only refer to data inputs, not state.")
+        # A state export is the ordinary export of g(*data, *state).
+        export_fn = state_inputs.traced
+        export_inputs = [*normalized_inputs, *state_inputs.specs]
+        if normalized_input_names is not None:
+            export_input_names = [*normalized_input_names, *state_inputs.names]
+
+    with (
+        preserve_precision_globals(),
+        _explain_state_value_errors(state_inputs is not None),
+    ):
         result = to_onnx_impl(
-            fn=fn,
-            inputs=normalized_inputs,
+            fn=export_fn,
+            inputs=export_inputs,
             input_params=param_map,
             model_name=model_name,
             opset=opset,
@@ -676,9 +750,10 @@ def to_onnx(
             protective_clone=(normalized_mode == "ir"),
             inputs_as_nchw=inputs_as_nchw,
             outputs_as_nchw=outputs_as_nchw,
-            input_names=normalized_input_names,
+            input_names=export_input_names,
             output_names=normalized_output_names,
             normalization_mode=normalized_normalization_mode,
+            state=state_inputs,
         )
         postprocess_ir_model(result)
 
@@ -725,12 +800,30 @@ def to_onnx(
         return dest
 
     _materialize_input_params_on_ir(result, param_map)
-    _apply_custom_io_names_on_ir(
-        result,
-        input_names=normalized_input_names,
-        output_names=normalized_output_names,
-        positional_input_count=len(normalized_inputs),
-    )
+    if state_inputs is None:
+        _apply_custom_io_names_on_ir(
+            result,
+            input_names=normalized_input_names,
+            output_names=normalized_output_names,
+            positional_input_count=len(normalized_inputs),
+        )
+    else:
+        positional_count = len(export_inputs)
+        positional = _resolve_positional_inputs(result.graph, positional_count)
+        data_values = positional[: len(normalized_inputs)]
+        data_names = (
+            normalized_input_names
+            if normalized_input_names is not None
+            else [str(value.name) for value in data_values]
+        )
+        _apply_custom_io_names_on_ir(
+            result,
+            input_names=[*data_names, *state_inputs.names],
+            output_names=normalized_output_names,
+            positional_input_count=positional_count,
+        )
+        # Defaults go on last, after every rewrite and rename.
+        state_inputs.attach_defaults(result, positional[len(normalized_inputs) :])
     if normalized_mode == "ir":
         return result
 

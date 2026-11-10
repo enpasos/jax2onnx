@@ -1187,8 +1187,7 @@ class FunctionPlugin(PrimitivePlugin):
         )
         closed = self._trace_function_body(callee, eqn, captures)
         body = closed.jaxpr
-        for var, value in zip(body.constvars, closed.consts):
-            scope.ctx.bind_const_for_var(var, np.asarray(value))
+        scope.ctx.bind_captured_arrays(body.constvars, closed.consts)
         for var, value in zip(body.invars, child_values):
             scope.ctx.bind_value_for_var(var, value)
         lower_jaxpr_with_plugins(

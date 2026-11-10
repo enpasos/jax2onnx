@@ -782,12 +782,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         has_scatter = _jaxpr_contains_scatter(jaxpr)
 
-        for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
-            np_c = np.asarray(cval)
-            aval = getattr(cv, "aval", None)
-            if aval is not None:
-                np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
-            loop_ctx.bind_const_for_var(cv, np_c)
+        loop_ctx.bind_captured_arrays(jaxpr.constvars, closed_jaxpr.consts)
 
         iter_in, cond_in = create_loop_header_inputs(
             loop_ctx,
@@ -1228,12 +1223,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
         call_parameters = LoopCallParameters(ctx, loop_ctx)
 
-        for cv, cval in zip(jaxpr.constvars, closed_jaxpr.consts):
-            np_c = np.asarray(cval)
-            aval = getattr(cv, "aval", None)
-            if aval is not None:
-                np_c = np_c.astype(getattr(aval, "dtype", np_c.dtype), copy=False)
-            loop_ctx.bind_const_for_var(cv, np_c)
+        loop_ctx.bind_captured_arrays(jaxpr.constvars, closed_jaxpr.consts)
 
         iter_in, cond_in = create_loop_header_inputs(
             loop_ctx,

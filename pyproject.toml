@@ -134,10 +134,11 @@ warn_unreachable = true
 incremental = false
 files = [
     "jax2onnx",
+    "scripts/state_inputs_rope.py",
 ]
 # Optional SOTA example integrations depend on external checkouts and large
 # untyped third-party surfaces; sandbox scripts are exploratory repros. Keep
-# the first-party package typed.
+# the first-party package and the state-input walkthrough typed.
 exclude = [
     "^jax2onnx/plugins/examples/(maxtext|maxdiffusion)/",
     "^jax2onnx/sandbox/",
@@ -154,6 +155,13 @@ module = [
     "onnx_ir.*",
 ]
 follow_imports = "normal"
+
+[[tool.mypy.overrides]]
+module = [
+    "onnxruntime",
+    "optax",
+]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [

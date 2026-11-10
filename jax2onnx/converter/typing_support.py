@@ -251,6 +251,12 @@ class NativeLoweringContext(SymbolicDimTracker, Protocol):
         np_array: np.ndarray[Any, np.dtype[Any]],
     ) -> ir.Value: ...
 
+    def bind_captured_arrays(
+        self,
+        variables: Iterable[Any],
+        arrays: Iterable[object],
+    ) -> None: ...
+
     def try_evaluate_const(
         self, var: object
     ) -> np.ndarray[Any, np.dtype[Any]] | None: ...

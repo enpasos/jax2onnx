@@ -30,6 +30,7 @@ from jax2onnx.ir_utils import (
 from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
+from .state_inputs import StateInputs
 from .typing_support import ConverterContext, SymbolicDimOrigin
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
@@ -233,6 +234,7 @@ class IRContext:
         self._promote_call_input_params: bool = True
         self._implicit_capture_parent: IRContext | None = None
         self._external_flag_resolver: Callable[[str], ir.Value] | None = None
+        self._state_inputs: StateInputs | None = None
         self._const_folder = ConstantFolder()
         self._current_eqn: JaxprEqn | None = None
         self._primitive_call_records: list[RecordedPrimitiveCallLog] = []
@@ -312,6 +314,7 @@ class IRContext:
         child.builder._function_mode = True
         child._function_registry = self._function_registry
         child._func_name_counters = self._func_name_counters
+        child._state_inputs = self._state_inputs
         child._call_input_param_names = set(self._call_input_param_names)
         child._call_input_param_literals = dict(self._call_input_param_literals)
         child._promote_call_input_params = (
@@ -581,6 +584,19 @@ class IRContext:
         except TypeError:
             pass
         return value
+
+    def bind_captured_arrays(
+        self, variables: Iterable[Any], arrays: Iterable[object]
+    ) -> None:
+        """Bind the constants a traced JAXPR captured in this scope.
+
+        Every scope binds its captures here, so an array declared through
+        ``to_onnx(state=...)`` cannot enter the graph as a constant unnoticed.
+        """
+        for var, array in zip(variables, arrays):
+            if self._state_inputs is not None:
+                self._state_inputs.reject_captured(array)
+            self.bind_const_for_var(var, np.asarray(array))
 
     # Bind an existing IR Value to a JAX var (no new Value created).
     # Used by FunctionPlugin to tie function-scope inputs to inner jaxpr invars.

@@ -252,6 +252,7 @@ Core context methods used most often:
 | `ctx.get_value_for_var(var, ...)` | Compatibility convenience that combines lookup, literal materialization, and output allocation. Prefer explicit require/allocate operations in new lowerings. |
 | `ctx.bind_value_for_var(var, value)` | Bind an equation output var to a produced `ir.Value`. |
 | `ctx.bind_const_for_var(var, array)` | Bind a JAXPR constvar. Top-level graphs use initializers; Function bodies use `Constant` nodes. |
+| `ctx.bind_captured_arrays(vars, arrays)` | Bind the `consts` of a traced JAXPR. Every scope binds its captures here, so an array declared through `to_onnx(state=...)` cannot enter the graph as a constant unnoticed. |
 | `ctx.fresh_name(base)` | Create deterministic per-context names. |
 | `ctx.builder` | Emit ONNX IR nodes through the project builder wrapper. |
 | `ctx.try_evaluate_const(var)` | Evaluate a known constant producer when a lowering needs static data. |

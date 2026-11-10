@@ -45,6 +45,7 @@ from jax2onnx.plugins._ir_shapes import _as_ir_dim_label
 
 from .ir_context import IRContext
 from .ir_optimizations import optimize_graph
+from .state_inputs import StateInputs
 from .function_scope import FunctionRegistry
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
@@ -473,12 +474,14 @@ def _create_ir_context(
     frozen_params: Mapping[str, object],
     record_primitive_calls_file: Optional[str],
     normalization_mode: str = "auto",
+    state: Optional[StateInputs] = None,
 ) -> IRContext:
     ctx = IRContext(
         opset=opset,
         normalization_mode=normalization_mode,
         input_specs=input_specs,
     )
+    ctx._state_inputs = state
     ctx._call_input_param_names = set(frozen_params.keys())
     ctx._call_input_param_literals = dict(frozen_params)
 
@@ -496,10 +499,10 @@ def _bind_closed_jaxpr_constants(
     jpr: Any,
     consts: Sequence[object],
 ) -> None:
-    for cv, cval in zip(jpr.constvars, consts):
+    for cv in jpr.constvars:
         if _maybe_dtype(cv.aval) is None:
             raise TypeError("Constant has no traced dtype")
-        ctx.bind_const_for_var(cv, np.asarray(cval))
+    ctx.bind_captured_arrays(jpr.constvars, consts)
 
 
 class _LayoutAdapter:
@@ -704,6 +707,7 @@ def to_onnx(
     output_names: Optional[Sequence[str]] = None,
     normalization_mode: str = "auto",
     strict_optimizer_failures: Optional[bool] = None,
+    state: Optional[StateInputs] = None,
 ) -> ir.Model:
     """
     Build an ONNX-IR model in three phases:
@@ -726,6 +730,7 @@ def to_onnx(
         input_specs=trace.sds_list,
         frozen_params=trace.frozen_params,
         record_primitive_calls_file=record_primitive_calls_file,
+        state=state,
     )
     _bind_closed_jaxpr_constants(ctx, trace.jaxpr, trace.closed_jaxpr.consts)
     _bind_jaxpr_inputs(ctx, trace.jaxpr, inputs_as_nchw=trace.inputs_as_nchw)
