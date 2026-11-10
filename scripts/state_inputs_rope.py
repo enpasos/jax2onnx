@@ -1,15 +1,20 @@
-# scripts/explicit_state_rope.py
+# scripts/state_inputs_rope.py
 
-"""Small Equinox attention/RoPE example with four explicitly chosen state slots.
+"""Small Equinox attention/RoPE model exported with its state as named inputs.
 
 Inspired by Clément's RoPE use case; this is not an Equimo/DINO adapter. Run::
 
-    python -m scripts.explicit_state_rope --output-dir /tmp/explicit-state-rope
+    python -m scripts.state_inputs_rope --output-dir /tmp/state-inputs-rope
 
-Modules stay undecorated. The free ONNX Function receives its weight explicitly;
-RoPE uses traced JAX operations rather than host evaluation of dynamic state.
-The known architecture declares that both frozen projection branches share one
-slot. Neither array identity nor equal values infer that policy.
+``to_onnx(..., state=...)`` exports four arrays of the model as named inputs
+with saved defaults and labels. The script then saves and reloads the file,
+runs it with the defaults and with replacement arrays, rebuilds the Python
+model from the file and takes one AdamW step.
+
+Modules stay undecorated. The free ONNX Function receives its weight as an
+argument. Both frozen projections hold one array object and therefore become
+one input; the two trainable weights start with equal values but are separate
+objects and stay separate inputs.
 """
 
 from __future__ import annotations
@@ -18,28 +23,35 @@ import argparse
 from importlib.metadata import version
 import json
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, NamedTuple, Sequence
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
-import onnx_ir as ir
 import onnxruntime as ort
 import optax
 
-from jax2onnx import onnx_function
-from scripts.explicit_state_export import StateSlot, export_with_state
+from jax2onnx import StateInput, onnx_function, to_onnx
 
 
-SLOT_NAMES = (
+STATE_NAMES = (
     "shared_weight",
     "independent_weight",
     "rope_rotations",
     "shared_frozen",
 )
+PATH = "pkg.example.path"
 TRAINABLE = "pkg.example.trainable"
+
+
+class StoredState(NamedTuple):
+    """One state array as read from a model file, with its labels."""
+
+    name: str
+    value: np.ndarray | jax.Array
+    metadata: dict[str, str]
 
 
 @onnx_function
@@ -107,96 +119,57 @@ class SmallAttention(eqx.Module):
         return attention @ values + 0.1 * direct + 0.05 * view
 
 
-def state_slots(model: SmallAttention) -> tuple[StateSlot, ...]:
-    """Declare this architecture's slots, checking its chosen frozen alias policy."""
-    q, k = np.asarray(model.q_projection.matrix), np.asarray(model.k_projection.matrix)
-    if q.dtype != k.dtype or q.shape != k.shape or q.tobytes() != k.tobytes():
-        raise ValueError("declared shared frozen projection matrices must match")
-    paths = (
-        "shared_weight",
-        "independent_weight",
-        "rope.rotations",
-        "q_projection.matrix;k_projection.matrix",
+def state_inputs(model: SmallAttention) -> list[StateInput]:
+    """Declare this model's state: one entry per array object, with its labels."""
+    if model.q_projection.matrix is not model.k_projection.matrix:
+        raise ValueError("both frozen projections must hold one array object")
+    declared = (
+        (model.shared_weight, "shared_weight", "true"),
+        (model.independent_weight, "independent_weight", "true"),
+        (model.rope.rotations, "rope.rotations", "false"),
+        (model.q_projection.matrix, "q_projection.matrix;k_projection.matrix", "false"),
     )
-    values = (
-        model.shared_weight,
-        model.independent_weight,
-        model.rope.rotations,
-        model.q_projection.matrix,
+    return [
+        StateInput(array, name, {PATH: path, TRAINABLE: trainable})
+        for name, (array, path, trainable) in zip(STATE_NAMES, declared)
+    ]
+
+
+def export_model(
+    model: SmallAttention, x: jax.Array, *, opset: int = 23
+) -> onnx.ModelProto:
+    """Export the model itself; its declared arrays become named inputs."""
+    return to_onnx(
+        model,
+        inputs=[jax.ShapeDtypeStruct(x.shape, x.dtype)],
+        input_names=["x"],
+        state=state_inputs(model),
+        opset=opset,
     )
-    return tuple(
-        StateSlot(name, value, {"pkg.example.path": path, TRAINABLE: trainable})
-        for name, value, path, trainable in zip(
-            SLOT_NAMES, values, paths, ("true", "true", "false", "false")
-        )
-    )
 
 
-def explicit_forward(model: SmallAttention) -> Callable[..., jax.Array]:
-    """Partition once and replace every selected leaf from the four arguments."""
-    arrays, static = eqx.partition(model, eqx.is_array)
-
-    def forward(
-        x: jax.Array,
-        shared_weight: jax.Array,
-        independent_weight: jax.Array,
-        rope_rotations: jax.Array,
-        shared_frozen: jax.Array,
-    ) -> jax.Array:
-        replaced = eqx.tree_at(
-            lambda m: (
-                m.shared_weight,
-                m.independent_weight,
-                m.rope.rotations,
-                m.q_projection.matrix,
-                m.k_projection.matrix,
-            ),
-            arrays,
-            replace=(
-                shared_weight,
-                independent_weight,
-                rope_rotations,
-                shared_frozen,
-                shared_frozen,
-            ),
-        )
-        return eqx.combine(replaced, static)(x)
-
-    return forward
-
-
-def export_model(model: SmallAttention, x: jax.Array) -> ir.Model:
-    exported: ir.Model = export_with_state(
-        explicit_forward(model),
-        [jax.ShapeDtypeStruct(x.shape, x.dtype)],
-        state_slots(model),
-        data_input_names=["x"],
-    )
-    return exported
-
-
-def read_slots(proto: onnx.ModelProto) -> tuple[StateSlot, ...]:
-    """Read only the known state from input/initializer intersections, not ORT IO."""
+def read_state(proto: onnx.ModelProto) -> tuple[StoredState, ...]:
+    """Read this example's four state inputs and their labels from a model."""
     inputs = {value.name for value in proto.graph.input}
     tensors = {tensor.name: tensor for tensor in proto.graph.initializer}
-    if inputs & tensors.keys() != set(SLOT_NAMES):
-        raise ValueError("model does not have this example's four state slots")
+    if inputs & tensors.keys() != set(STATE_NAMES):
+        raise ValueError("model does not have this example's four state inputs")
     return tuple(
-        StateSlot(
+        StoredState(
             name,
             np.array(onnx.numpy_helper.to_array(tensors[name]), copy=True),
             {entry.key: entry.value for entry in tensors[name].metadata_props},
         )
-        for name in SLOT_NAMES
+        for name in STATE_NAMES
     )
 
 
-def reconstruct(model: SmallAttention, state: Sequence[StateSlot]) -> SmallAttention:
-    """Apply imported path labels to this known Python architecture.
+def reconstruct(model: SmallAttention, state: Sequence[StoredState]) -> SmallAttention:
+    """Place arrays read from a file into this known Python architecture.
 
-    These selectors are independent of the export closure. The semicolon path
-    explicitly denotes this example's shared projection branches; it is not a
-    general framework path or alias discovery mechanism.
+    The path labels select the fields. The semicolon path is this example's
+    own convention for its two frozen projections: both receive one array
+    object, so they stay tied when the rebuilt model is exported again.
     """
     selectors: dict[str, Callable[[SmallAttention], tuple[jax.Array, ...]]] = {
         "shared_weight": lambda m: (m.shared_weight,),
@@ -207,27 +180,28 @@ def reconstruct(model: SmallAttention, state: Sequence[StateSlot]) -> SmallAtten
             m.k_projection.matrix,
         ),
     }
-    paths = [slot.metadata.get("pkg.example.path", "") for slot in state]
+    paths = [entry.metadata.get(PATH, "") for entry in state]
     if sorted(paths) != sorted(selectors):
         raise ValueError("state must provide each known path exactly once")
-    for slot, path in zip(state, paths):
+    for entry, path in zip(state, paths):
         selector = selectors[path]
+        array = jnp.asarray(entry.value)
         model = eqx.tree_at(
-            selector,
-            model,
-            replace=tuple(jnp.asarray(slot.value) for _ in selector(model)),
+            selector, model, replace=tuple(array for _ in selector(model))
         )
     return model
 
 
 def save_reload(
-    model: ir.Model, slots: Sequence[StateSlot], path: Path, *, external_data: bool
+    proto: onnx.ModelProto, path: Path, *, external_data: bool
 ) -> onnx.ModelProto:
-    """Use the tested serializer, then verify exact defaults and tensor properties."""
-    if tuple(slot.name for slot in slots) != SLOT_NAMES:
-        raise ValueError("saving requires the four declared state slots in order")
+    """Save the model, reload it and check that state and labels are unchanged."""
+    expected = read_state(proto)
+    # Saving with external data rewrites the proto it is given.
+    to_save = onnx.ModelProto()
+    to_save.CopyFrom(proto)
     onnx.save_model(
-        ir.to_proto(model),
+        to_save,
         path,
         save_as_external_data=external_data,
         all_tensors_to_one_file=True,
@@ -236,18 +210,17 @@ def save_reload(
     )
     restored = onnx.load(path)
     onnx.checker.check_model(restored, full_check=True)
-    if {value.name for value in restored.graph.input} != {"x", *SLOT_NAMES}:
+    if [value.name for value in restored.graph.input] != ["x", *STATE_NAMES]:
         raise ValueError("serialized graph inputs changed")
-    for expected, actual in zip(slots, read_slots(restored)):
-        source, loaded = np.asarray(expected.value), np.asarray(actual.value)
+    for before, after in zip(expected, read_state(restored)):
+        source, loaded = np.asarray(before.value), np.asarray(after.value)
         if (
-            actual.name != expected.name
-            or actual.metadata != expected.metadata
+            after.metadata != before.metadata
             or source.dtype != loaded.dtype
             or source.shape != loaded.shape
             or source.tobytes() != loaded.tobytes()
         ):
-            raise ValueError(f"serialized state changed for {expected.name}")
+            raise ValueError(f"serialized state changed for {before.name}")
     return restored
 
 
@@ -263,30 +236,31 @@ def runtime(proto: onnx.ModelProto) -> ort.InferenceSession:
 
 def adamw_step(
     model: SmallAttention,
-    slots: Sequence[StateSlot],
+    state: Sequence[StoredState],
     x: jax.Array,
     target: jax.Array,
-) -> tuple[tuple[StateSlot, ...], float]:
-    """Interpret the example's policy; frozen state never enters AdamW at all."""
-    if any(slot.metadata.get(TRAINABLE) not in {"true", "false"} for slot in slots):
+) -> tuple[tuple[StoredState, ...], float]:
+    """Read the example's own labels; frozen state never enters AdamW at all."""
+    if any(entry.metadata.get(TRAINABLE) not in {"true", "false"} for entry in state):
         raise ValueError("this example requires explicit true/false trainability")
     trainable = {
-        slot.name: jnp.asarray(slot.value)
-        for slot in slots
-        if slot.metadata[TRAINABLE] == "true"
+        entry.name: jnp.asarray(entry.value)
+        for entry in state
+        if entry.metadata[TRAINABLE] == "true"
     }
     frozen = {
-        slot.name: jnp.asarray(slot.value)
-        for slot in slots
-        if slot.metadata[TRAINABLE] == "false"
+        entry.name: jnp.asarray(entry.value)
+        for entry in state
+        if entry.metadata[TRAINABLE] == "false"
     }
 
     def loss(parameters: dict[str, jax.Array]) -> jax.Array:
-        state = {**frozen, **parameters}
+        arrays = {**frozen, **parameters}
         rebuilt = reconstruct(
             model,
             tuple(
-                StateSlot(slot.name, state[slot.name], slot.metadata) for slot in slots
+                StoredState(entry.name, arrays[entry.name], entry.metadata)
+                for entry in state
             ),
         )
         return jnp.mean((rebuilt(x) - target) ** 2)
@@ -297,22 +271,26 @@ def adamw_step(
     updated = optax.apply_updates(trainable, updates)
     return (
         tuple(
-            StateSlot(slot.name, updated.get(slot.name, slot.value), slot.metadata)
-            for slot in slots
+            StoredState(
+                entry.name, updated.get(entry.name, entry.value), entry.metadata
+            )
+            for entry in state
         ),
         float(loss_value),
     )
 
 
-def run_demo(output_dir: Path, *, external_data: bool = False) -> dict[str, object]:
+def run_demo(
+    output_dir: Path, *, external_data: bool = False, opset: int = 23
+) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     model = SmallAttention(key=jax.random.key(0))
     x = jnp.linspace(-0.8, 0.9, 12, dtype=jnp.float32).reshape(3, 4)
-    slots = state_slots(model)
-    exported = export_model(model, x)
     path = output_dir / "attention.onnx"
-    proto = save_reload(exported, slots, path, external_data=external_data)
-    imported = read_slots(proto)
+    proto = save_reload(
+        export_model(model, x, opset=opset), path, external_data=external_data
+    )
+    imported = read_state(proto)
     expected_policy = {
         "shared_weight": ("shared_weight", "true"),
         "independent_weight": ("independent_weight", "true"),
@@ -320,28 +298,25 @@ def run_demo(output_dir: Path, *, external_data: bool = False) -> dict[str, obje
         "shared_frozen": ("q_projection.matrix;k_projection.matrix", "false"),
     }
     actual_policy = {
-        slot.name: (
-            slot.metadata.get("pkg.example.path"),
-            slot.metadata.get(TRAINABLE),
-        )
-        for slot in imported
+        entry.name: (entry.metadata.get(PATH), entry.metadata.get(TRAINABLE))
+        for entry in imported
     }
     if actual_policy != expected_policy:
-        raise AssertionError("serialized state policy differs from this architecture")
+        raise AssertionError("stored state policy differs from this architecture")
     session = runtime(proto)
     actual = session.run(None, {"x": np.asarray(x)})[0]
     np.testing.assert_allclose(actual, model(x), rtol=2e-5, atol=2e-6)
     overrides = {
-        slot.name: np.asarray(slot.value) * np.float32(0.7 + index * 0.1)
+        entry.name: np.asarray(entry.value) * np.float32(0.7 + index * 0.1)
         + np.float32(0.2 * (index + 1))
-        for index, slot in enumerate(imported)
+        for index, entry in enumerate(imported)
     }
     overridden = session.run(None, {"x": np.asarray(x), **overrides})[0]
     reference = reconstruct(
         model,
         tuple(
-            StateSlot(slot.name, overrides[slot.name], slot.metadata)
-            for slot in imported
+            StoredState(entry.name, overrides[entry.name], entry.metadata)
+            for entry in imported
         ),
     )(x)
     np.testing.assert_allclose(overridden, reference, rtol=2e-5, atol=2e-6)
@@ -357,10 +332,10 @@ def run_demo(output_dir: Path, *, external_data: bool = False) -> dict[str, obje
             name: version(name)
             for name in ("jax", "equinox", "optax", "onnx", "onnx-ir", "onnxruntime")
         },
-        "opset": exported.graph.opset_imports[""],
+        "opset": {entry.domain: entry.version for entry in proto.opset_import}[""],
         "x64_enabled": jax.config.jax_enable_x64,
         "ort_optimization": "ORT_ENABLE_ALL",
-        "slot_count": len(slots),
+        "state_inputs": len(imported),
         "model": str(path),
         "external_data": external_data,
         "max_absolute_error": float(np.max(np.abs(actual - np.asarray(model(x))))),
@@ -368,7 +343,7 @@ def run_demo(output_dir: Path, *, external_data: bool = False) -> dict[str, obje
             np.max(np.abs(overridden - np.asarray(reference)))
         ),
         "adamw_loss": loss,
-        "frozen_slots_unchanged": True,
+        "frozen_state_unchanged": True,
     }
     (output_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     return report

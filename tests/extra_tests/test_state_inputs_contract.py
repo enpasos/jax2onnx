@@ -31,6 +31,7 @@ from jax2onnx import StateCaptureError, StateInput, onnx_function, to_onnx
 tu = jax.tree_util
 REPOSITORY = Path(__file__).resolve().parents[2]
 CHECKER_CLAUSES = {"K6", "K7", "K8", "K9", "K10"}
+BF16 = np.dtype(jnp.bfloat16)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -61,22 +62,51 @@ def _specs(xs: list[jax.Array]) -> list[jax.ShapeDtypeStruct]:
     return [jax.ShapeDtypeStruct(x.shape, x.dtype) for x in xs]
 
 
-def _run(proto: onnx.ModelProto, feed: dict[str, np.ndarray]) -> list[np.ndarray]:
+def _session(proto: onnx.ModelProto) -> ort.InferenceSession:
     options = ort.SessionOptions()
     options.log_severity_level = 3
-    session = ort.InferenceSession(
+    return ort.InferenceSession(
         proto.SerializeToString(), options, providers=["CPUExecutionProvider"]
     )
-    return list(session.run(None, feed))
+
+
+def _run(proto: onnx.ModelProto, feed: dict[str, np.ndarray]) -> list[np.ndarray]:
+    session = _session(proto)
+    if all(array.dtype != BF16 for array in feed.values()):
+        return list(session.run(None, feed))
+    # ONNX Runtime's NumPy interface rejects BF16 arrays, so bind their bits.
+    binding = session.io_binding()
+    for name, array in feed.items():
+        if array.dtype == BF16:
+            bits = np.ascontiguousarray(array).view(np.uint16)
+            binding.bind_ortvalue_input(
+                name,
+                ort.OrtValue.ortvalue_from_numpy_with_onnx_type(
+                    bits, onnx.TensorProto.BFLOAT16
+                ),
+            )
+        else:
+            binding.bind_cpu_input(name, array)
+    for output in session.get_outputs():
+        binding.bind_output(output.name)
+    session.run_with_iobinding(binding)
+    return list(binding.copy_outputs_to_cpu())
 
 
 def _flat(out: Any) -> list[np.ndarray]:
     return [np.asarray(o) for o in tu.tree_leaves(out)]
 
 
+def _widened(array: np.ndarray) -> np.ndarray:
+    """BF16 values as FP32, which represents them exactly."""
+    return array.astype(np.float32) if array.dtype == BF16 else array
+
+
 def _close(got: list[np.ndarray], ref: list[np.ndarray], rtol: float) -> bool:
     return len(got) == len(ref) and all(
-        g.shape == r.shape and np.allclose(g, r, rtol=rtol, atol=1e-4)
+        g.shape == r.shape
+        and g.dtype == r.dtype
+        and np.allclose(_widened(g), _widened(r), rtol=rtol, atol=1e-4)
         for g, r in zip(got, ref)
     )
 
@@ -110,18 +140,29 @@ def check_contract(
     *,
     unused: tuple[str, ...] = (),
     rtol: float = 1e-3,
+    specs: list[Any] | None = None,
+    runtime: bool = True,
+    **export_options: Any,
 ) -> onnx.ModelProto:
-    """Check the file-level clauses K6-K10 for one stateful callable."""
-    specs = _specs(xs)
+    """Check the file-level clauses K6-K10 for one stateful callable.
+
+    ``specs`` replaces the input specifications derived from ``xs``, for
+    example to use symbolic dimensions. ``runtime=False`` stops after K9, for
+    programs that ONNX Runtime has no kernels for.
+    """
+    specs = _specs(xs) if specs is None else specs
     leaves, treedef = tu.tree_flatten(fn)
-    allow_unused = bool(unused)
-    proto = to_onnx(fn, specs, state=entries, allow_unused_state=allow_unused)
+    options: dict[str, Any] = {"allow_unused_state": bool(unused), **export_options}
+    proto = to_onnx(fn, specs, state=entries, **options)
     onnx.checker.check_model(proto, full_check=True)
     bound = [entry for entry in entries if entry.name not in unused]
     inputs = list(proto.graph.input)
     initializers = {tensor.name: tensor for tensor in proto.graph.initializer}
 
     # K6: data inputs first, then overridable state in declaration order.
+    assert [value.name for value in inputs[: len(xs)]] == [
+        f"in_{index}" for index in range(len(xs))
+    ]
     assert [value.name for value in inputs[len(xs) :]] == [
         entry.name for entry in bound if entry.overridable
     ]
@@ -144,23 +185,30 @@ def check_contract(
     # K10 with the saved defaults.
     feed = {f"in_{index}": np.asarray(x) for index, x in enumerate(xs)}
     reference = _flat(fn(*xs))
-    assert _close(_run(proto, feed), reference, rtol)
+    if runtime:
+        assert _close(_run(proto, feed), reference, rtol)
 
     # The same program with other state values of the same type.
     new = {id(entry.array): _perturb(entry.array) for entry in entries}
+    assert all(
+        (other.dtype, other.weak_type) == (entry.array.dtype, entry.array.weak_type)
+        for entry, other in zip(entries, new.values())
+    ), "the perturbation must keep the type"
     fn2 = tu.tree_unflatten(treedef, [new.get(id(leaf), leaf) for leaf in leaves])
     entries2 = [
         StateInput(new[id(e.array)], e.name, e.metadata, e.overridable) for e in entries
     ]
     reference2 = _flat(fn2(*xs))
     assert not _close(reference2, reference, rtol), "the perturbation must show"
-    proto2 = to_onnx(fn2, specs, state=entries2, allow_unused_state=allow_unused)
+    proto2 = to_onnx(fn2, specs, state=entries2, **options)
 
     # K9: only the state payloads may differ between the two files.
     names = {entry.name for entry in entries}
     assert _without_state_payloads(proto, names) == _without_state_payloads(
         proto2, names
     )
+    if not runtime:
+        return proto
     assert _close(_run(proto2, feed), reference2, rtol)
 
     # K10 under override: file A fed with B's values equals program B.
@@ -352,6 +400,84 @@ class Unused(eqx.Module):
         return x * self.w
 
 
+class CastAtUse(eqx.Module):
+    w: jax.Array
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return x * self.w.astype(x.dtype)
+
+
+class NormBlock(eqx.Module):
+    linear: eqx.nn.Linear
+    norm: eqx.nn.LayerNorm
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return jax.nn.softmax(jax.nn.gelu(self.norm(self.linear(x))))
+
+
+class SelfAttention(eqx.Module):
+    attention: eqx.nn.MultiheadAttention
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return self.attention(x, x, x)
+
+
+class PatchEmbedding(eqx.Module):
+    conv: eqx.nn.Conv2d
+    cls: jax.Array
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        tokens = self.conv(x).reshape(self.cls.shape[0], -1).T
+        return jnp.concatenate([self.cls[None, :], tokens], axis=0)
+
+
+class Returned(eqx.Module):
+    w: jax.Array
+
+    def __call__(self, x: jax.Array) -> tuple[jax.Array, jax.Array]:
+        return x * self.w, self.w
+
+
+class PassedThrough(eqx.Module):
+    w: jax.Array
+
+    def __call__(self, x: jax.Array) -> tuple[jax.Array, jax.Array]:
+        return x + 1.0, self.w
+
+
+class NoData(eqx.Module):
+    w: jax.Array
+
+    def __call__(self) -> jax.Array:
+        return self.w * 2.0
+
+
+class OnlyState(eqx.Module):
+    w: jax.Array
+
+    def __call__(self) -> jax.Array:
+        return self.w
+
+
+class CallArguments(eqx.Module):
+    w: jax.Array
+
+    def __call__(
+        self, x: jax.Array, *, key: Any = None, inference: bool = False
+    ) -> jax.Array:
+        if inference:
+            return x * self.w
+        return x * self.w * jax.random.bernoulli(key, 0.5, x.shape)
+
+
+class Untraceable(eqx.Module):
+    a: jax.Array
+    c: jax.Array
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        raise AssertionError("violations of K1 and K2 must raise before tracing")
+
+
 class Eager(eqx.Module):
     w: jax.Array
     s: jax.Array
@@ -472,6 +598,38 @@ def _head_only(fn: Any) -> list[StateInput]:
     return [StateInput(fn.head, "head")]
 
 
+def _fixed(fn: Any) -> list[StateInput]:
+    return [StateInput(fn.w, "w", overridable=False)]
+
+
+def _as_bfloat16(module: Any) -> Any:
+    """The same module with every floating array converted to BF16."""
+    return tu.tree_map(
+        lambda leaf: leaf.astype(jnp.bfloat16) if eqx.is_inexact_array(leaf) else leaf,
+        module,
+    )
+
+
+def _bfloat16_block() -> tuple[Any, list[jax.Array]]:
+    key = jax.random.PRNGKey(0)
+    block = NormBlock(eqx.nn.Linear(8, 8, key=key), eqx.nn.LayerNorm(8))
+    return _as_bfloat16(block), [X(8, dtype=jnp.bfloat16)]
+
+
+def _bfloat16_attention() -> tuple[Any, list[jax.Array]]:
+    attention = eqx.nn.MultiheadAttention(2, 8, key=jax.random.PRNGKey(0))
+    return _as_bfloat16(SelfAttention(attention)), [X(5, 8, dtype=jnp.bfloat16)]
+
+
+def _bfloat16_patches() -> tuple[Any, list[jax.Array]]:
+    conv = eqx.nn.Conv2d(3, 4, 4, stride=4, key=jax.random.PRNGKey(0))
+    return _as_bfloat16(PatchEmbedding(conv, W(4))), [X(3, 8, 8, dtype=jnp.bfloat16)]
+
+
+def _inference_call(model: CallArguments, x: jax.Array) -> jax.Array:
+    return model(x, inference=True)
+
+
 Case = tuple[str, Callable[[], tuple[Any, list[jax.Array]]], dict[str, Any]]
 CASES: list[Case] = [
     ("direct", lambda: (Direct(W(4, 2), W(2)), [X(3, 4)]), {}),
@@ -486,7 +644,8 @@ CASES: list[Case] = [
         ),
         {},
     ),
-    ("cond", lambda: (Cond(W(4)), [X(4)]), {}),
+    ("cond_true_branch", lambda: (Cond(W(4)), [jnp.abs(X(4))]), {}),
+    ("cond_false_branch", lambda: (Cond(W(4)), [-jnp.abs(X(4))]), {}),
     ("scan", lambda: (Scan(W(4)), [X(4)]), {}),
     ("while_loop", lambda: (While(W(4)), [X(4)]), {}),
     ("while_predicate", lambda: (WhilePredicate(W(4)), [X(4)]), {}),
@@ -520,10 +679,24 @@ CASES: list[Case] = [
     ("nnx_layer_norm", lambda: (nnx.LayerNorm(3, rngs=nnx.Rngs(0)), [X(2, 3)]), {}),
     ("linen_through_partial", _linen_partial, {}),
     (
+        "eqx_call_arguments_through_partial",
+        lambda: (tu.Partial(_inference_call, CallArguments(W(4))), [X(4)]),
+        {},
+    ),
+    (
         "float16",
         lambda: (Scale(W(4, dtype=jnp.float16)), [X(4, dtype=jnp.float16)]),
         {"rtol": 2e-2},
     ),
+    (
+        "bfloat16_at_file_level",
+        lambda: (Scale(W(4, dtype=jnp.bfloat16)), [X(4, dtype=jnp.bfloat16)]),
+        {"runtime": False},
+    ),
+    ("bfloat16_linear_norm_gelu_softmax", _bfloat16_block, {"runtime": False}),
+    ("bfloat16_attention", _bfloat16_attention, {"runtime": False}),
+    ("bfloat16_patch_embedding", _bfloat16_patches, {"runtime": False}),
+    ("bfloat16_cast_at_use", lambda: (CastAtUse(W(4, dtype=jnp.bfloat16)), [X(4)]), {}),
     (
         "float64_under_x64",
         lambda: (Scale(W(4, dtype=jnp.float64)), [X(4, dtype=jnp.float64)]),
@@ -545,6 +718,11 @@ CASES: list[Case] = [
         {},
     ),
     (
+        "weak_scalar_with_float16_data",
+        lambda: (Scale(jnp.asarray(0.5)), [X(4, dtype=jnp.float16)]),
+        {"rtol": 2e-2},
+    ),
+    (
         "named_entries",
         lambda: (Direct(W(4, 2), W(2)), [X(3, 4)]),
         {"entries": _named(True)},
@@ -559,6 +737,15 @@ CASES: list[Case] = [
         lambda: (Unused(W(4), W(4, seed=1)), [X(4)]),
         {"unused": ("s1",)},
     ),
+    ("state_used_and_returned", lambda: (Returned(W(4)), [X(4)]), {}),
+    ("state_only_returned", lambda: (PassedThrough(W(4)), [X(4)]), {}),
+    (
+        "state_only_returned_non_overridable",
+        lambda: (PassedThrough(W(4)), [X(4)]),
+        {"entries": _fixed},
+    ),
+    ("no_data_input", lambda: (NoData(W(4)), []), {}),
+    ("state_is_the_only_output", lambda: (OnlyState(W(4)), []), {}),
     (
         "state_as_function_argument",
         lambda: (StateAsFunctionArgument(W(4), W(4, seed=1)), [X(4)]),
@@ -587,6 +774,7 @@ def test_K6_to_K10_hold_for(
             entries,
             unused=options.get("unused", ()),
             rtol=options.get("rtol", 1e-3),
+            runtime=options.get("runtime", True),
         )
 
 
@@ -618,7 +806,7 @@ def test_K1_complex_and_empty_state_are_rejected() -> None:
 
 
 def test_K1_names_and_objects_are_unique() -> None:
-    model = Pair(W(4), W(4, seed=1))
+    model = Untraceable(W(4), W(4, seed=1))
     with pytest.raises(ValueError, match="unique"):
         _export(model, [StateInput(model.a, "w"), StateInput(model.c, "w")])
     with pytest.raises(ValueError, match="already declares"):
@@ -636,24 +824,24 @@ def test_K1_names_and_objects_are_unique() -> None:
     ids=["default_input", "input_names", "output_names", "input_params"],
 )
 def test_K1_names_differ_from_other_interface_names(options: dict[str, Any]) -> None:
-    model = Scale(W(4))
+    model = Untraceable(W(4), W(4, seed=1))
     name = "taken" if options else "in_0"
     with pytest.raises(ValueError, match="collide"):
-        _export(model, [StateInput(model.w, name)], **options)
+        _export(model, [StateInput(model.a, name)], **options)
 
 
 def test_K1_state_must_be_a_sequence_of_entries() -> None:
-    model = Scale(W(4))
+    model = Untraceable(W(4), W(4, seed=1))
     with pytest.raises(TypeError, match="sequence of StateInput"):
-        _export(model, StateInput(model.w, "w"))  # type: ignore[arg-type]
+        _export(model, StateInput(model.a, "w"))  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="must be StateInput"):
-        _export(model, [model.w])  # type: ignore[list-item]
+        _export(model, [model.a])  # type: ignore[list-item]
 
 
 def test_K2_state_must_be_a_leaf_of_the_callable() -> None:
-    model = Scale(W(4))
+    model = Untraceable(W(4), W(4, seed=1))
     with pytest.raises(StateCaptureError, match="pytree leaves"):
-        _export(lambda x: model(x), [StateInput(model.w, "w")])
+        _export(lambda x: model(x), [StateInput(model.a, "w")])
 
 
 # --------------------------------------------------------------------------- K3, K4, K5: tracing
@@ -683,14 +871,123 @@ def test_K5_unused_state_needs_an_opt_in() -> None:
     model = Unused(W(4), W(4, seed=1))
     with pytest.raises(StateCaptureError, match="not read"):
         _export(model, all_state(model))
+    with pytest.raises(TypeError, match="must be a bool"):
+        _export(model, all_state(model), allow_unused_state=1)
+
+
+# --------------------------------------------------------------------------- K6, K7, K10: interface
+@pytest.mark.parametrize("opset", [13, 17, 23])
+def test_K6_onnx_runtime_lists_state_as_overridable_initializers(opset: int) -> None:
+    model = Direct(W(4, 2), W(2))
+    proto = check_contract(model, [X(3, 4)], _named(True)(model), opset=opset)
+    assert {entry.domain: entry.version for entry in proto.opset_import}[""] == opset
+    session = _session(proto)
+    assert [value.name for value in session.get_inputs()] == ["in_0"]
+    assert {value.name for value in session.get_overridable_initializers()} == {
+        "weight",
+        "bias",
+    }
+
+
+@pytest.mark.parametrize("x64", [False, True])
+def test_K6_weak_typed_state_keeps_float16_data(x64: bool) -> None:
+    def weak_fp32(value: float) -> jax.Array:
+        with jax.enable_x64(False):  # whatever the caller configured
+            return jnp.asarray(value)
+
+    with jax.enable_x64(x64):
+        model = Scale(weak_fp32(0.5))
+        assert model.w.weak_type and model.w.dtype == jnp.float32
+        x = jnp.asarray([-2.0, 0.0, 3.0], jnp.float16)
+        proto = to_onnx(model, _specs([x]), state=[StateInput(model.w, "scale")])
+        default = next(t for t in proto.graph.initializer if t.name == "scale")
+        assert default.data_type == onnx.TensorProto.FLOAT and not default.dims
+        for value, feed in [
+            (0.5, {"in_0": np.asarray(x)}),
+            (0.25, {"in_0": np.asarray(x), "scale": np.asarray(0.25, np.float32)}),
+        ]:
+            expected = np.asarray(Scale(weak_fp32(value))(x))
+            assert expected.dtype == np.float16
+            (got,) = _run(proto, feed)
+            assert got.dtype == np.float16
+            np.testing.assert_array_equal(got, expected)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [("B", 4), lambda: jax.ShapeDtypeStruct(jax.export.symbolic_shape("B, 4"), "f4")],
+    ids=["tuple", "shape_dtype_struct"],
+)
+def test_K10_symbolic_data_dimensions_stay_dynamic(spec: Any) -> None:
+    model = Direct(W(4, 2), W(2))
+    spec = spec() if callable(spec) else spec
+    proto = check_contract(model, [X(3, 4)], _named(True)(model), specs=[spec])
+    dims = proto.graph.input[0].type.tensor_type.shape.dim
+    assert dims[0].dim_param == "B" and dims[1].dim_value == 4
+    other = Direct(W(4, 2, seed=1), W(2, seed=2))
+    for batch in (1, 5):
+        x = X(batch, 4)
+        feed = {
+            "in_0": np.asarray(x),
+            "weight": np.asarray(other.w),
+            "bias": np.asarray(other.b),
+        }
+        assert _close(_run(proto, feed), _flat(other(x)), 1e-3)
+
+
+def test_K7_defaults_keep_signed_zeros_and_nan_payloads() -> None:
+    bits = np.array(
+        [0, 0x80000000, 0x7FC00011, 0xFFC00022, 0x3F800000, 0xBF800000], np.uint32
+    )
+    model = Scale(jnp.asarray(bits.view(np.float32)))
+    proto = to_onnx(model, _specs([X(6)]), state=[StateInput(model.w, "w")])
+    default = next(t for t in proto.graph.initializer if t.name == "w")
+    assert onnx.numpy_helper.to_array(default).tobytes() == bits.tobytes()
+
+
+def test_K7_state_is_never_narrowed() -> None:
+    with jax.enable_x64(True):
+        model = Scale(W(4, dtype=jnp.float64))
+    with jax.enable_x64(False), pytest.raises(ValueError, match="narrowed"):
+        _export(model, [StateInput(model.w, "w")])
 
 
 # --------------------------------------------------------------------------- K8, K11, K12
-def test_K8_metadata_keys_and_values_are_validated() -> None:
-    with pytest.raises(ValueError, match="reserved"):
-        StateInput(W(4), "w", {"pkg.jax2onnx.x": "1"})
-    with pytest.raises(TypeError, match="strings"):
-        StateInput(W(4), "w", {"k": 1})  # type: ignore[dict-item]
+@pytest.mark.parametrize(
+    "metadata, error, message",
+    [
+        ({"pkg.jax2onnx.x": "1"}, ValueError, "reserved"),
+        ({"k": 1}, TypeError, "strings"),
+        ({1: "v"}, TypeError, "strings"),
+        ({"": "v"}, TypeError, "strings"),
+        ([("k", "v")], TypeError, "mapping"),
+        ({"\ud800": "v"}, ValueError, "UTF-8"),
+        ({"k": "\ud800"}, ValueError, "UTF-8"),
+    ],
+    ids=[
+        "reserved_prefix",
+        "value_type",
+        "key_type",
+        "empty_key",
+        "not_a_mapping",
+        "key_encoding",
+        "value_encoding",
+    ],
+)
+def test_K8_metadata_keys_and_values_are_validated(
+    metadata: Any, error: type[Exception], message: str
+) -> None:
+    with pytest.raises(error, match=message):
+        StateInput(W(4), "w", metadata)
+
+
+def test_K8_metadata_values_may_be_empty_or_non_ascii() -> None:
+    model = Scale(W(4))
+    labels = {"pkg.demo.path": "blocks/π/weight", "pkg.demo.note": ""}
+    proto = _export(model, [StateInput(model.w, "w", labels)])
+    restored = onnx.load_model_from_string(proto.SerializeToString())
+    default = next(t for t in restored.graph.initializer if t.name == "w")
+    assert _metadata(default) == labels
 
 
 @pytest.mark.parametrize("export_mode", ["standard", "web"])
@@ -755,10 +1052,13 @@ def test_K12_exports_without_state_are_unchanged_and_exports_repeat() -> None:
     assert exported(state=all_state(model)) == exported(state=all_state(model))
 
 
-def test_K10_api_matches_the_manual_export_with_explicit_state() -> None:
+@pytest.mark.parametrize(
+    "dtype", [jnp.float32, jnp.bfloat16], ids=["float32", "bfloat16"]
+)
+def test_K10_api_matches_the_manual_export_with_explicit_state(dtype: Any) -> None:
     """The definition: a state export is the ordinary export of g(*data, *state)."""
-    model = Direct(W(4, 2), W(2))
-    specs = _specs([X(3, 4)])
+    model = Direct(W(4, 2, dtype=dtype), W(2, dtype=dtype))
+    specs = _specs([X(3, 4, dtype=dtype)])
     api = to_onnx(model, specs, state=_named(True)(model))
 
     def explicit(x: jax.Array, weight: jax.Array, bias: jax.Array) -> jax.Array:
@@ -792,6 +1092,16 @@ def test_every_clause_in_the_guide_has_a_test_and_vice_versa() -> None:
             else:
                 tested.update(re.findall(r"K\d+", name))
     assert documented == tested
+
+
+def test_guide_examples_run_as_one_session() -> None:
+    guide = REPOSITORY / "docs/user_guide/state_inputs.md"
+    blocks = re.findall(
+        r"^```python\n(.*?)^```", guide.read_text(), flags=re.MULTILINE | re.DOTALL
+    )
+    assert len(blocks) >= 5
+    with jax.enable_x64(False):  # the examples assume JAX's default precision
+        exec(compile("\n".join(blocks), str(guide), "exec"), {"__name__": "guide"})
 
 
 def test_captured_constants_have_one_binding_point() -> None:

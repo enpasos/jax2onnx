@@ -74,6 +74,13 @@ class StateInput:
                     f"StateInput {self.name!r} metadata must map nonempty "
                     "strings to strings."
                 )
+            try:
+                key.encode("utf-8")
+                value.encode("utf-8")
+            except UnicodeEncodeError as error:
+                raise ValueError(
+                    f"StateInput {self.name!r} metadata must be encodable as UTF-8."
+                ) from error
             if key.startswith(RESERVED_METADATA_PREFIX):
                 raise ValueError(
                     f"StateInput {self.name!r} metadata key {key!r} uses the "
