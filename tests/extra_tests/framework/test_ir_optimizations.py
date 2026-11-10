@@ -216,18 +216,23 @@ def test_dropout_training_mode_inlined_constant_false_and_not_removed():
     # Not must be gone
     assert "Not" not in [n.op_type for n in nodes]
 
-    # Dropout must remain and its 3rd input must be "missing" (empty name)
+    # Dropout must remain and omit its optional training_mode input, which ONNX
+    # treats as False.
     drops = [n for n in nodes if n.op_type == "Dropout"]
     assert len(drops) == 1
-    d = drops[0]
-    ins = d.inputs
-    # If .input stores names instead of Values, normalize to names only
-    if ins and isinstance(ins[0], str):
-        third_name = ins[2]
-    else:
-        third = ins[2]
-        third_name = third.name
-    assert third_name == "false_const", f"expected missing tm input, got {third_name!r}"
+    assert [value.name for value in drops[0].inputs] == ["after_bn", "ratio"]
+
+    # Every remaining node input is a graph input, an initializer, or the
+    # output of an earlier node.
+    known = {value.name for value in g.inputs} | set(g.initializers)
+    for node in nodes:
+        for value in node.inputs:
+            if value is not None:
+                assert value.name in known, f"{node.op_type} input {value.name!r}"
+        known.update(value.name for value in node.outputs)
+
+    # The Constant that only fed the removed Not is dead and removed as well.
+    assert "Constant" not in [n.op_type for n in nodes]
 
     # Unused graph input 'deterministic' must be pruned; 'x' and 'ratio' must remain
     in_names = {v.name for v in g.inputs}
