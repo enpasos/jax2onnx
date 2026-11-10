@@ -22,6 +22,12 @@
 
 ### **jax2onnx 0.18.1**
 
+* **Keep call-time Equinox Dropout inference exports loadable:** When
+  `eqx.nn.Dropout` receives a constant `inference=True` at call time, omit the
+  optional `training_mode` input, which ONNX treats as False, instead of
+  referencing an undefined value that ONNX Runtime rejects. This also applies
+  inside larger modules and `@onnx_function` bodies, and the unused flag
+  initializer is removed.
 * **Export model state as named inputs:** Add `to_onnx(..., state=...)` and
   `StateInput` to export chosen weights and buffers as named graph inputs with
   saved defaults and tensor metadata instead of anonymous constants. Declared

@@ -2337,27 +2337,18 @@ def _read_scalar_bool_from_value_or_constant(
     return None
 
 
-def _constant_false_value() -> "ir.Value":
-    return ir.Value(
-        name="false_const",
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape(()),
-        const_value=ir.tensor(_as_ndarray(False, dtype=np.dtype(np.bool_))),
-    )
-
-
 def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
     """
     Constant-only inlining for Dropout.training_mode:
-      - If training_mode is a constant False → drop it (make input #2 missing)
-      - If training_mode is Not(True)        → drop it (make input #2 missing)
+      - If training_mode is Not(True), omit the optional input #2. ONNX Dropout
+        treats a missing training_mode as False, so no replacement value is needed.
+      - A training_mode that is already a constant False is left unchanged.
     This preserves dynamic (graph-input) cases: they are NOT inlined.
     """
     nodes = list(graph)
     if not nodes:
         return
     changed = False
-    del_not_names: Set[str] = set()
     del_not_nodes: Set[ir.Node] = set()
 
     for idx, n in enumerate(nodes):
@@ -2388,26 +2379,11 @@ def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
                     continue
                 nv = _read_scalar_bool_from_value_or_constant(graph, not_in)
                 if nv is not None and bool(nv) is True:
-                    rep_val = _constant_false_value()
-                    ins_new = list(ins)
-                    ins_new[2] = rep_val
-                    old_not_out = _node_output(producer)
-                    if old_not_out is None:
-                        continue
-                    ir.convenience.replace_all_uses_with(
-                        old_not_out, rep_val, replace_graph_outputs=True
-                    )
-                    _set_node_inputs(n, ins_new)
+                    # Omit training_mode instead of feeding a value that no
+                    # graph input, initializer, or node produces.
+                    n.resize_inputs(2)
                     changed = True
-                    out_v = _node_output(producer)
-                    out_name = _v_name(out_v)
-                    if out_name:
-                        del_not_names.add(out_name)
                     del_not_nodes.add(producer)
-                    # We need to mark producer index as deleted if we track by index
-                    # But the current code uses del_not_nodes (set of nodes) and del_not_names.
-                    # The original code used del_not_idx.
-                    # We should probably stick to del_not_nodes which is safer.
                     continue
                 _dbg_tm("Not input could not be proven True; nv=", nv)
 
@@ -2432,7 +2408,9 @@ def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
                     print(
                         f"[tm-inline] removed {len(final_del_nodes)} orphan Not nodes"
                     )
-                graph.remove(final_del_nodes)
+                # safe=True also detaches the Not inputs, so dead-node removal
+                # can drop a constant that only fed the removed Not.
+                graph.remove(final_del_nodes, safe=True)
 
 
 # ---------------- DCE ----------------

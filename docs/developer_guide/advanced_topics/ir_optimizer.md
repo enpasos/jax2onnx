@@ -174,7 +174,7 @@ belongs to the [canonical plugin example](../plugin_system.md#primitive-plugins)
 | `fold_conv_transpose_constant_bias` | graph + functions | Attach a direct immutable channel bias as an absent ConvTranspose bias input. |
 | `rewrite_mul_sigmoid_as_swish` | graph + functions | Replace an exact input-times-sigmoid pattern with Swish where the opset supports it. |
 | `rewrite_mul_rsqrt_as_div` | graph + functions | Rewrite multiplication by reciprocal square root into direct division where the producer chain is exact. |
-| `inline_dropout_training_mode_constants` | graph + functions | Inline static Dropout `training_mode` inputs so inference exports stay compact. |
+| `inline_dropout_training_mode_constants` | graph + functions | Omit a Dropout `training_mode` computed as `Not(True)`; ONNX treats the missing input as False. Dynamic flags and direct constants stay unchanged. |
 | `propagate_elementwise_shapes` | graph + functions | Propagate known shape metadata through elementwise operators. |
 | `propagate_unary_shapes` | graph + functions | Propagate known shape metadata through unary operators. |
 | `remove_redundant_casts_after_propagation` | graph + functions | Re-run cast cleanup after shape/dtype propagation may have exposed new no-op casts. |

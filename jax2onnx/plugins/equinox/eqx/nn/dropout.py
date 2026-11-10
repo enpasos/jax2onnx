@@ -137,6 +137,21 @@ def _extract_python_bool(var: Any) -> Optional[bool]:
             ),
         },
         {
+            "testcase": "eqx_dropout_call_time_inference",
+            "callable": lambda x, model=eqx.nn.Dropout(p=0.5): model(x, inference=True),
+            "input_shapes": [(64,)],
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {
+                        "path": "Dropout:64",
+                        "inputs": {1: {"const": 0.5}, 2: {"absent": True}},
+                        "must_absent": ["Not"],
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "eqx_dropout_batched_inference",
             "callable": lambda xs, _mod=eqx.nn.Dropout(p=0.3, inference=True): jax.vmap(
                 _mod
