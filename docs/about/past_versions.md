@@ -1,5 +1,33 @@
 # Past Versions
 
+- **0.18.0**: Removed `enable_double_precision` from `to_onnx` and `allclose`
+  (supplying any value now raises `TypeError`) and preserved the caller's JAX
+  precision settings, prepared model dtypes, weak scalar promotion, constants,
+  and explicit casts; shape-only inputs still default to FP32, while FP64
+  models and typed inputs require preparation and validation under matching x64
+  settings (see the [migration guide](../user_guide/api.md#migration-from-v0171));
+  added INT8/UINT8 matrix products with INT32 accumulation, saturating
+  floating-to-8-bit conversions, and integer reduction overflow semantics,
+  plus a reproducible [W8A8 MNIST deployment](../user_guide/quantized_mnist.md)
+  with a 73.9% smaller ONNX file and held-out accuracy changing from 97.96% to
+  97.93%, while CPU inference was slower and memory use similar; preserved FP16
+  arithmetic rounding, sequence and layout dtypes, improved FP64 `atan2`, cosine
+  and selected pointwise convolutions, and stabilized `log1p`, `expm1`,
+  `log1mexp`, related `sinh` implementations and `log_sigmoid`; corrected
+  `jax.nn.dot_product_attention` mask combinations, fully masked rows and
+  sequence-length handling, with FP32 logits and softmax for FP16/BF16 inputs;
+  preserved dynamic keyword arguments, runtime flags, defaults and module
+  instances through decorated functions and control flow, and made ONNX
+  Function reuse account for model state, static configuration, weak types and
+  local precision settings; supported JAX 0.12 on Python 3.13/3.14 while
+  retaining the JAX 0.10.2 stack on Python 3.11/3.12; introduced typed plugin
+  registration with explicit graph-value binding and diagnostics while
+  retaining `register_primitive` compatibility; clarified input parameters,
+  inference configuration, ONNX Runtime CPU validation and separate BF16 I/O
+  validation; required opset 26 and compatible validation/runtime support for
+  bit reinterpretation with `lax.bitcast_convert_type`, while same-dtype casts
+  remain `Identity` at any opset; and raised the dependency minimum to
+  `onnx-ir>=1.0.0`.
 - **0.17.1**: Fixed positional and keyword activation options for JAX and Flax
   Linen GELU, ELU, CELU and LeakyReLU, restoring Keras GELU export and preserving
   positional CELU `alpha` ([#270](https://github.com/enpasos/jax2onnx/issues/270));
