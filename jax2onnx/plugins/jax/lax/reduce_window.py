@@ -73,14 +73,15 @@ def _is_identity_init(
     val: Any = init_arr.item()
     if reducer == "add":
         return bool(np.asarray(val == 0))
+    # NumPy does not rank the bfloat16 extension type under np.floating.
     if reducer == "max":
-        if np.issubdtype(dtype, np.floating):
+        if jnp.issubdtype(dtype, jnp.floating):
             return bool(np.isneginf(val))
         if np.issubdtype(dtype, np.integer):
             return int(val) == np.iinfo(dtype).min
         return False
     if reducer == "min":
-        if np.issubdtype(dtype, np.floating):
+        if jnp.issubdtype(dtype, jnp.floating):
             return bool(np.isposinf(val))
         if np.issubdtype(dtype, np.integer):
             return int(val) == np.iinfo(dtype).max
@@ -172,13 +173,13 @@ def _is_identity_init(
 class ReduceWindowPlugin(PrimitiveLeafPlugin):
     """Lower `lax.reduce_window` for `add`, `max`, and `min` reducers."""
 
+    # bfloat16 is an ml_dtypes extension type, not a NumPy attribute.
     _MAXPOOL_DTYPES = {
         np.dtype(np.float16),
+        np.dtype(jnp.bfloat16),
         np.dtype(np.float32),
         np.dtype(np.float64),
     }
-    if hasattr(np, "bfloat16"):
-        _MAXPOOL_DTYPES.add(np.dtype(np.bfloat16))
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = getattr(eqn, "params", {})

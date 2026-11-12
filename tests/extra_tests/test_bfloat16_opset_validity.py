@@ -19,6 +19,7 @@ import numpy as np
 import onnx
 import onnxruntime as ort  # type: ignore[import-untyped]
 import pytest
+from onnx.reference import ReferenceEvaluator
 
 from jax2onnx import StateInput, onnx_function, to_onnx
 
@@ -299,3 +300,39 @@ def test_generator_typed_by_an_attribute_is_rejected_below_its_opset() -> None:
         to_onnx(noisy, [x], opset=21)
 
     onnx.checker.check_model(to_onnx(noisy, [x], opset=22), full_check=True)
+
+
+_NEGATIVE_INFINITY = np.array(-np.inf, dtype=BF16)
+_POSITIVE_INFINITY = np.array(np.inf, dtype=BF16)
+
+_WINDOW_CASES: dict[str, Callable[[jax.Array], jax.Array]] = {
+    # lax.max with its identity reaches the converter as reduce_window_max.
+    "max": lambda x: jax.lax.reduce_window(
+        x, -jnp.inf, jax.lax.max, (2, 2), (2, 2), "VALID"
+    ),
+    "max_reducer": lambda x: jax.lax.reduce_window(
+        x, _NEGATIVE_INFINITY, lambda a, b: jnp.maximum(a, b), (2, 2), (1, 1), "VALID"
+    ),
+    "min_reducer": lambda x: jax.lax.reduce_window(
+        x, _POSITIVE_INFINITY, lambda a, b: jnp.minimum(a, b), (2, 2), (2, 2), "VALID"
+    ),
+}
+
+
+@pytest.mark.parametrize("opset", [21, 23])
+@pytest.mark.parametrize("name", _WINDOW_CASES)
+def test_reduce_window_max_and_min_export_in_bfloat16(name: str, opset: int) -> None:
+    fn = _WINDOW_CASES[name]
+    x = _array((8, 8), seed=0)
+    model = _export(fn, x, opset=opset)
+
+    types = _elem_types(model)
+    pool = _node(model, "MaxPool")
+    # MaxPool admits bfloat16 from opset 22 and runs in float32 below it.
+    assert types[pool.input[0]] == (BFLOAT16 if opset >= 22 else FLOAT)
+    assert types[model.graph.output[0].name] == BFLOAT16
+
+    (expected,) = _outputs(fn(jnp.asarray(x)))
+    (got,) = ReferenceEvaluator(model).run(None, {model.graph.input[0].name: x})
+    assert got.dtype == BF16
+    np.testing.assert_array_equal(got.view(np.uint16), expected.view(np.uint16))

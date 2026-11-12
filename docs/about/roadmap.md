@@ -39,6 +39,9 @@
   Thanks to Clément Poiret for reporting the `Conv`, `Einsum` and `TopK`
   cases in
   [discussion #290](https://github.com/enpasos/jax2onnx/discussions/290).
+* **Export bfloat16 window maxima and minima:** `lax.reduce_window` with a
+  maximum or minimum reducer rejected bfloat16 operands as non-floating. It
+  now lowers to `MaxPool` like the other floating types.
 
 
 ## Current Version

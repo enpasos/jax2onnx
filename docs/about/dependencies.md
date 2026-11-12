@@ -111,15 +111,18 @@ schemas, and a policy test compares it with the installed ONNX for every
 operator and opset from 13. Regenerate the table when that test fails after an
 ONNX upgrade.
 
-Checked with JAX 0.12.0.1 and CPU ONNX Runtime 1.31.1: `Conv`, two-operand
-`Einsum`, `TopK` and `Sin` computed in float32 reproduce JAX bit for bit.
+Checked with JAX 0.12.0.1 and CPU ONNX Runtime 1.31.1: a convolution (`Conv`),
+a two-operand `Einsum`, `TopK`, `MaxPool` and `Sin` computed in float32
+reproduce JAX bit for bit.
 `Softplus`, `Selu` and `HardSwish` each replace several JAX primitives and
 round once instead of after every primitive; they differ from JAX by up to 3
 adjacent bfloat16 values and stay within half a bfloat16 ulp of a float64
 reference, where JAX reaches 1.2 to 2.7 ulp. A `jnp.einsum` with three operands
 exports as one `Einsum`; JAX rounds the intermediate product to bfloat16, which
 can cost hundreds of ulp where terms cancel, so the two results can differ by
-that much.
+that much. The same holds for window sums at every opset: JAX rounds each
+partial sum of `lax.reduce_window` with `add` to bfloat16, while the exported
+`Conv` or `AveragePool` accumulates the window before rounding.
 
 A valid bfloat16 model is not necessarily a loadable one. Among the operators
 checked, CPU ONNX Runtime 1.31.1 has bfloat16 kernels for `Cast` and for
