@@ -42,6 +42,11 @@
 * **Export bfloat16 window maxima and minima:** `lax.reduce_window` with a
   maximum or minimum reducer rejected bfloat16 operands as non-floating. It
   now lowers to `MaxPool` like the other floating types.
+* **Keep exports below opset 15 free of `CastLike`:** Parameters whose dtype
+  differs from the input, for example float32 LayerNorm weights applied to a
+  float16 or bfloat16 input, and `jnp.linspace` were adapted with `CastLike`
+  at every opset, although ONNX introduced it in opset 15. Below opset 15 the
+  export now uses the equivalent `Cast`.
 
 
 ## Current Version

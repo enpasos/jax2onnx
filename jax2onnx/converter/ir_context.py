@@ -169,6 +169,8 @@ def _maybe_shape(aval: Any) -> Optional[Tuple[Any, ...]]:
 
 
 _STACKTRACE_METADATA_ENV: Final[str] = "JAX2ONNX_ENABLE_STACKTRACE_METADATA"
+# ONNX introduced CastLike in opset 15.
+_CAST_LIKE_MIN_OPSET: Final[int] = 15
 
 
 class IRContext:
@@ -516,6 +518,26 @@ class IRContext:
             type=exemplar.type,
             shape=tensor.shape,
         )
+        if self.opset < _CAST_LIKE_MIN_OPSET:
+            # CastLike does not exist yet; Cast needs the target type by name.
+            dtype = exemplar.dtype
+            if dtype is None:
+                raise NotImplementedError(
+                    "Casting to the type of a value whose dtype is unknown "
+                    f"requires CastLike, hence opset >= {_CAST_LIKE_MIN_OPSET}; "
+                    f"got opset {self.opset}."
+                )
+            self.add_node(
+                ir.Node(
+                    op_type="Cast",
+                    domain="",
+                    inputs=[tensor],
+                    outputs=[out],
+                    name=self.fresh_name("Cast"),
+                    attributes=[ir.AttrInt64("to", int(dtype.value))],
+                )
+            )
+            return out
         self.add_node(
             ir.Node(
                 op_type="CastLike",

@@ -193,9 +193,10 @@ BF16_CAPABILITY_CASES = [
     ),
 ]
 
-# Opsets around the admission boundaries; the default opset 23 is covered by
-# the matrix test itself.
-_OTHER_OPSETS = (17, 21, 22, 24)
+# Opsets around the admission boundaries, and opset 14, which has neither
+# CastLike (opset 15) nor LayerNormalization (opset 17). The default opset 23
+# is covered by the matrix test itself.
+_OTHER_OPSETS = (14, 17, 21, 22, 24)
 
 
 @pytest.mark.parametrize(

@@ -15,6 +15,10 @@ from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy
 from jax2onnx.plugins._loop_extent_meta import propagate_axis0_override
 
 
+# ONNX introduced CastLike in opset 15.
+CAST_LIKE_MIN_OPSET: int = 15
+
+
 def cast_value_to_dtype(
     ctx: NativeLoweringContext,
     value: ir.Value,
@@ -46,7 +50,8 @@ def cast_param_like(
     """
     If `param`'s dtype differs from `like`'s dtype, insert a CastLike node to cast
     `param` to `like`'s dtype. Returns a consumer-local value without changing
-    either original binding or a shared constant's payload.
+    either original binding or a shared constant's payload. Below opset 15,
+    where CastLike does not exist, the equivalent Cast is emitted.
 
     Safe to call when dtypes are unknown (no-op). Preserves shape.
     """
@@ -56,6 +61,17 @@ def cast_param_like(
         return param
 
     cast_name = ctx.fresh_name(name_hint)
+    if ctx.opset < CAST_LIKE_MIN_OPSET:
+        # Both dtypes are known here, so Cast names the same conversion.
+        converted: ir.Value = ctx.builder.op(
+            "Cast",
+            [param],
+            {"to": int(l_dt.value)},
+            output=ir.Value(
+                name=cast_name, type=ir.TensorType(l_dt), shape=param.shape
+            ),
+        )
+        return converted
     out = cast(
         ir.Value,
         ctx.builder.CastLike(

@@ -26,6 +26,7 @@ from jax2onnx.ir_utils import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._utils import CAST_LIKE_MIN_OPSET
 from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
@@ -440,11 +441,19 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         denom_i64 = _scalar_i64(ctx, denom, "linspace_denom_i64")
         _stamp_type_and_shape(denom_i64, ())
         _ensure_value_metadata(ctx, denom_i64)
-        denom_val = builder.CastLike(
-            denom_i64,
-            indices_cast,
-            _outputs=[ctx.fresh_name("linspace_denom")],
-        )
+        if ctx.opset < CAST_LIKE_MIN_OPSET:
+            # CastLike does not exist yet; the target dtype is known here.
+            denom_val = builder.Cast(
+                denom_i64,
+                to=int(target_enum.value),
+                _outputs=[ctx.fresh_name("linspace_denom")],
+            )
+        else:
+            denom_val = builder.CastLike(
+                denom_i64,
+                indices_cast,
+                _outputs=[ctx.fresh_name("linspace_denom")],
+            )
         denom_val.type = indices_cast.type
         _stamp_type_and_shape(denom_val, ())
         _ensure_value_metadata(ctx, denom_val)
