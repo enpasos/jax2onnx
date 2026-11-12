@@ -63,6 +63,27 @@ decoded output with the prepared JAX computation. See the
 [working raw-bit validation example](https://github.com/enpasos/jax2onnx/blob/main/tests/extra_tests/test_log1p_expm1_precision.py).
 Validate the provider and optimization settings used for deployment.
 
+### BF16 Operators by Opset
+
+ONNX admitted BF16 one operator at a time: `Conv`, the pooling operators and
+most activations from opset 22, `TopK` from opset 24, `Einsum` from opset 28.
+Below that opset the export computes the operator in FP32 between BF16 values.
+Inputs, outputs, constants and state inputs keep their BF16 type, and the file
+passes `onnx.checker.check_model(..., full_check=True)`. From the admitting
+opset on, the operator stays in BF16.
+
+Some cases cannot be fixed by casts and raise `NotImplementedError` with the
+required opset: BF16 `jax.random.normal` and `jnp.eye` before opset 22, and BF16
+values through `lax.cond`, `lax.scan` or `lax.while_loop` before opset 16.
+Raise the target opset, or produce the value in FP32 and convert it to BF16.
+
+A valid BF16 file does not have to load. CPU ONNX Runtime 1.31.1 has no BF16
+kernels for arithmetic such as `Add`, `Mul`, `MatMul` or `Conv`, so a BF16
+model usually fails to load there with `NOT_IMPLEMENTED`; an operator computed
+in FP32 loads. See
+[bfloat16 and the ONNX operator schemas](../about/dependencies.md#bfloat16-and-the-onnx-operator-schemas)
+for the operator table, the checked numerical behaviour and the kernels.
+
 ### Quantized Rounding Boundaries
 
 Small floating-point differences before integer rounding can change quantized

@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import jax.numpy as jnp
 import pytest
+from onnx import TensorProto
 
 from tests.extra_tests.capability_matrix import (
     CapabilityCase,
     ShapeVariant,
     assert_capability_case,
+    assert_public_float_io_dtype,
+    assert_reference_evaluator_matches_jax,
+    export_capability_case,
 )
+
+# ONNX admitted bfloat16 operator by operator (Conv and pooling from opset 22,
+# TopK from 24, Einsum from 28). Below that opset the export computes the
+# operator in float32 between bfloat16 values, so these cases cannot require
+# every float tensor to be bfloat16.
+_FLOAT32_WORK_AT_DEFAULT_OPSET = {"require_all_float_tensors_dtype": False}
 
 BF16_CAPABILITY_CASES = [
     CapabilityCase(
@@ -126,7 +138,64 @@ BF16_CAPABILITY_CASES = [
         # preserving bfloat16 at the public boundary.
         require_all_float_tensors_dtype=False,
     ),
+    CapabilityCase(
+        id="lax_conv",
+        source=("primitives.lax", "conv", "conv_nchw"),
+    ),
+    CapabilityCase(
+        id="eqx_conv",
+        source=("primitives.eqx", "conv", "eqx_conv2d_nchw"),
+    ),
+    CapabilityCase(
+        id="eqx_max_pool",
+        source=("primitives.eqx", "max_pool", "eqx_max_pool2d_basic"),
+    ),
+    CapabilityCase(
+        id="eqx_avg_pool",
+        source=("primitives.eqx", "avg_pool", "eqx_avg_pool2d_basic"),
+    ),
+    CapabilityCase(
+        id="lax_sin",
+        source=("primitives.lax", "sin", "sin"),
+    ),
+    CapabilityCase(
+        id="nn_softplus",
+        source=("primitives.nn", "softplus", "jaxnn_softplus"),
+    ),
+    CapabilityCase(
+        id="nn_selu",
+        source=("primitives.nn", "selu", "jaxnn_selu"),
+    ),
+    CapabilityCase(
+        id="nn_hard_swish",
+        source=("primitives.nn", "hard_swish", "jaxnn_hard_swish"),
+    ),
+    CapabilityCase(
+        id="nn_celu",
+        source=("primitives.nn", "celu", "jaxnn_celu"),
+        **_FLOAT32_WORK_AT_DEFAULT_OPSET,
+    ),
+    CapabilityCase(
+        id="jnp_einsum_matrix_matrix",
+        source=("primitives.jnp", "einsum", "einsum_matrix_matrix"),
+        **_FLOAT32_WORK_AT_DEFAULT_OPSET,
+    ),
+    CapabilityCase(
+        id="linen_einsum",
+        source=("primitives.linen", "einsum", "einsum_with_bias"),
+        **_FLOAT32_WORK_AT_DEFAULT_OPSET,
+    ),
+    CapabilityCase(
+        id="lax_top_k",
+        source=("primitives.lax", "top_k", "top_k_last_axis"),
+        expected_output_elem_types=(TensorProto.BFLOAT16, TensorProto.INT32),
+        **_FLOAT32_WORK_AT_DEFAULT_OPSET,
+    ),
 ]
+
+# Opsets around the admission boundaries; the default opset 23 is covered by
+# the matrix test itself.
+_OTHER_OPSETS = (17, 21, 22, 24)
 
 
 @pytest.mark.parametrize(
@@ -137,3 +206,20 @@ BF16_CAPABILITY_CASES = [
 def test_bfloat16_capability_matrix(case: CapabilityCase) -> None:
     assert case.dtype is jnp.bfloat16
     assert_capability_case(case)
+
+
+@pytest.mark.parametrize("opset", _OTHER_OPSETS)
+@pytest.mark.parametrize(
+    "case",
+    BF16_CAPABILITY_CASES,
+    ids=[case.id for case in BF16_CAPABILITY_CASES],
+)
+def test_bfloat16_capability_matrix_is_valid_at_other_opsets(
+    case: CapabilityCase, opset: int
+) -> None:
+    # export_capability_case runs onnx.checker.check_model(..., full_check=True),
+    # which rejects an operator that does not admit bfloat16 at this opset.
+    result = export_capability_case(replace(case, opset=opset))
+    assert_public_float_io_dtype(result)
+    if case.numeric:
+        assert_reference_evaluator_matches_jax(result)

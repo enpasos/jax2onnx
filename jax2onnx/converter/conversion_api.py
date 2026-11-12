@@ -44,6 +44,7 @@ from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rule
 from jax2onnx.plugins._ir_shapes import _as_ir_dim_label
 
 from .ir_context import IRContext
+from .bfloat16_legalization import legalize_bfloat16_operators
 from .ir_optimizations import optimize_graph
 from .state_inputs import StateInputs
 from .function_scope import FunctionRegistry
@@ -439,6 +440,10 @@ def _build_and_finalize_ir_model(
 
     _apply_late_ir_attr_overrides(ir_model, ctx)
     _consume_onnx_function_hits()
+
+    # Not an optimization: a failure here must stop the export instead of
+    # leaving a model that the target opset rejects.
+    legalize_bfloat16_operators(ir_model)
 
     try:
         _finalize_model_value_shapes(ir_model)
