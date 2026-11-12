@@ -47,6 +47,11 @@
   float16 or bfloat16 input, and `jnp.linspace` were adapted with `CastLike`
   at every opset, although ONNX introduced it in opset 15. Below opset 15 the
   export now uses the equivalent `Cast`.
+* **Type random bits by their requested width:** `jax.random.bits` with
+  `uint8` or `uint16` failed because the bits were always exported as
+  `uint32`. This also made float16 `jax.random.uniform` write an invalid
+  `BitShift` at opset 26 and newer. `jax.random.uniform` still requires opset
+  26 for every dtype, because JAX builds it with `lax.bitcast_convert_type`.
 
 
 ## Current Version
