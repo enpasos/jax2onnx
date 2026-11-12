@@ -62,6 +62,10 @@
 * **Keep RMSNorm valid below opset 18:** The explicit Flax NNX and Equinox
   RMSNorm graphs passed the `ReduceMean` axes as an input at every opset.
   `ReduceMean` takes them as an attribute before opset 18.
+* **Document random operators on ONNX Runtime:** CPU ONNX Runtime 1.31.1 has
+  no kernels for the opset-22 versions of the random operators, so exports
+  that draw random numbers load only up to opset 21. See
+  [Known Limitations](../user_guide/known_limitations.md#random-operators-from-opset-22).
 
 
 ## Current Version

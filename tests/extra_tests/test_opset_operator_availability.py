@@ -79,3 +79,27 @@ def test_rms_norm_mean_uses_the_axes_form_of_the_opset(
     np.testing.assert_allclose(
         _run(model, x)[0], np.asarray(module(jnp.asarray(x))), rtol=1e-6, atol=1e-6
     )
+
+
+_KEY = jax.random.PRNGKey(0)
+
+_RANDOM_CASES: dict[str, tuple[Callable[[], jax.Array], np.dtype[Any]]] = {
+    "normal": (lambda: jax.random.normal(_KEY, (64,)), np.dtype(np.float32)),
+    "bernoulli": (lambda: jax.random.bernoulli(_KEY, 0.25, (64,)), np.dtype(bool)),
+    "bits": (
+        lambda: jax.random.bits(_KEY, (64,), dtype=jnp.uint32),
+        np.dtype(np.uint32),
+    ),
+    "rng_uniform": (lambda: jax.lax.rng_uniform(0.0, 1.0, (64,)), np.dtype(np.float32)),
+}
+
+
+@pytest.mark.parametrize("name", _RANDOM_CASES)
+def test_random_exports_run_on_onnx_runtime_at_opset_21(name: str) -> None:
+    # CPU ONNX Runtime 1.31 has no kernels for the opset-22 versions of the
+    # random operators, so opset 21 is the newest opset whose random exports
+    # it loads. See the kernel-gap table in docs/about/dependencies.md.
+    fn, dtype = _RANDOM_CASES[name]
+    (sample,) = _run(to_onnx(fn, [], opset=21))
+
+    assert sample.shape == (64,) and sample.dtype == dtype
