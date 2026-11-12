@@ -56,6 +56,12 @@
   `lax.min` and its identity `+inf` reaches the converter as the primitive
   `reduce_window_min`, which had no lowering. It now exports as
   `Neg -> MaxPool -> Neg` for floating operands, like the reducer form.
+* **Keep `jax.nn.hard_swish` valid at opset 13:** ONNX introduced `HardSwish`
+  in opset 14. Below that the export writes the equivalent
+  `x * HardSigmoid(x)`.
+* **Keep RMSNorm valid below opset 18:** The explicit Flax NNX and Equinox
+  RMSNorm graphs passed the `ReduceMean` axes as an input at every opset.
+  `ReduceMean` takes them as an attribute before opset 18.
 
 
 ## Current Version

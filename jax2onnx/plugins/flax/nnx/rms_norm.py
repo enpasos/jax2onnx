@@ -32,6 +32,7 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 
 RMS_NORM_PRIM: Final[Primitive] = Primitive("nnx.rms_norm")
 RMS_NORM_PRIM.multiple_results = False
@@ -174,6 +175,21 @@ def _const_from_array(
             ),
             "input_shapes": [(2, 6)],
             "opset_version": 22,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_RMS_NORM_EXPLICIT,
+        },
+        {
+            # ReduceMean takes its axes as an attribute before opset 18.
+            "testcase": "rms_norm_opset17",
+            "callable": construct_and_call(
+                nnx.RMSNorm,
+                num_features=6,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 6)],
+            "opset_version": 17,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_RMS_NORM_EXPLICIT,
         },
@@ -323,8 +339,12 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
 
         eps_const = _const_from_array(ctx, "eps", np.asarray(epsilon, dtype=x_np_dtype))
         eps_const = ctx.cast_like(eps_const, x_val, name_hint="rms_eps_cast")
-        axes_const = _const_from_array(
-            ctx, "axes", np.asarray([int(axis)], dtype=np.int64)
+        # ReduceMean takes its axes as an input from opset 18 and as an
+        # attribute before that.
+        axes_const = (
+            _const_from_array(ctx, "axes", np.asarray([int(axis)], dtype=np.int64))
+            if opset >= 18
+            else None
         )
 
         # Square with Mul rather than Pow: ONNX Runtime fuses the Pow form into
@@ -345,14 +365,14 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             mean_shape[axis] = 1
         mean_dims = tuple(_to_ir_dim_for_shape(d) for d in mean_shape)
 
-        mean_out = cast(
-            ir.Value,
-            builder.ReduceMean(
-                squared,
-                axes_const,
-                keepdims=1,
-                _outputs=[ctx.fresh_name("rms_mean")],
-            ),
+        mean_out = builder_reduce_with_axes(
+            ctx,
+            squared,
+            op_type="ReduceMean",
+            axes=(int(axis),),
+            axes_input=axes_const,
+            keepdims=1,
+            name_hint="rms_mean",
         )
         mean_out.type = ir.TensorType(x_ir_dtype)
         _stamp_type_and_shape(mean_out, mean_dims)

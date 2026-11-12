@@ -27,6 +27,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.flax.nnx.rms_norm import RMS_NORM_ONNX_COMPONENTS
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -115,6 +116,18 @@ def _aval_shape(value: object) -> tuple[DimInput, ...]:
                 no_unused_inputs=True,
             ),
         },
+        {
+            # ReduceMean takes its axes as an attribute before opset 18.
+            "testcase": "rms_norm_opset17",
+            "callable": eqx.nn.RMSNorm(16, eps=1e-5),
+            "input_shapes": [(16,)],
+            "opset_version": 17,
+            "post_check_onnx_graph": expect_graph(
+                ["Div:16 -> Mul:16 -> Add:16 -> Identity:16"],
+                must_absent=["RMSNormalization"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class RMSNormPlugin(PrimitiveLeafPlugin):
@@ -184,7 +197,13 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                 scaled.type = ir.TensorType(x_dtype)
             _stamp_type_and_shape(scaled, x_shape)
         else:
-            axes_val = _const_i64(ctx, np.asarray(axes, dtype=np.int64), "rms_axes")
+            # ReduceMean takes its axes as an input from opset 18 and as an
+            # attribute before that.
+            axes_val = (
+                _const_i64(ctx, np.asarray(axes, dtype=np.int64), "rms_axes")
+                if int(ctx.opset) >= 18
+                else None
+            )
             eps_val = ctx.bind_const_for_var(
                 object(), np.asarray(epsilon, dtype=x_np_dtype)
             )
@@ -206,11 +225,14 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                     mean_dims[axis] = 1
             mean_dims_tuple = tuple(mean_dims)
 
-            mean_out: ir.Value = builder.ReduceMean(
+            mean_out: ir.Value = builder_reduce_with_axes(
+                ctx,
                 squared,
-                axes_val,
+                op_type="ReduceMean",
+                axes=tuple(int(axis) for axis in axes),
+                axes_input=axes_val,
                 keepdims=1,
-                _outputs=[ctx.fresh_name("rms_mean")],
+                name_hint="rms_mean",
             )
             if x_dtype is not None:
                 mean_out.type = ir.TensorType(x_dtype)
