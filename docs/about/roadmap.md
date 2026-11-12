@@ -52,6 +52,10 @@
   `uint32`. This also made float16 `jax.random.uniform` write an invalid
   `BitShift` at opset 26 and newer. `jax.random.uniform` still requires opset
   26 for every dtype, because JAX builds it with `lax.bitcast_convert_type`.
+* **Export window minima taken with `lax.min`:** `lax.reduce_window` with
+  `lax.min` and its identity `+inf` reaches the converter as the primitive
+  `reduce_window_min`, which had no lowering. It now exports as
+  `Neg -> MaxPool -> Neg` for floating operands, like the reducer form.
 
 
 ## Current Version
