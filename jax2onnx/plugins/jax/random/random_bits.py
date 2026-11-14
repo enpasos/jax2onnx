@@ -11,6 +11,7 @@ import onnx_ir as ir
 
 import jax
 
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -138,7 +139,9 @@ class RandomBitsPlugin(PrimitiveLeafPlugin):
         floored_val.type = ir.TensorType(ir.DataType.FLOAT)
         _stamp_type_and_shape(floored_val, shape)
 
-        target_dtype = ir.DataType.UINT32 if bit_width <= 32 else ir.DataType.UINT64
+        # JAX types the bits by their width (uint8, uint16, uint32 or uint64);
+        # a wider result would not match the consumers JAX traced for it.
+        target_dtype = numpy_dtype_to_ir(np.dtype(out_var.aval.dtype))
         out_value = cast(
             ir.Value,
             ctx.builder.Cast(

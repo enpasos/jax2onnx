@@ -18,6 +18,42 @@
   gaps.
 
 
+## Upcoming Version
+
+### **jax2onnx 0.19.1**
+
+* **Keep bfloat16 exports valid at the target opset:** ONNX admitted bfloat16
+  operator by operator, for example `Conv` and the pooling operators from
+  opset 22, `TopK` from opset 24 and `Einsum` from opset 28. Exports below
+  that opset wrote the operator with bfloat16 operands, which
+  `onnx.checker.check_model(..., full_check=True)` and ONNX Runtime reject;
+  a bfloat16 matrix product lowered to `Einsum` was affected at the default
+  opset 23. Such operators now compute in float32 between bfloat16 values,
+  including inside control-flow and `@onnx_function` bodies. Inputs, outputs,
+  constants and state inputs keep their bfloat16 type and payload, and the
+  operator stays in bfloat16 from the opset that admits it. Cases that casts
+  cannot fix raise `NotImplementedError` with the required opset: bfloat16
+  `jax.random.normal` and `jnp.eye` before opset 22, and bfloat16 values
+  through `If` or `Loop` before opset 16. See
+  [bfloat16 and the ONNX operator schemas](dependencies.md#bfloat16-and-the-onnx-operator-schemas).
+  Thanks to Clément Poiret for reporting the `Conv`, `Einsum` and `TopK`
+  cases in
+  [discussion #290](https://github.com/enpasos/jax2onnx/discussions/290).
+* **Export bfloat16 window maxima and minima:** `lax.reduce_window` with a
+  maximum or minimum reducer rejected bfloat16 operands as non-floating. It
+  now lowers to `MaxPool` like the other floating types.
+* **Keep exports below opset 15 free of `CastLike`:** Parameters whose dtype
+  differs from the input, for example float32 LayerNorm weights applied to a
+  float16 or bfloat16 input, and `jnp.linspace` were adapted with `CastLike`
+  at every opset, although ONNX introduced it in opset 15. Below opset 15 the
+  export now uses the equivalent `Cast`.
+* **Type random bits by their requested width:** `jax.random.bits` with
+  `uint8` or `uint16` failed because the bits were always exported as
+  `uint32`. This also made float16 `jax.random.uniform` write an invalid
+  `BitShift` at opset 26 and newer. `jax.random.uniform` still requires opset
+  26 for every dtype, because JAX builds it with `lax.bitcast_convert_type`.
+
+
 ## Current Version
 
 ### **jax2onnx 0.19.0**

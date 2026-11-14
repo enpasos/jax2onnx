@@ -65,6 +65,8 @@ class CapabilityCase:
     expected_elem_type: int = TensorProto.BFLOAT16
     expected_output_elem_types: tuple[int, ...] | None = None
     input_dtype_overrides: Mapping[int, Any] = field(default_factory=dict)
+    # Target opset; None keeps the opset of the source testcase (default 23).
+    opset: int | None = None
 
 
 @dataclass(frozen=True)
@@ -130,7 +132,11 @@ def export_capability_case(case: CapabilityCase) -> CapabilityResult:
             callable_obj,
             input_specs,
             model_name=f"capability_{case.id}",
-            opset=int(param.get("opset_version", 23)),
+            opset=(
+                case.opset
+                if case.opset is not None
+                else int(param.get("opset_version", 23))
+            ),
             return_mode="proto",
             input_params=param.get("input_params", {}),
             inputs_as_nchw=param.get("inputs_as_nchw"),
@@ -140,7 +146,9 @@ def export_capability_case(case: CapabilityCase) -> CapabilityResult:
             normalization_mode=param.get("normalization_mode", "auto"),
         )
 
-    onnx.checker.check_model(model)
+    # The full check also enforces the operator type constraints of the target
+    # opset; strict shape inference alone accepts types a schema excludes.
+    onnx.checker.check_model(model, full_check=True)
     inferred_model = onnx.shape_inference.infer_shapes(model, strict_mode=True)
     return CapabilityResult(
         case=case,

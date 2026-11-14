@@ -9,14 +9,23 @@ The optimizer runs as **Step 2** in the conversion pipeline (see [architecture.m
 1. Build raw IR (`to_onnx`)
 2. **`optimize_graph`** ← runs here
 3. Late attribute overrides
-4. Finalize shapes
-5. Return from `conversion_api`
-6. Post-process (shape loosening, export prep)
+4. bfloat16 operator legalization
+5. Finalize shapes
+6. Return from `conversion_api`
+7. Post-process (shape loosening, export prep)
 
 This placement ensures:
 - Optimization sees the raw, unpatched graph for maximum benefit.
 - Late overrides only patch nodes that survived optimization.
+- Legalization sees the final nodes, and no pass removes its casts. A
+  float32 → bfloat16 → float32 pair between two legalized operators is a
+  rounding step, not a redundant cast.
 - Shape finalization operates on an already-optimized graph.
+
+bfloat16 legalization (`converter/bfloat16_legalization.py`) is a separate,
+mandatory step and not part of the pass registry: a registry failure is logged
+and skipped by default, whereas a model that the target opset rejects must not
+be written. See [Model Finalization](../architecture.md#4-model-finalization).
 
 Optimizer failures are logged and skipped by default so ordinary exports can
 continue. Set `JAX2ONNX_STRICT_OPTIMIZER_FAILURES=1` when debugging or in CI to

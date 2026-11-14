@@ -69,4 +69,67 @@ dtype. For providers other than CPU, set the session option
 `session.disable_cpu_ep_fallback` to `1` so the node cannot fall back to CPU. A
 `NOT_IMPLEMENTED` error means the kernel is missing.
 
+## bfloat16 and the ONNX operator schemas
+
+ONNX admitted bfloat16 one operator at a time. A node that reads or writes
+bfloat16 through a type parameter that excludes it at the target opset makes
+the model invalid: `onnx.checker.check_model(..., full_check=True)` rejects it,
+and so does ONNX Runtime when it loads the file. This is a property of the ONNX
+schemas rather than of a runtime, so the export decides by target opset alone.
+
+| bfloat16 from opset | Operators (selection) |
+|:--|:--|
+| 16 | `Where`, `LessOrEqual`, `GreaterOrEqual`, `LeakyRelu`, `PRelu`; values through `If`, `Loop`, `Scan` |
+| 20 | `ConstantOfShape`, `IsInf` |
+| 22 | `Conv`, `ConvTranspose`, `AveragePool`, `MaxPool`, `GlobalAveragePool`, `GlobalMaxPool`, `InstanceNormalization`, `Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Sinh`, `Cosh`, `Asinh`, `Acosh`, `Atanh`, `Elu`, `Selu`, `HardSigmoid`, `HardSwish`, `Mish`, `Softplus`, `Softsign`, `Round`, `EyeLike`, `RandomNormal`, `RandomUniform` |
+| 24 | `TopK` |
+| 27 | `Range` |
+| 28 | `Einsum`, `Celu`, `Compress`, `Unique` |
+| not through opset 28 | `Shrink` |
+
+Below that opset the converter handles the node after optimization
+(`converter/bfloat16_legalization.py`):
+
+- **Computed in float32.** Where the excluded type parameter is shared by the
+  inputs and outputs of the operator, those inputs are cast to float32 and the
+  results are cast back. Graph inputs and outputs, initializers, state inputs
+  and Function signatures keep their bfloat16 type and payload; control-flow
+  and Function bodies are covered. Every bfloat16 value is a float32 value, so
+  the widening is exact and the result is rounded once at the operator.
+- **Rejected.** Casts cannot fix an operator whose output type comes from an
+  attribute (`RandomNormal`, `RandomUniform`, `EyeLike`, `ConstantOfShape`
+  before opset 20), bfloat16 values carried through `If`, `Loop` or `Scan`
+  before opset 16, or sequence operators. The export raises
+  `NotImplementedError` and names the operator and the first opset that admits
+  it.
+
+From the admitting opset on, the operator stays in bfloat16.
+
+The rules are a table in that module because the converter does not import
+`onnx`. `scripts/emit_bfloat16_operator_rules.py` derives it from the ONNX
+schemas, and a policy test compares it with the installed ONNX for every
+operator and opset from 13. Regenerate the table when that test fails after an
+ONNX upgrade.
+
+Checked with JAX 0.12.0.1 and CPU ONNX Runtime 1.31.1: a convolution (`Conv`),
+a two-operand `Einsum`, `TopK`, `MaxPool` and `Sin` computed in float32
+reproduce JAX bit for bit.
+`Softplus`, `Selu` and `HardSwish` each replace several JAX primitives and
+round once instead of after every primitive; they differ from JAX by up to 3
+adjacent bfloat16 values and stay within half a bfloat16 ulp of a float64
+reference, where JAX reaches 1.2 to 2.7 ulp. A `jnp.einsum` with three operands
+exports as one `Einsum`; JAX rounds the intermediate product to bfloat16, which
+can cost hundreds of ulp where terms cancel, so the two results can differ by
+that much. The same holds for window sums at every opset: JAX rounds each
+partial sum of `lax.reduce_window` with `add` to bfloat16, while the exported
+`Conv` or `AveragePool` accumulates the window before rounding.
+
+A valid bfloat16 model is not necessarily a loadable one. Among the operators
+checked, CPU ONNX Runtime 1.31.1 has bfloat16 kernels for `Cast` and for
+`Identity`, `Reshape`, `Transpose`, `Concat`, `Gather`, `Slice`, `Squeeze` and
+`Unsqueeze`. It has none for `Add`, `Sub`, `Mul`, `Div`, `MatMul`, `Gemm`, `Conv`, `MaxPool`,
+`AveragePool`, `ReduceSum`, `ReduceMean`, `Sqrt`, `Exp`, `Relu`, `Sigmoid`,
+`Tanh`, `Erf`, `Gelu`, `Softmax`, `Where`, `Expand` or `TopK`. A node computed
+in float32 loads; bfloat16 arithmetic around it does not.
+
 *For dependency requirements and optional dependency groups, see [`pyproject.toml`](https://github.com/enpasos/jax2onnx/blob/main/pyproject.toml). For resolved Python dependency versions, see `poetry.lock`.*

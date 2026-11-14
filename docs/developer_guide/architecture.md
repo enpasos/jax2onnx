@@ -68,6 +68,7 @@ primitive-specific lowering policy such as how `lax.conv_general_dilated`,
 | `jax2onnx/converter/ir_builder.py` | Thin wrapper around `onnx_ir` tape builder with project-specific naming, initializer, and metadata behavior. |
 | `jax2onnx/converter/function_scope.py` | Child context used to stage ONNX Function bodies. |
 | `jax2onnx/converter/ir_optimizations.py` | IR-only optimizer pass registry. |
+| `jax2onnx/converter/bfloat16_legalization.py` | Keeps bfloat16 nodes inside the ONNX schemas of the target opset: float32 work casts, or a rejection. |
 | `jax2onnx/converter/ir_postprocess.py` | Export preparation: loosen intermediate shapes while preserving input/output types and shapes. |
 | `jax2onnx/plugins/plugin_system.py` | Plugin registry, tracing-time patch activation, `PrimitiveLeafPlugin`, and `@onnx_function`. |
 | `jax2onnx/plugins/` | Primitive and framework-specific lowering implementations plus generated-test metadata. |
@@ -100,6 +101,7 @@ Raw onnx_ir graph
     | - attach ONNX Function bodies
     | - run IR optimizer
     | - apply late attribute overrides and compatibility fixes
+    | - legalize bfloat16 operators for the target opset
     | - normalize value shapes and symbolic dims
     v
 Precise-shape onnx_ir.Model
@@ -182,11 +184,23 @@ After graph outputs are bound, `IRBuilder.to_ir_model(...)` creates the
 - attaches staged ONNX Functions to the model function store;
 - runs `optimize_graph`;
 - applies late attribute overrides and fills missing `Concat(axis=0)` attributes;
+- legalizes bfloat16 operators with `legalize_bfloat16_operators`;
 - normalizes value shapes so symbolic dimensions are represented as
   `ir.SymbolicDim` objects where needed.
 
 Optimizer failures are non-fatal by default and logged. Set
 `JAX2ONNX_STRICT_OPTIMIZER_FAILURES=1` when the optimizer must fail the export.
+
+bfloat16 legalization is not an optimization, and its failures always stop the
+export. ONNX admitted bfloat16 operator by operator, so a node can be invalid
+at the target opset although its lowering is correct (`Conv` before opset 22,
+`TopK` before 24, `Einsum` before 28). The step casts the affected inputs to
+float32 and the results back to bfloat16, in the top-level graph, control-flow
+bodies and Function bodies, and raises where casts cannot express the fix.
+Plugins therefore lower bfloat16 like any other float type and do not test the
+opset for it; a plugin that needs a different work dtype for numerical reasons
+still chooses it itself. The rules are a table derived from the ONNX schemas;
+see [bfloat16 and the ONNX operator schemas](../about/dependencies.md#bfloat16-and-the-onnx-operator-schemas).
 
 ### 5. Public Export Post-Processing
 
