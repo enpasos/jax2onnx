@@ -167,6 +167,10 @@ BF16_CAPABILITY_CASES = [
         source=("primitives.nn", "selu", "jaxnn_selu"),
     ),
     CapabilityCase(
+        id="nn_elu",
+        source=("primitives.nn", "elu", "jaxnn_elu_default"),
+    ),
+    CapabilityCase(
         id="nn_hard_swish",
         source=("primitives.nn", "hard_swish", "jaxnn_hard_swish"),
     ),

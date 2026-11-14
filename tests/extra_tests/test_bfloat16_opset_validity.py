@@ -168,8 +168,9 @@ def test_operator_below_its_bfloat16_opset_runs_in_float32_and_matches_jax(
     [
         (lambda x: jax.nn.softplus(x), "Softplus"),
         (lambda x: jax.nn.selu(x), "Selu"),
+        (lambda x: jax.nn.elu(x), "Elu"),
     ],
-    ids=["softplus", "selu"],
+    ids=["softplus", "selu", "elu"],
 )
 def test_operator_that_fuses_several_primitives_rounds_once(
     fn: Callable[[jax.Array], jax.Array], op_type: str
@@ -203,6 +204,42 @@ def test_constants_keep_their_bfloat16_payload() -> None:
     (kernel,) = model.graph.initializer
     assert kernel.data_type == BFLOAT16
     assert onnx.numpy_helper.to_array(kernel).tobytes() == np.asarray(_KERNEL).tobytes()
+
+
+@pytest.mark.parametrize("opset", [21, 23])
+def test_one_hot_widens_only_its_values_input(opset: int) -> None:
+    # OneHot types its output by the values input alone, and that type parameter
+    # admits bfloat16 from opset 28. The indices and the depth have type
+    # parameters of their own and are not bfloat16 here.
+    def fn(indices: jax.Array) -> jax.Array:
+        return jax.nn.one_hot(indices, 6, dtype=jnp.bfloat16)
+
+    indices = np.array([[0, 2, 4], [5, 1, 3]], dtype=np.int32)
+    model = _export(fn, indices, opset=opset)
+
+    types = _elem_types(model)
+    initializers = {tensor.name: tensor for tensor in model.graph.initializer}
+    one_hot = _node(model, "OneHot")
+    indices_name, depth_name, values_name = one_hot.input
+    assert types[indices_name] == onnx.TensorProto.INT64
+    assert initializers[depth_name].data_type == onnx.TensorProto.INT64
+    assert types[values_name] == FLOAT
+    assert types[one_hot.output[0]] == FLOAT
+    assert types[model.graph.output[0].name] == BFLOAT16
+
+    # The float32 values are a consumer-local cast of the bfloat16 constant.
+    (widening,) = [node for node in model.graph.node if values_name in node.output]
+    assert widening.op_type == "Cast"
+    values = initializers[widening.input[0]]
+    assert values.data_type == BFLOAT16
+    assert (
+        onnx.numpy_helper.to_array(values).tobytes()
+        == np.array([0, 1], dtype=BF16).tobytes()
+    )
+
+    expected = _outputs(fn(jnp.asarray(indices)))
+    (got,) = _run(model, [indices], expected)
+    np.testing.assert_array_equal(got.view(np.uint16), expected[0].view(np.uint16))
 
 
 def test_control_flow_bodies_are_valid_below_opset_22() -> None:
