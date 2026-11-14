@@ -84,6 +84,18 @@ in FP32 loads. See
 [bfloat16 and the ONNX operator schemas](../about/dependencies.md#bfloat16-and-the-onnx-operator-schemas)
 for the operator table, the checked numerical behaviour and the kernels.
 
+### Random Operators from Opset 22
+
+CPU ONNX Runtime 1.31.1 has no kernels for the opset-22 versions of
+`RandomUniform`, `RandomUniformLike`, `RandomNormal`, `RandomNormalLike`,
+`Bernoulli` and `Multinomial`. Exports that draw random numbers, for example
+through `jax.random.normal`, `jax.random.bernoulli`, `jax.random.bits` or
+`lax.rng_uniform`, are valid at the default opset 23 but fail to load there with
+`NOT_IMPLEMENTED`. Export them with `opset=21` to run on that runtime.
+
+`jax.random.uniform` additionally requires opset 26 for every dtype, because
+JAX builds it with `lax.bitcast_convert_type`, which lowers to `BitCast`.
+
 ### Quantized Rounding Boundaries
 
 Small floating-point differences before integer rounding can change quantized

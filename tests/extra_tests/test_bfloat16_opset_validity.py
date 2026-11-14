@@ -347,6 +347,10 @@ _WINDOW_CASES: dict[str, Callable[[jax.Array], jax.Array]] = {
     "max": lambda x: jax.lax.reduce_window(
         x, -jnp.inf, jax.lax.max, (2, 2), (2, 2), "VALID"
     ),
+    # ... and lax.min with its identity as reduce_window_min.
+    "min": lambda x: jax.lax.reduce_window(
+        x, jnp.inf, jax.lax.min, (2, 2), (2, 2), "VALID"
+    ),
     "max_reducer": lambda x: jax.lax.reduce_window(
         x, _NEGATIVE_INFINITY, lambda a, b: jnp.maximum(a, b), (2, 2), (1, 1), "VALID"
     ),

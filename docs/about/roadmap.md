@@ -52,6 +52,20 @@
   `uint32`. This also made float16 `jax.random.uniform` write an invalid
   `BitShift` at opset 26 and newer. `jax.random.uniform` still requires opset
   26 for every dtype, because JAX builds it with `lax.bitcast_convert_type`.
+* **Export window minima taken with `lax.min`:** `lax.reduce_window` with
+  `lax.min` and its identity `+inf` reaches the converter as the primitive
+  `reduce_window_min`, which had no lowering. It now exports as
+  `Neg -> MaxPool -> Neg` for floating operands, like the reducer form.
+* **Keep `jax.nn.hard_swish` valid at opset 13:** ONNX introduced `HardSwish`
+  in opset 14. Below that the export writes the equivalent
+  `x * HardSigmoid(x)`.
+* **Keep RMSNorm valid below opset 18:** The explicit Flax NNX and Equinox
+  RMSNorm graphs passed the `ReduceMean` axes as an input at every opset.
+  `ReduceMean` takes them as an attribute before opset 18.
+* **Document random operators on ONNX Runtime:** CPU ONNX Runtime 1.31.1 has
+  no kernels for the opset-22 versions of the random operators, so exports
+  that draw random numbers load only up to opset 21. See
+  [Known Limitations](../user_guide/known_limitations.md#random-operators-from-opset-22).
 
 
 ## Current Version

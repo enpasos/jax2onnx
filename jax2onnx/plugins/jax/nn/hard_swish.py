@@ -23,6 +23,9 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
+# ONNX introduced HardSwish in opset 14.
+_HARD_SWISH_MIN_OPSET: Final[int] = 14
+
 _HARD_SWISH_PRIM: Final[Primitive] = Primitive("jax.nn.hard_swish")
 _HARD_SWISH_PRIM.multiple_results = False
 
@@ -34,7 +37,15 @@ _HARD_SWISH_PRIM.multiple_results = False
         {
             "component": "HardSwish",
             "doc": "https://onnx.ai/onnx/operators/onnx__HardSwish.html",
-        }
+        },
+        {
+            "component": "HardSigmoid",
+            "doc": "https://onnx.ai/onnx/operators/onnx__HardSigmoid.html",
+        },
+        {
+            "component": "Mul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html",
+        },
     ],
     since="0.12.1",
     context="primitives.nn",
@@ -47,6 +58,19 @@ _HARD_SWISH_PRIM.multiple_results = False
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["HardSwish:2x5"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # ONNX has no HardSwish before opset 14.
+            "testcase": "jaxnn_hard_swish_opset13",
+            "callable": lambda x: jax.nn.hard_swish(x),
+            "input_shapes": [(2, 5)],
+            "opset_version": 13,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["HardSigmoid:2x5 -> Mul:2x5"],
+                must_absent=["HardSwish"],
                 no_unused_inputs=True,
             ),
         },
@@ -93,10 +117,22 @@ class HardSwishPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("hard_swish_out")
 
-        result = ctx.builder.HardSwish(
-            x_val,
-            _outputs=[desired_name],
-        )
+        if ctx.opset < _HARD_SWISH_MIN_OPSET:
+            # HardSwish(x) is x * HardSigmoid(x) with alpha = 1/6 and beta = 1/2.
+            gate = ctx.builder.HardSigmoid(
+                x_val,
+                alpha=1.0 / 6.0,
+                beta=0.5,
+                _outputs=[ctx.fresh_name("hard_swish_gate")],
+            )
+            gate.type = getattr(x_val, "type", None)
+            gate.shape = getattr(x_val, "shape", None)
+            result = ctx.builder.Mul(x_val, gate, _outputs=[desired_name])
+        else:
+            result = ctx.builder.HardSwish(
+                x_val,
+                _outputs=[desired_name],
+            )
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:
