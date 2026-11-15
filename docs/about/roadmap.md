@@ -42,11 +42,23 @@
 * **Export bfloat16 window maxima and minima:** `lax.reduce_window` with a
   maximum or minimum reducer rejected bfloat16 operands as non-floating. It
   now lowers to `MaxPool` like the other floating types.
-* **Keep exports below opset 15 free of `CastLike`:** Parameters whose dtype
-  differs from the input, for example float32 LayerNorm weights applied to a
-  float16 or bfloat16 input, and `jnp.linspace` were adapted with `CastLike`
-  at every opset, although ONNX introduced it in opset 15. Below opset 15 the
-  export now uses the equivalent `Cast`.
+* **Load float16 LayerNorm exports on ONNX Runtime before 1.30:** ONNX Runtime
+  1.24.1 to 1.29.0 aborted the process while creating a session with the
+  default `ORT_ENABLE_ALL` for a float16 model with the explicit LayerNorm
+  graph, for example the Flax NNX and Linen LayerNorm and the transformer
+  examples built on them. The float16 scale and bias were widened to float32
+  with `CastLike`, which an optimizer of those runtime versions cannot handle
+  on a float16 constant. Parameters whose dtype differs from the dtype they
+  are used with, and `jnp.linspace`, are now adapted with `Cast`, which names
+  the same conversion and is valid at every opset. `CastLike`, which ONNX
+  introduced in opset 15, is only written where the target dtype is not known
+  at export time. Float16 state inputs remain
+  affected by a second defect of the same optimizer; see
+  [Known Limitations](../user_guide/known_limitations.md#fp16-state-before-onnx-runtime-130)
+  and
+  [the float16 initializer optimizer](dependencies.md#the-float16-initializer-optimizer-before-onnx-runtime-130).
+  Thanks to Clément Poiret for reporting the abort in
+  [discussion #290](https://github.com/enpasos/jax2onnx/discussions/290).
 * **Type random bits by their requested width:** `jax.random.bits` with
   `uint8` or `uint16` failed because the bits were always exported as
   `uint32`. This also made float16 `jax.random.uniform` write an invalid

@@ -518,15 +518,11 @@ class IRContext:
             type=exemplar.type,
             shape=tensor.shape,
         )
-        if self.opset < _CAST_LIKE_MIN_OPSET:
-            # CastLike does not exist yet; Cast needs the target type by name.
-            dtype = exemplar.dtype
-            if dtype is None:
-                raise NotImplementedError(
-                    "Casting to the type of a value whose dtype is unknown "
-                    f"requires CastLike, hence opset >= {_CAST_LIKE_MIN_OPSET}; "
-                    f"got opset {self.opset}."
-                )
+        dtype = exemplar.dtype
+        if dtype is not None:
+            # A known target type is named by Cast at every opset. ONNX Runtime
+            # before 1.30 aborts on a CastLike that widens a float16 constant
+            # to float32; it folds the equivalent Cast.
             self.add_node(
                 ir.Node(
                     op_type="Cast",
@@ -538,6 +534,12 @@ class IRContext:
                 )
             )
             return out
+        if self.opset < _CAST_LIKE_MIN_OPSET:
+            raise NotImplementedError(
+                "Casting to the type of a value whose dtype is unknown "
+                f"requires CastLike, hence opset >= {_CAST_LIKE_MIN_OPSET}; "
+                f"got opset {self.opset}."
+            )
         self.add_node(
             ir.Node(
                 op_type="CastLike",

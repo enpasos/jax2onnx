@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from flax import nnx
+from flax import linen, nnx
 import jax
 from jax import export as jax_export
 import jax.numpy as jnp
@@ -81,6 +81,54 @@ def test_float16_cpu_inference_preserves_dtype_and_values(
         # FP16 intermediate rounding differs when ORT computes a fused node or
         # promotes a CPU operation to FP32. Allow a few half-precision ulps.
         np.testing.assert_allclose(actual, expected, rtol=2e-3, atol=2e-3)
+
+
+def _float16_layer_norm(framework: str) -> Callable[[jax.Array], jax.Array]:
+    if framework == "nnx":
+        return nnx.LayerNorm(
+            16, dtype=jnp.float16, param_dtype=jnp.float16, rngs=nnx.Rngs(0)
+        )
+    module = linen.LayerNorm(dtype=jnp.float16, param_dtype=jnp.float16)
+    variables = module.init(jax.random.PRNGKey(0), jnp.zeros((3, 16), jnp.float16))
+    return lambda x: module.apply(variables, x)
+
+
+@pytest.mark.parametrize("framework", ["nnx", "linen"])
+def test_float16_parameters_widened_to_float32_load_with_all_optimizations(
+    framework: str,
+) -> None:
+    # LayerNorm computes its statistics in float32 and widens the float16 scale
+    # and bias for that. ONNX Runtime before 1.30 aborts the process while
+    # creating a session at ORT_ENABLE_ALL when a CastLike does the widening:
+    # it expands the CastLike to a Cast after constant folding and then looks
+    # the Cast up by its node name. It folds a Cast that the model spells out.
+    fn = _float16_layer_norm(framework)
+    model = to_onnx(fn, [jax.ShapeDtypeStruct((3, 16), jnp.float16)])
+    onnx.checker.check_model(model, full_check=True)
+
+    # Checked before the session exists: the abort would end the test run.
+    float16_constants = {
+        tensor.name
+        for tensor in model.graph.initializer
+        if tensor.data_type == onnx.TensorProto.FLOAT16
+    }
+    widenings = [
+        node.op_type for node in model.graph.node if node.input[0] in float16_constants
+    ]
+    assert widenings and set(widenings) == {"Cast"}
+    assert "CastLike" not in {node.op_type for node in model.graph.node}
+
+    options = ort.SessionOptions()
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    options.intra_op_num_threads = 1
+    session = ort.InferenceSession(
+        model.SerializeToString(), options, providers=["CPUExecutionProvider"]
+    )
+    x = np.random.default_rng(1).normal(size=(3, 16)).astype(np.float16)
+    expected = np.asarray(fn(jnp.asarray(x)))
+    (actual,) = session.run(None, {session.get_inputs()[0].name: x})
+    assert actual.dtype == np.float16
+    np.testing.assert_allclose(actual, expected, rtol=2e-3, atol=2e-3)
 
 
 @pytest.mark.parametrize("operation", ["matmul", "dot"])

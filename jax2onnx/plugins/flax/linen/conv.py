@@ -36,8 +36,8 @@ EXPECT_TCT: Final = nnx_conv.EXPECT_TCT
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
         },
         {
-            "component": "CastLike",
-            "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
+            "component": "Cast",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
         },
     ],
     since="0.11.0",

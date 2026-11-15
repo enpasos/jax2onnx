@@ -96,6 +96,32 @@ through `jax.random.normal`, `jax.random.bernoulli`, `jax.random.bits` or
 `jax.random.uniform` additionally requires opset 26 for every dtype, because
 JAX builds it with `lax.bitcast_convert_type`, which lowers to `BitCast`.
 
+### FP16 State before ONNX Runtime 1.30
+
+ONNX Runtime before 1.30.0 can crash while it creates a session for a file
+with float16 state inputs from `to_onnx(..., state=...)`. The process ends
+with a segmentation fault; no Python exception is raised. It happens with
+`ORT_ENABLE_ALL`, which is the default, when the runtime widens such a state
+input to float32, for example because it has no float16 kernel for the node
+that reads it. Which nodes those are depends on the runtime version: float16
+matrix product weights crash 1.24.1, and float16 LayerNorm scale and bias crash
+1.24.1 and 1.29.0. The export cannot avoid this, because the runtime inserts
+the widening itself. Ordinary float16 exports without `state=` are not
+affected.
+
+Any one of these loads the file:
+
+- ONNX Runtime 1.30.0 or newer.
+- `ORT_ENABLE_EXTENDED` as the graph optimization level.
+- `disabled_optimizers=["FuseFp16InitializerToFp32NodeTransformer"]` when
+  creating the `InferenceSession`.
+- `overridable=False` on the float16 `StateInput` entries, which stores them
+  as ordinary initializers; see
+  [Fixed inference files](state_inputs.md#fixed-inference-files).
+
+See [the float16 initializer optimizer](../about/dependencies.md#the-float16-initializer-optimizer-before-onnx-runtime-130)
+for the cause.
+
 ### Quantized Rounding Boundaries
 
 Small floating-point differences before integer rounding can change quantized

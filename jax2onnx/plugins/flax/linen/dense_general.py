@@ -32,9 +32,9 @@ def _expect_linen_rgr(*, dynamic: bool = False) -> Callable[[Any], bool]:
         [
             (
                 "Reshape -> Gemm -> Reshape",
-                {"counts": {"Gemm": 1, "CastLike": 2, "Transpose": 0}},
+                {"counts": {"Gemm": 1, "Cast": 2, "Transpose": 0}},
             ),
-            "CastLike -> Gemm",
+            "Cast -> Gemm",
             *(["Shape -> Slice -> Concat -> Reshape"] if dynamic else []),
         ],
         no_unused_inputs=True,
@@ -46,13 +46,13 @@ def _expect_linen_gemm_reshape() -> Callable[[Any], bool]:
     """Rank-2 inputs feed Gemm directly; only its result is reshaped."""
 
     def graph_check(cast_count: int, *extra: str) -> Callable[[Any], bool]:
-        counts = {"Gemm": 1, "Reshape": 1, "CastLike": cast_count}
+        counts = {"Gemm": 1, "Reshape": 1, "Cast": cast_count}
         return EG(
             [("Gemm -> Reshape:3x8x32", {"counts": counts}), *extra],
             no_unused_inputs=True,
         )
 
-    return _check_by_input_dtype(graph_check(0), graph_check(2, "CastLike -> Gemm"))
+    return _check_by_input_dtype(graph_check(0), graph_check(2, "Cast -> Gemm"))
 
 
 def _check_by_input_dtype(
@@ -96,8 +96,8 @@ def _is_trailing_axes(axis: Sequence[int], ndim: int) -> bool:
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
         },
         {
-            "component": "CastLike",
-            "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
+            "component": "Cast",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
         },
     ],
     since="0.11.0",

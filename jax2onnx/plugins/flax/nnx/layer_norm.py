@@ -18,7 +18,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 
-# Cast helper that inserts CastLike only when needed; no-op if dtypes already match
+# Cast helper that inserts a Cast only when needed; no-op if dtypes already match
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
