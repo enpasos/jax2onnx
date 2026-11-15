@@ -60,17 +60,7 @@ def cast_param_like(
     if p_dt is None or l_dt is None or p_dt == l_dt:
         return param
 
-    converted: ir.Value = ctx.builder.op(
-        "Cast",
-        [param],
-        {"to": int(l_dt.value)},
-        output=ir.Value(
-            name=ctx.fresh_name(name_hint),
-            type=ir.TensorType(l_dt),
-            shape=param.shape,
-        ),
-    )
-    return converted
+    return cast_value_to_dtype(ctx, param, l_dt, name_hint=name_hint)
 
 
 def _is_stored_constant(value: ir.Value) -> bool:

@@ -5,6 +5,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
+import subprocess
+import sys
 
 from flax import linen, nnx
 import jax
@@ -93,9 +96,19 @@ def _float16_layer_norm(framework: str) -> Callable[[jax.Array], jax.Array]:
     return lambda x: module.apply(variables, x)
 
 
+_CREATE_SESSION_WITH_ALL_OPTIMIZATIONS = """
+import sys
+import onnxruntime as ort
+
+options = ort.SessionOptions()
+options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+ort.InferenceSession(sys.argv[1], options, providers=["CPUExecutionProvider"])
+"""
+
+
 @pytest.mark.parametrize("framework", ["nnx", "linen"])
 def test_float16_parameters_widened_to_float32_load_with_all_optimizations(
-    framework: str,
+    framework: str, tmp_path: Path
 ) -> None:
     # LayerNorm computes its statistics in float32 and widens the float16 scale
     # and bias for that. ONNX Runtime before 1.30 aborts the process while
@@ -106,17 +119,31 @@ def test_float16_parameters_widened_to_float32_load_with_all_optimizations(
     model = to_onnx(fn, [jax.ShapeDtypeStruct((3, 16), jnp.float16)])
     onnx.checker.check_model(model, full_check=True)
 
-    # Checked before the session exists: the abort would end the test run.
     float16_constants = {
         tensor.name
         for tensor in model.graph.initializer
         if tensor.data_type == onnx.TensorProto.FLOAT16
     }
     widenings = [
-        node.op_type for node in model.graph.node if node.input[0] in float16_constants
+        node.op_type
+        for node in model.graph.node
+        if node.input and node.input[0] in float16_constants
     ]
     assert widenings and set(widenings) == {"Cast"}
     assert "CastLike" not in {node.op_type for node in model.graph.node}
+
+    # The defect ends the process with a signal instead of raising. The first
+    # session is therefore created in a process of its own, so that a crash
+    # fails this test and not the whole test run.
+    path = tmp_path / "layer_norm.onnx"
+    onnx.save_model(model, path)
+    created = subprocess.run(
+        [sys.executable, "-c", _CREATE_SESSION_WITH_ALL_OPTIMIZATIONS, str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert created.returncode == 0, created.stderr[-2000:]
 
     options = ort.SessionOptions()
     options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL

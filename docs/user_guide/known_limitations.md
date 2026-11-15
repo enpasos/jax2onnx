@@ -101,13 +101,20 @@ JAX builds it with `lax.bitcast_convert_type`, which lowers to `BitCast`.
 ONNX Runtime before 1.30.0 can crash while it creates a session for a file
 with float16 state inputs from `to_onnx(..., state=...)`. The process ends
 with a segmentation fault; no Python exception is raised. It happens with
-`ORT_ENABLE_ALL`, which is the default, when the runtime widens such a state
-input to float32, for example because it has no float16 kernel for the node
-that reads it. Which nodes those are depends on the runtime version: float16
-matrix product weights crash 1.24.1, and float16 LayerNorm scale and bias crash
-1.24.1 and 1.29.0. The export cannot avoid this, because the runtime inserts
-the widening itself. Ordinary float16 exports without `state=` are not
-affected.
+`ORT_ENABLE_ALL`, which is the default, when such a state input is widened to
+float32 right where it enters the graph. That cast comes from one of two
+places:
+
+- The runtime inserts it, because it has no float16 kernel for the node that
+  reads the state. Which nodes those are depends on the runtime version:
+  float16 matrix product weights crash 1.24.1 but load on 1.29.0.
+- The export writes it for a computation it does in float32. The LayerNorm
+  scale and bias are widened this way and crash 1.24.1 and 1.29.0.
+
+The export does not work around either case. It has no influence on the casts
+the runtime inserts, so float16 state stays unreliable on these versions
+whatever the export does with its own casts. Ordinary float16 exports without
+`state=` are not affected.
 
 Any one of these loads the file:
 
