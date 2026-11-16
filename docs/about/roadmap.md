@@ -77,6 +77,14 @@
   no kernels for the opset-22 versions of the random operators, so exports
   that draw random numbers load only up to opset 21. See
   [Known Limitations](../user_guide/known_limitations.md#random-operators-from-opset-22).
+* **Match `jax.nn.one_hot` outside the class range:** The export used ONNX
+  `OneHot`, which counts an index in `[-depth, -1]` from the end and truncates
+  a non-integer index. JAX returns a row of zeros for both, so a label such as
+  `-1` exported as the last class. `jax.nn.one_hot` and its Flax Linen alias
+  now export the comparison that defines the function in JAX,
+  `Unsqueeze -> Equal -> Cast`, which also needs no float32 work for bfloat16
+  results. The default result dtype follows the x64 setting as in JAX, where
+  the export always wrote float32, and boolean indices are rejected as in JAX.
 
 
 ## Current Version

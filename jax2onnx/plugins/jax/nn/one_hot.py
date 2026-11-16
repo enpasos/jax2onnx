@@ -7,6 +7,7 @@ from typing import Any, Callable, ClassVar, Final
 import jax
 import jax.numpy as jnp
 import numpy as np
+import onnx_ir as ir
 from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
@@ -16,10 +17,11 @@ from jax2onnx._compat.jax import (
 )
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
+from jax2onnx.converter.typing_support import NativeLoweringContext
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import cast_value_to_dtype
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -31,14 +33,40 @@ _ONE_HOT_PRIM.multiple_results = False
 _JAX_ONE_HOT_ORIG: Final = jax.nn.one_hot
 
 
+def _comparison_dtype(index_dtype: np.dtype[Any]) -> np.dtype[Any]:
+    """Dtype in which the indices are compared with the class positions.
+
+    ONNX Runtime has `Equal` kernels for int32, int64, float32 and float64.
+    Every other index dtype is widened to the next of these, which is exact.
+    """
+    if jnp.issubdtype(index_dtype, jnp.integer):
+        return np.dtype(np.int32 if index_dtype == np.int32 else np.int64)
+    if jnp.issubdtype(index_dtype, jnp.floating):
+        return np.dtype(np.float64 if index_dtype == np.float64 else np.float32)
+    # jax.nn.one_hot builds the class positions with lax.iota, which rejects
+    # other dtypes with the same error.
+    raise TypeError(
+        f"one_hot does not accept indices of dtype {index_dtype}; "
+        "use an integer or floating dtype."
+    )
+
+
 @register_native_primitive(
     jaxpr_primitive=_ONE_HOT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.one_hot.html",
     onnx=[
         {
-            "component": "OneHot",
-            "doc": "https://onnx.ai/onnx/operators/onnx__OneHot.html",
-        }
+            "component": "Unsqueeze",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Unsqueeze.html",
+        },
+        {
+            "component": "Equal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
+        },
+        {
+            "component": "Cast",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
+        },
     ],
     since="0.12.1",
     context="primitives.nn",
@@ -51,7 +79,7 @@ _JAX_ONE_HOT_ORIG: Final = jax.nn.one_hot
             "expected_output_shapes": [(4, 6)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["OneHot:4x6"],
+                ["Unsqueeze:4x1 -> Equal:4x6 -> Cast:4x6"],
                 no_unused_inputs=True,
             ),
         },
@@ -62,7 +90,7 @@ _JAX_ONE_HOT_ORIG: Final = jax.nn.one_hot
             "expected_output_shapes": [(5, 2)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["OneHot:5x2"],
+                ["Unsqueeze:1x2 -> Equal:5x2 -> Cast:5x2"],
                 no_unused_inputs=True,
             ),
         },
@@ -81,7 +109,7 @@ _JAX_ONE_HOT_ORIG: Final = jax.nn.one_hot
             "expected_output_shapes": [(2, 3, 4, 5)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["OneHot:2x3x4x5"],
+                ["Unsqueeze:2x3x1x5 -> Equal:2x3x4x5 -> Cast:2x3x4x5"],
                 no_unused_inputs=True,
             ),
         },
@@ -94,14 +122,75 @@ _JAX_ONE_HOT_ORIG: Final = jax.nn.one_hot
             "expected_output_shapes": [(2, 4, 3)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["Transpose:2x3 -> OneHot:2x4x3"],
+                ["Transpose:2x3 -> Unsqueeze:2x1x3 -> Equal:2x4x3 -> Cast:2x4x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # JAX returns a row of zeros for every index outside [0, depth).
+            "testcase": "jaxnn_one_hot_out_of_range",
+            "callable": lambda x: jax.nn.one_hot(x, num_classes=6),
+            "input_values": [np.array([-1, 0, 5, 6, -6], dtype=np.int32)],
+            "expected_output_shapes": [(5, 6)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:5x1 -> Equal:5x6 -> Cast:5x6"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # ... and for every index that is not a whole number.
+            "testcase": "jaxnn_one_hot_float_indices",
+            "callable": lambda x: jax.nn.one_hot(x, num_classes=3),
+            "input_values": [np.array([0.0, 1.0, 1.5, -0.5, 2.0], dtype=np.float32)],
+            "expected_output_shapes": [(5, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:5x1 -> Equal:5x3 -> Cast:5x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            # JAX builds the class positions in the dtype of the indices, so
+            # they wrap at 256 here: index 43 also selects class 299.
+            "testcase": "jaxnn_one_hot_uint8_indices",
+            "callable": lambda x: jax.nn.one_hot(x, num_classes=300),
+            "input_values": [np.array([0, 43, 255], dtype=np.uint8)],
+            "expected_output_shapes": [(3, 300)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Cast:3 -> Unsqueeze:3x1 -> Equal:3x300 -> Cast:3x300"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "jaxnn_one_hot_bool",
+            "callable": lambda x: jax.nn.one_hot(x, num_classes=4, dtype=jnp.bool_),
+            "input_values": [np.array([3, -1, 0], dtype=np.int32)],
+            "expected_output_shapes": [(3, 4)],
+            "expected_output_dtypes": [np.bool_],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:3x1 -> Equal:3x4"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "jaxnn_one_hot_float16",
+            "callable": lambda x: jax.nn.one_hot(x, num_classes=4, dtype=jnp.float16),
+            "input_values": [np.array([3, -1, 0], dtype=np.int32)],
+            "expected_output_shapes": [(3, 4)],
+            "expected_output_dtypes": [np.float16],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Unsqueeze:3x1 -> Equal:3x4 -> Cast:3x4"],
                 no_unused_inputs=True,
             ),
         },
     ],
 )
 class OneHotPlugin(PrimitiveLeafPlugin):
-    """Lower ``jax.nn.one_hot`` to ONNX ``OneHot``."""
+    """Lower ``jax.nn.one_hot`` to the comparison that defines it in JAX."""
 
     _PRIM: ClassVar[Primitive] = _ONE_HOT_PRIM
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
@@ -129,63 +218,76 @@ class OneHotPlugin(PrimitiveLeafPlugin):
         out_shape.insert(axis_int, int(num_classes))
         return ShapedArray(tuple(out_shape), np.dtype(dtype))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
+        # jax.nn.one_hot is `(expand_dims(x, axis) == iota(x.dtype)).astype(dtype)`.
+        # The export writes that comparison. ONNX OneHot differs from it: an
+        # index in [-depth, -1] selects a class counted from the end, and a
+        # non-integer index is truncated, where JAX returns a row of zeros.
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
-
-        num_classes = int(eqn.params.get("num_classes"))
+        num_classes = int(eqn.params["num_classes"])
+        x_dtype: np.dtype[Any] = np.dtype(x_var.aval.dtype)
+        out_type = numpy_dtype_to_ir(np.dtype(out_var.aval.dtype))
+        rank = len(x_var.aval.shape)
         axis = int(eqn.params.get("axis", -1))
+        position = axis + rank + 1 if axis < 0 else axis
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("one_hot_in"))
-        out_spec = ctx.get_value_for_var(
+        x_val = ctx.require_value_for_var(x_var)
+        output = ctx.allocate_value_for_var(
             out_var, name_hint=ctx.fresh_name("one_hot_out")
         )
 
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("one_hot_out")
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("one_hot_out")
+        work_dtype = _comparison_dtype(x_dtype)
+        work_type = numpy_dtype_to_ir(work_dtype)
+        indices = cast_value_to_dtype(
+            ctx, x_val, work_type, name_hint="one_hot_indices"
+        )
+        axes = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("one_hot_axis"),
+            array=np.asarray([position], dtype=np.int64),
+        )
+        expanded_shape = None
+        if indices.shape is not None:
+            dims = list(indices.shape.dims)
+            expanded_shape = ir.Shape([*dims[:position], 1, *dims[position:]])
+        expanded = ctx.builder.op(
+            "Unsqueeze",
+            [indices, axes],
+            output=ir.Value(
+                name=ctx.fresh_name("one_hot_expanded"),
+                type=ir.TensorType(work_type),
+                shape=expanded_shape,
+            ),
+        )
 
-        out_dtype_enum = getattr(getattr(out_spec, "type", None), "dtype", None)
-        out_dtype = ir_dtype_to_numpy(out_dtype_enum, default=None)
-        if out_dtype is None:
-            out_dtype = np.dtype(
-                getattr(getattr(out_var, "aval", None), "dtype", np.float32)
+        # The class positions as JAX's iota yields them in the dtype of x, which
+        # wraps for a narrow integer dtype and rounds for float16. Widening them
+        # to the comparison dtype afterwards is exact.
+        classes_shape = [1] * rank
+        classes_shape.insert(position, num_classes)
+        classes = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("one_hot_classes"),
+            array=np.arange(num_classes)
+            .astype(x_dtype)
+            .astype(work_dtype)
+            .reshape(classes_shape),
+        )
+
+        if out_type == ir.DataType.BOOL:
+            result = ctx.builder.op("Equal", [expanded, classes], output=output)
+        else:
+            matches = ctx.builder.op(
+                "Equal",
+                [expanded, classes],
+                output=ir.Value(
+                    name=ctx.fresh_name("one_hot_matches"),
+                    type=ir.TensorType(ir.DataType.BOOL),
+                    shape=output.shape,
+                ),
             )
-
-        indices_input = x_val
-        x_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(x_var, "aval", None), "dtype", np.int64)
-        )
-        if x_dtype != np.dtype(np.int64):
-            indices_input = ctx.builder.Cast(
-                x_val,
-                _outputs=[ctx.fresh_name("one_hot_indices_i64")],
-                to=int(numpy_dtype_to_ir(np.dtype(np.int64)).value),
+            result = ctx.builder.op(
+                "Cast", [matches], {"to": int(out_type.value)}, output=output
             )
-            if getattr(x_val, "shape", None) is not None:
-                indices_input.shape = x_val.shape
-
-        depth_const = ctx.bind_const_for_var(
-            object(),
-            np.asarray(num_classes, dtype=np.int64),
-        )
-        values_const = ctx.bind_const_for_var(
-            object(),
-            np.asarray([0, 1], dtype=out_dtype),
-        )
-
-        result = ctx.builder.OneHot(
-            indices_input,
-            depth_const,
-            values_const,
-            _outputs=[desired_name],
-            axis=axis,
-        )
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
@@ -206,13 +308,18 @@ class OneHotPlugin(PrimitiveLeafPlugin):
                 x: ArrayLike,
                 num_classes: int,
                 *,
-                dtype: Any = jnp.float32,
+                dtype: Any = None,
                 axis: int = -1,
             ) -> ArrayLike:
+                # Like jax.nn.one_hot: the default is the default float dtype,
+                # and a requested dtype follows the caller's x64 setting.
+                resolved = jax.dtypes.canonicalize_dtype(
+                    jnp.float_ if dtype is None else dtype
+                )
                 return cls._PRIM.bind(
                     x,
                     num_classes=int(num_classes),
-                    dtype=np.dtype(dtype),
+                    dtype=np.dtype(resolved),
                     axis=int(axis),
                 )
 

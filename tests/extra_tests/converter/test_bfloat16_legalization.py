@@ -217,6 +217,33 @@ def test_input_only_type_parameter_needs_no_restoring_cast() -> None:
     assert graph.outputs[0] is y
 
 
+def test_one_hot_widens_only_its_values_input() -> None:
+    # OneHot types its output by the values input alone, and that type parameter
+    # admits bfloat16 from opset 28. The indices and the depth have type
+    # parameters of their own and keep their types.
+    indices = ir.val("indices", dtype=ir.DataType.INT64, shape=[2, 3])
+    depth = ir.val("depth", dtype=ir.DataType.INT64, shape=[1])
+    values = _value("values", [2])
+    y = _value("y", [2, 3, 6])
+    graph = _graph([indices, depth, values], [y], 23)
+    Tape(graph).op("OneHot", [indices, depth, values], output=y)
+    _legalize(graph)
+
+    assert _ops(graph) == ["Cast", "OneHot", "Cast"]
+    widen, one_hot, restore = graph
+    assert widen.inputs[0] is values and _cast_target(widen) == FLOAT
+    assert list(one_hot.inputs) == [indices, depth, widen.outputs[0]]
+    assert one_hot.outputs[0].dtype == FLOAT
+    assert _cast_target(restore) == BF16
+    assert list(graph.inputs) == [indices, depth, values]
+    assert [value.dtype for value in graph.inputs] == [
+        ir.DataType.INT64,
+        ir.DataType.INT64,
+        BF16,
+    ]
+    assert (graph.outputs[0].name, graph.outputs[0].dtype) == ("y", BF16)
+
+
 def test_control_flow_body_is_legalized_in_its_own_scope() -> None:
     x = _value("x", [1, 3, 8, 8])
     w = _value("w", [4, 3, 3, 3])
