@@ -10,10 +10,9 @@ import pprint
 import sys
 import tempfile
 from pathlib import Path
-from typing import Iterable, Sequence, Any, Callable, Optional
+from typing import Sequence, Any, Optional
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 import onnx
 
@@ -33,60 +32,9 @@ from jax2onnx.user_interface import to_onnx
 from tests import t_generator as tgen
 
 
-def _materialize_callable(entry: dict, *, dtype: Any | None) -> Callable[..., Any]:
-    call = entry.get("callable")
-    factory = entry.get("callable_factory")
-    if call is not None:
-        if dtype is not None and hasattr(call, "with_dtype"):
-            return call.with_dtype(dtype)
-        return call
-    if factory is not None:
-        requested_dtype = dtype if dtype is not None else jnp.float32
-        return factory(requested_dtype)
-    raise ValueError(f"Entry '{entry.get('testcase')}' has no callable or factory")
-
-
-def _shape_inputs(entry: dict) -> list:
-    shapes = entry.get("input_shapes")
-    if not shapes:
-        return []
-    dtypes = entry.get("input_dtypes")
-    if dtypes:
-        if len(dtypes) != len(shapes):
-            raise ValueError(
-                f"Input dtype/count mismatch for testcase '{entry.get('testcase')}'"
-            )
-        return [
-            jax.ShapeDtypeStruct(tuple(shape), dt) for shape, dt in zip(shapes, dtypes)
-        ]
-    return [
-        tuple(shape) if isinstance(shape, (list, tuple)) else shape for shape in shapes
-    ]
-
-
-def _value_inputs(entry: dict) -> list:
-    values = entry.get("input_values")
-    if not values:
-        return []
-    return [np.asarray(val) for val in values]
-
-
-def _build_inputs(entry: dict) -> list:
-    values = _value_inputs(entry)
-    if values:
-        return values
-    return _shape_inputs(entry)
-
-
-def _regenerate_spec(entry: dict, keep_dir: Path | None) -> dict:
-    inputs = _build_inputs(entry)
-    input_params = entry.get("input_params", {})
-    opset = entry.get("opset_version", 21)
-    enable_double_precision = bool(entry.get("enable_double_precision", False))
-    requested_dtype = jnp.float64 if enable_double_precision else jnp.float32
-    fn = _materialize_callable(entry, dtype=requested_dtype)
-
-    model_name = entry.get("testcase", "spec")
+def _regenerate_spec(tp: dict, keep_dir: Path | None) -> dict:
+    """Export the generated test ``tp`` as that test does and describe the graph."""
+    model_name = tp["testcase"]
 
     if keep_dir is not None:
         keep_dir.mkdir(parents=True, exist_ok=True)
@@ -102,16 +50,19 @@ def _regenerate_spec(entry: dict, keep_dir: Path | None) -> dict:
 
     model_path: str | None = None
     try:
-        model_path = to_onnx(
-            fn=fn,
-            inputs=list(inputs),
-            input_params=input_params,
-            model_name=model_name,
-            opset=opset,
-            enable_double_precision=enable_double_precision,
-            return_mode="file",
-            output_path=str(onnx_path),
-        )
+        # The test generator owns the callable, the input specs and the export
+        # options, so this exports exactly what the generated test checks.
+        with jax.enable_x64(bool(tp.get("_jax_x64_test_setting", False))):
+            fn = tp["callable"]
+            if hasattr(fn, "instantiate"):
+                fn = fn.instantiate()
+            model_path = to_onnx(
+                fn=fn,
+                inputs=tgen.input_specs_for_test_param(tp, fn),
+                return_mode="file",
+                output_path=str(onnx_path),
+                **tgen.to_onnx_options_for_test_param(tp),
+            )
         model = onnx.load_model(model_path)
         spec = auto_expect_graph_spec(model)
         return _annotate_inputs_with_constants(model, spec)
@@ -288,19 +239,33 @@ def _emit_for_testcase(name: str, meta: dict, keep_dir: Path | None) -> str:
     return f"# {name}\n{call}\n"
 
 
-def _select_metadata(names: Sequence[str], entries: Iterable[dict]) -> dict[str, dict]:
-    mapping = {entry["testcase"]: entry for entry in entries}
-    unknown = [nm for nm in names if nm not in mapping]
+def _generated_test_params() -> dict[str, dict]:
+    """Parameters of every generated test, by test name.
+
+    A testcase can expand to several tests, for example ``<name>_dynamic`` and
+    ``<name>_f64``. Each of them is selectable. The authored name selects the
+    test of that name, or the first variant when no test carries it.
+    """
+    params: dict[str, dict] = {}
+    for entry in tgen.load_plugin_metadata():
+        variants = tgen.generate_test_params(entry)
+        for variant in variants:
+            params.setdefault(variant["testcase"], variant)
+        if variants:
+            params.setdefault(entry["testcase"], variants[0])
+    return params
+
+
+def _select_test_params(names: Sequence[str]) -> dict[str, dict]:
+    params = _generated_test_params()
+    unknown = [name for name in names if name not in params]
     if unknown:
         raise SystemExit(f"Unknown testcase(s): {', '.join(unknown)}")
-    return {nm: mapping[nm] for nm in names}
+    return {name: params[name] for name in names}
 
 
 def generate_spec_for_testcase(name: str, keep_dir: Path | None = None) -> dict:
-    entries = tgen.load_plugin_metadata()
-    selected = _select_metadata([name], entries)
-    meta = selected[name]
-    return _regenerate_spec(meta, keep_dir)
+    return _regenerate_spec(_select_test_params([name])[name], keep_dir)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -314,12 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    entries = tgen.load_plugin_metadata()
-    selected = _select_metadata(args.testcase, entries)
-
-    for name, meta in selected.items():
-        snippet = _emit_for_testcase(name, meta, args.keep_onnx)
-        sys.stdout.write(snippet)
+    for name, tp in _select_test_params(args.testcase).items():
+        sys.stdout.write(_emit_for_testcase(name, tp, args.keep_onnx))
 
     return 0
 
