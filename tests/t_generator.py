@@ -466,6 +466,111 @@ def get_plugin_grouping(reset=False) -> dict[tuple[str, str], list[dict[str, Any
     return _GLOBAL_PLUGIN_GROUPING
 
 
+def to_onnx_options_for_test_param(tp: dict[str, Any]) -> dict[str, Any]:
+    """Options that a generated test passes to ``to_onnx`` for ``tp``.
+
+    ``scripts/emit_expect_graph.py`` exports through the same options, so the
+    snippet it prints describes the graph that the generated test checks.
+    """
+    return dict(
+        input_params=tp.get("input_params", {}),
+        model_name=tp["testcase"],
+        opset=tp.get("opset_version", 23),
+        inputs_as_nchw=tp.get("inputs_as_nchw"),
+        outputs_as_nchw=tp.get("outputs_as_nchw"),
+        input_names=tp.get("input_names"),
+        output_names=tp.get("output_names"),
+        export_mode=_generated_export_mode(),
+        normalization_mode=tp.get("normalization_mode", "auto"),
+    )
+
+
+def input_specs_for_test_param(tp: dict[str, Any], callable_obj: Any) -> List[Any]:
+    """Input specs that a generated test passes to ``to_onnx`` for ``tp``."""
+    use_x64 = tp.get("_jax_x64_test_setting", False)
+    input_values_from_testcase = tp.get("input_values")
+    input_shapes_from_testcase = tp.get("input_shapes")
+    input_dtypes_from_testcase = tp.get("input_dtypes")
+    processed_input_specs_for_to_onnx: List[Any]
+
+    def _input_spec(value: Any, shape: tuple[Any, ...] | None = None):
+        if type(value) in (bool, int, float, complex):
+            source = jax.eval_shape(lambda x: x, value)
+        else:
+            source = jax.ShapeDtypeStruct(
+                np.shape(value),
+                np.asarray(value).dtype,
+                weak_type=bool(getattr(value, "weak_type", False)),
+            )
+        return jax.ShapeDtypeStruct(
+            source.shape if shape is None else shape,
+            source.dtype,
+            weak_type=source.weak_type,
+        )
+
+    processed_input_specs_for_to_onnx = []
+    if input_shapes_from_testcase is not None:
+        processed_input_specs_for_to_onnx = []
+        if input_dtypes_from_testcase:
+            if len(input_dtypes_from_testcase) != len(input_shapes_from_testcase):
+                raise ValueError(
+                    f"Testcase '{tp['testcase']}': `input_dtypes` length must match `input_shapes`."
+                )
+            for shape_spec, dt in zip(
+                input_shapes_from_testcase, input_dtypes_from_testcase
+            ):
+                current_shape_tuple = (
+                    tuple(shape_spec)
+                    if isinstance(shape_spec, (list, tuple))
+                    else (shape_spec,)
+                )
+                processed_input_specs_for_to_onnx.append(
+                    jax.ShapeDtypeStruct(current_shape_tuple, dt)
+                )
+            logger.info(
+                f"Test '{tp['testcase']}': Using ShapeDtypeStructs from `input_shapes` + `input_dtypes`: {processed_input_specs_for_to_onnx}."
+            )
+        else:
+            for index, shape_spec in enumerate(input_shapes_from_testcase):
+                current_shape_tuple = (
+                    tuple(shape_spec)
+                    if isinstance(shape_spec, (list, tuple))
+                    else (shape_spec,)
+                )
+                if input_values_from_testcase is not None:
+                    processed_input_specs_for_to_onnx.append(
+                        _input_spec(
+                            input_values_from_testcase[index], current_shape_tuple
+                        )
+                    )
+                else:
+                    processed_input_specs_for_to_onnx.append(
+                        jax.ShapeDtypeStruct(current_shape_tuple, jnp.float32)
+                    )
+            logger.info(
+                f"Test '{tp['testcase']}': Using explicit input_shapes from testcase (no dtype list supplied): {processed_input_specs_for_to_onnx}."
+            )
+    elif input_values_from_testcase is not None:
+        shapes_from_values = [_input_spec(val) for val in input_values_from_testcase]
+        processed_input_specs_for_to_onnx = shapes_from_values
+        logger.info(
+            f"Test '{tp['testcase']}': Using ShapeDtypeStructs for to_onnx from input_values: {processed_input_specs_for_to_onnx}. "
+            f"jax_x64={use_x64}."
+        )
+    else:
+        sig = inspect.signature(callable_obj)
+        if not sig.parameters:
+            processed_input_specs_for_to_onnx = []
+            logger.info(
+                f"Test '{tp['testcase']}': Callable takes no arguments. Using empty input_specs for to_onnx."
+            )
+        else:
+            raise ValueError(
+                f"Testcase '{tp['testcase']}' must provide 'input_shapes' or 'input_values'."
+            )
+    return processed_input_specs_for_to_onnx
+
+
 def make_test_function(tp: dict[str, Any]):
     """Create a test function from test parameters."""
     test_case_name_safe = tp["testcase"].replace(".", "_").replace(" ", "_")
@@ -483,23 +588,6 @@ def make_test_function(tp: dict[str, Any]):
         input_shapes_from_testcase = tp.get("input_shapes")
         input_dtypes_from_testcase = tp.get("input_dtypes")
         expected_output_dtypes_from_testcase = tp.get("expected_output_dtypes")
-
-        processed_input_specs_for_to_onnx: List[Any]
-
-        def _input_spec(value: Any, shape: tuple[Any, ...] | None = None):
-            if type(value) in (bool, int, float, complex):
-                source = jax.eval_shape(lambda x: x, value)
-            else:
-                source = jax.ShapeDtypeStruct(
-                    np.shape(value),
-                    np.asarray(value).dtype,
-                    weak_type=bool(getattr(value, "weak_type", False)),
-                )
-            return jax.ShapeDtypeStruct(
-                source.shape if shape is None else shape,
-                source.dtype,
-                weak_type=source.weak_type,
-            )
 
         seed_material = "|".join(
             [
@@ -530,75 +618,14 @@ def make_test_function(tp: dict[str, Any]):
             arr = np.array(raw)
             return arr.astype(dtype)
 
-        processed_input_specs_for_to_onnx = []
-        if input_shapes_from_testcase is not None:
-            processed_input_specs_for_to_onnx = []
-            if input_dtypes_from_testcase:
-                if len(input_dtypes_from_testcase) != len(input_shapes_from_testcase):
-                    raise ValueError(
-                        f"Testcase '{tp['testcase']}': `input_dtypes` length must match `input_shapes`."
-                    )
-                for shape_spec, dt in zip(
-                    input_shapes_from_testcase, input_dtypes_from_testcase
-                ):
-                    current_shape_tuple = (
-                        tuple(shape_spec)
-                        if isinstance(shape_spec, (list, tuple))
-                        else (shape_spec,)
-                    )
-                    processed_input_specs_for_to_onnx.append(
-                        jax.ShapeDtypeStruct(current_shape_tuple, dt)
-                    )
-                logger.info(
-                    f"Test '{tp['testcase']}': Using ShapeDtypeStructs from `input_shapes` + `input_dtypes`: {processed_input_specs_for_to_onnx}."
-                )
-            else:
-                for index, shape_spec in enumerate(input_shapes_from_testcase):
-                    current_shape_tuple = (
-                        tuple(shape_spec)
-                        if isinstance(shape_spec, (list, tuple))
-                        else (shape_spec,)
-                    )
-                    if input_values_from_testcase is not None:
-                        processed_input_specs_for_to_onnx.append(
-                            _input_spec(
-                                input_values_from_testcase[index], current_shape_tuple
-                            )
-                        )
-                    else:
-                        processed_input_specs_for_to_onnx.append(
-                            jax.ShapeDtypeStruct(current_shape_tuple, jnp.float32)
-                        )
-                logger.info(
-                    f"Test '{tp['testcase']}': Using explicit input_shapes from testcase (no dtype list supplied): {processed_input_specs_for_to_onnx}."
-                )
-        elif input_values_from_testcase is not None:
-            shapes_from_values = [
-                _input_spec(val) for val in input_values_from_testcase
-            ]
-            processed_input_specs_for_to_onnx = shapes_from_values
-            logger.info(
-                f"Test '{tp['testcase']}': Using ShapeDtypeStructs for to_onnx from input_values: {processed_input_specs_for_to_onnx}. "
-                f"jax_x64={use_x64}."
-            )
-        else:
-            sig = inspect.signature(callable_obj)
-            if not sig.parameters:
-                processed_input_specs_for_to_onnx = []
-                logger.info(
-                    f"Test '{tp['testcase']}': Callable takes no arguments. Using empty input_specs for to_onnx."
-                )
-            else:
-                raise ValueError(
-                    f"Testcase '{tp['testcase']}' must provide 'input_shapes' or 'input_values'."
-                )
+        processed_input_specs_for_to_onnx = input_specs_for_test_param(tp, callable_obj)
 
         input_params_from_testcase = tp.get("input_params", {})
         testcase_name = tp["testcase"]
         expected_num_funcs = tp.get("expected_number_of_function_instances")
         expected_output_shapes_from_testcase = tp.get("expected_output_shapes")
         onnx_input_names_from_testcase = tp.get("input_names")
-        onnx_output_names_from_testcase = tp.get("output_names")
+        tp.get("output_names")
         inputs_as_nchw = tp.get("inputs_as_nchw")
         outputs_as_nchw = tp.get("outputs_as_nchw")
         export_mode = _generated_export_mode()
@@ -639,7 +666,7 @@ def make_test_function(tp: dict[str, Any]):
             return np.asarray(value)
 
         context_path = tp.get("context", "default.unknown").split(".")
-        opset_version = tp.get("opset_version", 23)
+        tp.get("opset_version", 23)
         model_folder_path = os.path.join("onnx", *context_path)
         os.makedirs(model_folder_path, exist_ok=True)
         model_path = os.path.join(model_folder_path, f"{test_case_name_safe}.onnx")
@@ -654,17 +681,9 @@ def make_test_function(tp: dict[str, Any]):
             to_onnx_kwargs = dict(
                 fn=callable_obj,
                 inputs=processed_input_specs_for_to_onnx,
-                input_params=input_params_from_testcase,
-                model_name=testcase_name,
-                opset=opset_version,
                 return_mode="file",
                 output_path=model_path,
-                inputs_as_nchw=inputs_as_nchw,
-                outputs_as_nchw=outputs_as_nchw,
-                input_names=onnx_input_names_from_testcase,
-                output_names=onnx_output_names_from_testcase,
-                export_mode=export_mode,
-                normalization_mode=normalization_mode,
+                **to_onnx_options_for_test_param(tp),
             )
             written_model_path = to_onnx(**to_onnx_kwargs)
             if written_model_path != model_path:
