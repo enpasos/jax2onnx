@@ -122,8 +122,8 @@ GROUP_NORM_EXPLICIT_COMPONENTS: Final = [
     {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
     {"component": "And", "doc": "https://onnx.ai/onnx/operators/onnx__And.html"},
     {
-        "component": "CastLike",
-        "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
+        "component": "Cast",
+        "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
     },
     {
         "component": "Concat",

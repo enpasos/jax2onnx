@@ -86,7 +86,10 @@ Read the relevant guide before editing a subsystem:
 - **Keep canonical values intact.** Constants retain their traced dtype and
   payload. When an operator needs a work dtype, emit consumer-local casts and
   restore the source result boundary; do not mutate shared initializers or
-  canonical bindings. Preserve integer arithmetic and overflow semantics.
+  canonical bindings. Convert dtypes with `Cast` through
+  `cast_value_to_dtype(...)`, `cast_param_like(...)` or `ctx.cast_like(...)`;
+  a policy test rejects `CastLike`, which ONNX Runtime before 1.30 cannot load
+  on a float16 constant. Preserve integer arithmetic and overflow semantics.
   Check low-precision changes with caller-owned x64 both disabled and enabled.
 - **Construct fixtures deterministically.** Use constructor arguments such as
   `construct_and_call(MyModule, dtype=with_requested_dtype(), rngs=with_rng_seed(0))`.

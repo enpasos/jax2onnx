@@ -198,6 +198,10 @@ enforced by a test that carries its ID.
   see [BF16 Runtime I/O](known_limitations.md#bf16-runtime-io). ONNX Runtime's
   NumPy interface also rejects BF16 arrays, so overriding BF16 state needs
   the raw-bit binding described there.
+- **Float16 state on ONNX Runtime before 1.30.** Those versions can crash
+  while creating a session for a file with overridable float16 state. See
+  [FP16 State before ONNX Runtime 1.30](known_limitations.md#fp16-state-before-onnx-runtime-130)
+  for the affected cases and the ways to load such a file.
 - **Labels through other writers.** `onnx_ir.save` with external data drops
   tensor metadata (checked with onnx-ir 1.1.0). Write files with
   `return_mode="file"`, or save the returned proto with `onnx.save_model`.

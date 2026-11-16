@@ -78,8 +78,8 @@ EXPECT_RMS_NORM_GRAPH: Final = EXPECT_RMS_NORM_EXPLICIT
 RMS_NORM_ONNX_COMPONENTS: Final = [
     {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
     {
-        "component": "CastLike",
-        "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
+        "component": "Cast",
+        "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
     },
     {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},

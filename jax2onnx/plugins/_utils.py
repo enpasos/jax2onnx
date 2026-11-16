@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Sequence, cast
+from typing import Sequence
 
 import numpy as np
 import onnx_ir as ir
@@ -13,10 +13,6 @@ from jax2onnx.converter.typing_support import (
 )
 from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy
 from jax2onnx.plugins._loop_extent_meta import propagate_axis0_override
-
-
-# ONNX introduced CastLike in opset 15.
-CAST_LIKE_MIN_OPSET: int = 15
 
 
 def cast_value_to_dtype(
@@ -48,10 +44,14 @@ def cast_param_like(
     name_hint: str = "param_cast",
 ) -> ir.Value:
     """
-    If `param`'s dtype differs from `like`'s dtype, insert a CastLike node to cast
-    `param` to `like`'s dtype. Returns a consumer-local value without changing
-    either original binding or a shared constant's payload. Below opset 15,
-    where CastLike does not exist, the equivalent Cast is emitted.
+    If `param`'s dtype differs from `like`'s dtype, cast `param` to `like`'s
+    dtype. Returns a consumer-local value without changing either original
+    binding or a shared constant's payload.
+
+    Both dtypes are known here, so the conversion is a Cast at every opset and
+    never a CastLike. ONNX Runtime before 1.30 aborts while creating a session
+    for a CastLike that widens a float16 constant to float32 (see "ONNX Runtime
+    kernel gaps" in the dependency guide); it folds the equivalent Cast.
 
     Safe to call when dtypes are unknown (no-op). Preserves shape.
     """
@@ -60,29 +60,7 @@ def cast_param_like(
     if p_dt is None or l_dt is None or p_dt == l_dt:
         return param
 
-    cast_name = ctx.fresh_name(name_hint)
-    if ctx.opset < CAST_LIKE_MIN_OPSET:
-        # Both dtypes are known here, so Cast names the same conversion.
-        converted: ir.Value = ctx.builder.op(
-            "Cast",
-            [param],
-            {"to": int(l_dt.value)},
-            output=ir.Value(
-                name=cast_name, type=ir.TensorType(l_dt), shape=param.shape
-            ),
-        )
-        return converted
-    out = cast(
-        ir.Value,
-        ctx.builder.CastLike(
-            param,
-            like,
-            _outputs=[cast_name],
-        ),
-    )
-    out.type = ir.TensorType(l_dt)
-    out.shape = param.shape
-    return out
+    return cast_value_to_dtype(ctx, param, l_dt, name_hint=name_hint)
 
 
 def _is_stored_constant(value: ir.Value) -> bool:
