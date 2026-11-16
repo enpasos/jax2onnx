@@ -77,7 +77,7 @@ required opset: BF16 `jax.random.normal` and `jnp.eye` before opset 22, and BF16
 values through `lax.cond`, `lax.scan` or `lax.while_loop` before opset 16.
 Raise the target opset, or produce the value in FP32 and convert it to BF16.
 
-A valid BF16 file does not have to load. CPU ONNX Runtime 1.31.1 has no BF16
+A valid BF16 file does not have to load. CPU ONNX Runtime 1.32.0 has no BF16
 kernels for arithmetic such as `Add`, `Mul`, `MatMul` or `Conv`, so a BF16
 model usually fails to load there with `NOT_IMPLEMENTED`; an operator computed
 in FP32 loads. See
@@ -86,7 +86,7 @@ for the operator table, the checked numerical behaviour and the kernels.
 
 ### Random Operators from Opset 22
 
-CPU ONNX Runtime 1.31.1 has no kernels for the opset-22 versions of
+CPU ONNX Runtime 1.32.0 has no kernels for the opset-22 versions of
 `RandomUniform`, `RandomUniformLike`, `RandomNormal`, `RandomNormalLike`,
 `Bernoulli` and `Multinomial`. Exports that draw random numbers, for example
 through `jax.random.normal`, `jax.random.bernoulli`, `jax.random.bits` or
@@ -429,8 +429,8 @@ The limits were set from measurements with ONNX Runtime 1.29 on an AMD Ryzen 9
 9950X3D CPU using JAX 0.10.2 and 0.11.1, then rounded up to two significant
 digits. The current lockfile's CPU accuracy jobs target Python 3.12 with JAX
 and JAXLIB 0.10.2, Flax 0.12.8, and NumPy 2.4.6; and Python 3.13 with JAX and
-JAXLIB 0.12.0.1, Flax 0.12.12, and NumPy 2.5.4. Both use Equinox 0.13.8, ONNX
-1.23.2, ONNX IR 1.1.0, and ONNX Runtime 1.31.1. Each GitHub Actions accuracy
+JAXLIB 0.12.0.1, Flax 0.12.12, and NumPy 2.5.5. Both use Equinox 0.13.8, ONNX
+1.23.2, ONNX IR 1.1.0, and ONNX Runtime 1.32.0. Each GitHub Actions accuracy
 job records its actual dependency versions, runner image, and CPU hardware in
 its job summary; use that record when interpreting a run. The CPU jobs are the
 authoritative numerical acceptance gate. Changes to limits, reference

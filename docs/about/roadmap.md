@@ -67,6 +67,15 @@
   `lax.min` and its identity `+inf` reaches the converter as the primitive
   `reduce_window_min`, which had no lowering. It now exports as
   `Neg -> MaxPool -> Neg` for floating operands, like the reducer form.
+* **Refresh locked dependencies:** Update ONNX Runtime to 1.32.0, NumPy to
+  2.5.5 on Python 3.13 and 3.14, Optax to 0.2.9 and Netron to 9.3.6, along
+  with patch releases of development and documentation tools. The JAX, Flax,
+  Equinox, ONNX and ONNX IR versions are unchanged. The missing kernels listed
+  in the [dependency guide](dependencies.md#onnx-runtime-kernel-gaps) were
+  re-checked on ONNX Runtime 1.32.0 and are unchanged. The
+  [quantized MNIST example](../user_guide/quantized_mnist.md) keeps the pinned
+  environment its results were measured with; its CI job now installs those
+  pins instead of expecting the lockfile to match them.
 * **Keep `jax.nn.hard_swish` valid at opset 13:** ONNX introduced `HardSwish`
   in opset 14. Below that the export writes the equivalent
   `x * HardSigmoid(x)`.

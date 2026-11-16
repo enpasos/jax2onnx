@@ -134,10 +134,13 @@ jobs:
     - name: Install Poetry
       run: pip install "poetry>=2.0,<3.0"
 
-    - name: Install locked dependencies and optional Qwix recipe
+    - name: Install locked dependencies and the pinned Qwix example environment
       run: |
         poetry install --no-interaction
-        poetry run pip install --no-deps git+https://github.com/google/qwix.git@9ee1079245682ed82e5da00ce855e4daf77a086b
+        # The quantized MNIST example pins its own environment, Qwix included,
+        # so its recorded results stay reproducible when the lockfile moves on.
+        poetry run pip install --no-deps -r scripts/requirements-quantized-mnist.txt
+        poetry run pip check
 
     - name: Require Qwix and execute quantized export
       run: |
