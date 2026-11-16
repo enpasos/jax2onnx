@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import jax
 import numpy as np
@@ -17,6 +17,19 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
+
+# ONNX introduced CumProd in opset 26.
+CUMPROD_MIN_OPSET: Final[int] = 26
+
+
+def require_cumprod_opset(ctx: LoweringContextProtocol, source: str) -> None:
+    """Reject a target opset without CumProd instead of writing an invalid file."""
+    if ctx.opset < CUMPROD_MIN_OPSET:
+        raise NotImplementedError(
+            f"{source} exports as ONNX CumProd, which requires opset >= "
+            f"{CUMPROD_MIN_OPSET}; got opset {ctx.opset}. Export with "
+            f"opset={CUMPROD_MIN_OPSET} or newer."
+        )
 
 
 @register_native_primitive(
@@ -37,7 +50,7 @@ from jax2onnx.plugins.plugin_system import (
             "callable": lambda x: jax.lax.cumprod(x, axis=2),
             "input_shapes": [(2, 3, 4)],
             "input_dtypes": [np.int32],
-            "skip_numeric_validation": True,
+            "opset_version": CUMPROD_MIN_OPSET,
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -53,7 +66,7 @@ from jax2onnx.plugins.plugin_system import (
             "callable": lambda x: jax.lax.cumprod(x, axis=x.ndim - 1, reverse=True),
             "input_shapes": [(1, 2, 3, 4)],
             "input_dtypes": [np.float32],
-            "skip_numeric_validation": True,
+            "opset_version": CUMPROD_MIN_OPSET,
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -70,6 +83,7 @@ class CumProdPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.cumprod`` via ONNX ``CumProd``."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        require_cumprod_opset(ctx, "lax.cumprod")
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

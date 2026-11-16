@@ -96,6 +96,12 @@ through `jax.random.normal`, `jax.random.bernoulli`, `jax.random.bits` or
 `jax.random.uniform` additionally requires opset 26 for every dtype, because
 JAX builds it with `lax.bitcast_convert_type`, which lowers to `BitCast`.
 
+### Cumulative Products from Opset 26
+
+ONNX introduced `CumProd` in opset 26. `jnp.cumprod` and `lax.cumprod` export
+as that operator, so they need `opset=26` or newer. At the default opset 23 the
+export raises `NotImplementedError` and names the required opset.
+
 ### FP16 State before ONNX Runtime 1.30
 
 ONNX Runtime before 1.30.0 can crash while it creates a session for a file
