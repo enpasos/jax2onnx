@@ -89,13 +89,6 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
     # JAX currently cannot execute subset_by_index on CPU/GPU; keep structural
     # coverage enabled while runtime parity path is unavailable.
     ("primitives.lax", "eigh", "eigh_2x2_subset_top1"),
-    # ORT on the CI/default setup cannot execute ONNX CumProd at the current
-    # default opset yet; keep structural coverage while runtime support catches up.
-    ("primitives.lax", "cumprod", "cumprod_i32_axis2"),
-    ("primitives.lax", "cumprod", "cumprod_f32_axism1_reverse"),
-    ("primitives.jnp", "cumprod", "jnp_cumprod_axis1"),
-    ("primitives.jnp", "cumprod", "jnp_cumprod_axis_none_flatten"),
-    ("primitives.jnp", "cumprod", "jnp_cumprod_dtype_cast"),
     # JAX 0.10 removed the legacy a_min/a_max keyword spelling, so this testcase
     # only verifies converter/plugin compatibility during export.
     ("primitives.jnp", "clip", "clip_keyword_legacy_a_min_a_max_aliases"),

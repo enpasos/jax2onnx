@@ -73,6 +73,13 @@
 * **Keep RMSNorm valid below opset 18:** The explicit Flax NNX and Equinox
   RMSNorm graphs passed the `ReduceMean` axes as an input at every opset.
   `ReduceMean` takes them as an attribute before opset 18.
+* **Reject `jnp.cumprod` and `lax.cumprod` below opset 26:** Both export as
+  ONNX `CumProd`, which ONNX introduced in opset 26. At the default opset 23
+  the export wrote the operator anyway, and the checker and ONNX Runtime
+  rejected the file. The export now raises `NotImplementedError` with the
+  required opset. With `opset=26` the result is checked against JAX in ONNX
+  Runtime. See
+  [Known Limitations](../user_guide/known_limitations.md#cumulative-products-from-opset-26).
 * **Document random operators on ONNX Runtime:** CPU ONNX Runtime 1.31.1 has
   no kernels for the opset-22 versions of the random operators, so exports
   that draw random numbers load only up to opset 21. See

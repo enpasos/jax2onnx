@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import re
 from typing import Any
 
 import equinox as eqx
@@ -33,6 +34,32 @@ def _run(model: onnx.ModelProto, *feeds: np.ndarray) -> list[np.ndarray]:
 def _node(model: onnx.ModelProto, op_type: str) -> onnx.NodeProto:
     (node,) = [node for node in model.graph.node if node.op_type == op_type]
     return node
+
+
+@pytest.mark.parametrize(
+    ("name", "fn"),
+    [
+        ("jnp.cumprod", lambda v: jnp.cumprod(v, axis=1)),
+        ("lax.cumprod", lambda v: jax.lax.cumprod(v, axis=1)),
+    ],
+    ids=["jnp", "lax"],
+)
+def test_cumprod_requires_the_opset_that_introduced_it(
+    name: str, fn: Callable[[jax.Array], jax.Array]
+) -> None:
+    # ONNX introduced CumProd in opset 26. Below it the export raises instead of
+    # writing a file that the checker and ONNX Runtime reject.
+    x = np.arange(1, 9, dtype=np.float32).reshape(2, 4)
+
+    with pytest.raises(
+        NotImplementedError,
+        match=rf"{re.escape(name)} .*opset >= 26; got opset 23",
+    ):
+        to_onnx(fn, [jnp.asarray(x)])
+
+    model = to_onnx(fn, [jnp.asarray(x)], opset=26)
+    assert _node(model, "CumProd").op_type == "CumProd"
+    np.testing.assert_array_equal(_run(model, x)[0], np.asarray(fn(jnp.asarray(x))))
 
 
 def test_hard_swish_is_decomposed_before_opset_14() -> None:

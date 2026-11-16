@@ -22,6 +22,7 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax.cumprod import CUMPROD_MIN_OPSET, require_cumprod_opset
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -50,7 +51,7 @@ _JAX_CUMPROD_ORIG: Final = jnp.cumprod
             "testcase": "jnp_cumprod_axis1",
             "callable": lambda x: jnp.cumprod(x, axis=1),
             "input_shapes": [(2, 3, 4)],
-            "skip_numeric_validation": True,
+            "opset_version": CUMPROD_MIN_OPSET,
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -66,7 +67,7 @@ _JAX_CUMPROD_ORIG: Final = jnp.cumprod
             "callable": lambda x: jnp.cumprod(x, axis=None),
             "input_shapes": [(2, 3)],
             "expected_output_shapes": [(6,)],
-            "skip_numeric_validation": True,
+            "opset_version": CUMPROD_MIN_OPSET,
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -82,7 +83,7 @@ _JAX_CUMPROD_ORIG: Final = jnp.cumprod
             "callable": lambda x: jnp.cumprod(x, axis=1, dtype=jnp.float32),
             "input_shapes": [(2, 3)],
             "input_dtypes": [np.int32],
-            "skip_numeric_validation": True,
+            "opset_version": CUMPROD_MIN_OPSET,
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -118,6 +119,7 @@ class JnpCumProdPlugin(PrimitiveLeafPlugin):
         return ShapedArray(out_shape, out_dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        require_cumprod_opset(ctx, "jnp.cumprod")
         (operand_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
