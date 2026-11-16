@@ -50,9 +50,8 @@
   with `CastLike`, which an optimizer of those runtime versions cannot handle
   on a float16 constant. Parameters whose dtype differs from the dtype they
   are used with, and `jnp.linspace`, are now adapted with `Cast`, which names
-  the same conversion and is valid at every opset. `CastLike`, which ONNX
-  introduced in opset 15, is only written where the target dtype is not known
-  at export time. Float16 state inputs remain
+  the same conversion and is valid at every opset. The export no longer writes
+  `CastLike`, which ONNX introduced in opset 15. Float16 state inputs remain
   affected by a second defect of the same optimizer; see
   [Known Limitations](../user_guide/known_limitations.md#fp16-state-before-onnx-runtime-130)
   and

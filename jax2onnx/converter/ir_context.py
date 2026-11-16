@@ -169,8 +169,6 @@ def _maybe_shape(aval: Any) -> Optional[Tuple[Any, ...]]:
 
 
 _STACKTRACE_METADATA_ENV: Final[str] = "JAX2ONNX_ENABLE_STACKTRACE_METADATA"
-# ONNX introduced CastLike in opset 15.
-_CAST_LIKE_MIN_OPSET: Final[int] = 15
 
 
 class IRContext:
@@ -513,40 +511,33 @@ class IRContext:
     def cast_like(
         self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None
     ) -> ir.Value:
+        """Cast ``tensor`` to the dtype of ``exemplar`` with a consumer-local Cast.
+
+        The dtype of ``exemplar`` must be known. The export never writes
+        CastLike: ONNX Runtime before 1.30 aborts while creating a session for a
+        CastLike that widens a float16 constant to float32, and it folds the
+        equivalent Cast. See "The float16 initializer optimizer before ONNX
+        Runtime 1.30" in the dependency guide.
+        """
+        dtype = exemplar.dtype
+        if dtype is None:
+            raise NotImplementedError(
+                "Cannot cast to the type of a value whose dtype is unknown at "
+                f"export time (value {exemplar.name!r})."
+            )
         out = ir.Value(
             name=self.fresh_name(name_hint or f"{tensor.name}_cast"),
             type=exemplar.type,
             shape=tensor.shape,
         )
-        dtype = exemplar.dtype
-        if dtype is not None:
-            # A known target type is named by Cast at every opset. ONNX Runtime
-            # before 1.30 aborts on a CastLike that widens a float16 constant
-            # to float32; it folds the equivalent Cast.
-            self.add_node(
-                ir.Node(
-                    op_type="Cast",
-                    domain="",
-                    inputs=[tensor],
-                    outputs=[out],
-                    name=self.fresh_name("Cast"),
-                    attributes=[ir.AttrInt64("to", int(dtype.value))],
-                )
-            )
-            return out
-        if self.opset < _CAST_LIKE_MIN_OPSET:
-            raise NotImplementedError(
-                "Casting to the type of a value whose dtype is unknown "
-                f"requires CastLike, hence opset >= {_CAST_LIKE_MIN_OPSET}; "
-                f"got opset {self.opset}."
-            )
         self.add_node(
             ir.Node(
-                op_type="CastLike",
+                op_type="Cast",
                 domain="",
-                inputs=[tensor, exemplar],
+                inputs=[tensor],
                 outputs=[out],
-                name=self.fresh_name("CastLike"),
+                name=self.fresh_name("Cast"),
+                attributes=[ir.AttrInt64("to", int(dtype.value))],
             )
         )
         return out

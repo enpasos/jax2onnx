@@ -46,7 +46,7 @@ measurements do not substitute for it.
 | Half-kernel adaptations can remove FP16 rounding boundaries | CPU 1.24.1, 1.31.0, 1.31.1 | FP16 `Add`, `Sub`, `Mul`, `rsqrt` | Local FLOAT work with an explicit FP16 result cast. `rsqrt` keeps both `Sqrt` and `Div` in FLOAT before its single half boundary. |
 | No kernels for the opset-22 versions of `RandomUniform`, `RandomUniformLike`, `RandomNormal`, `RandomNormalLike`, `Bernoulli` and `Multinomial` | CPU 1.31.1 | `jax.random.normal`, `jax.random.bernoulli`, `jax.random.bits`, `lax.rng_uniform` and other lowerings that use these operators, from opset 22 on, which includes the default opset 23 | None: the target opset fixes the operator version, so the export is valid but fails to load with `NOT_IMPLEMENTED`. Export with `opset=21`; that version of each operator has a kernel. |
 | Integer `ReduceSum` can saturate instead of wrapping | CPU 1.24.1, 1.31.0, 1.31.1 | Integer reductions and window sums | Integer `CumSum` and index selection preserve exact source-width wrapping, including values above `2**53`; no floating-point intermediate. |
-| A `CastLike` that widens a float16 constant to float32 aborts the process while a session is created with `ORT_ENABLE_ALL` | Aborts on CPU 1.24.1, 1.27.0, 1.28.0, 1.29.0; loads on 1.30.0, 1.31.1 | float16 parameters adapted to float32 work, for example the scale and bias of the explicit Flax NNX and Linen LayerNorm graph | A conversion to a dtype known at export time is a `Cast`, never a `CastLike`. The runtime folds that `Cast` before the failing optimizer runs. See [the float16 initializer optimizer](#the-float16-initializer-optimizer-before-onnx-runtime-130). |
+| A `CastLike` that widens a float16 constant to float32 aborts the process while a session is created with `ORT_ENABLE_ALL` | Aborts on CPU 1.24.1, 1.27.0, 1.28.0, 1.29.0; loads on 1.30.0, 1.31.1 | float16 parameters adapted to float32 work, for example the scale and bias of the explicit Flax NNX and Linen LayerNorm graph | The export never writes `CastLike`. It converts dtypes with `Cast`, which the runtime folds on a constant before the failing optimizer runs. A policy test rejects new `CastLike` emissions. See [the float16 initializer optimizer](#the-float16-initializer-optimizer-before-onnx-runtime-130). |
 | An overridable float16 initializer that is widened to float32 where it enters the graph crashes the process while a session is created with `ORT_ENABLE_ALL` | Crashes on CPU 1.24.1, 1.29.0; loads on 1.30.0 | float16 state exported with `to_onnx(..., state=...)`: matrix product weights on 1.24.1, LayerNorm scale and bias on 1.24.1 and 1.29.0 | None. The widening is inserted by the runtime where it has no float16 kernel, or written by the export for float32 work; the optimizer fails on both. See [FP16 State before ONNX Runtime 1.30](../user_guide/known_limitations.md#fp16-state-before-onnx-runtime-130) for the ways to load such a file. |
 
 Focused FP16 `Add`/`Sub`/`Mul` and integer reduction/window checks also pass on
@@ -90,16 +90,21 @@ defects, both of which end the process instead of raising an error:
 - It accepts an overridable initializer, which has no constant value to
   convert, and crashes with a segmentation fault.
 
-The export avoids the first defect for constants: a `Cast` that the model
-spells out on a constant is folded at the first optimization level, so the
-optimizer never sees it. It does not avoid the second one. An overridable
-initializer is not a constant, so a cast on it is never folded, whether the
-runtime inserted it or the export wrote it for float32 work.
+The export avoids the first defect for constants: it never writes `CastLike`,
+and a `Cast` that the model spells out on a constant is folded at the first
+optimization level, so the optimizer never sees it. It does not avoid the
+second one. An overridable initializer is not a constant, so a cast on it is
+never folded, whether the runtime inserted it or the export wrote it for
+float32 work.
 
 Both were measured with the PyPI wheels on Linux x86-64. To repeat the check,
 load the file in a separate process with `ORT_ENABLE_ALL`: a crash ends that
 process with a signal instead of a Python exception. The same file loads with
-`ORT_ENABLE_EXTENDED`.
+`ORT_ENABLE_EXTENDED`. `tests/extra_tests/test_float16_cpu_inference.py` does
+this in the `minimum-dependencies` job for a float16 LayerNorm and for float16
+state, the latter with each of the ways to load it that
+[Known Limitations](../user_guide/known_limitations.md#fp16-state-before-onnx-runtime-130)
+lists.
 
 ## bfloat16 and the ONNX operator schemas
 

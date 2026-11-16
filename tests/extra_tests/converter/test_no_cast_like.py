@@ -1,13 +1,19 @@
-# tests/extra_tests/converter/test_cast_like_opset.py
+# tests/extra_tests/converter/test_no_cast_like.py
 
-"""A conversion to a known dtype is a Cast at every opset.
+"""The export converts dtypes with Cast and never writes CastLike.
 
-CastLike exists from opset 15 and is only needed where the target dtype is
-not known at export time. ONNX Runtime before 1.30 aborts while creating a
-session for a CastLike that widens a float16 constant to float32.
+ONNX Runtime before 1.30 aborts while creating a session for a CastLike that
+widens a float16 constant to float32; see "The float16 initializer optimizer
+before ONNX Runtime 1.30" in the dependency guide. A JAX program is statically
+typed, so the target dtype is known at export time and Cast names the same
+conversion. Cast is also valid at every opset, while CastLike only exists from
+opset 15.
 """
 
 from __future__ import annotations
+
+import ast
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -19,9 +25,12 @@ import pytest
 from flax import linen
 from onnx.reference import ReferenceEvaluator
 
+import jax2onnx
 from jax2onnx import to_onnx
 from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.plugins._utils import cast_param_like
+
+_PACKAGE = Path(jax2onnx.__file__).resolve().parent
 
 
 def _op_types(graph: onnx.GraphProto) -> list[str]:
@@ -38,6 +47,65 @@ def _model(ctx: IRContext, name: str) -> onnx.ModelProto:
     model = ir.serde.serialize_model(ctx.builder.to_ir_model(name=name))
     onnx.checker.check_model(model, full_check=True)
     return model
+
+
+def _cast_like_emissions(source: str) -> list[int]:
+    """Lines of the calls in ``source`` that would write a CastLike node.
+
+    Covers the ways this package builds nodes: the builder shorthand
+    ``builder.CastLike(...)``, and the operator named as a string, either
+    positionally as in ``builder.op("CastLike", ...)`` and
+    ``ir.Node("", "CastLike", ...)`` or as ``op_type="CastLike"``.
+    """
+    lines: list[int] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        shorthand = (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "CastLike"
+        )
+        named = [
+            *node.args,
+            *(keyword.value for keyword in node.keywords if keyword.arg == "op_type"),
+        ]
+        by_name = any(
+            isinstance(argument, ast.Constant) and argument.value == "CastLike"
+            for argument in named
+        )
+        if shorthand or by_name:
+            lines.append(node.lineno)
+    return lines
+
+
+def test_package_does_not_emit_cast_like() -> None:
+    offenders = [
+        f"{path.relative_to(_PACKAGE.parent)}:{line}"
+        for path in sorted(_PACKAGE.rglob("*.py"))
+        for line in _cast_like_emissions(path.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, (
+        "Convert dtypes with Cast, through cast_value_to_dtype, cast_param_like "
+        "or ctx.cast_like. ONNX Runtime before 1.30 aborts on a CastLike that "
+        "widens a float16 constant: " + ", ".join(offenders)
+    )
+
+
+def test_cast_like_emissions_are_recognized() -> None:
+    source = "\n".join(
+        [
+            "a = ctx.builder.CastLike(x, like, _outputs=[name])",
+            'b = ctx.builder.op("CastLike", [x, like], output=out)',
+            'c = ir.Node("", "CastLike", inputs=[x, like], outputs=[out])',
+            'd = ir.Node(op_type="CastLike", domain="", inputs=[x, like])',
+            # Reading or expecting the operator does not write it.
+            'e = node.op_type == "CastLike"',
+            'f = node.op_type in {"Cast", "CastLike"}',
+            'g = expect_graph(["Cast -> Gemm"], must_absent=["CastLike"])',
+            'h = ctx.builder.op("Cast", [x], {"to": 1}, output=out)',
+        ]
+    )
+
+    assert _cast_like_emissions(source) == [1, 2, 3, 4]
 
 
 @pytest.mark.parametrize("opset", [14, 15, 23])
@@ -78,26 +146,16 @@ def test_context_cast_like_to_a_known_dtype_is_a_cast(opset: int) -> None:
     assert _op_types(_model(ctx, "context_cast_like").graph) == ["Cast"]
 
 
-def test_context_cast_like_to_an_unknown_dtype_is_a_cast_like() -> None:
-    ctx = IRContext(opset=15)
-    tensor = ir.val("tensor", dtype=ir.DataType.INT64, shape=[2])
-    exemplar = ir.Value(name="exemplar")
-    ctx.builder.inputs.append(tensor)
-
-    result = ctx.cast_like(tensor, exemplar, name_hint="converted")
-
-    (node,) = ctx.builder.graph
-    assert node.op_type == "CastLike" and node.outputs[0] is result
-    assert list(node.inputs) == [tensor, exemplar]
-
-
-def test_context_cast_like_needs_a_known_dtype_below_opset_15() -> None:
-    ctx = IRContext(opset=14)
+@pytest.mark.parametrize("opset", [14, 23])
+def test_context_cast_like_needs_a_known_dtype(opset: int) -> None:
+    ctx = IRContext(opset=opset)
     tensor = ir.val("tensor", dtype=ir.DataType.INT64, shape=[2])
     exemplar = ir.Value(name="exemplar")
 
-    with pytest.raises(NotImplementedError, match="opset >= 15"):
+    with pytest.raises(NotImplementedError, match="dtype is unknown.*'exemplar'"):
         ctx.cast_like(tensor, exemplar)
+
+    assert not list(ctx.builder.graph)
 
 
 @pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float16])
