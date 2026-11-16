@@ -1,5 +1,29 @@
 # Past Versions
 
+- **0.19.0**: Added `to_onnx(..., state=...)`, `StateInput` and
+  `StateCaptureError` to export chosen weights and buffers as named graph
+  inputs with saved defaults and caller-defined tensor metadata, with tied
+  weights exported once, bit-identical defaults, `allow_unused_state=True` for
+  unread declarations and `overridable=False` for fixed inference files (see
+  [Model State as Inputs](../user_guide/state_inputs.md) and the
+  [Equinox RoPE walkthrough](../user_guide/state_inputs_walkthrough.md));
+  corrected `nnx.LinearGeneral` and Flax Linen `DenseGeneral` output layouts and
+  exported layers without a bias; kept call-time `eqx.nn.Dropout` inference
+  exports loadable; promoted `jnp.power` operands as JAX does, evaluated
+  `jnp.stack` and `jnp.concatenate` under `jax.ensure_compile_time_eval()`,
+  interpreted `axis` per sample under `vmap` for `jax.nn.softmax`,
+  `jax.nn.log_softmax` and `jax.nn.one_hot`, promoted integer softmax inputs
+  to floating point, and exported indexed updates under `vmap` for
+  `lax.scatter` and its variants; sorted NaNs after positive infinity in
+  `jnp.sort`, `jnp.argsort` and `lax.sort`
+  ([#294](https://github.com/enpasos/jax2onnx/issues/294)); preserved reshape
+  intermediates that are graph outputs and Max/Min broadcasts during layout
+  optimization; shared stored floating weights across singleton broadcast
+  views and reused constant parameter reshapes; respected the `Reshape` opset
+  and literal zero dimensions; strengthened `expect_graph` attribute checks,
+  required `ctx.bind_captured_arrays(...)` for captured constants and added a
+  plugin discovery regression; and refreshed locked dependencies and
+  documentation tools with unchanged declared minimum versions.
 - **0.18.0**: Removed `enable_double_precision` from `to_onnx` and `allclose`
   (supplying any value now raises `TypeError`) and preserved the caller's JAX
   precision settings, prepared model dtypes, weak scalar promotion, constants,

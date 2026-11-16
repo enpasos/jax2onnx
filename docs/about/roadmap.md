@@ -18,7 +18,7 @@
   gaps.
 
 
-## Upcoming Version
+## Current Version
 
 ### **jax2onnx 0.19.1**
 
@@ -58,6 +58,21 @@
   [the float16 initializer optimizer](dependencies.md#the-float16-initializer-optimizer-before-onnx-runtime-130).
   Thanks to Clément Poiret for reporting the abort in
   [discussion #290](https://github.com/enpasos/jax2onnx/discussions/290).
+* **Match `jax.nn.one_hot` outside the class range:** The export used ONNX
+  `OneHot`, which counts an index in `[-depth, -1]` from the end and truncates
+  a non-integer index. JAX returns a row of zeros for both, so a label such as
+  `-1` exported as the last class. `jax.nn.one_hot` and its Flax Linen alias
+  now export the comparison that defines the function in JAX,
+  `Unsqueeze -> Equal -> Cast`, which also needs no float32 work for bfloat16
+  results. The default result dtype follows the x64 setting as in JAX, where
+  the export always wrote float32, and boolean indices are rejected as in JAX.
+* **Reject `jnp.cumprod` and `lax.cumprod` below opset 26:** Both export as
+  ONNX `CumProd`, which ONNX introduced in opset 26. At the default opset 23
+  the export wrote the operator anyway, and the checker and ONNX Runtime
+  rejected the file. The export now raises `NotImplementedError` with the
+  required opset. With `opset=26` the result is checked against JAX in ONNX
+  Runtime. See
+  [Known Limitations](../user_guide/known_limitations.md#cumulative-products-from-opset-26).
 * **Type random bits by their requested width:** `jax.random.bits` with
   `uint8` or `uint16` failed because the bits were always exported as
   `uint32`. This also made float16 `jax.random.uniform` write an invalid
@@ -67,6 +82,22 @@
   `lax.min` and its identity `+inf` reaches the converter as the primitive
   `reduce_window_min`, which had no lowering. It now exports as
   `Neg -> MaxPool -> Neg` for floating operands, like the reducer form.
+* **Keep `jax.nn.hard_swish` valid at opset 13:** ONNX introduced `HardSwish`
+  in opset 14. Below that the export writes the equivalent
+  `x * HardSigmoid(x)`.
+* **Keep RMSNorm valid below opset 18:** The explicit Flax NNX and Equinox
+  RMSNorm graphs passed the `ReduceMean` axes as an input at every opset.
+  `ReduceMean` takes them as an attribute before opset 18.
+* **Document random operators on ONNX Runtime:** CPU ONNX Runtime 1.32.0 has
+  no kernels for the opset-22 versions of the random operators, so exports
+  that draw random numbers load only up to opset 21. See
+  [Known Limitations](../user_guide/known_limitations.md#random-operators-from-opset-22).
+* **Restore the `expect_graph` snippet tool:** `scripts/emit_expect_graph.py`
+  failed for every testcase since `enable_double_precision` was removed from
+  `to_onnx`. It now exports through the test generator's own input specs and
+  options, so a snippet describes the graph that the generated test checks,
+  and generated variants such as `<name>_dynamic` and `<name>_f64` are
+  selectable by name.
 * **Refresh locked dependencies:** Update ONNX Runtime to 1.32.0, NumPy to
   2.5.5 on Python 3.13 and 3.14, Optax to 0.2.9 and Netron to 9.3.6, along
   with patch releases of development and documentation tools. The JAX, Flax,
@@ -76,149 +107,6 @@
   [quantized MNIST example](../user_guide/quantized_mnist.md) keeps the pinned
   environment its results were measured with; its CI job now installs those
   pins instead of expecting the lockfile to match them.
-* **Keep `jax.nn.hard_swish` valid at opset 13:** ONNX introduced `HardSwish`
-  in opset 14. Below that the export writes the equivalent
-  `x * HardSigmoid(x)`.
-* **Keep RMSNorm valid below opset 18:** The explicit Flax NNX and Equinox
-  RMSNorm graphs passed the `ReduceMean` axes as an input at every opset.
-  `ReduceMean` takes them as an attribute before opset 18.
-* **Reject `jnp.cumprod` and `lax.cumprod` below opset 26:** Both export as
-  ONNX `CumProd`, which ONNX introduced in opset 26. At the default opset 23
-  the export wrote the operator anyway, and the checker and ONNX Runtime
-  rejected the file. The export now raises `NotImplementedError` with the
-  required opset. With `opset=26` the result is checked against JAX in ONNX
-  Runtime. See
-  [Known Limitations](../user_guide/known_limitations.md#cumulative-products-from-opset-26).
-* **Document random operators on ONNX Runtime:** CPU ONNX Runtime 1.31.1 has
-  no kernels for the opset-22 versions of the random operators, so exports
-  that draw random numbers load only up to opset 21. See
-  [Known Limitations](../user_guide/known_limitations.md#random-operators-from-opset-22).
-* **Match `jax.nn.one_hot` outside the class range:** The export used ONNX
-  `OneHot`, which counts an index in `[-depth, -1]` from the end and truncates
-  a non-integer index. JAX returns a row of zeros for both, so a label such as
-  `-1` exported as the last class. `jax.nn.one_hot` and its Flax Linen alias
-  now export the comparison that defines the function in JAX,
-  `Unsqueeze -> Equal -> Cast`, which also needs no float32 work for bfloat16
-  results. The default result dtype follows the x64 setting as in JAX, where
-  the export always wrote float32, and boolean indices are rejected as in JAX.
-
-
-## Current Version
-
-### **jax2onnx 0.19.0**
-
-* **Export model state as named inputs:** Add `to_onnx(..., state=...)`,
-  `StateInput` and `StateCaptureError` to export chosen weights and buffers as
-  named graph inputs with saved defaults and caller-defined tensor metadata.
-  The metadata is stored as given and does not encode training or gradient
-  rules. Declared arrays must be pytree leaves of the exported callable. Tied
-  weights become one input, and each saved default is bit-identical to its
-  array. State arrays are traced as inputs, so derived values stay in the
-  computation rather than becoming constants. Unread declarations raise by
-  default; `allow_unused_state=True` omits them from the file instead. ONNX
-  Runtime does not fold overridable defaults, which costs inference speed;
-  `overridable=False` keeps name and metadata on an ordinary initializer for
-  fixed inference files. See the tested contract in
-  [Model State as Inputs](../user_guide/state_inputs.md) and the
-  [Equinox RoPE walkthrough](../user_guide/state_inputs_walkthrough.md) for
-  saving, reloading, replacing state and taking a JAX optimizer step.
-  Thanks to Clément Poiret, who proposed `state=`, `StateInput`, `overridable`
-  and the single binding point for captured constants in
-  [discussion #290](https://github.com/enpasos/jax2onnx/discussions/290) and
-  tested the result on Equimo.
-* **Correct `nnx.LinearGeneral` output layouts and bias-free exports:**
-  Restore multi-dimensional `out_features` after `Gemm` for rank-2 inputs,
-  including symbolic batch sizes, and flatten rank-1 inputs and inputs whose
-  axes are all contracted. Layers without a bias now export, including under
-  `jax.ensure_compile_time_eval()`. Flax Linen `DenseGeneral` receives the
-  same output-layout fix. Thanks to Clément Poiret for reporting the rank-2
-  case in
-  [discussion #290](https://github.com/enpasos/jax2onnx/discussions/290).
-* **Keep call-time Equinox Dropout inference exports loadable:** When
-  `eqx.nn.Dropout` receives a constant `inference=True` at call time, omit the
-  optional `training_mode` input, which ONNX treats as False, instead of
-  referencing an undefined value that ONNX Runtime rejects. This also applies
-  inside larger modules and `@onnx_function` bodies, and the unused flag
-  initializer is removed.
-* **Preserve JAX power promotion:** Promote `jnp.power` and `jnp.pow` operands
-  as JAX does. An integer base with a floating-point exponent, such as
-  `jnp.power(10000, x)`, now computes in floating point; the exponent was
-  previously cast to the base's integer type, so the model returned integer
-  results. Concrete integer exponents retain the base dtype, even when the
-  exponent is a wider NumPy integer and JAX x64 is enabled. Thanks to Clément
-  Poiret, whose [PR #291](https://github.com/enpasos/jax2onnx/pull/291)
-  contributed this fix and the compile-time evaluation, `vmap`, integer
-  softmax, scatter and `expect_graph` fixes below.
-* **Evaluate `jnp.stack` and `jnp.concatenate` at compile time:** Calls on
-  concrete arrays under `jax.ensure_compile_time_eval()` no longer raise
-  `TypeError`; their results are embedded as constants. Passing a single array
-  to `jnp.stack` stacks its leading-axis slices, matching JAX's
-  sequence-of-arrays behavior instead of exporting a wrong output shape.
-* **Respect per-sample axes under `vmap`:** Interpret `axis` per sample for
-  `jax.nn.softmax`, `jax.nn.log_softmax` and `jax.nn.one_hot`, including
-  nested `vmap` and non-leading batch axes. Affected exports previously
-  normalized over the wrong axis or misplaced the one-hot class axis without
-  an error. Eligible vmapped softmax and log-softmax calls emit a single
-  native ONNX operator rather than decomposed reductions. Masked softmax keeps
-  the native `Softmax` lowering when the mask fits the logits; masks that
-  expand singleton logits dimensions or add sample dimensions use JAX's
-  decomposition, preserving output shapes and reduction axes.
-* **Export integer softmax inputs:** `jax.nn.softmax` and `jax.nn.log_softmax`
-  promote integer inputs to floating point as JAX does, through its
-  decomposition, instead of emitting an integer `Softmax` or `LogSoftmax` that
-  ONNX Runtime rejects.
-* **Export indexed updates under `vmap`:** Support the operand and index
-  batching dimensions that `vmap` adds to updates such as
-  `x.at[idx].set(values)`, in `lax.scatter` and its `scatter_add`,
-  `scatter_sub`, `scatter_mul`, `scatter_min` and `scatter_max` variants,
-  including nested `vmap` and symbolic batch sizes. These exports previously
-  raised `NotImplementedError`. Updates whose window axes are not trailing are
-  no longer reordered, and `mode="clip"` clamps out-of-bounds indices in
-  direct `ScatterND` lowerings instead of failing in ONNX Runtime.
-* **Sort NaNs after positive infinity:** Preserve JAX's stable ordering in
-  `jnp.sort`, `jnp.argsort` and `lax.sort`, including associated payloads and
-  multiple sort keys. Select original values by their sort indices to retain
-  signed zeros and NaN representations. Thanks to jay23606, whose
-  [initial fix proposal](https://github.com/enpasos/jax2onnx/pull/295)
-  contributed to resolving
-  [issue #294](https://github.com/enpasos/jax2onnx/issues/294).
-* **Preserve exported reshape intermediates:** Keep reshape pairs when the
-  first reshape or a middle elementwise result is also a graph output, retaining
-  its public shape, dtype, name and output position.
-* **Preserve Max/Min broadcasts during layout optimization:** Retain reshape
-  and transpose boundaries when other operands lack a matching layout proof,
-  preventing invalid broadcasts and silent changes in elementwise results.
-* **Share stored floating weights across singleton broadcast views:** At opset
-  13 and newer, insert singleton axes with `Unsqueeze` so an FP16, BF16, FP32
-  or FP64 parameter and its views read one stored tensor instead of separate
-  copies. Integer and boolean constants, broadcasts that expand dimensions and
-  older opsets retain their existing lowering.
-* **Reuse constant parameter reshapes:** Repeated uses of one parameter at the
-  same shape share a graph-local constant view, avoiding duplicate copies of
-  reshaped weights in reused Flax NNX `LinearGeneral` layers while preserving
-  dtype, exact payload and metadata. Overridable state inputs retain runtime
-  reshapes.
-* **Respect Reshape opset and zero dimensions:** Omit `allowzero` before
-  opset 14, retain inferred dimensions, and preserve literal zero dimensions
-  from opset 14, including mixed symbolic shapes. Older opsets reject literal
-  zero placements that would copy a different input dimension. Use opset 14 or
-  newer when symbolic reshape dimensions may become zero at runtime.
-* **Strengthen plugin and structural regression checks:** Read operator
-  attributes and constants correctly in both ONNX IR and serialized models.
-  `expect_graph` attribute assertions require explicit values on every
-  matching operator; defaults do not satisfy them. Lists and tuples compare
-  alike, and floating attributes compare in single precision. See the
-  [expect_graph reference](../developer_guide/advanced_topics/expect_graph_reference.md).
-  Plugins that lower nested JAXPRs bind captured constants with
-  `ctx.bind_captured_arrays(...)`, so declared state cannot enter the graph
-  as a constant unnoticed; see the
-  [Plugin System guide](../developer_guide/plugin_system.md). Add a discovery
-  regression that fails when a plugin module cannot be imported, preventing
-  silent gaps in lowering and generated-test coverage.
-* **Refresh locked dependencies and documentation tools:** Update `dm-pix` to
-  0.5.0, Netron to 9.3.5, MkDocs Material to 9.8.1 and Markdown to 3.11.3.
-  Resolve pymdown-extensions to 12.3 on Python 3.11/3.12 and 13.0 on Python
-  3.13/3.14. Declared minimum versions are unchanged.
 
 ## Past Versions
 
