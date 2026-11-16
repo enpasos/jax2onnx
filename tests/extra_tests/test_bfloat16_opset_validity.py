@@ -207,35 +207,25 @@ def test_constants_keep_their_bfloat16_payload() -> None:
 
 
 @pytest.mark.parametrize("opset", [21, 23])
-def test_one_hot_widens_only_its_values_input(opset: int) -> None:
-    # OneHot types its output by the values input alone, and that type parameter
-    # admits bfloat16 from opset 28. The indices and the depth have type
-    # parameters of their own and are not bfloat16 here.
+def test_one_hot_in_bfloat16_needs_no_float32_work(opset: int) -> None:
+    # jax.nn.one_hot exports as the comparison that defines it in JAX, followed
+    # by a Cast to the requested dtype. Cast admits bfloat16 from opset 13, so
+    # nothing has to be computed in float32. ONNX OneHot, which would admit
+    # bfloat16 values only from opset 28, is not used.
     def fn(indices: jax.Array) -> jax.Array:
         return jax.nn.one_hot(indices, 6, dtype=jnp.bfloat16)
 
-    indices = np.array([[0, 2, 4], [5, 1, 3]], dtype=np.int32)
+    indices = np.array([[0, 2, 4], [5, -1, 6]], dtype=np.int32)
     model = _export(fn, indices, opset=opset)
 
+    assert [node.op_type for node in model.graph.node] == [
+        "Unsqueeze",
+        "Equal",
+        "Cast",
+    ]
     types = _elem_types(model)
-    initializers = {tensor.name: tensor for tensor in model.graph.initializer}
-    one_hot = _node(model, "OneHot")
-    indices_name, depth_name, values_name = one_hot.input
-    assert types[indices_name] == onnx.TensorProto.INT64
-    assert initializers[depth_name].data_type == onnx.TensorProto.INT64
-    assert types[values_name] == FLOAT
-    assert types[one_hot.output[0]] == FLOAT
+    assert FLOAT not in types.values()
     assert types[model.graph.output[0].name] == BFLOAT16
-
-    # The float32 values are a consumer-local cast of the bfloat16 constant.
-    (widening,) = [node for node in model.graph.node if values_name in node.output]
-    assert widening.op_type == "Cast"
-    values = initializers[widening.input[0]]
-    assert values.data_type == BFLOAT16
-    assert (
-        onnx.numpy_helper.to_array(values).tobytes()
-        == np.array([0, 1], dtype=BF16).tobytes()
-    )
 
     expected = _outputs(fn(jnp.asarray(indices)))
     (got,) = _run(model, [indices], expected)
