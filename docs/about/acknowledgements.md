@@ -4,7 +4,7 @@
 
 ✨ **[@andife](https://github.com/andife)** for a thoughtful series of contributions strengthening export provenance, GitHub Actions security, and dependency maintenance.
 
-✨ **[@clementpoiret](https://github.com/clementpoiret)** for initiating Equinox support, later returning to help harden the integration, and for [Equimo](https://github.com/clementpoiret/equimo), which brings modern vision models—such as [DINOv3](https://ai.meta.com/dinov3/)—to JAX/Equinox.
+✨ **[@clementpoiret](https://github.com/clementpoiret)** for initiating Equinox support, later returning to help harden the integration, for [Equimo](https://github.com/clementpoiret/equimo), which brings modern vision models—such as [DINOv3](https://ai.meta.com/dinov3/)—to JAX/Equinox, and for steering [#290](https://github.com/enpasos/jax2onnx/discussions/290) to model state as named inputs and to the bfloat16 and float16 fixes that followed.
 
 ✨ **[@justinchuby](https://github.com/justinchuby)** for introducing **onnx-ir** as a scalable and more efficient way to handle ONNX model construction.  
 

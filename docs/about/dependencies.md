@@ -12,107 +12,88 @@
 | [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.32.0 |
 | [`onnxruntime-web`](https://www.npmjs.com/package/onnxruntime-web) | 1.31.1 |
 
-Python package versions above come from `poetry.lock`; the Web runtime version
-comes from `package-lock.json`.
-The supported ONNX IR minimum is **1.0.0** (`onnx-ir>=1.0.0`).
-`onnxruntime-web` 1.31.1 is locked in `package-lock.json` for the
-Node.js and Chromium WASM validation flows. The supported Python runtime
-minimum remains ONNX Runtime 1.24.1; exports do not select operators based on
-the runtime installed on the export machine.
+Python versions come from `poetry.lock`. The Web runtime comes from
+`package-lock.json`, where it is locked for the Node.js and Chromium WASM
+validation flows. The supported minimums are `onnx-ir` 1.0.0 and ONNX Runtime
+1.24.1. Exports do not select operators by the runtime installed on the export
+machine.
 
 ## ONNX Runtime kernel gaps
 
-Some lowerings depend on kernels or behavior that ONNX Runtime lacks. Because
-exports must run on every supported version, a workaround can be removed only
-once the supported minimum includes the fix; a fix in the locked release alone
-is not enough. Re-check this table whenever the locked ONNX Runtime or the
-supported minimum changes, and update the versions it was checked against.
-`minimum-dependencies` CI is the minimum-version gate; local locked-version
-measurements do not substitute for it.
+Some lowerings work around kernels or behaviour that ONNX Runtime lacks. Exports
+must run on every supported version, so a workaround can go only when the
+supported minimum includes the fix. Re-check this table whenever the locked or
+the minimum ONNX Runtime changes, and update the versions. `minimum-dependencies`
+CI is the minimum-version gate; a local run on the locked version does not
+replace it.
 
-| Gap | Checked | Affected exports | Current handling |
+| Gap | Checked (CPU unless noted) | Affected exports | Handling |
 |:--|:--|:--|:--|
-| No bfloat16 `Log` on CPU or CUDA; no bfloat16 `Exp` on CPU | CPU 1.24.1, 1.31.0, 1.32.0; CUDA 1.31.0 | bfloat16 `log1p`, `expm1`, `sinh`, `jax.nn.log1mexp`, `jax.nn.log_sigmoid` | Computed in float32 and rounded back. Float32 is also the more accurate choice (within 1 ulp), so a new kernel alone is no reason to switch. |
-| No float64 or bfloat16 `Sinh` on CPU; no `Sinh` on CUDA | CPU 1.24.1, 1.31.0, 1.32.0; CUDA 1.31.0 | `jnp.sinh`; `lax.sinh` other than float32 | expm1-based form. Float32 `lax.sinh` keeps `Sinh`, which runs on CPU in CUDA sessions. |
-| No float64 `Cos` on CPU | Missing in 1.24.1, present in 1.31.0 and 1.32.0 | float64 `lax.cos`, `jnp.cos` | Half-angle form `1 - 2 * Sin(x / 2)²` |
-| No DOUBLE `Atan` on CPU | CPU 1.24.1, 1.31.0, 1.32.0 | FP64 `atan2` | Two half-angle reductions and a DOUBLE polynomial. Six subnormal input pairs remain numerically unqualified; see Known Limitations. |
-| No DOUBLE `Conv` on CPU | CPU 1.24.1, 1.31.0, 1.32.0 | FP64 convolutions and complex128 components | Unit kernels/strides/dilations with zero padding use grouped canonical DOUBLE `Einsum`. Other DOUBLE `Conv` artifacts retain source types but fail to load on these CPU runtimes; numerics remain unqualified. |
-| Transpose–MatMul fusion creates unsupported DOUBLE `com.microsoft.FusedMatMul` | CPU 1.24.1, optimizations enabled | DOUBLE pointwise convolutions | Canonical channel-first `Einsum` avoids the transpose–MatMul pattern while retaining DOUBLE work. |
-| No float64 `Erf` on CPU | CPU 1.24.1, 1.31.0, 1.32.0 | float64 exact `jax.nn.gelu`, `nnx.gelu` | None: the export uses `Erf` (or `Gelu`, which expands to it) and fails to load; float64 test variants are skipped. |
-| CPU `Where` returns `+0.0` when it selects `-0.0` | CPU 1.24.1, 1.31.0 | `log1p`, `expm1`, `sinh`, floating-point sort keys | `log1p` and `sinh` end in `Mul` to keep the sign; `expm1(-0.0)` exports as `+0.0`. Sorting uses sanitized keys only to compute a permutation, then gathers original values to preserve their bits. |
-| `MatMulInteger` with a zero contraction length can leave output values uninitialized | CPU 1.31.0 | INT8/UINT8 `lax.dot_general` with INT32 accumulation | A known empty contraction produces explicit INT32 zeros. Potentially empty symbolic contractions pad both operands with one zero product; this may copy the operands. Fixed positive contractions retain direct integer multiplication. |
-| UINT8 × INT8 `MatMulInteger` can saturate intermediate pair sums on some x86 CPUs | CPU 1.31.0 on GitHub runners | UINT8-left/INT8-right `lax.dot_general` with INT32 accumulation | Re-encode the right operand as UINT8 by adding 128 in INT32, then use a UINT8 right zero point of 128. This keeps the full source range and exact integer accumulation. |
-| BF16 `Clip` and `Where` kernels are unavailable | CPU 1.31.0, 1.32.0 | BF16 conversion to INT8/UINT8 | Widen exactly to FP32 for NaN handling and saturation, then cast to the requested integer type. FP16, FP32 and FP64 retain their actual computation type. Minimum-runtime qualification is separate. |
-| Half-kernel adaptations can remove FP16 rounding boundaries | CPU 1.24.1, 1.31.0, 1.31.1 | FP16 `Add`, `Sub`, `Mul`, `rsqrt` | Local FLOAT work with an explicit FP16 result cast. `rsqrt` keeps both `Sqrt` and `Div` in FLOAT before its single half boundary. |
-| No kernels for the opset-22 versions of `RandomUniform`, `RandomUniformLike`, `RandomNormal`, `RandomNormalLike`, `Bernoulli` and `Multinomial` | CPU 1.31.1, 1.32.0 | `jax.random.normal`, `jax.random.bernoulli`, `jax.random.bits`, `lax.rng_uniform` and other lowerings that use these operators, from opset 22 on, which includes the default opset 23 | None: the target opset fixes the operator version, so the export is valid but fails to load with `NOT_IMPLEMENTED`. Export with `opset=21`; that version of each operator has a kernel. |
-| Integer `ReduceSum` can saturate instead of wrapping | CPU 1.24.1, 1.31.0, 1.31.1 | Integer reductions and window sums | Integer `CumSum` and index selection preserve exact source-width wrapping, including values above `2**53`; no floating-point intermediate. |
-| A `CastLike` that widens a float16 constant to float32 aborts the process while a session is created with `ORT_ENABLE_ALL` | Aborts on CPU 1.24.1, 1.27.0, 1.28.0, 1.29.0; loads on 1.30.0, 1.31.1, 1.32.0 | float16 parameters adapted to float32 work, for example the scale and bias of the explicit Flax NNX and Linen LayerNorm graph | The export never writes `CastLike`. It converts dtypes with `Cast`, which the runtime folds on a constant before the failing optimizer runs. A policy test rejects new `CastLike` emissions. See [the float16 initializer optimizer](#the-float16-initializer-optimizer-before-onnx-runtime-130). |
-| An overridable float16 initializer that is widened to float32 where it enters the graph crashes the process while a session is created with `ORT_ENABLE_ALL` | Crashes on CPU 1.24.1, 1.29.0; loads on 1.30.0, 1.32.0 | float16 state exported with `to_onnx(..., state=...)`: matrix product weights on 1.24.1, LayerNorm scale and bias on 1.24.1 and 1.29.0 | None. The widening is inserted by the runtime where it has no float16 kernel, or written by the export for float32 work; the optimizer fails on both. See [FP16 State before ONNX Runtime 1.30](../user_guide/known_limitations.md#fp16-state-before-onnx-runtime-130) for the ways to load such a file. |
+| No bfloat16 `Log` on CPU or CUDA; no bfloat16 `Exp` on CPU | 1.24.1, 1.31.0, 1.32.0; CUDA 1.31.0 | bfloat16 `log1p`, `expm1`, `sinh`, `jax.nn.log1mexp`, `jax.nn.log_sigmoid` | Float32 work, rounded back. Float32 is also more accurate (within 1 ulp), so a new kernel alone is no reason to switch. |
+| No float64 or bfloat16 `Sinh` on CPU; no `Sinh` on CUDA | 1.24.1, 1.31.0, 1.32.0; CUDA 1.31.0 | `jnp.sinh`; `lax.sinh` other than float32 | expm1-based form. Float32 `lax.sinh` keeps `Sinh`, which runs on CPU in CUDA sessions. |
+| No float64 `Cos` | Missing in 1.24.1; present in 1.31.0, 1.32.0 | float64 `lax.cos`, `jnp.cos` | Half-angle form `1 - 2 * Sin(x / 2)²` |
+| No float64 `Atan` | 1.24.1, 1.31.0, 1.32.0 | float64 `atan2` | Two half-angle reductions and a float64 polynomial. Six subnormal input pairs remain unqualified; see [Known Limitations](../user_guide/known_limitations.md#fp64-atan2-subnormal-inputs). |
+| No float64 `Conv` | 1.24.1, 1.31.0, 1.32.0 | float64 convolutions and complex128 components | Unit kernels, strides and dilations with zero padding use a grouped float64 `Einsum`. Other float64 `Conv` exports keep their types but fail to load; their numerics are unqualified. |
+| Transpose–MatMul fusion creates an unsupported float64 `com.microsoft.FusedMatMul` | 1.24.1 with optimizations | float64 pointwise convolutions | A channel-first `Einsum` avoids the pattern and stays in float64. |
+| No float64 `Erf` | 1.24.1, 1.31.0, 1.32.0 | float64 exact `jax.nn.gelu`, `nnx.gelu` | None: the export uses `Erf` (or `Gelu`, which expands to it) and fails to load; float64 test variants are skipped. |
+| `Where` returns `+0.0` when it selects `-0.0` | 1.24.1, 1.31.0 | `log1p`, `expm1`, `sinh`, floating-point sort keys | `log1p` and `sinh` end in `Mul` to keep the sign; `expm1(-0.0)` exports as `+0.0`. Sorting computes the permutation from sanitized keys and gathers the original values. |
+| `MatMulInteger` with an empty contraction can leave outputs uninitialized | 1.31.0 | INT8/UINT8 `lax.dot_general` with INT32 accumulation | A known empty contraction emits INT32 zeros. A possibly empty symbolic one pads both operands with one zero product, which may copy them. |
+| UINT8 × INT8 `MatMulInteger` can saturate pair sums on some x86 CPUs | 1.31.0 on GitHub runners | UINT8-left, INT8-right `lax.dot_general` with INT32 accumulation | The right operand is re-encoded as UINT8 by adding 128 in INT32, with a right zero point of 128. This keeps the full range and exact accumulation. |
+| No bfloat16 `Clip` or `Where` | 1.31.0, 1.32.0 | bfloat16 conversion to INT8/UINT8 | Widened exactly to float32 for NaN handling and saturation, then cast. Other float types keep their computation type. Not qualified on the minimum runtime. |
+| Half-kernel adaptations can remove float16 rounding boundaries | 1.24.1, 1.31.0, 1.31.1 | float16 `Add`, `Sub`, `Mul`, `rsqrt` | Float32 work with an explicit float16 result cast. `rsqrt` keeps `Sqrt` and `Div` in float32 before its single cast. |
+| No kernels for the opset-22 `RandomUniform`, `RandomUniformLike`, `RandomNormal`, `RandomNormalLike`, `Bernoulli` and `Multinomial` | 1.31.1, 1.32.0 | Lowerings that draw random numbers, such as `jax.random.normal`, `jax.random.bernoulli`, `jax.random.bits` and `lax.rng_uniform`, from opset 22, which includes the default 23 | None: the file is valid but fails to load with `NOT_IMPLEMENTED`. Export with `opset=21`. |
+| Integer `ReduceSum` can saturate instead of wrapping | 1.24.1, 1.31.0, 1.31.1 | Integer reductions and window sums | Integer `CumSum` and index selection wrap exactly at the source width, also above `2**53`. |
+| A `CastLike` that widens a float16 constant aborts session creation with `ORT_ENABLE_ALL` | Aborts on 1.24.1, 1.27.0, 1.28.0, 1.29.0; loads on 1.30.0, 1.31.1, 1.32.0 | float16 parameters used in float32 work, such as the scale and bias of the explicit Flax NNX and Linen LayerNorm | The export never writes `CastLike`. It uses `Cast`, which the runtime folds on a constant, and a policy test rejects `CastLike`. See [below](#the-float16-initializer-optimizer-before-onnx-runtime-130). |
+| An overridable float16 initializer that is widened to float32 crashes session creation with `ORT_ENABLE_ALL` | Crashes on 1.24.1, 1.29.0; loads on 1.30.0, 1.32.0 | float16 state from `to_onnx(..., state=...)`: matrix product weights on 1.24.1, LayerNorm scale and bias on 1.24.1 and 1.29.0 | None. See [FP16 State before ONNX Runtime 1.30](../user_guide/known_limitations.md#fp16-state-before-onnx-runtime-130) for the ways to load such a file. |
 
-Focused FP16 `Add`/`Sub`/`Mul` and integer reduction/window checks also pass on
-the minimum stack: JAX 0.8.1, Flax 0.12.1 and CPU ONNX Runtime 1.24.1. This is
-not full minimum-version acceptance. The narrowly accepted `rsqrt(65504)`
-boundary remains numerically failed; ONNX 1.20.1 lacks the opset-26 `BitCast`
-schema. See
-[Known Limitations](../user_guide/known_limitations.md#fp16-arithmetic-boundaries)
-for the failed `rsqrt` boundary and separate JAX CPU compilation limits.
+Notes on the table:
 
-ONNX Runtime documents the [UINT8 × INT8 saturation mechanism and UINT8 × UINT8 workaround](https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-and-why-do-i-need-to-try-u8u8).
-The affected AVX2/AVX512 kernels use saturating INT16 intermediate sums;
-VNNI and Arm paths do not have that issue. A passing local runtime test alone
-therefore does not establish correctness on the other CPU paths.
-
-An ONNX `Cast` alone also differs from the observed JAX FP16/BF16/FP32/FP64
-conversion to INT8/UINT8 at overflow, infinity and NaN boundaries. Those
-conversions map NaN to zero and clamp to the destination range before casting.
-Integer-to-integer conversions keep their existing wrapping behaviour.
-
-To check a kernel, create a session for a one-node model with that operator and
-dtype. For providers other than CPU, set the session option
-`session.disable_cpu_ep_fallback` to `1` so the node cannot fall back to CPU. A
-`NOT_IMPLEMENTED` error means the kernel is missing.
+- **Minimum stack.** JAX 0.8.1, Flax 0.12.1 and ONNX Runtime 1.24.1 also pass
+  the focused float16 `Add`/`Sub`/`Mul` and integer reduction checks. That is
+  not full minimum-version acceptance: `rsqrt(65504)` remains numerically
+  failed (see
+  [Known Limitations](../user_guide/known_limitations.md#fp16-arithmetic-boundaries)),
+  and ONNX 1.20.1 has no opset-26 `BitCast`.
+- **UINT8 × INT8.** ONNX Runtime documents the
+  [saturation and the UINT8 × UINT8 workaround](https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html#when-and-why-do-i-need-to-try-u8u8).
+  The AVX2 and AVX512 kernels use saturating INT16 sums; VNNI and Arm paths do
+  not. A passing local test therefore says nothing about the other CPU paths.
+- **Conversion to INT8/UINT8.** An ONNX `Cast` alone differs from JAX for
+  floating inputs at overflow, infinity and NaN: JAX maps NaN to zero and
+  clamps to the destination range. Integer-to-integer conversions wrap.
+- **Checking a kernel.** Create a session for a one-node model with the
+  operator and dtype; `NOT_IMPLEMENTED` means the kernel is missing. For other
+  providers set `session.disable_cpu_ep_fallback` to `1`, so that the node
+  cannot fall back to CPU.
 
 ### The float16 initializer optimizer before ONNX Runtime 1.30
 
-With `ORT_ENABLE_ALL`, which is the default, ONNX Runtime runs the optimizer
-`FuseFp16InitializerToFp32NodeTransformer` after it has inserted float32 casts
-for nodes without a float16 kernel. It replaces a `Cast` from a float16
-initializer to float32 by a float32 initializer. Before 1.30.0 it has two
-defects, both of which end the process instead of raising an error:
+With the default `ORT_ENABLE_ALL`, `FuseFp16InitializerToFp32NodeTransformer`
+replaces a `Cast` from a float16 initializer to float32 by a float32
+initializer. Before 1.30.0 two defects end the process instead of raising:
 
-- It finds the consumer of the `Cast` by comparing the node name of the `Cast`
-  with the consumer's input names. That only works for the casts the runtime
-  inserts itself, which it names after their output. A `CastLike` on a float16
-  constant is expanded to a `Cast` after constant folding and reaches the
-  optimizer under another node name, so the lookup runs past the consumer's
-  inputs. The official wheels are built with libstdc++ assertions, so the
-  process aborts.
-- It accepts an overridable initializer, which has no constant value to
-  convert, and crashes with a segmentation fault.
+- It looks up the consumer by the node name of the `Cast`, which only matches
+  the casts the runtime inserted itself. A `CastLike` on a float16 constant is
+  expanded to a `Cast` after constant folding and fails that lookup; the
+  official wheels then abort on a libstdc++ assertion. The export never writes
+  `CastLike`, and a `Cast` on a constant is folded before the optimizer runs.
+- It accepts an overridable initializer, which has no constant to convert, and
+  crashes with a segmentation fault. A cast on such an initializer is never
+  folded, whether the runtime inserted it or the export wrote it for float32
+  work, so the export does not avoid this.
 
-The export avoids the first defect for constants: it never writes `CastLike`,
-and a `Cast` that the model spells out on a constant is folded at the first
-optimization level, so the optimizer never sees it. It does not avoid the
-second one. An overridable initializer is not a constant, so a cast on it is
-never folded, whether the runtime inserted it or the export wrote it for
-float32 work.
-
-Both were measured with the PyPI wheels on Linux x86-64. To repeat the check,
-load the file in a separate process with `ORT_ENABLE_ALL`: a crash ends that
-process with a signal instead of a Python exception. The same file loads with
-`ORT_ENABLE_EXTENDED`. `tests/extra_tests/test_float16_cpu_inference.py` does
-this in the `minimum-dependencies` job for a float16 LayerNorm and for float16
-state, the latter with each of the ways to load it that
-[Known Limitations](../user_guide/known_limitations.md#fp16-state-before-onnx-runtime-130)
-lists.
+Measured with the PyPI wheels on Linux x86-64. Both cases load with
+`ORT_ENABLE_EXTENDED`. `tests/extra_tests/test_float16_cpu_inference.py` checks
+them in the `minimum-dependencies` job, in a separate process, because a crash
+ends the process with a signal instead of a Python exception.
 
 ## bfloat16 and the ONNX operator schemas
 
-ONNX admitted bfloat16 one operator at a time. A node that reads or writes
-bfloat16 through a type parameter that excludes it at the target opset makes
-the model invalid: `onnx.checker.check_model(..., full_check=True)` rejects it,
-and so does ONNX Runtime when it loads the file. This is a property of the ONNX
-schemas rather than of a runtime, so the export decides by target opset alone.
+ONNX admitted bfloat16 one operator at a time. A node that uses bfloat16 where
+the schema of the target opset excludes it makes the model invalid:
+`onnx.checker.check_model(..., full_check=True)` and ONNX Runtime reject it.
+This depends on the schemas, not on a runtime, so the export decides by target
+opset alone.
 
 | bfloat16 from opset | Operators (selection) |
 |:--|:--|
@@ -125,46 +106,42 @@ schemas rather than of a runtime, so the export decides by target opset alone.
 | not through opset 28 | `Shrink` |
 
 Below that opset the converter handles the node after optimization
-(`converter/bfloat16_legalization.py`):
+(`converter/bfloat16_legalization.py`); from that opset on, the operator stays
+in bfloat16.
 
-- **Computed in float32.** Where the excluded type parameter is shared by the
-  inputs and outputs of the operator, those inputs are cast to float32 and the
-  results are cast back. Graph inputs and outputs, initializers, state inputs
-  and Function signatures keep their bfloat16 type and payload; control-flow
-  and Function bodies are covered. Every bfloat16 value is a float32 value, so
-  the widening is exact and the result is rounded once at the operator.
+- **Computed in float32.** Where the inputs and outputs share the excluded type
+  parameter, the inputs are cast to float32 and the results are cast back, also
+  in control-flow and Function bodies. Graph inputs and outputs, initializers,
+  state inputs and Function signatures keep their bfloat16 type and payload.
+  The widening is exact, and the result is rounded once at the operator.
 - **Rejected.** Casts cannot fix an operator whose output type comes from an
   attribute (`RandomNormal`, `RandomUniform`, `EyeLike`, `ConstantOfShape`
-  before opset 20), bfloat16 values carried through `If`, `Loop` or `Scan`
-  before opset 16, or sequence operators. The export raises
-  `NotImplementedError` and names the operator and the first opset that admits
-  it.
+  before opset 20), bfloat16 values through `If`, `Loop` or `Scan` before opset
+  16, or sequence operators. The export raises `NotImplementedError` with the
+  operator and the first opset that admits it.
 
-From the admitting opset on, the operator stays in bfloat16.
-
-The rules are a table in that module because the converter does not import
+The rules are a table in that module, because the converter does not import
 `onnx`. `scripts/emit_bfloat16_operator_rules.py` derives it from the ONNX
-schemas, and a policy test compares it with the installed ONNX for every
-operator and opset from 13. Regenerate the table when that test fails after an
-ONNX upgrade.
+schemas, and a policy test compares it with the installed ONNX. Regenerate it
+when that test fails after an ONNX upgrade.
 
-Checked with JAX 0.12.0.1 and CPU ONNX Runtime 1.31.1: a convolution (`Conv`),
-a two-operand `Einsum`, `TopK`, `MaxPool` and `Sin` computed in float32
-reproduce JAX bit for bit.
-`Softplus`, `Selu` and `HardSwish` each replace several JAX primitives and
-round once instead of after every primitive; they differ from JAX by up to 3
-adjacent bfloat16 values and stay within half a bfloat16 ulp of a float64
-reference, where JAX reaches 1.2 to 2.7 ulp. A `jnp.einsum` with three operands
-exports as one `Einsum`; JAX rounds the intermediate product to bfloat16, which
-can cost hundreds of ulp where terms cancel, so the two results can differ by
-that much. The same holds for window sums at every opset: JAX rounds each
-partial sum of `lax.reduce_window` with `add` to bfloat16, while the exported
-`Conv` or `AveragePool` accumulates the window before rounding.
+Numerics, checked with JAX 0.12.0.1 and CPU ONNX Runtime 1.31.1:
 
-A valid bfloat16 model is not necessarily a loadable one. Among the operators
-checked, CPU ONNX Runtime 1.32.0 has bfloat16 kernels for `Cast` and for
-`Identity`, `Reshape`, `Transpose`, `Concat`, `Gather`, `Slice`, `Squeeze` and
-`Unsqueeze`. It has none for `Add`, `Sub`, `Mul`, `Div`, `MatMul`, `Gemm`, `Conv`, `MaxPool`,
+- `Conv`, a two-operand `Einsum`, `TopK`, `MaxPool` and `Sin` computed in
+  float32 reproduce JAX bit for bit.
+- `Softplus`, `Selu` and `HardSwish` replace several JAX primitives and round
+  once instead of after each of them. They differ from JAX by up to 3 adjacent
+  bfloat16 values and stay within half an ulp of a float64 reference, where JAX
+  reaches 1.2 to 2.7 ulp.
+- Where JAX rounds intermediate results that the export accumulates first, the
+  results can differ by hundreds of ulp when terms cancel. This applies to a
+  `jnp.einsum` with three operands, which exports as one `Einsum`, and to
+  window sums of `lax.reduce_window` with `add` at every opset.
+
+A valid bfloat16 model does not have to load. Among the operators checked, CPU
+ONNX Runtime 1.32.0 has bfloat16 kernels for `Cast`, `Identity`, `Reshape`,
+`Transpose`, `Concat`, `Gather`, `Slice`, `Squeeze` and `Unsqueeze`. It has
+none for `Add`, `Sub`, `Mul`, `Div`, `MatMul`, `Gemm`, `Conv`, `MaxPool`,
 `AveragePool`, `ReduceSum`, `ReduceMean`, `Sqrt`, `Exp`, `Relu`, `Sigmoid`,
 `Tanh`, `Erf`, `Gelu`, `Softmax`, `Where`, `Expand` or `TopK`. A node computed
 in float32 loads; bfloat16 arithmetic around it does not.
